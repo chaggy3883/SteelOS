@@ -1,0 +1,73 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "company_type": {
+      "type": "string",
+      "enum": [
+        "structural_steel_fabricator",
+        "steel_erector",
+        "bridge_fabricator",
+        "miscellaneous_metals",
+        "industrial_steel",
+        "commercial_steel",
+        "detailing_company",
+        "steel_service_center"
+      ]
+    },
+    "address": {
+      "type": "string"
+    },
+    "city": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "zip": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "website": {
+      "type": "string"
+    },
+    "logo_url": {
+      "type": "string"
+    },
+    "aisc_certification": {
+      "type": "string"
+    },
+    "aisc_expiry": {
+      "type": "string",
+      "format": "date"
+    },
+    "subscription_plan": {
+      "type": "string",
+      "enum": [
+        "starter",
+        "professional",
+        "enterprise"
+      ],
+      "default": "starter"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "settings": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "name",
+    "company_type"
+  ],
+  "name": "Company"
+}

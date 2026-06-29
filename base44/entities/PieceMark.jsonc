@@ -1,0 +1,95 @@
+{
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "piece_mark": {
+      "type": "string"
+    },
+    "assembly": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "number",
+      "default": 1
+    },
+    "weight_lbs": {
+      "type": "number"
+    },
+    "material_grade": {
+      "type": "string"
+    },
+    "finish": {
+      "type": "string"
+    },
+    "lot": {
+      "type": "string"
+    },
+    "phase": {
+      "type": "string"
+    },
+    "sequence": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "in_fabrication",
+        "fabricated",
+        "inspected",
+        "painted",
+        "shipped",
+        "erected",
+        "rejected"
+      ],
+      "default": "not_started"
+    },
+    "fab_start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "fab_complete_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "ship_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "erect_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "barcode": {
+      "type": "string"
+    },
+    "drawing_number": {
+      "type": "string"
+    },
+    "heat_number": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "warehouse_zone": {
+      "type": "string"
+    },
+    "warehouse_rack": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "piece_mark"
+  ],
+  "name": "PieceMark"
+}

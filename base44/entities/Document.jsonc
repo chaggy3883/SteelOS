@@ -1,0 +1,111 @@
+{
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "document_type": {
+      "type": "string",
+      "enum": [
+        "specification",
+        "contract",
+        "general_conditions",
+        "supplementary_conditions",
+        "addendum",
+        "structural_drawing",
+        "architectural_drawing",
+        "civil_drawing",
+        "mechanical_drawing",
+        "electrical_drawing",
+        "geotechnical_report",
+        "bid_form",
+        "scope_letter",
+        "meeting_minutes",
+        "email",
+        "rfi",
+        "submittal",
+        "excel_file",
+        "word_document",
+        "other"
+      ]
+    },
+    "file_url": {
+      "type": "string"
+    },
+    "file_name": {
+      "type": "string"
+    },
+    "file_size": {
+      "type": "number"
+    },
+    "file_type": {
+      "type": "string"
+    },
+    "version": {
+      "type": "number",
+      "default": 1
+    },
+    "revision": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "uploaded",
+        "processing",
+        "analyzed",
+        "reviewed",
+        "approved",
+        "superseded"
+      ],
+      "default": "uploaded"
+    },
+    "ai_processing_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "processing",
+        "complete",
+        "failed"
+      ],
+      "default": "pending"
+    },
+    "extracted_text": {
+      "type": "string"
+    },
+    "page_count": {
+      "type": "number"
+    },
+    "csi_divisions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "keywords": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "is_archived": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "project_id",
+    "name",
+    "document_type"
+  ],
+  "name": "Document"
+}

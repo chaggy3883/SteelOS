@@ -1,0 +1,104 @@
+{
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "rfi_number": {
+      "type": "string"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "submitted",
+        "under_review",
+        "answered",
+        "closed"
+      ],
+      "default": "draft"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "default": "medium"
+    },
+    "submitted_by": {
+      "type": "string"
+    },
+    "assigned_to": {
+      "type": "string"
+    },
+    "date_submitted": {
+      "type": "string",
+      "format": "date"
+    },
+    "date_required": {
+      "type": "string",
+      "format": "date"
+    },
+    "date_answered": {
+      "type": "string",
+      "format": "date"
+    },
+    "response": {
+      "type": "string"
+    },
+    "csi_section": {
+      "type": "string"
+    },
+    "drawing_reference": {
+      "type": "string"
+    },
+    "spec_reference": {
+      "type": "string"
+    },
+    "ai_generated": {
+      "type": "boolean",
+      "default": false
+    },
+    "finding_id": {
+      "type": "string"
+    },
+    "cost_impact": {
+      "type": "string",
+      "enum": [
+        "none",
+        "potential",
+        "confirmed"
+      ],
+      "default": "none"
+    },
+    "schedule_impact": {
+      "type": "string",
+      "enum": [
+        "none",
+        "potential",
+        "confirmed"
+      ],
+      "default": "none"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "subject"
+  ],
+  "name": "RFI"
+}

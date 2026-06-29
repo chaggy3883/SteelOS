@@ -1,0 +1,137 @@
+{
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_number": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "project_type": {
+      "type": "string",
+      "enum": [
+        "commercial",
+        "industrial",
+        "bridge",
+        "miscellaneous",
+        "residential",
+        "government"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "lead",
+        "estimating",
+        "awarded",
+        "engineering",
+        "fabrication",
+        "erection",
+        "complete",
+        "cancelled"
+      ],
+      "default": "estimating"
+    },
+    "customer_id": {
+      "type": "string"
+    },
+    "customer_name": {
+      "type": "string"
+    },
+    "project_manager_id": {
+      "type": "string"
+    },
+    "estimator_id": {
+      "type": "string"
+    },
+    "contract_value": {
+      "type": "number"
+    },
+    "estimated_tons": {
+      "type": "number"
+    },
+    "bid_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "award_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "completion_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "address": {
+      "type": "string"
+    },
+    "city": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "health_score": {
+      "type": "number",
+      "default": 100
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "default": "low"
+    },
+    "contract_risk": {
+      "type": "number",
+      "default": 0
+    },
+    "schedule_risk": {
+      "type": "number",
+      "default": 0
+    },
+    "quality_risk": {
+      "type": "number",
+      "default": 0
+    },
+    "financial_risk": {
+      "type": "number",
+      "default": 0
+    },
+    "is_pinned": {
+      "type": "boolean",
+      "default": false
+    },
+    "is_archived": {
+      "type": "boolean",
+      "default": false
+    },
+    "notes": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "name",
+    "project_number"
+  ],
+  "name": "Project"
+}

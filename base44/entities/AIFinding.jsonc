@@ -1,0 +1,119 @@
+{
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "document_id": {
+      "type": "string"
+    },
+    "review_package": {
+      "type": "string",
+      "enum": [
+        "estimating",
+        "quality_assurance",
+        "safety",
+        "purchasing",
+        "accounting",
+        "executive"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "warning",
+        "fail",
+        "not_found",
+        "manual_review"
+      ],
+      "default": "manual_review"
+    },
+    "category": {
+      "type": "string"
+    },
+    "subcategory": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "confidence_score": {
+      "type": "number"
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "csi_division": {
+      "type": "string"
+    },
+    "specification_section": {
+      "type": "string"
+    },
+    "page_number": {
+      "type": "number"
+    },
+    "paragraph": {
+      "type": "string"
+    },
+    "quoted_text": {
+      "type": "string"
+    },
+    "ai_explanation": {
+      "type": "string"
+    },
+    "recommendation": {
+      "type": "string"
+    },
+    "estimated_financial_impact": {
+      "type": "string"
+    },
+    "responsible_department": {
+      "type": "string"
+    },
+    "review_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "needs_clarification",
+        "requires_rfi"
+      ],
+      "default": "pending"
+    },
+    "reviewed_by": {
+      "type": "string"
+    },
+    "review_notes": {
+      "type": "string"
+    },
+    "assigned_to": {
+      "type": "string"
+    },
+    "due_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_resolved": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "project_id",
+    "document_id",
+    "review_package",
+    "title"
+  ],
+  "name": "AIFinding"
+}
