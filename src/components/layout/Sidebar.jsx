@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderKanban, Brain, Users, ShoppingCart,
   Package, Factory, CheckSquare, Truck, DollarSign, BarChart3,
   Settings, ChevronLeft, ChevronRight, Zap, Building2,
-  FileText, Shield, HardHat, MessageSquare, Layers, Calculator
+  FileText, Shield, HardHat, MessageSquare, Layers, Calculator, ShieldCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -50,6 +50,7 @@ const navGroups = [
     items: [
       { icon: Users, label: 'Users', path: '/users' },
       { icon: Settings, label: 'Settings', path: '/settings' },
+      { icon: ShieldCheck, label: 'Admin Panel', path: '/admin' },
     ]
   }
 ];

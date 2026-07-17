@@ -34,6 +34,7 @@ import Accounting from '@/pages/Accounting';
 import Reports from '@/pages/Reports';
 import Users from '@/pages/Users';
 import Settings from '@/pages/Settings';
+import Admin from '@/pages/Admin';
 import Estimating from '@/pages/Estimating';
 import BidNew from '@/pages/BidNew';
 import BidDetail from '@/pages/BidDetail';
@@ -91,6 +92,7 @@ const AuthenticatedApp = () => {
           <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={<Users />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/admin" element={<Admin />} />
         </Route>
       </Route>
 

@@ -1,0 +1,49 @@
+{
+  "name": "TaxRate",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "zip_code": {
+      "type": "string"
+    },
+    "city": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "county": {
+      "type": "string"
+    },
+    "tax_percentage": {
+      "type": "number"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "avatax",
+        "vertex"
+      ],
+      "default": "manual"
+    },
+    "last_api_sync": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "zip_code",
+    "state",
+    "tax_percentage"
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "name": "SystemSetting",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "setting_group": {
+      "type": "string",
+      "enum": [
+        "cost_variables",
+        "general",
+        "estimating",
+        "accounting",
+        "production"
+      ],
+      "default": "cost_variables"
+    },
+    "shop_burden_rate": {
+      "type": "number",
+      "default": 65
+    },
+    "standard_scrap_factor_pct": {
+      "type": "number",
+      "default": 5
+    },
+    "base_insurance_multiplier_pct": {
+      "type": "number",
+      "default": 3
+    },
+    "retainage_default_pct": {
+      "type": "number",
+      "default": 10
+    },
+    "default_labor_rate": {
+      "type": "number",
+      "default": 45
+    },
+    "overhead_pct": {
+      "type": "number",
+      "default": 12
+    },
+    "profit_margin_default_pct": {
+      "type": "number",
+      "default": 15
+    },
+    "fab_shop_rate": {
+      "type": "number",
+      "default": 85
+    },
+    "field_erection_rate": {
+      "type": "number",
+      "default": 95
+    },
+    "last_updated_by": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "setting_group"
+  ]
+}

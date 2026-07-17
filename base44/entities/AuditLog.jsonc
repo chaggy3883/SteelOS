@@ -1,0 +1,78 @@
+{
+  "name": "AuditLog",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "user_name": {
+      "type": "string"
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "ip_address": {
+      "type": "string"
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "CREATE_BID",
+        "UPDATE_BID",
+        "DELETE_BID",
+        "SUBMIT_BID",
+        "WIN_BID",
+        "LOSE_BID",
+        "CREATE_PROJECT",
+        "UPDATE_PROJECT",
+        "DELETE_PROJECT",
+        "APPROVE_WELD",
+        "APPROVE_FINDING",
+        "REJECT_FINDING",
+        "EDIT_TIMECARD",
+        "SUBMIT_TIMECARD",
+        "CREATE_USER",
+        "UPDATE_USER",
+        "DELETE_USER",
+        "SUSPEND_USER",
+        "INVITE_USER",
+        "UPDATE_SETTINGS",
+        "CREATE_TAX_RATE",
+        "UPDATE_TAX_RATE",
+        "DELETE_TAX_RATE",
+        "UPLOAD_DOCUMENT",
+        "SHIP_PIECE",
+        "CREATE_INVOICE",
+        "APPROVE_INVOICE",
+        "LOGIN",
+        "LOGOUT",
+        "OTHER"
+      ]
+    },
+    "entity_type": {
+      "type": "string"
+    },
+    "entity_id": {
+      "type": "string"
+    },
+    "entity_name": {
+      "type": "string"
+    },
+    "before_state": {
+      "type": "string"
+    },
+    "after_state": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "action_type"
+  ]
+}
