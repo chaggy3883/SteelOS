@@ -1,0 +1,158 @@
+{
+  "name": "Bid",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_number": {
+      "type": "string"
+    },
+    "customer_id": {
+      "type": "string"
+    },
+    "customer_name": {
+      "type": "string"
+    },
+    "general_contractor_id": {
+      "type": "string"
+    },
+    "general_contractor_name": {
+      "type": "string"
+    },
+    "job_name": {
+      "type": "string"
+    },
+    "job_location": {
+      "type": "string"
+    },
+    "job_city": {
+      "type": "string"
+    },
+    "job_state": {
+      "type": "string"
+    },
+    "bid_due_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "in_progress",
+        "submitted",
+        "won",
+        "lost",
+        "cancelled"
+      ],
+      "default": "draft"
+    },
+    "bid_total_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "bid_quoted_price": {
+      "type": "number",
+      "default": 0
+    },
+    "margin_percentage": {
+      "type": "number",
+      "default": 0
+    },
+    "estimated_tons": {
+      "type": "number",
+      "default": 0
+    },
+    "estimated_man_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "tax_rate": {
+      "type": "number",
+      "default": 0
+    },
+    "structural_geometry_type": {
+      "type": "string",
+      "enum": [
+        "beam_column",
+        "truss",
+        "frame",
+        "misc_metals",
+        "stairs_rails",
+        "deck_joist",
+        "bridge",
+        "other"
+      ],
+      "default": "beam_column"
+    },
+    "loss_reason": {
+      "type": "string",
+      "enum": [
+        "",
+        "price",
+        "competitor",
+        "schedule",
+        "capacity",
+        "scope_clarity",
+        "relationship",
+        "other"
+      ]
+    },
+    "loss_reason_notes": {
+      "type": "string"
+    },
+    "competitor_name": {
+      "type": "string"
+    },
+    "won_project_id": {
+      "type": "string"
+    },
+    "front_end_review_status": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "in_review",
+        "approved",
+        "flagged"
+      ],
+      "default": "not_started"
+    },
+    "inclusions": {
+      "type": "string"
+    },
+    "exclusions": {
+      "type": "string"
+    },
+    "insurance_override": {
+      "type": "number"
+    },
+    "bond_override": {
+      "type": "number"
+    },
+    "procore_pay_override": {
+      "type": "number"
+    },
+    "textura_override": {
+      "type": "number"
+    },
+    "leed_level_override": {
+      "type": "string"
+    },
+    "is_archived": {
+      "type": "boolean",
+      "default": false
+    },
+    "estimator_id": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bid_number",
+    "customer_name",
+    "job_name"
+  ]
+}

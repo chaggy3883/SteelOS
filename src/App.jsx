@@ -34,6 +34,10 @@ import Accounting from '@/pages/Accounting';
 import Reports from '@/pages/Reports';
 import Users from '@/pages/Users';
 import Settings from '@/pages/Settings';
+import Estimating from '@/pages/Estimating';
+import BidNew from '@/pages/BidNew';
+import BidDetail from '@/pages/BidDetail';
+import EstimatingAnalytics from '@/pages/EstimatingAnalytics';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -69,6 +73,10 @@ const AuthenticatedApp = () => {
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/new" element={<ProjectNew />} />
           <Route path="/projects/:id" element={<ProjectDetail />} />
+          <Route path="/estimating" element={<Estimating />} />
+          <Route path="/estimating/new" element={<BidNew />} />
+          <Route path="/estimating/:id" element={<BidDetail />} />
+          <Route path="/estimating/analytics" element={<EstimatingAnalytics />} />
           <Route path="/intelligence" element={<Intelligence />} />
           <Route path="/production" element={<Production />} />
           <Route path="/inventory" element={<Inventory />} />

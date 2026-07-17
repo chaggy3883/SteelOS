@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Bell, Sun, Moon, ChevronDown, User, LogOut, Settings } from 'lucide-react';
+import { Bell, Sun, Moon, ChevronDown, LogOut, Settings } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import {
@@ -7,8 +7,8 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
-import { Link, useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
+import { useNavigate } from 'react-router-dom';
+import GlobalSearchPalette from '@/components/search/GlobalSearchPalette';
 
 export default function TopBar({ darkMode, setDarkMode, user }) {
   const [notifications, setNotifications] = useState([]);
@@ -35,16 +35,9 @@ export default function TopBar({ darkMode, setDarkMode, user }) {
 
   return (
     <header className="h-16 bg-card border-b border-border flex items-center justify-between px-6 flex-shrink-0">
-      {/* Search */}
+      {/* Global Search — Command Palette */}
       <div className="flex items-center gap-3 flex-1 max-w-md">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search projects, pieces, documents..."
-            className="w-full pl-10 pr-4 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-          />
-        </div>
+        <GlobalSearchPalette />
       </div>
 
       {/* Right side */}

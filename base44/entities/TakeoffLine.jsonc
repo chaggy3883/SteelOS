@@ -1,0 +1,94 @@
+{
+  "name": "TakeoffLine",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "cost_category": {
+      "type": "string",
+      "enum": [
+        "detailing",
+        "engineering",
+        "bim",
+        "structural_material",
+        "bolts_fasteners",
+        "outsourced_fabrication",
+        "structural_fabrication",
+        "galvanizing",
+        "steel_rolling",
+        "joist_deck",
+        "anchor_bolts",
+        "shop_priming",
+        "grating",
+        "outsourced_paint",
+        "outsourced_shot_blasting",
+        "jobsite_freight",
+        "misc_fabrication",
+        "misc_material",
+        "steel_erection",
+        "outsourced_misc_material_erection",
+        "subcontractor_other",
+        "allowances",
+        "hss_contingency",
+        "additional_cost_insurance",
+        "additional_cost_leed_govt"
+      ]
+    },
+    "cost_category_label": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "number",
+      "default": 0
+    },
+    "unit_of_measure": {
+      "type": "string"
+    },
+    "unit_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "total_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "tons": {
+      "type": "number",
+      "default": 0
+    },
+    "man_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "is_auto_filled": {
+      "type": "boolean",
+      "default": false
+    },
+    "is_overridden": {
+      "type": "boolean",
+      "default": false
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "bim_import",
+        "ai_parse",
+        "vendor_pricing",
+        "calculated"
+      ],
+      "default": "manual"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bid_id",
+    "cost_category"
+  ]
+}

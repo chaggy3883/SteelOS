@@ -1,0 +1,69 @@
+{
+  "name": "MillPricing",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "mill_name": {
+      "type": "string",
+      "enum": [
+        "nucor",
+        "gerdau",
+        "steel_dynamics",
+        "cmc",
+        "berger",
+        "other"
+      ]
+    },
+    "mill_display_name": {
+      "type": "string"
+    },
+    "product_type": {
+      "type": "string",
+      "enum": [
+        "wide_flange",
+        "hss",
+        "angle",
+        "channel",
+        "plate",
+        "bar",
+        "rebar"
+      ]
+    },
+    "grade": {
+      "type": "string"
+    },
+    "price_per_ton": {
+      "type": "number"
+    },
+    "price_per_cwt": {
+      "type": "number"
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "surcharge_per_ton": {
+      "type": "number",
+      "default": 0
+    },
+    "freight_per_ton": {
+      "type": "number",
+      "default": 0
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "source_reference": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "mill_name",
+    "product_type",
+    "price_per_ton",
+    "effective_date"
+  ]
+}

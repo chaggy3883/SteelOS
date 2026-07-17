@@ -11,6 +11,12 @@ const statusConfig = {
   erection: { label: 'Erection', class: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20' },
   complete: { label: 'Complete', class: 'bg-green-500/10 text-green-600 border-green-500/20' },
   cancelled: { label: 'Cancelled', class: 'bg-red-500/10 text-red-500 border-red-500/20' },
+  // Bid statuses
+  draft: { label: 'Draft', class: 'bg-gray-500/10 text-gray-500 border-gray-500/20' },
+  in_progress: { label: 'In Progress', class: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
+  submitted: { label: 'Submitted', class: 'bg-purple-500/10 text-purple-500 border-purple-500/20' },
+  won: { label: 'Won', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
+  lost: { label: 'Lost', class: 'bg-red-500/10 text-red-500 border-red-500/20' },
   // Risk levels
   low: { label: 'Low Risk', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
   medium: { label: 'Medium Risk', class: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20' },

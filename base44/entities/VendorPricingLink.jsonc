@@ -1,0 +1,54 @@
+{
+  "name": "VendorPricingLink",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "vendor_id": {
+      "type": "string"
+    },
+    "vendor_name": {
+      "type": "string"
+    },
+    "procurement_category": {
+      "type": "string",
+      "enum": [
+        "detailing_engineering",
+        "erection",
+        "joist_deck",
+        "misc_metals",
+        "rolling",
+        "steel_materials"
+      ]
+    },
+    "cost_sheet_url": {
+      "type": "string"
+    },
+    "quoted_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "unit_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "unit_of_measure": {
+      "type": "string"
+    },
+    "is_approved": {
+      "type": "boolean",
+      "default": false
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bid_id",
+    "procurement_category"
+  ]
+}

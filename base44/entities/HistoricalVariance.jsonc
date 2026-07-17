@@ -1,0 +1,138 @@
+{
+  "name": "HistoricalVariance",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "bid_number": {
+      "type": "string"
+    },
+    "project_number": {
+      "type": "string"
+    },
+    "structural_geometry_type": {
+      "type": "string"
+    },
+    "estimated_tons": {
+      "type": "number"
+    },
+    "actual_tons": {
+      "type": "number"
+    },
+    "estimated_man_hours": {
+      "type": "number"
+    },
+    "actual_man_hours": {
+      "type": "number"
+    },
+    "station_variances": {
+      "type": "object",
+      "properties": {
+        "saw": {
+          "type": "object",
+          "properties": {
+            "estimated_hours": {
+              "type": "number"
+            },
+            "actual_hours": {
+              "type": "number"
+            },
+            "variance_pct": {
+              "type": "number"
+            }
+          }
+        },
+        "drill": {
+          "type": "object",
+          "properties": {
+            "estimated_hours": {
+              "type": "number"
+            },
+            "actual_hours": {
+              "type": "number"
+            },
+            "variance_pct": {
+              "type": "number"
+            }
+          }
+        },
+        "fab": {
+          "type": "object",
+          "properties": {
+            "estimated_hours": {
+              "type": "number"
+            },
+            "actual_hours": {
+              "type": "number"
+            },
+            "variance_pct": {
+              "type": "number"
+            }
+          }
+        },
+        "weld": {
+          "type": "object",
+          "properties": {
+            "estimated_hours": {
+              "type": "number"
+            },
+            "actual_hours": {
+              "type": "number"
+            },
+            "variance_pct": {
+              "type": "number"
+            }
+          }
+        },
+        "paint": {
+          "type": "object",
+          "properties": {
+            "estimated_hours": {
+              "type": "number"
+            },
+            "actual_hours": {
+              "type": "number"
+            },
+            "variance_pct": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "estimated_material_cost": {
+      "type": "number"
+    },
+    "actual_buyout_cost": {
+      "type": "number"
+    },
+    "material_variance_pct": {
+      "type": "number"
+    },
+    "overall_variance_pct": {
+      "type": "number"
+    },
+    "auto_adjuster_alert": {
+      "type": "boolean",
+      "default": false
+    },
+    "adjuster_suggestion_pct": {
+      "type": "number"
+    },
+    "completed_date": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": [
+    "bid_id",
+    "project_id"
+  ]
+}

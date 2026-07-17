@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderKanban, Brain, Users, ShoppingCart,
   Package, Factory, CheckSquare, Truck, DollarSign, BarChart3,
   Settings, ChevronLeft, ChevronRight, Zap, Building2,
-  FileText, Shield, HardHat, MessageSquare, Layers
+  FileText, Shield, HardHat, MessageSquare, Layers, Calculator
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +13,7 @@ const navGroups = [
     label: 'CORE',
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
+      { icon: Calculator, label: 'Estimating', path: '/estimating' },
       { icon: FolderKanban, label: 'Projects', path: '/projects' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
     ]
@@ -39,6 +40,7 @@ const navGroups = [
   {
     label: 'FINANCE & REPORTS',
     items: [
+      { icon: BarChart3, label: 'Cost Analytics', path: '/estimating/analytics' },
       { icon: DollarSign, label: 'Accounting', path: '/accounting' },
       { icon: BarChart3, label: 'Reports', path: '/reports' },
     ]
