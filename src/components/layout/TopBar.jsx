@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Menu } from 'lucide-react';
+import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Layers } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
 import GlobalSearchPalette from '@/components/search/GlobalSearchPalette';
 
-export default function TopBar({ darkMode, setDarkMode, user, onMenuClick }) {
+export default function TopBar({ darkMode, setDarkMode, user }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const navigate = useNavigate();
@@ -35,13 +35,19 @@ export default function TopBar({ darkMode, setDarkMode, user, onMenuClick }) {
 
   return (
     <header className="h-16 bg-card border-b border-border flex items-center justify-between px-4 lg:px-6 flex-shrink-0">
-      {/* Mobile menu button */}
-      <Button variant="ghost" size="icon" className="lg:hidden mr-1 flex-shrink-0" onClick={onMenuClick}>
-        <Menu className="w-5 h-5" />
-      </Button>
+      {/* Logo */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="w-8 h-8 rounded-lg steel-gradient flex items-center justify-center">
+          <Layers className="w-4 h-4 text-white" />
+        </div>
+        <div className="hidden sm:block">
+          <span className="font-bold text-lg tracking-tight text-foreground">Steel</span>
+          <span className="font-bold text-lg tracking-tight text-primary">OS</span>
+        </div>
+      </div>
 
       {/* Global Search — Command Palette */}
-      <div className="flex items-center gap-3 flex-1 max-w-md">
+      <div className="flex items-center gap-3 flex-1 max-w-md ml-4">
         <GlobalSearchPalette />
       </div>
 

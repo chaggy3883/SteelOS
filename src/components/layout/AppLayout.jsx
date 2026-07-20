@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
-import Sidebar from './Sidebar';
 import TopBar from './TopBar';
+import NavBar from './NavBar';
 import { base44 } from '@/api/base44Client';
 
 export default function AppLayout() {
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [user, setUser] = useState(null);
 
@@ -34,14 +32,12 @@ export default function AppLayout() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
-      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-        <TopBar darkMode={darkMode} setDarkMode={setDarkMode} user={user} onMenuClick={() => setMobileOpen(true)} />
-        <main className="flex-1 overflow-y-auto scrollbar-thin">
-          <Outlet context={{ user }} />
-        </main>
-      </div>
+    <div className="flex flex-col h-screen overflow-hidden bg-background">
+      <TopBar darkMode={darkMode} setDarkMode={setDarkMode} user={user} />
+      <NavBar />
+      <main className="flex-1 overflow-y-auto scrollbar-thin min-w-0">
+        <Outlet context={{ user }} />
+      </main>
     </div>
   );
 }
