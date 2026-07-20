@@ -1,0 +1,39 @@
+{
+  "name": "UserDashboardConfig",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "layout": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "i": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "w": {
+            "type": "number"
+          },
+          "h": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "is_customized": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "user_id"
+  ]
+}

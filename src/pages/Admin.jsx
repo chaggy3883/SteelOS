@@ -9,6 +9,7 @@ import CostVariables from '@/components/admin/CostVariables';
 import TaxZoneLookup from '@/components/admin/TaxZoneLookup';
 import CRMSync from '@/components/admin/CRMSync';
 import IntegrationsGateway from '@/components/admin/IntegrationsGateway';
+import RoleManager from '@/components/admin/RoleManager';
 
 const TABS = [
   { id: 'users', label: 'User Management', icon: Users, Component: UserManagement },
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'tax', label: 'Tax Zone Lookup', icon: MapPin, Component: TaxZoneLookup },
   { id: 'crm', label: 'CRM Sync', icon: Database, Component: CRMSync },
   { id: 'integrations', label: 'Integrations', icon: Plug, Component: IntegrationsGateway },
+  { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck, Component: RoleManager },
 ];
 
 export default function Admin() {

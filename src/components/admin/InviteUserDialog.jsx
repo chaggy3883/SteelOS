@@ -9,7 +9,7 @@ import { SYSTEM_ROLES } from '@/components/admin/adminConstants';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
 
-export default function InviteUserDialog({ onClose, onInvited }) {
+export default function InviteUserDialog({ onClose, onInvited, availableRoles }) {
   const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('user');
@@ -43,7 +43,7 @@ export default function InviteUserDialog({ onClose, onInvited }) {
             <Select value={role} onValueChange={setRole}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {SYSTEM_ROLES.filter(r => r.value !== 'suspended').map(r =>
+                {(availableRoles || SYSTEM_ROLES).filter(r => r.value !== 'suspended').map(r =>
                   <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                 )}
               </SelectContent>

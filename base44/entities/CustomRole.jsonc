@@ -1,0 +1,39 @@
+{
+  "name": "CustomRole",
+  "type": "object",
+  "properties": {
+    "role_name": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "allowed_modules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_widgets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "is_system": {
+      "type": "boolean",
+      "default": false
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "role_name",
+    "label"
+  ]
+}

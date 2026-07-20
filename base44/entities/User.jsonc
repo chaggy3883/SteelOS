@@ -4,19 +4,7 @@
   "properties": {
     "role": {
       "type": "string",
-      "description": "The role of the user in the app",
-      "enum": [
-        "admin",
-        "estimator",
-        "project_manager",
-        "purchasing_agent",
-        "shop_manager",
-        "inspector",
-        "warehouse_clerk",
-        "hr_admin",
-        "user",
-        "suspended"
-      ]
+      "description": "The role of the user in the app (built-in or custom role name)"
     }
   },
   "required": [

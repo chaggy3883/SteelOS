@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FolderKanban, Brain, Users, ShoppingCart,
@@ -7,6 +7,8 @@ import {
   FileText, Shield, HardHat, MessageSquare, Layers, Calculator, ShieldCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { base44 } from '@/api/base44Client';
+import { getUserPermissions, isModuleAllowed } from '@/components/dashboard/rbacConfig';
 
 const navGroups = [
   {
@@ -57,6 +59,14 @@ const navGroups = [
 
 export default function Sidebar({ collapsed, setCollapsed }) {
   const location = useLocation();
+  const [allowedModules, setAllowedModules] = useState(['*']);
+
+  useEffect(() => {
+    base44.auth.me().then(async (u) => {
+      const perms = await getUserPermissions(u.role || 'user');
+      setAllowedModules(perms.modules);
+    }).catch(() => {});
+  }, []);
 
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';
@@ -101,14 +111,17 @@ export default function Sidebar({ collapsed, setCollapsed }) {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto scrollbar-thin py-4 px-2">
-        {navGroups.map((group) => (
+        {navGroups.map((group) => {
+          const filteredItems = group.items.filter(item => isModuleAllowed(item.path, allowedModules));
+          if (filteredItems.length === 0) return null;
+          return (
           <div key={group.label} className="mb-4">
             {!collapsed && (
               <div className="px-2 mb-1">
                 <span className="text-xs font-semibold tracking-widest text-gray-500">{group.label}</span>
               </div>
             )}
-            {group.items.map((item) => {
+            {filteredItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
               return (
@@ -136,7 +149,8 @@ export default function Sidebar({ collapsed, setCollapsed }) {
             })}
             {!collapsed && <div className="mt-3 border-t sidebar-border" />}
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* Collapse toggle for collapsed state */}

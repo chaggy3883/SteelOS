@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { SYSTEM_ROLES } from '@/components/admin/adminConstants';
+import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import InviteUserDialog from '@/components/admin/InviteUserDialog';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -14,8 +15,9 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showInvite, setShowInvite] = useState(false);
+  const [allRoles, setAllRoles] = useState(SYSTEM_ROLES);
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => { loadUsers(); getAllRoles().then(setAllRoles); }, []);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -103,7 +105,7 @@ export default function UserManagement() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {SYSTEM_ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                      {allRoles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </td>
@@ -126,7 +128,7 @@ export default function UserManagement() {
         </table>
       </div>
       <p className="text-xs text-muted-foreground">{filtered.length} user(s) • Role changes take effect on next login</p>
-      {showInvite && <InviteUserDialog onClose={() => setShowInvite(false)} onInvited={loadUsers} />}
+      {showInvite && <InviteUserDialog onClose={() => setShowInvite(false)} onInvited={loadUsers} availableRoles={allRoles} />}
     </div>
   );
 }
