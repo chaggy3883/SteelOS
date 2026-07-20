@@ -57,7 +57,7 @@ const navGroups = [
   }
 ];
 
-export default function Sidebar({ collapsed, setCollapsed }) {
+export default function Sidebar({ collapsed, setCollapsed, mobileOpen, onClose }) {
   const location = useLocation();
   const [allowedModules, setAllowedModules] = useState(['*']);
 
@@ -68,15 +68,22 @@ export default function Sidebar({ collapsed, setCollapsed }) {
     }).catch(() => {});
   }, []);
 
+  useEffect(() => { if (onClose) onClose(); }, [location.pathname]);
+
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
   };
 
   return (
+    <>
+    {mobileOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onClose} />}
     <aside className={cn(
-      'flex flex-col h-screen sidebar-bg border-r sidebar-border transition-all duration-300 relative z-20',
-      collapsed ? 'w-16' : 'w-60'
+      'flex flex-col h-screen sidebar-bg border-r sidebar-border transition-all duration-300 z-50',
+      'w-60 fixed inset-y-0 left-0',
+      collapsed ? 'lg:w-16' : 'lg:w-60',
+      'lg:relative lg:translate-x-0',
+      mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
     )}>
       {/* Logo */}
       <div className={cn(
@@ -102,7 +109,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
         {!collapsed && (
           <button
             onClick={() => setCollapsed(true)}
-            className="text-gray-400 hover:text-white transition-colors p-1 rounded"
+            className="text-gray-400 hover:text-white transition-colors p-1 rounded hidden lg:block"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -157,7 +164,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
       {collapsed && (
         <button
           onClick={() => setCollapsed(false)}
-          className="flex items-center justify-center h-10 sidebar-fg hover:text-white transition-colors border-t sidebar-border"
+          className="flex items-center justify-center h-10 sidebar-fg hover:text-white transition-colors border-t sidebar-border hidden lg:flex"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
@@ -165,7 +172,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
 
       {/* AI Indicator */}
       {!collapsed && (
-        <div className="p-3 border-t sidebar-border">
+        <div className="p-3 border-t sidebar-border hidden lg:block">
           <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-blue-500/10 border border-blue-500/20">
             <Zap className="w-3.5 h-3.5 text-blue-400 animate-pulse-ring" />
             <span className="text-xs text-blue-400 font-medium">AI Intelligence Active</span>
@@ -173,5 +180,6 @@ export default function Sidebar({ collapsed, setCollapsed }) {
         </div>
       )}
     </aside>
+    </>
   );
 }

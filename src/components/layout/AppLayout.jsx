@@ -6,6 +6,7 @@ import { base44 } from '@/api/base44Client';
 
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [user, setUser] = useState(null);
 
@@ -34,9 +35,9 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <TopBar darkMode={darkMode} setDarkMode={setDarkMode} user={user} />
+      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+        <TopBar darkMode={darkMode} setDarkMode={setDarkMode} user={user} onMenuClick={() => setMobileOpen(true)} />
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <Outlet context={{ user }} />
         </main>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Sun, Moon, ChevronDown, LogOut, Settings } from 'lucide-react';
+import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Menu } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
 import GlobalSearchPalette from '@/components/search/GlobalSearchPalette';
 
-export default function TopBar({ darkMode, setDarkMode, user }) {
+export default function TopBar({ darkMode, setDarkMode, user, onMenuClick }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const navigate = useNavigate();
@@ -34,7 +34,12 @@ export default function TopBar({ darkMode, setDarkMode, user }) {
   };
 
   return (
-    <header className="h-16 bg-card border-b border-border flex items-center justify-between px-6 flex-shrink-0">
+    <header className="h-16 bg-card border-b border-border flex items-center justify-between px-4 lg:px-6 flex-shrink-0">
+      {/* Mobile menu button */}
+      <Button variant="ghost" size="icon" className="lg:hidden mr-1 flex-shrink-0" onClick={onMenuClick}>
+        <Menu className="w-5 h-5" />
+      </Button>
+
       {/* Global Search — Command Palette */}
       <div className="flex items-center gap-3 flex-1 max-w-md">
         <GlobalSearchPalette />
