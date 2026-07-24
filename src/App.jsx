@@ -20,6 +20,7 @@ import Dashboard from '@/pages/Dashboard';
 import Projects from '@/pages/Projects';
 import ProjectNew from '@/pages/ProjectNew';
 import ProjectDetail from '@/pages/ProjectDetail';
+import ProjectManagement from '@/pages/ProjectManagement';
 import Intelligence from '@/pages/Intelligence';
 import Production from '@/pages/Production';
 import Inventory from '@/pages/Inventory';
@@ -30,6 +31,7 @@ import RFIs from '@/pages/RFIs';
 import Documents from '@/pages/Documents';
 import CRM from '@/pages/CRM';
 import Purchasing from '@/pages/Purchasing';
+import ProcurementModule from '@/pages/ProcurementModule';
 import Accounting from '@/pages/Accounting';
 import Reports from '@/pages/Reports';
 import Users from '@/pages/Users';
@@ -39,6 +41,7 @@ import Estimating from '@/pages/Estimating';
 import BidNew from '@/pages/BidNew';
 import BidDetail from '@/pages/BidDetail';
 import EstimatingAnalytics from '@/pages/EstimatingAnalytics';
+import ShopFabrication from '@/pages/ShopFabrication';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -74,6 +77,7 @@ const AuthenticatedApp = () => {
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/new" element={<ProjectNew />} />
           <Route path="/projects/:id" element={<ProjectDetail />} />
+          <Route path="/projects/:id/management" element={<ProjectManagement />} />
           <Route path="/estimating" element={<Estimating />} />
           <Route path="/estimating/new" element={<BidNew />} />
           <Route path="/estimating/:id" element={<BidDetail />} />
@@ -88,6 +92,8 @@ const AuthenticatedApp = () => {
           <Route path="/documents" element={<Documents />} />
           <Route path="/crm" element={<CRM />} />
           <Route path="/purchasing" element={<Purchasing />} />
+          <Route path="/purchasing/module" element={<ProcurementModule />} />
+          <Route path="/shop-fabrication" element={<ShopFabrication />} />
           <Route path="/accounting" element={<Accounting />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={<Users />} />

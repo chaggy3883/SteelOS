@@ -4,7 +4,7 @@ import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
+import { LogIn, Mail, Lock, Loader2, ShieldCheck, Briefcase, Wrench, Package } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import GoogleIcon from "@/components/GoogleIcon";
 
@@ -30,6 +30,19 @@ export default function Login() {
 
   const handleGoogle = () => {
     base44.auth.loginWithProvider("google", "/");
+  };
+
+  const quickLogin = async (demoEmail, demoPassword) => {
+    setError("");
+    setLoading(true);
+    try {
+      await base44.auth.loginViaEmailPassword(demoEmail, demoPassword);
+      window.location.href = "/";
+    } catch (err) {
+      setError(err.message || "Unable to sign in with demo account");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -61,6 +74,24 @@ export default function Login() {
         </div>
         <div className="relative flex justify-center text-xs uppercase">
           <span className="bg-card px-3 text-muted-foreground">or</span>
+        </div>
+      </div>
+
+      <div className="mb-6 grid gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Demo roles</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button type="button" variant="outline" className="justify-start gap-2" onClick={() => quickLogin("admin@steelos.dev", "password123")}>
+            <ShieldCheck className="w-4 h-4" /> Demo Admin
+          </Button>
+          <Button type="button" variant="outline" className="justify-start gap-2" onClick={() => quickLogin("estimator@steelos.dev", "password123")}>
+            <Wrench className="w-4 h-4" /> Estimator
+          </Button>
+          <Button type="button" variant="outline" className="justify-start gap-2" onClick={() => quickLogin("projectmanager@steelos.dev", "password123")}>
+            <Briefcase className="w-4 h-4" /> Project Manager
+          </Button>
+          <Button type="button" variant="outline" className="justify-start gap-2" onClick={() => quickLogin("purchasing@steelos.dev", "password123")}>
+            <Package className="w-4 h-4" /> Purchasing
+          </Button>
         </div>
       </div>
 

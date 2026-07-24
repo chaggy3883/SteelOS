@@ -53,13 +53,14 @@ export default function BidNew() {
     }
     setSaving(true);
     try {
-      // Generate next sequential bid number
+      const yearSuffix = String(new Date().getFullYear()).slice(-2);
       const allBids = await base44.entities.Bid.list('-created_date', 500);
-      const maxNum = allBids.reduce((max, b) => {
-        const n = parseInt(b.bid_number?.replace(/\D/g, '') || '0', 10);
+      const currentYearBids = allBids.filter(b => String(b.bid_number || '').startsWith(`${yearSuffix}-`));
+      const maxNum = currentYearBids.reduce((max, b) => {
+        const n = parseInt(String(b.bid_number || '').split('-')[1] || '0', 10);
         return n > max ? n : max;
       }, 0);
-      const bidNumber = `BID-${String(maxNum + 1).padStart(5, '0')}`;
+      const bidNumber = `${yearSuffix}-${String(maxNum + 1).padStart(3, '0')}`;
 
       // Parse city/state from job_location
       const locParts = form.job_location.split(',').map(s => s.trim());

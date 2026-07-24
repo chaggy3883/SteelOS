@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, Package } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 function WidgetSkeleton({ lines = 4 }) {
   return <div className="space-y-2">{Array.from({ length: lines }).map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div>;
@@ -271,11 +271,144 @@ function InvoicedVsRemainingWidget() {
   );
 }
 
+function ProjectHealthSummaryWidget() {
+  const [project, setProject] = useState(null);
+  useEffect(() => {
+    base44.entities.Project.filter({ is_archived: false }, '-created_date', 1).then((projects) => setProject(projects[0] || null)).catch(() => setProject(null));
+  }, []);
+
+  if (!project) return <WidgetEmpty message="No project data yet" />;
+
+  const progress = project.estimated_tons ? Math.min(100, Math.round(((project.fabricated_tons || 0) / project.estimated_tons) * 100)) : 0;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground">{project.project_number}</p>
+          <p className="text-sm font-semibold">{project.name}</p>
+        </div>
+        <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary">{project.execution_status || 'Prefabrication'}</span>
+      </div>
+      <div>
+        <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+          <span>Tonnage</span>
+          <span>{progress}%</span>
+        </div>
+        <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div className="h-full rounded-full bg-primary" style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChangeOrderPipelineWidget() {
+  const [data, setData] = useState([]);
+  useEffect(() => {
+    base44.entities.change_orders.list('-created_date', 50).then((orders) => {
+      const summary = {
+        Draft: orders.filter((item) => item.status === 'Draft').length,
+        Submitted: orders.filter((item) => item.status === 'Submitted to GC').length,
+        Approved: orders.filter((item) => item.status === 'Approved').length,
+        Rejected: orders.filter((item) => item.status === 'Rejected').length,
+        Void: orders.filter((item) => item.status === 'Void').length,
+      };
+      setData(Object.entries(summary).filter(([, value]) => value > 0).map(([name, value]) => ({ name, value })));
+    }).catch(() => setData([]));
+  }, []);
+
+  if (data.length === 0) return <WidgetEmpty message="No change orders yet" />;
+
+  return (
+    <div className="h-full">
+      <ResponsiveContainer width="100%" height={140}>
+        <PieChart>
+          <Pie data={data} dataKey="value" innerRadius={34} outerRadius={58} paddingAngle={2}>
+            {data.map((entry, index) => (
+              <Cell key={entry.name} fill={['#0ea5e9', '#f59e0b', '#22c55e', '#ef4444', '#64748b'][index % 5]} />
+            ))}
+          </Pie>
+          <Tooltip />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ShipmentsCalendarWidgetCard() {
+  const [loads, setLoads] = useState([]);
+  useEffect(() => {
+    base44.entities.shipping_loads.list('-created_date', 8).then((items) => setLoads(items)).catch(() => setLoads([]));
+  }, []);
+
+  if (loads.length === 0) return <WidgetEmpty message="No shipments logged" />;
+
+  return <div className="space-y-2">{loads.map((load) => (
+    <div key={load.id} className="rounded-lg border border-border px-2.5 py-2 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="font-medium">{load.load_number}</span>
+        <span className="text-muted-foreground">{load.ship_date || 'Pending'}</span>
+      </div>
+      <p className="text-muted-foreground">{load.carrier_name} • {load.trailer_type} • {load.tons_shipped}T</p>
+    </div>
+  ))}</div>;
+}
+
+function BuyoutVarianceWidget() {
+  const [orders, setOrders] = useState([]);
+  useEffect(() => {
+    base44.entities.purchase_orders.list('-created_date', 10).then((items) => setOrders(items)).catch(() => setOrders([]));
+  }, []);
+
+  if (orders.length === 0) return <WidgetEmpty message="No buyout data yet" />;
+  const budgeted = orders.reduce((sum, item) => sum + Number(item.budgeted_cost || 0), 0);
+  const actual = orders.reduce((sum, item) => sum + Number(item.actual_cost || 0), 0);
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">Budgeted</span>
+        <span className="font-semibold">${budgeted.toLocaleString()}</span>
+      </div>
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">Actual</span>
+        <span className="font-semibold">${actual.toLocaleString()}</span>
+      </div>
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">Variance</span>
+        <span className="font-semibold text-primary">${(budgeted - actual).toLocaleString()}</span>
+      </div>
+    </div>
+  );
+}
+
+function PendingRequisitionApprovalsWidget() {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    base44.entities.purchase_requisitions.list('-created_date', 10).then((result) => setItems(result.filter((item) => item.requires_signature))).catch(() => setItems([]));
+  }, []);
+
+  if (items.length === 0) return <WidgetEmpty message="No pending approvals" />;
+  return <div className="space-y-2">{items.map((item) => (
+    <div key={item.id} className="rounded-lg border border-border px-2.5 py-2 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="font-medium">{item.job_number}</span>
+        <span className="text-muted-foreground">${Number(item.requisition_total || 0).toLocaleString()}</span>
+      </div>
+      <p className="text-muted-foreground">{item.item_description}</p>
+    </div>
+  ))}</div>;
+}
+
 const WIDGET_RENDERERS = {
   bid_list: BidListWidget, active_bids_count: ActiveBidsCountWidget, bid_win_rate: BidWinRateWidget,
   bid_history: BidHistoryWidget, quick_add_bid: QuickAddBidWidget, active_projects: ActiveProjectsWidget,
   change_orders: ChangeOrdersWidget, fab_progress: FabProgressWidget, shipments_calendar: ShipmentsCalendarWidget,
   invoiced_vs_remaining: InvoicedVsRemainingWidget,
+  project_health_summary: ProjectHealthSummaryWidget,
+  change_order_pipeline: ChangeOrderPipelineWidget,
+  shipments_calendar_widget: ShipmentsCalendarWidgetCard,
+  buyout_variance_widget: BuyoutVarianceWidget,
+  pending_requisition_approvals_widget: PendingRequisitionApprovalsWidget,
 };
 
 export default function WidgetContent({ widgetId }) {

@@ -36,7 +36,9 @@ export default function Admin() {
     </div>
   );
 
-  if (currentUser?.role !== 'admin') return (
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'system_administrator' || currentUser?.is_admin === true || currentUser?.role === 'Demo Admin' || currentUser?.role === 'Admin';
+
+  if (!isAdmin) return (
     <div className="flex flex-col items-center justify-center h-96 gap-3">
       <ShieldCheck className="w-12 h-12 text-muted-foreground" />
       <h2 className="text-lg font-semibold">Admin Access Required</h2>

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Search, UserPlus, Ban, Trash2, Loader2 } from 'lucide-react';
+import { Search, UserPlus, Ban, Trash2, Loader2, PlusCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { SYSTEM_ROLES } from '@/components/admin/adminConstants';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
-import InviteUserDialog from '@/components/admin/InviteUserDialog';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function UserManagement() {
@@ -14,7 +14,9 @@ export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [showInvite, setShowInvite] = useState(false);
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [builderForm, setBuilderForm] = useState({ full_name: '', email: '', password: '', role: 'estimator' });
+  const [permissions, setPermissions] = useState({ can_view_bid_workspace: true, can_upload_documents: true, can_manage_users: false, can_view_financials: false });
   const [allRoles, setAllRoles] = useState(SYSTEM_ROLES);
 
   useEffect(() => { loadUsers(); getAllRoles().then(setAllRoles); }, []);
@@ -33,6 +35,30 @@ export default function UserManagement() {
     u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
     u.email?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const handleCreateUser = async () => {
+    if (!builderForm.full_name || !builderForm.email || !builderForm.password) {
+      toast({ title: 'Complete all required fields', variant: 'destructive' });
+      return;
+    }
+    try {
+      const created = await base44.entities.User.create({
+        full_name: builderForm.full_name,
+        email: builderForm.email,
+        password: builderForm.password,
+        role: builderForm.role,
+        permissions,
+        is_active: true,
+      });
+      setUsers(prev => [created, ...prev]);
+      setShowBuilder(false);
+      setBuilderForm({ full_name: '', email: '', password: '', role: 'estimator' });
+      setPermissions({ can_view_bid_workspace: true, can_upload_documents: true, can_manage_users: false, can_view_financials: false });
+      toast({ title: 'User created manually' });
+    } catch (e) {
+      toast({ title: 'Failed to create user', description: e?.message || 'Please retry.', variant: 'destructive' });
+    }
+  };
 
   const handleRoleChange = async (userId, newRole) => {
     try {
@@ -73,8 +99,8 @@ export default function UserManagement() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Search by name or email..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
         </div>
-        <Button onClick={() => setShowInvite(true)} className="steel-gradient text-white border-0">
-          <UserPlus className="w-4 h-4" />Invite User
+        <Button onClick={() => setShowBuilder(true)} className="steel-gradient text-white border-0">
+          <PlusCircle className="w-4 h-4" />Create User
         </Button>
       </div>
 
@@ -128,7 +154,31 @@ export default function UserManagement() {
         </table>
       </div>
       <p className="text-xs text-muted-foreground">{filtered.length} user(s) • Role changes take effect on next login</p>
-      {showInvite && <InviteUserDialog onClose={() => setShowInvite(false)} onInvited={loadUsers} availableRoles={allRoles} />}
+      {showBuilder && (
+        <div className="steel-card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">Manual User Builder</h3>
+            <Button variant="ghost" size="sm" onClick={() => setShowBuilder(false)}>Close</Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div><Label>Name</Label><Input value={builderForm.full_name} onChange={e => setBuilderForm(f => ({ ...f, full_name: e.target.value }))} className="mt-1" /></div>
+            <div><Label>Email</Label><Input type="email" value={builderForm.email} onChange={e => setBuilderForm(f => ({ ...f, email: e.target.value }))} className="mt-1" /></div>
+            <div><Label>Password</Label><Input type="password" value={builderForm.password} onChange={e => setBuilderForm(f => ({ ...f, password: e.target.value }))} className="mt-1" /></div>
+            <div><Label>Base Role</Label><Select value={builderForm.role} onValueChange={v => setBuilderForm(f => ({ ...f, role: v }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{allRoles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent></Select></div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {Object.entries(permissions).map(([key, value]) => (
+              <label key={key} className="flex items-center gap-2 rounded-lg border border-border p-2 text-sm">
+                <input type="checkbox" checked={value} onChange={() => setPermissions(prev => ({ ...prev, [key]: !prev[key] }))} />
+                <span>{key.replace(/_/g, ' ')}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={handleCreateUser} className="steel-gradient text-white border-0">Create Account</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

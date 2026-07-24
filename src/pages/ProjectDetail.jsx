@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import {
-  ArrowLeft, Brain, FileText, MessageSquare, Package, CheckSquare,
-  DollarSign, Calendar, MapPin, Building2, Edit, Upload,
+  ArrowLeft, Brain, MessageSquare, Package, CheckSquare,
+  DollarSign, Calendar, MapPin, Building2, Edit,
   AlertTriangle, CheckCircle2, Clock, TrendingUp, Layers
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import StatusBadge from '@/components/ui/StatusBadge';
 import StatsCard from '@/components/ui/StatsCard';
+import FileExplorer from '@/components/documents/FileExplorer';
 
 const HealthRing = ({ score }) => {
   const color = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : '#ef4444';
@@ -35,7 +36,6 @@ export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [project, setProject] = useState(null);
-  const [documents, setDocuments] = useState([]);
   const [findings, setFindings] = useState([]);
   const [rfis, setRfis] = useState([]);
   const [pieces, setPieces] = useState([]);
@@ -46,15 +46,13 @@ export default function ProjectDetail() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [proj, docs, finds, rfiList, pieceList] = await Promise.all([
+      const [proj, finds, rfiList, pieceList] = await Promise.all([
         base44.entities.Project.get(id),
-        base44.entities.Document.filter({ project_id: id }, '-created_date', 20),
         base44.entities.AIFinding.filter({ project_id: id }, '-created_date', 50),
         base44.entities.RFI.filter({ project_id: id }, '-created_date', 20),
         base44.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 50),
       ]);
       setProject(proj);
-      setDocuments(docs);
       setFindings(finds);
       setRfis(rfiList);
       setPieces(pieceList);
@@ -105,6 +103,11 @@ export default function ProjectDetail() {
           <p className="text-muted-foreground">{project.customer_name || 'No customer assigned'}</p>
         </div>
         <div className="flex gap-2">
+          <Link to={`/projects/${id}/management`}>
+            <Button variant="outline" className="gap-2">
+              <Package className="w-4 h-4" /> Lifecycle
+            </Button>
+          </Link>
           <Link to={`/intelligence?project=${id}`}>
             <Button variant="outline" className="gap-2">
               <Brain className="w-4 h-4" /> AI Analysis
@@ -131,9 +134,7 @@ export default function ProjectDetail() {
       <Tabs defaultValue="overview">
         <TabsList className="mb-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="documents">
-            Documents {documents.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{documents.length}</span>}
-          </TabsTrigger>
+          <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="findings">
             AI Findings {findings.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{findings.length}</span>}
           </TabsTrigger>
@@ -215,38 +216,10 @@ export default function ProjectDetail() {
         {/* Documents */}
         <TabsContent value="documents">
           <div className="steel-card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold">Project Documents</h3>
-              <Link to={`/intelligence?project=${id}`}>
-                <Button size="sm" className="gap-2">
-                  <Upload className="w-4 h-4" /> Upload & Analyze
-                </Button>
-              </Link>
-            </div>
-            {documents.length === 0 ? (
-              <div className="text-center py-12">
-                <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">No documents uploaded yet</p>
-                <Link to={`/intelligence?project=${id}`}>
-                  <Button size="sm" className="mt-3"><Upload className="w-4 h-4 mr-2" /> Upload Document</Button>
-                </Link>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {documents.map(doc => (
-                  <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted transition-colors">
-                    <div className="flex items-center gap-3">
-                      <FileText className="w-4 h-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">{doc.name}</p>
-                        <p className="text-xs text-muted-foreground">{doc.document_type?.replace('_', ' ')} • v{doc.version}</p>
-                      </div>
-                    </div>
-                    <StatusBadge status={doc.ai_processing_status} label={doc.ai_processing_status} />
-                  </div>
-                ))}
-              </div>
-            )}
+            <FileExplorer
+              projectId={id}
+              onUpload={(path) => navigate(`/intelligence?project=${id}&path=${encodeURIComponent(path)}`)}
+            />
           </div>
         </TabsContent>
 

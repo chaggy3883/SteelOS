@@ -28,6 +28,7 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
   const [parseProgress, setParseProgress] = useState(0);
   const [aiResult, setAiResult] = useState(null);
   const [approved, setApproved] = useState(false);
+  const [parseError, setParseError] = useState('');
   const fileInputRef = useRef(null);
 
   const handleFiles = (fileList) => {
@@ -54,6 +55,7 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
     setParsing(true);
     setParseProgress(0);
     setApproved(false);
+    setParseError('');
     try {
       // Upload files
       for (let i = 0; i < files.length; i++) {
@@ -80,7 +82,7 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
       // AI parse against cost breakdown structure
       const fileUrls = files.map(f => f.file_url).filter(Boolean);
       const response = await base44.integrations.Core.InvokeLLM({
-        prompt: `You are a structural steel estimating assistant. Parse the uploaded bid documents (PDFs, Excel takeoff sheets, Word docs) and extract a cost breakdown. Return a JSON object with suggested takeoff values based on the following cost categories: detailing, engineering, bim, structural_material (tons), bolts_fasteners, outsourced_fabrication, structural_fabrication, galvanizing, steel_rolling, joist_deck, anchor_bolts, shop_priming, grating, outsourced_paint, outsourced_shot_blasting, jobsite_freight, misc_fabrication, misc_material, steel_erection, subcontractor_other, allowances, hss_contingency, additional_cost_insurance, additional_cost_leed_govt. For each, suggest a quantity, unit_cost, and confidence (0-1). Also extract: estimated_tons, estimated_man_hours, tax_rate, job_city, job_state, and any inclusions/exclusions text. Set any unknown numeric field to 0 and confidence to 0.`,
+        prompt: `You are a structural steel estimating assistant. Parse the uploaded bid documents (PDFs, Excel takeoff sheets, Word docs) and extract a cost breakdown. Return a JSON object with suggested takeoff values based on the following cost categories: detailing, engineering, bim, structural_material (tons), bolts_fasteners, outsourced_fabrication, structural_fabrication, galvanizing, steel_rolling, joist_deck, anchor_bolts, shop_priming, grating, outsourced_paint, outsourced_shot_blasting, jobsite_freight, misc_fabrication, misc_material, steel_erection, subcontractor_other, allowances, hss_contingency, additional_cost_insurance, additional_cost_leed_govt. For each, suggest a quantity, unit_cost, and confidence (0-1). Also extract: estimated_tons, estimated_man_hours, tax_rate, job_city, job_state, inclusions, exclusions, scope_summary, and a short risk review. Set any unknown numeric field to 0 and confidence to 0.`,
         file_urls: fileUrls,
         response_json_schema: {
           type: 'object',
@@ -103,7 +105,9 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
               }
             },
             inclusions: { type: 'string' },
-            exclusions: { type: 'string' }
+            exclusions: { type: 'string' },
+            scope_summary: { type: 'string' },
+            risk_review: { type: 'string' }
           }
         }
       });
@@ -111,7 +115,9 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
       setAiResult(response);
       toast({ title: 'AI parsing complete', description: 'Review suggested fields before saving.' });
     } catch (e) {
-      toast({ title: 'AI parsing failed', description: e.message, variant: 'destructive' });
+      const message = e?.message || 'The AI parse failed unexpectedly.';
+      setParseError(message);
+      toast({ title: 'AI parsing failed', description: message, variant: 'destructive' });
     } finally {
       setParsing(false);
     }
@@ -120,7 +126,8 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
   const approveAndSave = async () => {
     if (!aiResult) return;
     try {
-      // Save takeoff lines
+      const projectId = String(bidId || '');
+      const numericTaxRate = Number(aiResult.tax_rate || 0);
       const lines = (aiResult.line_items || []).map(li => ({
         bid_id: bidId,
         cost_category: li.cost_category,
@@ -134,13 +141,15 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
       if (lines.length > 0) await base44.entities.TakeoffLine.bulkCreate(lines);
       // Update bid header
       await base44.entities.Bid.update(bidId, {
-        estimated_tons: aiResult.estimated_tons || 0,
-        estimated_man_hours: aiResult.estimated_man_hours || 0,
-        tax_rate: aiResult.tax_rate || 0,
-        job_city: aiResult.job_city || '',
-        job_state: aiResult.job_state || '',
-        inclusions: aiResult.inclusions || '',
-        exclusions: aiResult.exclusions || '',
+        estimated_tons: Number(aiResult.estimated_tons || 0),
+        estimated_man_hours: Number(aiResult.estimated_man_hours || 0),
+        tax_rate: Number.isFinite(numericTaxRate) ? numericTaxRate : 0,
+        job_city: String(aiResult.job_city || ''),
+        job_state: String(aiResult.job_state || ''),
+        inclusions: String(aiResult.inclusions || ''),
+        exclusions: String(aiResult.exclusions || ''),
+        scope_summary: [String(aiResult.scope_summary || ''), String(aiResult.risk_review || '')].filter(Boolean).join('\n\n'),
+        project_id: projectId,
       });
       setApproved(true);
       toast({ title: 'AI fields approved & saved!' });
@@ -169,6 +178,16 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
         <p className="font-medium text-sm">Dump Estimation Docs & Data Sheets Here</p>
         <p className="text-xs text-muted-foreground mt-1">Drag & drop PDF blueprints, Excel takeoff sheets, or Word documents — or click to browse</p>
       </div>
+
+      {parseError && (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400 flex items-start justify-between gap-3">
+          <div>
+            <p className="font-semibold">AI parse error</p>
+            <p>{parseError}</p>
+          </div>
+          <button onClick={() => setParseError('')} className="text-red-600 hover:text-red-800" aria-label="Dismiss error">×</button>
+        </div>
+      )}
 
       {/* File list with bucket assignment */}
       {files.length > 0 && (
@@ -251,7 +270,7 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
           </div>
           <div className="flex items-center gap-3 mt-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
             <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-            <p className="text-xs text-yellow-700 dark:text-yellow-400 flex-1">Review all AI-suggested values. Approving will populate the takeoff engine with these estimates — you can adjust any cell afterward.</p>
+            <p className="text-xs text-yellow-700 dark:text-yellow-400 flex-1">Review all AI-suggested values. Approving will populate the BID Worksheet with these estimates — you can adjust any cell afterward.</p>
             <Button onClick={approveAndSave} size="sm" className="bg-green-600 hover:bg-green-700 text-white border-0">
               <CheckCircle2 className="w-4 h-4 mr-1" />Approve & Save
             </Button>
@@ -262,7 +281,7 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
       {approved && (
         <div className="steel-card p-4 flex items-center gap-3 bg-green-500/5 border-green-500/20">
           <CheckCircle2 className="w-5 h-5 text-green-500" />
-          <p className="text-sm">AI fields approved and saved to takeoff. Switch to the Takeoff Engine tab to adjust line items.</p>
+          <p className="text-sm">AI fields approved and saved to takeoff. Switch to the BID Worksheet tab to adjust line items.</p>
         </div>
       )}
     </div>

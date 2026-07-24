@@ -19,6 +19,7 @@
         "outsourced_fabrication",
         "structural_fabrication",
         "galvanizing",
+        "galvanizing_delivery",
         "steel_rolling",
         "joist_deck",
         "anchor_bolts",
@@ -85,6 +86,10 @@
     },
     "notes": {
       "type": "string"
+    },
+    "tax_rate_override": {
+      "type": "number",
+      "default": 0
     }
   },
   "required": [

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { ShoppingCart, AlertTriangle, Package, TrendingDown, Plus, Search } from 'lucide-react';
+import { ShoppingCart, AlertTriangle, Package, TrendingDown, Plus, Search, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/ui/PageHeader';
@@ -38,7 +39,16 @@ export default function Purchasing() {
       <PageHeader
         title="Purchasing"
         subtitle="Material procurement and AI-flagged purchasing requirements"
-        actions={<Button className="steel-gradient text-white border-0"><Plus className="w-4 h-4 mr-2" />New PO</Button>}
+        actions={
+          <div className="flex gap-2">
+            <Button className="steel-gradient text-white border-0"><Plus className="w-4 h-4 mr-2" />New PO</Button>
+            <Link to="/purchasing/module">
+              <Button variant="outline" className="gap-2">
+                <ArrowRight className="w-4 h-4" /> Procurement Module
+              </Button>
+            </Link>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

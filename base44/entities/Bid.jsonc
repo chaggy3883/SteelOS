@@ -26,6 +26,22 @@
     "job_location": {
       "type": "string"
     },
+    "street": {
+      "type": "string"
+    },
+    "city": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "zip": {
+      "type": "string"
+    },
+    "tax_enabled": {
+      "type": "boolean",
+      "default": false
+    },
     "job_city": {
       "type": "string"
     },
@@ -71,6 +87,17 @@
     "tax_rate": {
       "type": "number",
       "default": 0
+    },
+    "paint_gallons": {
+      "type": "number",
+      "default": 0
+    },
+    "production_duration_days": {
+      "type": "number",
+      "default": 0
+    },
+    "scope_summary": {
+      "type": "string"
     },
     "structural_geometry_type": {
       "type": "string",

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Save, TrendingUp, AlertTriangle, Info } from 'lucide-react';
+import { Save, TrendingUp, AlertTriangle, Info, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +17,7 @@ export const COST_CATEGORIES = [
   { key: 'outsourced_fabrication', label: 'Outsourced Fabrication', unit: 'lot' },
   { key: 'structural_fabrication', label: 'Structural Fabrication', unit: 'tons' },
   { key: 'galvanizing', label: 'Galvanizing', unit: 'tons' },
+  { key: 'galvanizing_delivery', label: 'Galvanizing Delivery', unit: 'lot' },
   { key: 'steel_rolling', label: 'Steel Rolling', unit: 'tons' },
   { key: 'joist_deck', label: 'Joist & Deck', unit: 'tons' },
   { key: 'anchor_bolts', label: 'Anchor Bolts', unit: 'ea' },
@@ -48,8 +49,29 @@ export default function TakeoffEngine({ bid }) {
   });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [docDrawerOpen, setDocDrawerOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [documents, setDocuments] = useState([]);
+  const [currentUserRole, setCurrentUserRole] = useState('user');
+  const [insuranceInputs, setInsuranceInputs] = useState({
+    general_liability: '',
+    umbrella: '',
+    professional_liability: '',
+  });
 
   useEffect(() => { loadLines(); }, [bid?.id]);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const me = await base44.auth.me();
+        setCurrentUserRole(String(me?.role || me?.user?.role || 'user').toLowerCase());
+      } catch (e) {
+        setCurrentUserRole('user');
+      }
+    };
+    loadUser();
+  }, []);
 
   const loadLines = async () => {
     if (!bid?.id) return;
@@ -85,8 +107,38 @@ export default function TakeoffEngine({ bid }) {
   const subtotal = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0), 0);
   const overrideTotal = ['insurance', 'bond', 'procore_pay', 'textura'].reduce((s, k) => s + (parseFloat(overrides[k]) || 0), 0);
   const grandTotal = subtotal + overrideTotal;
-  const taxAmount = grandTotal * ((bid?.tax_rate || 0));
-  const totalWithTax = grandTotal + taxAmount;
+  const stateName = String(bid?.state || bid?.job_state || '').trim().toLowerCase();
+  const isOhioOverride = bid?.tax_enabled && ['ohio', 'oh'].includes(stateName);
+  const calculatedTaxRate = isOhioOverride ? 0.0675 : Number(bid?.tax_rate || 0);
+  const getLocationTaxRate = () => {
+    const city = String(bid?.city || bid?.job_city || '').trim().toLowerCase();
+    const zip = String(bid?.zip || '').trim();
+    const cityZipKey = `${city}|${zip}`;
+    const localRates = {
+      'findlay|45840': 0.0675,
+      'findlay|45839': 0.0675,
+      'vanlue|45890': 0.0675,
+      'hancock|': 0.0675,
+    };
+    return localRates[cityZipKey] ?? (isOhioOverride ? 0.0675 : calculatedTaxRate);
+  };
+  const taxAmount = Object.values(lines).reduce((sum, line) => {
+    const lineTotal = Number(line?.total_cost || 0);
+    const category = line?.cost_category;
+    if (category === 'steel_erection') return sum;
+    const rate = category === 'joist_deck' ? getLocationTaxRate() : calculatedTaxRate;
+    return sum + lineTotal * rate;
+  }, 0);
+  const bondAmount = (() => {
+    const contractValue = Math.max(0, subtotal + overrideTotal);
+    if (contractValue <= 500000) return contractValue * 0.00810;
+    if (contractValue <= 2500000) return contractValue * 0.00567;
+    if (contractValue <= 5000000) return contractValue * 0.00486;
+    return contractValue * 0.00432;
+  })();
+  const insuranceAllocation = 3000 + (parseFloat(insuranceInputs.general_liability) || 0) + (parseFloat(insuranceInputs.umbrella) || 0) + (parseFloat(insuranceInputs.professional_liability) || 0);
+  const totalWithTax = grandTotal + taxAmount + bondAmount + insuranceAllocation;
+  const canOpenDocuments = ['admin', 'estimator', 'president', 'ceo', 'finance_department'].includes(currentUserRole);
 
   const handleSave = async () => {
     setSaving(true);
@@ -116,11 +168,29 @@ export default function TakeoffEngine({ bid }) {
         procore_pay_override: parseFloat(overrides.procore_pay) || null,
         textura_override: parseFloat(overrides.textura) || null,
         leed_level_override: overrides.leed_level || null,
+        tax_rate: calculatedTaxRate,
+        tax_enabled: !!bid?.tax_enabled,
       });
       toast({ title: 'Takeoff saved!' });
     } catch (e) {
       toast({ title: 'Save failed', variant: 'destructive' });
     } finally { setSaving(false); }
+  };
+
+  const openDocuments = async (catKey) => {
+    if (!canOpenDocuments) {
+      toast({ title: 'Access restricted', description: 'Only authorized estimators and executives can view document previews.', variant: 'destructive' });
+      return;
+    }
+    setSelectedCategory(catKey);
+    try {
+      const docs = await base44.entities.Document.filter({ bid_id: bid?.id }, '-created_date', 50);
+      setDocuments(docs.filter(doc => doc.document_type || doc.file_name));
+      setDocDrawerOpen(true);
+    } catch (e) {
+      setDocuments([]);
+      setDocDrawerOpen(true);
+    }
   };
 
   if (loading) return <div className="h-64 bg-muted rounded-xl animate-pulse" />;
@@ -169,6 +239,11 @@ export default function TakeoffEngine({ bid }) {
                 <div className="col-span-4 sm:col-span-3 text-right font-mono text-sm font-bold">
                   ${(line.total_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
+                <div className="col-span-12 sm:col-span-1 flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => openDocuments(cat.key)}>
+                    <Upload className="w-3.5 h-3.5 mr-1" />Docs
+                  </Button>
+                </div>
               </div>
             );
           })}
@@ -209,18 +284,56 @@ export default function TakeoffEngine({ bid }) {
             </div>
           ))}
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+          {[
+            { key: 'general_liability', label: 'General Liability ($)' },
+            { key: 'umbrella', label: 'Umbrella ($)' },
+            { key: 'professional_liability', label: 'Professional Liability ($)' },
+          ].map((field) => (
+            <div key={field.key}>
+              <Label className="text-xs">{field.label}</Label>
+              <Input type="number" value={insuranceInputs[field.key] ?? ''} placeholder="TBD" onChange={(e) => setInsuranceInputs(prev => ({ ...prev, [field.key]: e.target.value }))} className="mt-1 h-8 text-sm" />
+            </div>
+          ))}
+        </div>
         <div className="flex justify-between items-center py-2 mt-3 border-t border-border font-semibold">
           <span>Override Total</span>
           <span className="font-mono">${overrideTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
         </div>
       </div>
 
+      {docDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/20">
+          <div className="h-full w-full max-w-md border-l border-border bg-background p-5 shadow-2xl overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-semibold">Document Preview</h4>
+                <p className="text-sm text-muted-foreground">{selectedCategory ? COST_CATEGORIES.find(c => c.key === selectedCategory)?.label : 'Documents'}</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setDocDrawerOpen(false)}>Close</Button>
+            </div>
+            <div className="mt-4 space-y-2">
+              {documents.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No documents linked to this bid yet.</p>
+              ) : documents.map((doc) => (
+                <a key={doc.id} href={doc.file_url || '#'} target="_blank" rel="noreferrer" className="block rounded-lg border border-border p-3 text-sm hover:bg-muted/50">
+                  <p className="font-medium">{doc.name || doc.file_name || 'Document'}</p>
+                  <p className="text-xs text-muted-foreground">{doc.document_type || 'uploaded document'}</p>
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Grand Total */}
       <div className="steel-card p-5 bg-primary/5">
         <div className="space-y-1">
           <div className="flex justify-between text-sm"><span>Line Item Subtotal</span><span className="font-mono">${subtotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
           <div className="flex justify-between text-sm"><span>Administrative Overrides</span><span className="font-mono">${overrideTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
-          <div className="flex justify-between text-sm"><span>Tax ({((bid?.tax_rate || 0) * 100).toFixed(2)}%)</span><span className="font-mono">${taxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
+          <div className="flex justify-between text-sm"><span>Bond Estimate</span><span className="font-mono">${bondAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
+          <div className="flex justify-between text-sm"><span>Insurance Allocation</span><span className="font-mono">${insuranceAllocation.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
+          <div className="flex justify-between text-sm"><span>Tax ({(calculatedTaxRate * 100).toFixed(2)}%)</span><span className="font-mono">${taxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
           <div className="flex justify-between items-center pt-2 mt-1 border-t border-border">
             <span className="font-bold text-lg">Total Cost</span>
             <span className="font-mono font-bold text-lg text-primary">${totalWithTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>

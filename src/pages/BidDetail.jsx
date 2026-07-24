@@ -15,6 +15,8 @@ import TakeoffEngine from '@/components/estimating/TakeoffEngine';
 import VendorPricing from '@/components/estimating/VendorPricing';
 import MillPricingTable from '@/components/estimating/MillPricingTable';
 import { useToast } from '@/components/ui/use-toast';
+import { Switch } from '@/components/ui/switch';
+import FullTakeoff from '@/components/estimating/FullTakeoff';
 
 const LOSS_REASONS = [
   { value: 'price', label: 'Price — Too High' },
@@ -36,8 +38,23 @@ export default function BidDetail() {
   const [showLossForm, setShowLossForm] = useState(false);
   const [lossForm, setLossForm] = useState({ reason: '', notes: '', competitor: '' });
   const [savingLoss, setSavingLoss] = useState(false);
+  const [baseInfo, setBaseInfo] = useState({ street: '', city: '', state: '', zip: '', tax_enabled: false, tax_rate: 0 });
+  const [savingBaseInfo, setSavingBaseInfo] = useState(false);
 
   useEffect(() => { loadBid(); }, [id]);
+
+  useEffect(() => {
+    if (bid) {
+      setBaseInfo({
+        street: bid.street || '',
+        city: bid.city || bid.job_city || '',
+        state: bid.state || bid.job_state || '',
+        zip: bid.zip || '',
+        tax_enabled: bid.tax_enabled ?? false,
+        tax_rate: bid.tax_rate ?? 0,
+      });
+    }
+  }, [bid]);
 
   const loadBid = async () => {
     setLoading(true);
@@ -71,6 +88,36 @@ export default function BidDetail() {
       loadBid();
     } catch (e) { toast({ title: 'Failed', variant: 'destructive' }); } finally { setSavingLoss(false); }
   };
+
+  const handleBaseInfoSave = async () => {
+    setSavingBaseInfo(true);
+    try {
+      const normalizedState = String(baseInfo.state || '').trim().toLowerCase();
+      const computedTaxRate = baseInfo.tax_enabled && ['ohio', 'oh'].includes(normalizedState)
+        ? 0.0675
+        : Number(baseInfo.tax_rate || bid?.tax_rate || 0);
+      await base44.entities.Bid.update(id, {
+        street: baseInfo.street,
+        city: baseInfo.city,
+        state: baseInfo.state,
+        zip: baseInfo.zip,
+        tax_enabled: baseInfo.tax_enabled,
+        tax_rate: computedTaxRate,
+        job_city: baseInfo.city,
+        job_state: baseInfo.state,
+      });
+      toast({ title: 'Bid information saved' });
+      loadBid();
+    } catch (e) {
+      toast({ title: 'Unable to save bid information', description: e?.message || 'Please retry.', variant: 'destructive' });
+    } finally {
+      setSavingBaseInfo(false);
+    }
+  };
+
+  const effectiveTaxRate = baseInfo.tax_enabled && ['ohio', 'oh'].includes(String(baseInfo.state || '').trim().toLowerCase())
+    ? 0.0675
+    : Number(baseInfo.tax_rate || bid?.tax_rate || 0);
 
   if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
   if (!bid) return <div className="p-6 text-center text-muted-foreground">Bid not found.</div>;
@@ -107,7 +154,7 @@ export default function BidDetail() {
           { label: 'Bid Total', value: bid.bid_total_cost ? `$${bid.bid_total_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—' },
           { label: 'Est. Tons', value: bid.estimated_tons?.toLocaleString() || '—' },
           { label: 'Est. Man-Hrs', value: bid.estimated_man_hours?.toLocaleString() || '—' },
-          { label: 'Tax Rate', value: bid.tax_rate ? `${(bid.tax_rate * 100).toFixed(2)}%` : '—' },
+          { label: 'Tax Rate', value: `${(effectiveTaxRate * 100).toFixed(2)}%` },
           { label: 'Due Date', value: bid.bid_due_date || '—' },
         ].map(({ label, value }) => (
           <div key={label} className="steel-card p-3">
@@ -115,6 +162,51 @@ export default function BidDetail() {
             <p className="text-lg font-bold mt-0.5">{value}</p>
           </div>
         ))}
+      </div>
+
+      <div className="steel-card p-5 mb-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">Base Information</h3>
+            <p className="text-sm text-muted-foreground">Project address and tax configuration</p>
+          </div>
+          <Button onClick={handleBaseInfoSave} disabled={savingBaseInfo} className="steel-gradient text-white border-0">
+            {savingBaseInfo ? 'Saving…' : 'Save Base Info'}
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <Label>Street</Label>
+            <Input value={baseInfo.street} onChange={(e) => setBaseInfo((prev) => ({ ...prev, street: e.target.value }))} className="mt-1" placeholder="123 Main St" />
+          </div>
+          <div>
+            <Label>City</Label>
+            <Input value={baseInfo.city} onChange={(e) => setBaseInfo((prev) => ({ ...prev, city: e.target.value }))} className="mt-1" placeholder="Findlay" />
+          </div>
+          <div>
+            <Label>State</Label>
+            <Input value={baseInfo.state} onChange={(e) => setBaseInfo((prev) => ({ ...prev, state: e.target.value }))} className="mt-1" placeholder="OH" />
+          </div>
+          <div>
+            <Label>ZIP</Label>
+            <Input value={baseInfo.zip} onChange={(e) => setBaseInfo((prev) => ({ ...prev, zip: e.target.value }))} className="mt-1" placeholder="45840" />
+          </div>
+          <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-border p-3">
+            <div>
+              <p className="text-sm font-medium">Tax Enabled</p>
+              <p className="text-xs text-muted-foreground">Enable dynamic tax logic for this bid</p>
+            </div>
+            <Switch checked={baseInfo.tax_enabled} onCheckedChange={(checked) => setBaseInfo((prev) => ({ ...prev, tax_enabled: checked }))} />
+          </div>
+          {baseInfo.tax_enabled && (
+            <div className="md:col-span-2">
+              <Label>Tax Rate</Label>
+              <Input type="number" step="0.0001" value={baseInfo.tax_rate || ''} onChange={(e) => setBaseInfo((prev) => ({ ...prev, tax_rate: parseFloat(e.target.value) || 0 }))} className="mt-1" placeholder="0.0675" />
+              <p className="text-xs text-muted-foreground mt-1">Ohio jobs default to 6.75% when tax is enabled.</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Loss Reason Form */}
@@ -150,7 +242,8 @@ export default function BidDetail() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="files"><Upload className="w-4 h-4 mr-1.5" />Smart File Dump</TabsTrigger>
-          <TabsTrigger value="takeoff"><Calculator className="w-4 h-4 mr-1.5" />Takeoff Engine</TabsTrigger>
+          <TabsTrigger value="takeoff"><Calculator className="w-4 h-4 mr-1.5" />BID Worksheet</TabsTrigger>
+          <TabsTrigger value="fulltakeoff"><BarChart3 className="w-4 h-4 mr-1.5" />Full Takeoff</TabsTrigger>
           <TabsTrigger value="vendor"><Link2 className="w-4 h-4 mr-1.5" />Vendor Pricing</TabsTrigger>
           <TabsTrigger value="mill"><Factory className="w-4 h-4 mr-1.5" />Mill Pricing</TabsTrigger>
           <TabsTrigger value="inclusions"><FileText className="w-4 h-4 mr-1.5" />Scope Text</TabsTrigger>
@@ -162,6 +255,10 @@ export default function BidDetail() {
 
         <TabsContent value="takeoff">
           <TakeoffEngine bid={bid} />
+        </TabsContent>
+
+        <TabsContent value="fulltakeoff">
+          <FullTakeoff bid={bid} />
         </TabsContent>
 
         <TabsContent value="vendor">
@@ -182,7 +279,7 @@ export default function BidDetail() {
 
 function ScopeText({ bid, onSaved }) {
   const { toast } = useToast();
-  const [inclusions, setInclusions] = useState(bid.inclusions || '');
+  const [inclusions, setInclusions] = useState((bid.inclusions || '') + (bid.scope_summary ? `\n\n${bid.scope_summary}` : ''));
   const [exclusions, setExclusions] = useState(bid.exclusions || '');
   const [saving, setSaving] = useState(false);
 

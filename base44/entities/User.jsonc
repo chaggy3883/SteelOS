@@ -5,6 +5,22 @@
     "role": {
       "type": "string",
       "description": "The role of the user in the app (built-in or custom role name)"
+    },
+    "permissions": {
+      "type": "object"
+    },
+    "password": {
+      "type": "string"
+    },
+    "full_name": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
     }
   },
   "required": [

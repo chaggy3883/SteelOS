@@ -30,6 +30,24 @@
     "zip": {
       "type": "string"
     },
+    "billing_address": {
+      "type": "string"
+    },
+    "billing_city": {
+      "type": "string"
+    },
+    "billing_state": {
+      "type": "string"
+    },
+    "billing_zip": {
+      "type": "string"
+    },
+    "contacts": {
+      "type": "array"
+    },
+    "zip": {
+      "type": "string"
+    },
     "phone": {
       "type": "string"
     },

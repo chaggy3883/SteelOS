@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Layers } from 'lucide-react';
+import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Layers, House } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import {
@@ -44,6 +44,15 @@ export default function TopBar({ darkMode, setDarkMode, user }) {
           <span className="font-bold text-lg tracking-tight text-foreground">Steel</span>
           <span className="font-bold text-lg tracking-tight text-primary">OS</span>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/')}
+          className="ml-2 rounded-lg border border-border/70 bg-background/70 text-foreground shadow-sm transition-colors hover:bg-muted/80 dark:bg-background/50"
+        >
+          <House className="mr-2 h-4 w-4" />
+          Home
+        </Button>
       </div>
 
       {/* Global Search — Command Palette */}

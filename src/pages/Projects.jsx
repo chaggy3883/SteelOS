@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import {
   Plus, Search, Filter, Building2, Calendar, DollarSign,
-  MoreVertical, Star, StarOff, Archive, Eye, ChevronDown
+  MoreVertical, Star, StarOff, Archive, Eye, ChevronDown, Package
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -143,6 +143,9 @@ export default function Projects() {
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => navigate(`/projects/${project.id}`)}>
                         <Eye className="w-4 h-4 mr-2" /> View Project
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate(`/projects/${project.id}/management`)}>
+                        <Package className="w-4 h-4 mr-2" /> Lifecycle
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => archiveProject(project)} className="text-destructive">
                         <Archive className="w-4 h-4 mr-2" /> Archive

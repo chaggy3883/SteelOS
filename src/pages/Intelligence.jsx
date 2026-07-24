@@ -6,6 +6,7 @@ import {
   Zap, Filter, RefreshCw, Search, Building2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -149,12 +150,16 @@ export default function Intelligence() {
   const [uploadedDoc, setUploadedDoc] = useState(null);
   const [docType, setDocType] = useState('specification');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [uploadPath, setUploadPath] = useState('/');
+  const [tagsInput, setTagsInput] = useState('');
 
   useEffect(() => {
     loadProjects();
     const params = new URLSearchParams(window.location.search);
     const proj = params.get('project');
+    const path = params.get('path');
     if (proj) setSelectedProject(proj);
+    if (path) setUploadPath(path);
   }, []);
 
   useEffect(() => {
@@ -196,6 +201,8 @@ export default function Intelligence() {
         status: 'uploaded',
         ai_processing_status: 'pending',
         version: 1,
+        virtual_path: uploadPath || '/',
+        tags: tagsInput.split(',').map(t => t.trim()).filter(Boolean),
       });
       setUploadedDoc(doc);
       toast({ title: 'Document uploaded', description: 'Ready to analyze with AI.' });
@@ -366,6 +373,14 @@ Generate at least 15-20 realistic findings covering different risk areas.`;
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">Folder</label>
+                  <Input value={uploadPath} onChange={e => setUploadPath(e.target.value || '/')} placeholder="/Drawings/Approved/" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-sm text-muted-foreground mb-1 block">Tags (comma separated)</label>
+                  <Input value={tagsInput} onChange={e => setTagsInput(e.target.value)} placeholder="Tekla, Approved, Phase 1" />
                 </div>
                 <div className="flex flex-col justify-end">
                   <input ref={fileRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.docx,.doc,.xlsx,.xls,.txt" />

@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   LayoutDashboard, Calculator, FolderKanban, Brain, Building2,
-  ShoppingCart, Package, Factory, Truck, CheckSquare, Shield,
+  ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap
 } from 'lucide-react';
@@ -30,6 +30,7 @@ const navGroups = [
       { icon: ShoppingCart, label: 'Purchasing', path: '/purchasing' },
       { icon: Package, label: 'Inventory', path: '/inventory' },
       { icon: Factory, label: 'Production', path: '/production' },
+      { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },
       { icon: Truck, label: 'Shipping', path: '/shipping' },
     ]
   },

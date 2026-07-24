@@ -100,6 +100,16 @@
     "is_archived": {
       "type": "boolean",
       "default": false
+    },
+    "virtual_path": {
+      "type": "string",
+      "default": "/"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [
