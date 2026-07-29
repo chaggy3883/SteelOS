@@ -1,0 +1,42 @@
+{
+  "name": "payroll_document_mappings",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "tax_year": {
+      "type": "number"
+    },
+    "document_type": {
+      "type": "string",
+      "enum": [
+        "PayStub",
+        "W2"
+      ]
+    },
+    "payout_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "gross_wages_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "net_pay_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "file_secure_uri": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "employee_id",
+    "tax_year",
+    "document_type"
+  ]
+}

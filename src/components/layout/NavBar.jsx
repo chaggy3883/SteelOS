@@ -7,31 +7,74 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem
 } from '@/components/ui/dropdown-menu';
 import {
-  LayoutDashboard, Calculator, FolderKanban, Brain, Building2,
+  Calculator, FolderKanban, Brain, Building2,
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
-  ShieldCheck, ChevronDown, Zap
+  ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
+  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat
 } from 'lucide-react';
 
 const navGroups = [
   {
-    label: 'Core',
+    label: 'Estimating',
     items: [
-      { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
       { icon: Calculator, label: 'Estimating', path: '/estimating' },
-      { icon: FolderKanban, label: 'Projects', path: '/projects' },
+      { icon: BarChart3, label: 'Historical Analytics', path: '/estimating/analytics' },
+      { icon: Building2, label: 'CRM', path: '/crm' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
     ]
   },
   {
-    label: 'Operations',
+    label: 'Core',
     items: [
-      { icon: Building2, label: 'CRM', path: '/crm' },
-      { icon: ShoppingCart, label: 'Purchasing', path: '/purchasing' },
-      { icon: Package, label: 'Inventory', path: '/inventory' },
+      { icon: ShieldCheck, label: 'Admin Panel', path: '/admin' },
+      { icon: Users, label: 'Users', path: '/users' },
+      { icon: UserCog, label: 'Human Resources', path: '/human-resources' },
+      { icon: KeyRound, label: 'Employee Center', path: '/employee-center' },
+      { icon: Settings, label: 'Settings', path: '/settings' },
+      { icon: ShieldAlert, label: 'Super Admin', path: '/super-admin/dashboard' },
+      { icon: Zap, label: 'System Integrations', path: '/system-integrations' },
+    ]
+  },
+  {
+    label: 'Production & Project Management',
+    items: [
+      { icon: FolderKanban, label: 'Projects', path: '/projects' },
       { icon: Factory, label: 'Production', path: '/production' },
-      { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },
       { icon: Truck, label: 'Shipping', path: '/shipping' },
+      { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },
+      { icon: Gauge, label: 'Shop Operations', path: '/shop-operations' },
+      { icon: HardHat, label: 'Field Operations', path: '/field-operations' },
+    ]
+  },
+  {
+    label: 'Purchasing & Procurement',
+    items: [
+      { icon: ShoppingCart, label: 'Purchasing', path: '/purchasing' },
+      { icon: ClipboardList, label: 'Procurement Module', path: '/purchasing/module' },
+      { icon: PackageCheck, label: 'Receiving Kiosk', path: '/purchasing/receiving-kiosk' },
+    ]
+  },
+  {
+    label: 'Accounting & Job Costing',
+    items: [
+      { icon: DollarSign, label: 'Accounting', path: '/accounting' },
+      { icon: Scale, label: 'Legal & Contracts', path: '/legal' },
+      { icon: BarChart3, label: 'Reports', path: '/reports' },
+      { icon: Gauge, label: 'Executive Analytics', path: '/executive-analytics' },
+    ]
+  },
+  {
+    label: 'External Gateways',
+    items: [
+      { icon: Globe, label: 'Customer Portal', path: '/portal/login', query: '?type=customer' },
+      { icon: Handshake, label: 'Vendor Portal', path: '/portal/login', query: '?type=vendor' },
+    ]
+  },
+  {
+    label: 'Inventory',
+    items: [
+      { icon: Package, label: 'Inventory', path: '/inventory' },
     ]
   },
   {
@@ -43,22 +86,6 @@ const navGroups = [
       { icon: MessageSquare, label: 'RFIs', path: '/rfis' },
     ]
   },
-  {
-    label: 'Finance & Reports',
-    items: [
-      { icon: BarChart3, label: 'Cost Analytics', path: '/estimating/analytics' },
-      { icon: DollarSign, label: 'Accounting', path: '/accounting' },
-      { icon: BarChart3, label: 'Reports', path: '/reports' },
-    ]
-  },
-  {
-    label: 'System',
-    items: [
-      { icon: Users, label: 'Users', path: '/users' },
-      { icon: Settings, label: 'Settings', path: '/settings' },
-      { icon: ShieldCheck, label: 'Admin Panel', path: '/admin' },
-    ]
-  }
 ];
 
 export default function NavBar() {
@@ -67,10 +94,15 @@ export default function NavBar() {
   const [openSection, setOpenSection] = useState(null);
 
   useEffect(() => {
-    base44.auth.me().then(async (u) => {
-      const perms = await getUserPermissions(u.role || 'user');
-      setAllowedModules(perms.modules);
-    }).catch(() => {});
+    (async () => {
+      try {
+        const u = await base44.auth.me();
+        const perms = await getUserPermissions(u.roles || ['user']);
+        setAllowedModules(perms.modules);
+      } catch (e) {
+        setAllowedModules(['*']);
+      }
+    })();
   }, []);
 
   const isActive = (path) => {
@@ -81,7 +113,16 @@ export default function NavBar() {
   const hasActiveInGroup = (items) => items.some(item => isActive(item.path));
 
   return (
-    <nav className="h-12 bg-card border-b border-border flex items-center px-2 sm:px-4 gap-1 overflow-x-auto scrollbar-thin flex-shrink-0">
+    <nav className="h-12 bg-card border-b border-border flex items-center px-2 sm:px-4 gap-1 overflow-x-auto scrollbar-thin flex-shrink-0 print:hidden">
+      <Link to="/" className={cn(
+        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
+        isActive('/')
+          ? 'bg-primary/10 text-primary'
+          : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+      )}>
+        <House className="w-4 h-4" />
+        Home
+      </Link>
       {navGroups.map((group) => {
         const filteredItems = group.items.filter(item => isModuleAllowed(item.path, allowedModules));
         if (filteredItems.length === 0) return null;
@@ -89,12 +130,13 @@ export default function NavBar() {
         return (
           <DropdownMenu key={group.label} onOpenChange={(open) => setOpenSection(open ? group.label : null)}>
             <DropdownMenuTrigger asChild>
-              <button className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
-                hasActive
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-              )}>
+              <button
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
+                  hasActive ? 'bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                )}
+                style={hasActive ? { color: 'var(--tenant-brand-color, hsl(var(--primary)))' } : undefined}
+              >
                 {group.label}
                 <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', openSection === group.label && 'rotate-180')} />
               </button>
@@ -104,13 +146,14 @@ export default function NavBar() {
                 const Icon = item.icon;
                 const active = isActive(item.path);
                 return (
-                  <DropdownMenuItem key={item.path} asChild>
-                    <Link to={item.path} className={cn(
-                      'flex items-center gap-2.5 cursor-pointer',
-                      active && 'font-medium'
-                    )}>
-                      <Icon className={cn('w-4 h-4', active ? 'text-primary' : 'text-muted-foreground')} />
-                      <span className={cn(active ? 'text-primary' : '')}>{item.label}</span>
+                  <DropdownMenuItem key={item.path + (item.query || '')} asChild>
+                    <Link
+                      to={item.path + (item.query || '')}
+                      className={cn('flex items-center gap-2.5 cursor-pointer', active && 'font-medium')}
+                      style={active ? { color: 'var(--tenant-brand-color, hsl(var(--primary)))' } : undefined}
+                    >
+                      <Icon className={cn('w-4 h-4', !active && 'text-muted-foreground')} style={active ? { color: 'var(--tenant-brand-color, hsl(var(--primary)))' } : undefined} />
+                      <span>{item.label}</span>
                     </Link>
                   </DropdownMenuItem>
                 );

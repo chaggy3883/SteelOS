@@ -1,0 +1,43 @@
+{
+  "name": "Vendor",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "vendor_type": {
+      "type": "string",
+      "enum": ["subcontractor", "supplier", "equipment_rental", "carrier", "other"],
+      "default": "supplier"
+    },
+    "contact_name": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "portal_enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "portal_email": {
+      "type": "string"
+    },
+    "portal_password": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

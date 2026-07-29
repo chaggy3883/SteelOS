@@ -1,0 +1,50 @@
+{
+  "name": "form_layouts",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "target_form_key": {
+      "type": "string",
+      "enum": [
+        "add_bid",
+        "hr_onboarding",
+        "new_candidate",
+        "new_project"
+      ]
+    },
+    "fields_schema_json": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "element_type": {
+            "type": "string",
+            "enum": [
+              "short_text",
+              "long_text",
+              "numeric",
+              "date",
+              "checkbox",
+              "dropdown"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "is_required": {
+            "type": "boolean",
+            "default": false
+          },
+          "validation_regex": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "target_form_key"
+  ]
+}

@@ -8,6 +8,8 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ScrollToTop from './components/ScrollToTop';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import AppLayout from '@/components/layout/AppLayout';
+import PortalProtectedRoute from '@/components/portal/PortalProtectedRoute';
+import PortalLayout from '@/components/portal/PortalLayout';
 
 // Auth pages
 import Login from '@/pages/Login';
@@ -32,7 +34,9 @@ import Documents from '@/pages/Documents';
 import CRM from '@/pages/CRM';
 import Purchasing from '@/pages/Purchasing';
 import ProcurementModule from '@/pages/ProcurementModule';
+import ReceivingKiosk from '@/pages/ReceivingKiosk';
 import Accounting from '@/pages/Accounting';
+import Legal from '@/pages/Legal';
 import Reports from '@/pages/Reports';
 import Users from '@/pages/Users';
 import Settings from '@/pages/Settings';
@@ -42,6 +46,18 @@ import BidNew from '@/pages/BidNew';
 import BidDetail from '@/pages/BidDetail';
 import EstimatingAnalytics from '@/pages/EstimatingAnalytics';
 import ShopFabrication from '@/pages/ShopFabrication';
+import ShopOperations from '@/pages/ShopOperations';
+import HumanResources from '@/pages/HumanResources';
+import EmployeeCenter from '@/pages/EmployeeCenter';
+import SuperAdminDashboard from '@/pages/SuperAdminDashboard';
+import ExecutiveAnalytics from '@/pages/ExecutiveAnalytics';
+import SystemIntegrations from '@/pages/SystemIntegrations';
+import FieldOperations from '@/pages/FieldOperations';
+
+// External Portal pages
+import PortalLogin from '@/pages/portal/PortalLogin';
+import CustomerHub from '@/pages/portal/CustomerHub';
+import VendorPanel from '@/pages/portal/VendorPanel';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -70,6 +86,19 @@ const AuthenticatedApp = () => {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
 
+      {/* External Data Portal — entirely separate auth/session from the internal app */}
+      <Route path="/portal/login" element={<PortalLogin />} />
+      <Route element={<PortalProtectedRoute orgType="customer" />}>
+        <Route element={<PortalLayout />}>
+          <Route path="/portal/customer" element={<CustomerHub />} />
+        </Route>
+      </Route>
+      <Route element={<PortalProtectedRoute orgType="vendor" />}>
+        <Route element={<PortalLayout />}>
+          <Route path="/portal/vendor" element={<VendorPanel />} />
+        </Route>
+      </Route>
+
       {/* Protected app routes under AppLayout */}
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route element={<AppLayout />}>
@@ -88,17 +117,26 @@ const AuthenticatedApp = () => {
           <Route path="/quality" element={<Quality />} />
           <Route path="/safety" element={<Safety />} />
           <Route path="/shipping" element={<Shipping />} />
+          <Route path="/field-operations" element={<FieldOperations />} />
           <Route path="/rfis" element={<RFIs />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/crm" element={<CRM />} />
           <Route path="/purchasing" element={<Purchasing />} />
           <Route path="/purchasing/module" element={<ProcurementModule />} />
+          <Route path="/purchasing/receiving-kiosk" element={<ReceivingKiosk />} />
           <Route path="/shop-fabrication" element={<ShopFabrication />} />
+          <Route path="/shop-operations" element={<ShopOperations />} />
           <Route path="/accounting" element={<Accounting />} />
+          <Route path="/legal" element={<Legal />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={<Users />} />
+          <Route path="/human-resources" element={<HumanResources />} />
+          <Route path="/employee-center" element={<EmployeeCenter />} />
+          <Route path="/super-admin/dashboard" element={<SuperAdminDashboard />} />
+          <Route path="/executive-analytics" element={<ExecutiveAnalytics />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/system-integrations" element={<SystemIntegrations />} />
         </Route>
       </Route>
 

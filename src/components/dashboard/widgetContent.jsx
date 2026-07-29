@@ -399,6 +399,24 @@ function PendingRequisitionApprovalsWidget() {
   ))}</div>;
 }
 
+function MaterialReceivedTrackerWidget() {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    base44.entities.receiving_logs.list('-created_date', 10).then(setItems).catch(() => setItems([]));
+  }, []);
+
+  if (items.length === 0) return <WidgetEmpty message="No receiving activity yet" />;
+  return <div className="space-y-2">{items.map((item) => (
+    <div key={item.id} className="rounded-lg border border-border px-2.5 py-2 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="font-medium">{item.po_number}</span>
+        <span className={item.delivery_status === 'Partial Delivery' ? 'text-orange-500' : 'text-green-600'}>{item.delivery_status}</span>
+      </div>
+      <p className="text-muted-foreground">Heat {item.material_heat_number || '—'} · {item.quantity_received}/{item.quantity_ordered} received</p>
+    </div>
+  ))}</div>;
+}
+
 const WIDGET_RENDERERS = {
   bid_list: BidListWidget, active_bids_count: ActiveBidsCountWidget, bid_win_rate: BidWinRateWidget,
   bid_history: BidHistoryWidget, quick_add_bid: QuickAddBidWidget, active_projects: ActiveProjectsWidget,
@@ -409,6 +427,7 @@ const WIDGET_RENDERERS = {
   shipments_calendar_widget: ShipmentsCalendarWidgetCard,
   buyout_variance_widget: BuyoutVarianceWidget,
   pending_requisition_approvals_widget: PendingRequisitionApprovalsWidget,
+  material_received_tracker_widget: MaterialReceivedTrackerWidget,
 };
 
 export default function WidgetContent({ widgetId }) {

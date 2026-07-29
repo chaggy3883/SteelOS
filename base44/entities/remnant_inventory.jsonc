@@ -1,0 +1,31 @@
+{
+  "name": "remnant_inventory",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "material_shape": {
+      "type": "string"
+    },
+    "dimensions": {
+      "type": "string"
+    },
+    "length_in": {
+      "type": "number",
+      "default": 0
+    },
+    "heat_number_string": {
+      "type": "string"
+    },
+    "source_project_id": {
+      "type": "string"
+    },
+    "inventory_zone_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "material_shape"
+  ]
+}

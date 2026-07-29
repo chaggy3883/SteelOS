@@ -1,0 +1,32 @@
+{
+  "name": "heavy_equipment_inspections",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "asset_id": {
+      "type": "string"
+    },
+    "inspection_type": {
+      "type": "string",
+      "enum": ["Crane_Annual", "DOT_Vehicle", "Trailer_Safety", "Rigging_Quarterly"]
+    },
+    "executed_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "expiration_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "status_passed": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "inspection_type",
+    "expiration_date"
+  ]
+}

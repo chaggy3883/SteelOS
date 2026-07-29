@@ -1,0 +1,55 @@
+{
+  "name": "credit_card_expenses",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "card_last4": {
+      "type": "string"
+    },
+    "merchant_name": {
+      "type": "string"
+    },
+    "expense_category": {
+      "type": "string",
+      "enum": ["Lodging", "Meals", "Fuel", "Tolls_Parking", "Other"],
+      "default": "Other"
+    },
+    "amount_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "expense_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "receipt_file_uri": {
+      "type": "string"
+    },
+    "per_diem_allowance_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "is_out_of_town_travel": {
+      "type": "boolean",
+      "default": false
+    },
+    "status": {
+      "type": "string",
+      "enum": ["Pending", "Approved", "Reimbursed"],
+      "default": "Pending"
+    }
+  },
+  "required": [
+    "employee_id",
+    "expense_date",
+    "amount_cents"
+  ]
+}

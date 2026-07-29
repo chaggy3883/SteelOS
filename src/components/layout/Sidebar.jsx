@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderKanban, Brain, Users, ShoppingCart,
   Package, Factory, CheckSquare, Truck, DollarSign, BarChart3,
   Settings, ChevronLeft, ChevronRight, Zap, Building2,
-  FileText, Shield, HardHat, MessageSquare, Layers, Calculator, ShieldCheck
+  FileText, Shield, MessageSquare, Layers, Calculator, ShieldCheck, Wrench, UserCog, Gauge, KeyRound, HardHat
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { base44 } from '@/api/base44Client';
@@ -27,7 +27,10 @@ const navGroups = [
       { icon: ShoppingCart, label: 'Purchasing', path: '/purchasing' },
       { icon: Package, label: 'Inventory', path: '/inventory' },
       { icon: Factory, label: 'Production', path: '/production' },
+      { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },
+      { icon: Gauge, label: 'Shop Operations', path: '/shop-operations' },
       { icon: Truck, label: 'Shipping', path: '/shipping' },
+      { icon: HardHat, label: 'Field Operations', path: '/field-operations' },
     ]
   },
   {
@@ -45,14 +48,18 @@ const navGroups = [
       { icon: BarChart3, label: 'Cost Analytics', path: '/estimating/analytics' },
       { icon: DollarSign, label: 'Accounting', path: '/accounting' },
       { icon: BarChart3, label: 'Reports', path: '/reports' },
+      { icon: Gauge, label: 'Executive Analytics', path: '/executive-analytics' },
     ]
   },
   {
     label: 'SYSTEM',
     items: [
       { icon: Users, label: 'Users', path: '/users' },
+      { icon: UserCog, label: 'Human Resources', path: '/human-resources' },
+      { icon: KeyRound, label: 'Employee Center', path: '/employee-center' },
       { icon: Settings, label: 'Settings', path: '/settings' },
       { icon: ShieldCheck, label: 'Admin Panel', path: '/admin' },
+      { icon: Zap, label: 'System Integrations', path: '/system-integrations' },
     ]
   }
 ];
@@ -63,7 +70,7 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, onClose }
 
   useEffect(() => {
     base44.auth.me().then(async (u) => {
-      const perms = await getUserPermissions(u.role || 'user');
+      const perms = await getUserPermissions(u.roles || ['user']);
       setAllowedModules(perms.modules);
     }).catch(() => {});
   }, []);

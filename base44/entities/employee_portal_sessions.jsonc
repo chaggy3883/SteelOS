@@ -1,0 +1,26 @@
+{
+  "name": "employee_portal_sessions",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "terminal_id": {
+      "type": "string"
+    },
+    "attempts_count": {
+      "type": "number",
+      "default": 0
+    },
+    "locked_until_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "active_token": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "terminal_id"
+  ]
+}

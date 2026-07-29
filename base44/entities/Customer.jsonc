@@ -72,6 +72,16 @@
     "is_active": {
       "type": "boolean",
       "default": true
+    },
+    "portal_enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "portal_email": {
+      "type": "string"
+    },
+    "portal_password": {
+      "type": "string"
     }
   },
   "required": [

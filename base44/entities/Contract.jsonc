@@ -1,0 +1,73 @@
+{
+  "name": "Contract",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "gc_name": {
+      "type": "string"
+    },
+    "contract_value": {
+      "type": "number",
+      "default": 0
+    },
+    "contract_document_id": {
+      "type": "string"
+    },
+    "liquidated_damages_per_day": {
+      "type": "number",
+      "default": 0
+    },
+    "notice_cure_days": {
+      "type": "number",
+      "default": 0
+    },
+    "rfi_response_window_days": {
+      "type": "number",
+      "default": 0
+    },
+    "retainage_pct": {
+      "type": "number",
+      "default": 0.1
+    },
+    "retainage_release_terms": {
+      "type": "string"
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ai_scan_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "processing",
+        "complete",
+        "failed"
+      ],
+      "default": "pending"
+    },
+    "ai_extraction_summary": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "active",
+        "closed"
+      ],
+      "default": "draft"
+    }
+  },
+  "required": [
+    "project_id",
+    "gc_name"
+  ]
+}

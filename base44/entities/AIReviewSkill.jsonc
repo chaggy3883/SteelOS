@@ -1,0 +1,30 @@
+{
+  "name": "AIReviewSkill",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "system_prompt": {
+      "type": "string"
+    },
+    "accepts_attachments": {
+      "type": "boolean",
+      "default": true
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "name",
+    "system_prompt"
+  ]
+}

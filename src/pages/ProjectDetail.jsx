@@ -2,15 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import {
-  ArrowLeft, Brain, MessageSquare, Package, CheckSquare,
-  DollarSign, Calendar, MapPin, Building2, Edit,
-  AlertTriangle, CheckCircle2, Clock, TrendingUp, Layers
+  ArrowLeft, Brain, MessageSquare, Package,
+  DollarSign, Edit,
+  AlertTriangle, Layers, Gavel
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import StatusBadge from '@/components/ui/StatusBadge';
 import StatsCard from '@/components/ui/StatsCard';
 import FileExplorer from '@/components/documents/FileExplorer';
+import { useToast } from '@/components/ui/use-toast';
+import { getStatutoryDeadline } from '@/lib/lienStatutes';
 
 const HealthRing = ({ score }) => {
   const color = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : '#ef4444';
@@ -35,11 +37,13 @@ const HealthRing = ({ score }) => {
 export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [project, setProject] = useState(null);
   const [findings, setFindings] = useState([]);
   const [rfis, setRfis] = useState([]);
   const [pieces, setPieces] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [markingAwarded, setMarkingAwarded] = useState(false);
 
   useEffect(() => { if (id) loadAll(); }, [id]);
 
@@ -60,6 +64,38 @@ export default function ProjectDetail() {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleMarkAwarded = async () => {
+    setMarkingAwarded(true);
+    try {
+      const updated = await base44.entities.Project.update(id, { status: 'awarded' });
+      setProject(updated);
+
+      const workStartDate = updated.award_date || updated.start_date || new Date().toISOString().slice(0, 10);
+      const { days, notice_type, deadlineDate } = getStatutoryDeadline(updated.state, workStartDate);
+      const notice = await base44.entities.StatutoryNotice.create({
+        project_id: id,
+        state: updated.state || '',
+        notice_type,
+        statutory_deadline_days: days,
+        work_start_date: workStartDate,
+        deadline_date: deadlineDate,
+      });
+      await base44.entities.LegalAuditEvent.create({
+        project_id: id,
+        event_type: 'statutory_notice_created',
+        related_entity_type: 'StatutoryNotice',
+        related_entity_id: notice.id,
+        description: `${notice_type.replace(/_/g, ' ')} deadline set to ${deadlineDate} (${days} days) based on job site state ${updated.state || 'unknown'}.`,
+      });
+
+      toast({ title: 'Project marked Awarded', description: `Statutory notice deadline: ${deadlineDate}` });
+    } catch (e) {
+      toast({ title: 'Unable to mark project awarded', variant: 'destructive' });
+    } finally {
+      setMarkingAwarded(false);
     }
   };
 
@@ -113,6 +149,11 @@ export default function ProjectDetail() {
               <Brain className="w-4 h-4" /> AI Analysis
             </Button>
           </Link>
+          {['lead', 'estimating'].includes(project.status) && (
+            <Button variant="outline" className="gap-2 text-green-600 border-green-500/30 hover:bg-green-500/10" onClick={handleMarkAwarded} disabled={markingAwarded}>
+              <Gavel className="w-4 h-4" /> {markingAwarded ? 'Marking…' : 'Mark Awarded'}
+            </Button>
+          )}
           <Button className="steel-gradient text-white border-0 gap-2">
             <Edit className="w-4 h-4" /> Edit
           </Button>

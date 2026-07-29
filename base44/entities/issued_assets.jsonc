@@ -1,0 +1,50 @@
+{
+  "name": "issued_assets",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "asset_type": {
+      "type": "string",
+      "enum": [
+        "Hard_Hat",
+        "Safety_Glasses",
+        "Harness",
+        "Gloves",
+        "Steel_Toe_Boots",
+        "Radio",
+        "Badge",
+        "Other"
+      ]
+    },
+    "asset_tag": {
+      "type": "string"
+    },
+    "issued_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "returned_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "condition": {
+      "type": "string",
+      "enum": [
+        "New",
+        "Good",
+        "Worn",
+        "Damaged"
+      ],
+      "default": "New"
+    }
+  },
+  "required": [
+    "employee_id",
+    "asset_type"
+  ]
+}

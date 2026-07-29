@@ -24,11 +24,13 @@
         "joist_deck",
         "anchor_bolts",
         "shop_priming",
+        "primer_paint",
         "grating",
         "outsourced_paint",
         "outsourced_shot_blasting",
         "jobsite_freight",
-        "misc_fabrication",
+        "misc_fab_structural",
+        "misc_fab_processing",
         "misc_material",
         "steel_erection",
         "outsourced_misc_material_erection",
@@ -90,6 +92,10 @@
     "tax_rate_override": {
       "type": "number",
       "default": 0
+    },
+    "coverage_rate": {
+      "type": "number",
+      "default": 300
     }
   },
   "required": [

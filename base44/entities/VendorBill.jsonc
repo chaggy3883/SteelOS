@@ -1,0 +1,51 @@
+{
+  "name": "VendorBill",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "vendor_id": {
+      "type": "string"
+    },
+    "po_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "invoice_number": {
+      "type": "string"
+    },
+    "invoice_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "gross_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": ["Pending_Match", "Approved", "Flagged_Review"],
+      "default": "Pending_Match"
+    },
+    "variance_pct": {
+      "type": "number",
+      "default": 0
+    },
+    "conditional_waiver_signed": {
+      "type": "boolean",
+      "default": false
+    },
+    "unconditional_waiver_received": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "vendor_id",
+    "po_id",
+    "gross_amount"
+  ]
+}

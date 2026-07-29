@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Search, UserPlus, Ban, Trash2, Loader2, PlusCircle } from 'lucide-react';
+import { Search, Ban, Trash2, Loader2, PlusCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -46,7 +46,7 @@ export default function UserManagement() {
         full_name: builderForm.full_name,
         email: builderForm.email,
         password: builderForm.password,
-        role: builderForm.role,
+        roles: [builderForm.role],
         permissions,
         is_active: true,
       });
@@ -62,8 +62,8 @@ export default function UserManagement() {
 
   const handleRoleChange = async (userId, newRole) => {
     try {
-      await base44.entities.User.update(userId, { role: newRole });
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+      await base44.entities.User.update(userId, { roles: [newRole] });
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, roles: [newRole] } : u));
       toast({ title: 'Role updated' });
     } catch (e) {
       toast({ title: 'Failed to update role', variant: 'destructive' });
@@ -73,8 +73,8 @@ export default function UserManagement() {
   const handleSuspend = async (user) => {
     if (!confirm(`Suspend ${user.full_name || user.email}? They will lose access on next login.`)) return;
     try {
-      await base44.entities.User.update(user.id, { role: 'suspended' });
-      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: 'suspended' } : u));
+      await base44.entities.User.update(user.id, { roles: ['suspended'] });
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, roles: ['suspended'] } : u));
       toast({ title: 'User suspended' });
     } catch (e) {
       toast({ title: 'Failed to suspend user', variant: 'destructive' });
@@ -126,7 +126,7 @@ export default function UserManagement() {
                   <p className="text-xs text-muted-foreground">{user.email}</p>
                 </td>
                 <td className="px-4 py-3">
-                  <Select value={user.role || 'user'} onValueChange={v => handleRoleChange(user.id, v)}>
+                  <Select value={user.roles?.[0] || 'user'} onValueChange={v => handleRoleChange(user.id, v)}>
                     <SelectTrigger className="w-48 h-8 text-xs">
                       <SelectValue />
                     </SelectTrigger>

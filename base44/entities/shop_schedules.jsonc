@@ -1,0 +1,37 @@
+{
+  "name": "shop_schedules",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "sequence_number": {
+      "type": "number",
+      "default": 1
+    },
+    "scheduled_start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "scheduled_end_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "target_tons": {
+      "type": "number",
+      "default": 0
+    },
+    "priority_weight": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "project_id",
+    "scheduled_start_date",
+    "scheduled_end_date"
+  ]
+}

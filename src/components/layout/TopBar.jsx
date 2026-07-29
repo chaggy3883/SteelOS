@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Layers, House } from 'lucide-react';
+import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Layers, ShieldAlert } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import {
@@ -9,8 +9,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
 import GlobalSearchPalette from '@/components/search/GlobalSearchPalette';
+import { isImpersonating, stopImpersonation } from '@/lib/tenantContext';
 
-export default function TopBar({ darkMode, setDarkMode, user }) {
+export default function TopBar({ darkMode, setDarkMode, user, company, onImpersonationChange }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const navigate = useNavigate();
@@ -18,6 +19,22 @@ export default function TopBar({ darkMode, setDarkMode, user }) {
   useEffect(() => {
     loadNotifications();
   }, []);
+
+  // Co-branded chrome: the effective tenant's own logo/color, passed down
+  // from AppLayout (which already resolves it per-route) rather than this
+  // component fetching "whichever Company row happens to be first" — that
+  // broke the moment a second tenant existed.
+  useEffect(() => {
+    if (company?.brand_color_hex) {
+      document.documentElement.style.setProperty('--tenant-brand-color', company.brand_color_hex);
+    }
+  }, [company?.brand_color_hex]);
+
+  const handleExitImpersonation = () => {
+    stopImpersonation();
+    onImpersonationChange?.();
+    navigate('/super-admin/dashboard');
+  };
 
   const loadNotifications = async () => {
     try {
@@ -34,7 +51,7 @@ export default function TopBar({ darkMode, setDarkMode, user }) {
   };
 
   return (
-    <header className="h-16 bg-card border-b border-border flex items-center justify-between px-4 lg:px-6 flex-shrink-0">
+    <header className="h-16 bg-card border-b border-border flex items-center justify-between px-4 lg:px-6 flex-shrink-0 print:hidden">
       {/* Logo */}
       <div className="flex items-center gap-2 flex-shrink-0">
         <div className="w-8 h-8 rounded-lg steel-gradient flex items-center justify-center">
@@ -44,21 +61,26 @@ export default function TopBar({ darkMode, setDarkMode, user }) {
           <span className="font-bold text-lg tracking-tight text-foreground">Steel</span>
           <span className="font-bold text-lg tracking-tight text-primary">OS</span>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate('/')}
-          className="ml-2 rounded-lg border border-border/70 bg-background/70 text-foreground shadow-sm transition-colors hover:bg-muted/80 dark:bg-background/50"
-        >
-          <House className="mr-2 h-4 w-4" />
-          Home
-        </Button>
+        {company?.logo_url && (
+          <>
+            <div className="w-px h-6 bg-border" />
+            <img src={company.logo_url} alt={`${company.name} logo`} className="h-6 w-auto max-w-[120px] object-contain" />
+          </>
+        )}
       </div>
 
       {/* Global Search — Command Palette */}
       <div className="flex items-center gap-3 flex-1 max-w-md ml-4">
         <GlobalSearchPalette />
       </div>
+
+      {isImpersonating() && (
+        <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs font-medium text-yellow-700 flex-shrink-0">
+          <ShieldAlert className="w-3.5 h-3.5" />
+          Impersonating {company?.name || 'tenant'}
+          <button onClick={handleExitImpersonation} className="underline hover:no-underline">Exit</button>
+        </div>
+      )}
 
       {/* Right side */}
       <div className="flex items-center gap-2">

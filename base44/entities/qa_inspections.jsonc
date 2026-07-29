@@ -1,0 +1,45 @@
+{
+  "name": "qa_inspections",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "piece_id": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "1_Layout",
+        "2_Weld"
+      ]
+    },
+    "inspector_id": {
+      "type": "string"
+    },
+    "digital_stamp_credentials": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Approved",
+        "Failed"
+      ]
+    },
+    "notes": {
+      "type": "string"
+    },
+    "inspected_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "piece_id",
+    "stage",
+    "inspector_id",
+    "status"
+  ]
+}

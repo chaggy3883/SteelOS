@@ -1,20 +1,44 @@
-import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Package, Plus, Search, Warehouse, List, BarChart3, AlertTriangle } from 'lucide-react';
+import { Package, Plus, Search, Warehouse, List, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import StatusBadge from '@/components/ui/StatusBadge';
 import PageHeader from '@/components/ui/PageHeader';
 import Warehouse3D from '@/components/warehouse/Warehouse3D';
+import { useToast } from '@/components/ui/use-toast';
+
+const CATEGORIES = ['wide_flange', 'hss', 'angle', 'channel', 'plate', 'rebar', 'bolt', 'weld_material', 'paint', 'other'];
+
+const emptyItemForm = () => ({
+  item_number: '', description: '', category: 'other', material_grade: '', size: '',
+  unit_of_measure: 'ea', quantity_on_hand: '', unit_cost: '', warehouse_zone: '', reorder_point: '',
+});
 
 export default function Inventory() {
+  const { toast } = useToast();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('list');
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [itemForm, setItemForm] = useState(emptyItemForm());
+  const [savingItem, setSavingItem] = useState(false);
+  const [shopFloorZones, setShopFloorZones] = useState([]);
 
-  useEffect(() => { loadItems(); }, []);
+  useEffect(() => { loadItems(); loadShopFloorZones(); }, []);
+
+  const loadShopFloorZones = async () => {
+    try {
+      const zones = await base44.entities.ShopFloorZone.list('-created_date', 200);
+      setShopFloorZones(zones);
+    } catch (e) { setShopFloorZones([]); }
+  };
+
+  const zoneLabel = (zoneId) => shopFloorZones.find((z) => z.id === zoneId)?.label || zoneId;
 
   const loadItems = async () => {
     setLoading(true);
@@ -22,6 +46,39 @@ export default function Inventory() {
       const data = await base44.entities.InventoryItem.filter({ is_active: true }, '-created_date', 100);
       setItems(data);
     } catch (e) {} finally { setLoading(false); }
+  };
+
+  const handleAddItem = async () => {
+    if (!itemForm.description.trim()) {
+      toast({ title: 'Description is required', variant: 'destructive' });
+      return;
+    }
+    setSavingItem(true);
+    try {
+      const quantityOnHand = Number(itemForm.quantity_on_hand) || 0;
+      const created = await base44.entities.InventoryItem.create({
+        item_number: itemForm.item_number.trim(),
+        description: itemForm.description.trim(),
+        category: itemForm.category,
+        material_grade: itemForm.material_grade.trim(),
+        size: itemForm.size.trim(),
+        unit_of_measure: itemForm.unit_of_measure.trim() || 'ea',
+        quantity_on_hand: quantityOnHand,
+        quantity_available: quantityOnHand,
+        unit_cost: Number(itemForm.unit_cost) || 0,
+        warehouse_zone: itemForm.warehouse_zone.trim(),
+        reorder_point: Number(itemForm.reorder_point) || 0,
+        is_active: true,
+      });
+      setItems((prev) => [created, ...prev]);
+      setShowAddItem(false);
+      setItemForm(emptyItemForm());
+      toast({ title: 'Item added to inventory' });
+    } catch (e) {
+      toast({ title: 'Unable to add item', variant: 'destructive' });
+    } finally {
+      setSavingItem(false);
+    }
   };
 
   const filtered = items.filter(i =>
@@ -40,7 +97,7 @@ export default function Inventory() {
         title="Inventory"
         subtitle="Material inventory and 3D warehouse management"
         actions={
-          <Button className="steel-gradient text-white border-0">
+          <Button className="steel-gradient text-white border-0" onClick={() => setShowAddItem(true)}>
             <Plus className="w-4 h-4 mr-2" /> Add Item
           </Button>
         }
@@ -119,7 +176,7 @@ export default function Inventory() {
                         <td className="py-3 px-4 text-muted-foreground capitalize">{item.category?.replace('_',' ')}</td>
                         <td className="py-3 px-4">{item.material_grade || '—'}</td>
                         <td className="py-3 px-4 text-muted-foreground font-mono text-xs">
-                          {item.warehouse_zone || '—'}{item.warehouse_rack ? ` / ${item.warehouse_rack}` : ''}
+                          {item.warehouse_zone ? zoneLabel(item.warehouse_zone) : '—'}{item.warehouse_rack ? ` / ${item.warehouse_rack}` : ''}
                         </td>
                         <td className="py-3 px-4 text-right font-medium">{item.quantity_on_hand} {item.unit_of_measure}</td>
                         <td className={`py-3 px-4 text-right font-medium ${item.reorder_point && item.quantity_available <= item.reorder_point ? 'text-red-500' : ''}`}>
@@ -145,6 +202,70 @@ export default function Inventory() {
           <Warehouse3D items={items} />
         </TabsContent>
       </Tabs>
+
+      <Dialog open={showAddItem} onOpenChange={setShowAddItem}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Inventory Item</DialogTitle></DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <Label>Description</Label>
+              <Input value={itemForm.description} onChange={(e) => setItemForm((f) => ({ ...f, description: e.target.value }))} className="mt-1" placeholder="e.g. W12x26 Wide Flange" />
+            </div>
+            <div>
+              <Label>Item Number</Label>
+              <Input value={itemForm.item_number} onChange={(e) => setItemForm((f) => ({ ...f, item_number: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
+              <Label>Category</Label>
+              <Select value={itemForm.category} onValueChange={(v) => setItemForm((f) => ({ ...f, category: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c.replace(/_/g, ' ')}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Material Grade</Label>
+              <Input value={itemForm.material_grade} onChange={(e) => setItemForm((f) => ({ ...f, material_grade: e.target.value }))} className="mt-1" placeholder="A992" />
+            </div>
+            <div>
+              <Label>Size</Label>
+              <Input value={itemForm.size} onChange={(e) => setItemForm((f) => ({ ...f, size: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
+              <Label>Unit of Measure</Label>
+              <Input value={itemForm.unit_of_measure} onChange={(e) => setItemForm((f) => ({ ...f, unit_of_measure: e.target.value }))} className="mt-1" placeholder="ea / ft / lb" />
+            </div>
+            <div>
+              <Label>Quantity on Hand</Label>
+              <Input type="number" value={itemForm.quantity_on_hand} onChange={(e) => setItemForm((f) => ({ ...f, quantity_on_hand: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
+              <Label>Unit Cost ($)</Label>
+              <Input type="number" value={itemForm.unit_cost} onChange={(e) => setItemForm((f) => ({ ...f, unit_cost: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
+              <Label>Warehouse Zone</Label>
+              <Select value={itemForm.warehouse_zone} onValueChange={(v) => setItemForm((f) => ({ ...f, warehouse_zone: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select a zone" /></SelectTrigger>
+                <SelectContent>
+                  {shopFloorZones.map((z) => <SelectItem key={z.id} value={z.id}>{z.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Reorder Point</Label>
+              <Input type="number" value={itemForm.reorder_point} onChange={(e) => setItemForm((f) => ({ ...f, reorder_point: e.target.value }))} className="mt-1" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddItem(false)}>Cancel</Button>
+            <Button onClick={handleAddItem} disabled={savingItem} className="steel-gradient text-white border-0">
+              {savingItem ? 'Saving…' : 'Add Item'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

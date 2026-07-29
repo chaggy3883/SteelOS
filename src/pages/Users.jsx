@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Users as UsersIcon, Plus, Mail, Shield, Search, ChevronDown } from 'lucide-react';
+import { Users as UsersIcon, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -37,8 +36,10 @@ export default function Users() {
   const [search, setSearch] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('estimator');
+  const [inviteRoles, setInviteRoles] = useState(['estimator']);
   const [inviting, setInviting] = useState(false);
+  const [newUserId, setNewUserId] = useState(null);
+  const rowRefs = useRef({});
 
   useEffect(() => { loadUsers(); }, []);
 
@@ -50,14 +51,41 @@ export default function Users() {
     } catch (e) {} finally { setLoading(false); }
   };
 
+  const toggleInviteRole = (role) => {
+    setInviteRoles((prev) => prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]);
+  };
+
   const handleInvite = async () => {
     if (!inviteEmail) return;
+    // Write through base44.entities.User (the same entity API this page reads
+    // from via loadUsers/list) rather than base44.users.inviteUser, which holds
+    // its own independent in-memory copy — a write there is invisible to a
+    // .list() call through this page's separate User entity instance.
+    const existing = users.find((u) => u.email?.toLowerCase() === inviteEmail.toLowerCase());
+    if (existing) {
+      toast({ title: 'A user with this email already exists', variant: 'destructive' });
+      return;
+    }
     setInviting(true);
     try {
-      await base44.users.inviteUser(inviteEmail, inviteRole === 'system_administrator' ? 'admin' : 'user');
+      const mappedRoles = inviteRoles.map((r) => (r === 'system_administrator' ? 'admin' : r));
+      const created = await base44.entities.User.create({
+        email: inviteEmail,
+        roles: mappedRoles.length > 0 ? mappedRoles : ['user'],
+        password: 'changeme123',
+        full_name: inviteEmail,
+        is_active: true,
+      });
       toast({ title: 'Invitation sent!', description: `${inviteEmail} has been invited to SteelOS.` });
       setInviteOpen(false);
       setInviteEmail('');
+      setInviteRoles(['estimator']);
+      await loadUsers();
+      setNewUserId(created.id);
+      requestAnimationFrame(() => {
+        rowRefs.current[created.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      setTimeout(() => setNewUserId((id) => (id === created.id ? null : id)), 3000);
     } catch (e) {
       toast({ title: 'Failed to invite', description: 'Please try again.', variant: 'destructive' });
     } finally { setInviting(false); }
@@ -97,15 +125,15 @@ export default function Users() {
                   />
                 </div>
                 <div>
-                  <Label>Role</Label>
-                  <Select value={inviteRole} onValueChange={setInviteRole}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                    <SelectContent className="max-h-64">
-                      {ROLES.map(r => (
-                        <SelectItem key={r} value={r}>{r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Role(s) — select one or more</Label>
+                  <div className="mt-1 max-h-56 overflow-y-auto border border-border rounded-lg p-2 space-y-1">
+                    {ROLES.map(r => (
+                      <label key={r} className="flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-muted cursor-pointer">
+                        <input type="checkbox" checked={inviteRoles.includes(r)} onChange={() => toggleInviteRole(r)} />
+                        {r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <Button onClick={handleInvite} disabled={inviting || !inviteEmail} className="w-full steel-gradient text-white border-0">
                   {inviting ? 'Sending Invitation...' : 'Send Invitation'}
@@ -119,8 +147,8 @@ export default function Users() {
       {/* Role Legend */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'Administrators', count: users.filter(u => u.role === 'admin').length, color: 'text-red-500' },
-          { label: 'Office Users', count: users.filter(u => u.role === 'user').length, color: 'text-blue-500' },
+          { label: 'Administrators', count: users.filter(u => u.roles?.includes('admin')).length, color: 'text-red-500' },
+          { label: 'Office Users', count: users.filter(u => u.roles?.includes('user')).length, color: 'text-blue-500' },
           { label: 'Total Active', count: users.length, color: 'text-green-500' },
           { label: 'Pending Invite', count: 0, color: 'text-orange-500' },
         ].map(({ label, count, color }) => (
@@ -161,7 +189,11 @@ export default function Users() {
                 </td></tr>
               ) : (
                 filtered.map(user => (
-                  <tr key={user.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                  <tr
+                    key={user.id}
+                    ref={(el) => { rowRefs.current[user.id] = el; }}
+                    className={`border-b border-border/50 hover:bg-muted/50 transition-colors ${newUserId === user.id ? 'bg-primary/10 animate-pulse' : ''}`}
+                  >
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
@@ -174,9 +206,13 @@ export default function Users() {
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${roleColor(user.role)}`}>
-                        {(user.role || 'user').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {(user.roles?.length > 0 ? user.roles : ['user']).map((r) => (
+                          <span key={r} className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${roleColor(r)}`}>
+                            {r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-muted-foreground text-xs">
                       {user.created_date ? new Date(user.created_date).toLocaleDateString() : '—'}

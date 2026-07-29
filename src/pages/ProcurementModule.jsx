@@ -4,9 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import { Plus, Truck, ClipboardCheck, FileText, DollarSign, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { generateQrPayload } from '@/lib/qrSerialization';
+
+const AUTO_APPROVE_THRESHOLD = 5000;
 
 const materialCategories = ['Structural Shapes', 'Plate', 'HSS', 'Joist/Deck', 'Fasteners', 'Consumables'];
 const paymentTerms = ['Net 30', 'Net 60', 'Prox 25'];
@@ -22,7 +26,8 @@ export default function ProcurementModule() {
   const [loading, setLoading] = useState(true);
   const [poForm, setPoForm] = useState({ po_number: '', vendor_id: '', material_category: 'Structural Shapes', budgeted_cost: '', actual_cost: '', payment_terms: 'Net 30' });
   const [reqForm, setReqForm] = useState({ job_number: '', item_description: '', required_on_site_date: '', urgency: 'Medium', requisition_total: '' });
-  const [receivingForm, setReceivingForm] = useState({ po_number: '', quantity_ordered: '', quantity_received: '', material_heat_number: '', delivery_status: 'Received Complete' });
+  const [receivingForm, setReceivingForm] = useState({ po_number: '', quantity_ordered: '', quantity_received: '', material_heat_number: '', delivery_status: 'Received Complete', verified: false });
+  const [receivingFiles, setReceivingFiles] = useState([]);
   const [invoiceForm, setInvoiceForm] = useState({ invoice_number: '', po_id: '', invoice_amount: '', quantity_received: '', expected_cost: '', expected_quantity: '' });
 
   useEffect(() => { loadData(); }, []);
@@ -35,7 +40,7 @@ export default function ProcurementModule() {
         base44.entities.purchase_requisitions.list('-created_date', 100),
         base44.entities.receiving_logs.list('-created_date', 100),
         base44.entities.payable_invoices.list('-created_date', 100),
-        base44.entities.Customer.list('-created_date', 100),
+        base44.entities.Vendor.filter({ is_active: true }, '-created_date', 100),
       ]);
       setPurchaseOrders(poList);
       setRequisitions(reqList);
@@ -54,8 +59,8 @@ export default function ProcurementModule() {
     const selectedVendor = vendors.find((vendor) => vendor.id === poForm.vendor_id) || vendors[0];
     const created = await base44.entities.purchase_orders.create({
       po_number: poForm.po_number || `PO-${String(purchaseOrders.length + 1001)}`,
-      vendor_id: selectedVendor?.id || 'customer-peak',
-      vendor_name: selectedVendor?.name || 'Peak Steel',
+      vendor_id: selectedVendor?.id || '',
+      vendor_name: selectedVendor?.name || '',
       material_category: poForm.material_category,
       budgeted_cost: Number(poForm.budgeted_cost || 0),
       actual_cost: Number(poForm.actual_cost || 0),
@@ -72,14 +77,14 @@ export default function ProcurementModule() {
   const createRequisition = async (event) => {
     event.preventDefault();
     const total = Number(reqForm.requisition_total || 0);
-    const requiresSignature = total > 5000;
+    const requiresSignature = total > AUTO_APPROVE_THRESHOLD;
     const created = await base44.entities.purchase_requisitions.create({
       job_number: reqForm.job_number,
       item_description: reqForm.item_description,
       required_on_site_date: reqForm.required_on_site_date,
       urgency: reqForm.urgency,
       requisition_total: total,
-      status: requiresSignature ? 'Pending Executive Approval' : 'Approved to Purchasing Queue',
+      status: requiresSignature ? 'Exec_Review' : 'Auto_Approved',
       requires_signature: requiresSignature,
     });
     setRequisitions([created, ...requisitions]);
@@ -90,6 +95,13 @@ export default function ProcurementModule() {
   const createReceivingLog = async (event) => {
     event.preventDefault();
     const matchingPo = purchaseOrders.find((po) => po.po_number === receivingForm.po_number) || purchaseOrders[0];
+
+    let attachmentPath = '';
+    for (const file of receivingFiles) {
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      if (!attachmentPath) attachmentPath = file_url;
+    }
+
     const created = await base44.entities.receiving_logs.create({
       po_id: matchingPo?.id || '',
       po_number: matchingPo?.po_number || receivingForm.po_number,
@@ -98,11 +110,25 @@ export default function ProcurementModule() {
       delivery_status: receivingForm.delivery_status,
       packing_list: receivingForm.po_number,
       material_heat_number: receivingForm.material_heat_number,
-      attachment_path: '/uploads/receiving.jpg',
+      attachment_path: attachmentPath || '/uploads/receiving.jpg',
+      verified: !!receivingForm.verified,
     });
     setReceivingLogs([created, ...receivingLogs]);
-    setReceivingForm({ po_number: '', quantity_ordered: '', quantity_received: '', material_heat_number: '', delivery_status: 'Received Complete' });
-    toast({ title: 'Receiving log updated' });
+
+    // Serialization: write a QR routing payload to the flat project documents registry
+    const qrPayload = generateQrPayload(created);
+    await base44.entities.Document.create({
+      project_id: matchingPo?.project_id || '',
+      name: `Receiving QR — ${created.po_number} / ${created.material_heat_number || 'no heat'}`,
+      document_type: 'other',
+      description: 'Auto-generated QR routing payload for received material.',
+      qr_payload: qrPayload,
+      virtual_path: '/receiving-qr/',
+    });
+
+    setReceivingFiles([]);
+    setReceivingForm({ po_number: '', quantity_ordered: '', quantity_received: '', material_heat_number: '', delivery_status: 'Received Complete', verified: false });
+    toast({ title: 'Receiving log updated', description: `QR payload: ${qrPayload}` });
   };
 
   const createInvoice = async (event) => {
@@ -281,7 +307,7 @@ export default function ProcurementModule() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">${Number(item.requisition_total || 0).toLocaleString()}</span>
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs">{item.status}</span>
+                  <span className={`rounded-full px-2.5 py-1 text-xs ${item.status === 'Exec_Review' ? 'bg-orange-500/10 text-orange-600' : 'bg-green-500/10 text-green-600'}`}>{item.status?.replace(/_/g, ' ')}</span>
                 </div>
               </div>
             ))}
@@ -317,8 +343,18 @@ export default function ProcurementModule() {
             </div>
             <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">Attach BOL / MTR documents</p>
-              <p className="mt-1">Drop files into the receiving workflow to capture delivery evidence.</p>
+              <input
+                type="file"
+                multiple
+                onChange={(event) => setReceivingFiles(Array.from(event.target.files || []))}
+                className="mt-2 block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-primary file:text-primary-foreground file:text-xs"
+              />
+              {receivingFiles.length > 0 && <p className="mt-1 text-xs">{receivingFiles.length} file(s) selected</p>}
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox checked={receivingForm.verified} onCheckedChange={(v) => setReceivingForm({ ...receivingForm, verified: !!v })} />
+              Inspected &amp; verified against packing list — required for AP 3-way match auto-approval
+            </label>
             <div className="flex justify-end">
               <Button type="submit" className="steel-gradient text-white border-0"><Truck className="mr-2 h-4 w-4" />Log Receiving</Button>
             </div>
@@ -333,6 +369,7 @@ export default function ProcurementModule() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="rounded-full bg-muted px-2.5 py-1 text-xs">{item.delivery_status}</span>
+                  <span className={`rounded-full px-2.5 py-1 text-xs ${item.verified ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'}`}>{item.verified ? 'Verified' : 'Unverified'}</span>
                   <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">{item.quantity_received}/{item.quantity_ordered} received</span>
                 </div>
               </div>

@@ -1,10 +1,25 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { UploadCloud, FileText, FileSpreadsheet, File, Brain, CheckCircle2, AlertCircle, X, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+
+// Forces project_id to always be a valid, non-empty string before it reaches
+// any Document/Bid write, and provides the same fallback chain everywhere:
+// an explicit override > the bid's own won_project_id (if it's been awarded)
+// > a temporary placeholder, so the write can never fail string validation
+// even when the AI/parsing payload didn't supply a project_id at all.
+const resolveProjectId = (candidate, bid, override) => {
+  if (candidate !== undefined && candidate !== null && String(candidate).trim() !== '') {
+    return String(candidate);
+  }
+  if (override) return String(override);
+  if (bid?.won_project_id) return String(bid.won_project_id);
+  return `TEMP-UNASSIGNED-${Date.now()}`;
+};
 
 const FILE_BUCKETS = [
   { key: 'addenda', label: 'Addenda / Bulletins', color: 'text-orange-500', bg: 'bg-orange-500/10' },
@@ -20,7 +35,7 @@ const getFileIcon = (name) => {
   return File;
 };
 
-export default function SmartFileDump({ bidId, onParseComplete }) {
+export default function SmartFileDump({ bidId, bid, onParseComplete }) {
   const { toast } = useToast();
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState([]);
@@ -29,7 +44,13 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
   const [aiResult, setAiResult] = useState(null);
   const [approved, setApproved] = useState(false);
   const [parseError, setParseError] = useState('');
+  const [projects, setProjects] = useState([]);
+  const [projectOverride, setProjectOverride] = useState('');
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    base44.entities.Project.list('-created_date', 100).then(setProjects).catch(() => setProjects([]));
+  }, []);
 
   const handleFiles = (fileList) => {
     const newFiles = Array.from(fileList).map(f => ({ file: f, bucket: 'specs', status: 'pending' }));
@@ -65,7 +86,7 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
         files[i].status = 'uploaded';
         await base44.entities.Document.create({
           bid_id: bidId,
-          project_id: null,
+          project_id: resolveProjectId(null, bid, projectOverride),
           name: files[i].file.name,
           file_url,
           file_name: files[i].file.name,
@@ -82,7 +103,7 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
       // AI parse against cost breakdown structure
       const fileUrls = files.map(f => f.file_url).filter(Boolean);
       const response = await base44.integrations.Core.InvokeLLM({
-        prompt: `You are a structural steel estimating assistant. Parse the uploaded bid documents (PDFs, Excel takeoff sheets, Word docs) and extract a cost breakdown. Return a JSON object with suggested takeoff values based on the following cost categories: detailing, engineering, bim, structural_material (tons), bolts_fasteners, outsourced_fabrication, structural_fabrication, galvanizing, steel_rolling, joist_deck, anchor_bolts, shop_priming, grating, outsourced_paint, outsourced_shot_blasting, jobsite_freight, misc_fabrication, misc_material, steel_erection, subcontractor_other, allowances, hss_contingency, additional_cost_insurance, additional_cost_leed_govt. For each, suggest a quantity, unit_cost, and confidence (0-1). Also extract: estimated_tons, estimated_man_hours, tax_rate, job_city, job_state, inclusions, exclusions, scope_summary, and a short risk review. Set any unknown numeric field to 0 and confidence to 0.`,
+        prompt: `You are a structural steel estimating assistant. Parse the uploaded bid documents (PDFs, Excel takeoff sheets, Word docs) and extract a cost breakdown. Return a JSON object with suggested takeoff values based on the following cost categories: detailing, engineering, bim, structural_material (tons), bolts_fasteners, outsourced_fabrication, structural_fabrication, galvanizing, steel_rolling, joist_deck, anchor_bolts, shop_priming, primer_paint, grating, outsourced_paint, outsourced_shot_blasting, jobsite_freight, misc_fab_structural, misc_fab_processing, misc_material, steel_erection, subcontractor_other, allowances, hss_contingency, additional_cost_insurance, additional_cost_leed_govt. For each, suggest a quantity, unit_cost, and confidence (0-1). Also extract: estimated_tons, estimated_man_hours, tax_rate, job_city, job_state, inclusions, exclusions, scope_summary, and a short risk review. Set any unknown numeric field to 0 and confidence to 0.`,
         file_urls: fileUrls,
         response_json_schema: {
           type: 'object',
@@ -126,7 +147,7 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
   const approveAndSave = async () => {
     if (!aiResult) return;
     try {
-      const projectId = String(bidId || '');
+      const projectId = resolveProjectId(projectOverride, bid, bidId);
       const numericTaxRate = Number(aiResult.tax_rate || 0);
       const lines = (aiResult.line_items || []).map(li => ({
         bid_id: bidId,
@@ -180,12 +201,27 @@ export default function SmartFileDump({ bidId, onParseComplete }) {
       </div>
 
       {parseError && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400 flex items-start justify-between gap-3">
-          <div>
-            <p className="font-semibold">AI parse error</p>
-            <p>{parseError}</p>
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold">AI parse error</p>
+              <p>{parseError}</p>
+            </div>
+            <button onClick={() => setParseError('')} className="text-red-600 hover:text-red-800" aria-label="Dismiss error">×</button>
           </div>
-          <button onClick={() => setParseError('')} className="text-red-600 hover:text-red-800" aria-label="Dismiss error">×</button>
+          {parseError.toLowerCase().includes('project') && (
+            <div className="flex items-center gap-2 pt-1 border-t border-red-500/20">
+              <Select value={projectOverride} onValueChange={setProjectOverride}>
+                <SelectTrigger className="h-8 text-xs bg-background text-foreground"><SelectValue placeholder="Select the correct project" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button size="sm" variant="outline" onClick={() => { setParseError(''); runAIParse(); }}>
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />Retry
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

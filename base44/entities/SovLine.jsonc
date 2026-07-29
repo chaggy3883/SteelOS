@@ -1,0 +1,38 @@
+{
+  "name": "SovLine",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "item_description": {
+      "type": "string"
+    },
+    "cost_code": {
+      "type": "string"
+    },
+    "original_scheduled_value": {
+      "type": "number",
+      "default": 0
+    },
+    "completion_percentage": {
+      "type": "number",
+      "default": 0
+    },
+    "current_billed_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "retainage_rate": {
+      "type": "number",
+      "default": 0.10
+    }
+  },
+  "required": [
+    "project_id",
+    "item_description"
+  ]
+}

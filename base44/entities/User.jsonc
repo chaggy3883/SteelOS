@@ -2,9 +2,13 @@
   "name": "User",
   "type": "object",
   "properties": {
-    "role": {
-      "type": "string",
-      "description": "The role of the user in the app (built-in or custom role name)"
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": ["user"],
+      "description": "The role(s) of the user in the app (built-in or custom role names)"
     },
     "permissions": {
       "type": "object"
@@ -21,9 +25,13 @@
     "is_active": {
       "type": "boolean",
       "default": true
+    },
+    "company_id": {
+      "type": "string",
+      "description": "The tenant this user belongs to. Platform-level super_admin users have no home tenant and leave this blank."
     }
   },
   "required": [
-    "role"
+    "roles"
   ]
 }

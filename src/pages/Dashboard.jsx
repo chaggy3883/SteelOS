@@ -26,7 +26,7 @@ export default function Dashboard() {
 
   const initDashboard = async () => {
     try {
-      const perms = await getUserPermissions(user.role || 'user');
+      const perms = await getUserPermissions(user.roles || ['user']);
       setAllowedWidgets(perms.widgets);
       const existing = await base44.entities.UserDashboardConfig.filter({ user_id: user.id }, '-created_date', 1);
       if (existing.length > 0 && existing[0].layout?.length > 0) {
@@ -67,7 +67,7 @@ export default function Dashboard() {
     const widget = getWidgetById(widgetId);
     if (!widget) return;
     const maxY = layout.reduce((max, item) => Math.max(max, item.y + item.h), 0);
-    const newItem = { i: widgetId, x: 0, y: maxY, w: widget.defaultW, h: widget.defaultH };
+    const newItem = { i: widgetId, x: 0, y: maxY, w: widget.defaultW, h: widget.defaultH, minW: widget.minW, minH: widget.minH };
     const newLayout = [...layout, newItem];
     setLayout(newLayout);
     saveLayout(newLayout);

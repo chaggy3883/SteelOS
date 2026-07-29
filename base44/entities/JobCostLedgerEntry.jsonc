@@ -1,0 +1,44 @@
+{
+  "name": "JobCostLedgerEntry",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "cost_code": {
+      "type": "string"
+    },
+    "cost_class": {
+      "type": "string",
+      "enum": ["MAT", "SUB", "EQP", "LAB"]
+    },
+    "amount": {
+      "type": "number",
+      "default": 0
+    },
+    "transaction_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["vendor_bill", "labor", "material", "other"],
+      "default": "other"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "cost_code",
+    "cost_class",
+    "amount"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "executive_metrics_snapshots",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "snapshot_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "total_wip_value_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "total_cash_collected_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "win_loss_ratio_percentage": {
+      "type": "number",
+      "default": 0
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "snapshot_date"
+  ]
+}

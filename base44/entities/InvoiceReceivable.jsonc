@@ -1,0 +1,36 @@
+{
+  "name": "InvoiceReceivable",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "billing_period": {
+      "type": "string"
+    },
+    "gross_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "retainage_held": {
+      "type": "number",
+      "default": 0
+    },
+    "net_billing": {
+      "type": "number",
+      "default": 0
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": ["Draft", "Submitted", "Approved", "Released"],
+      "default": "Draft"
+    }
+  },
+  "required": [
+    "project_id",
+    "billing_period"
+  ]
+}

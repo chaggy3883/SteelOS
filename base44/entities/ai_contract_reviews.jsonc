@@ -1,0 +1,60 @@
+{
+  "name": "ai_contract_reviews",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "raw_extracted_text": {
+      "type": "string"
+    },
+    "review_summary_json": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "Liquidated_Damages",
+              "Retainage",
+              "Scope_Gap",
+              "Payment_Milestone"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "Red",
+              "Yellow",
+              "Green"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "matched_text": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "analyzed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "bid_id",
+    "raw_extracted_text"
+  ]
+}

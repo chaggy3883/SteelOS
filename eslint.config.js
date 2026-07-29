@@ -52,7 +52,28 @@ export default [
       "react/react-in-jsx-scope": "off",
       "react/no-unknown-property": [
         "error",
-        { ignore: ["cmdk-input-wrapper", "toast-close"] },
+        {
+          ignore: [
+            "cmdk-input-wrapper",
+            "toast-close",
+            // react-three-fiber intrinsic elements pass Three.js object props
+            // (position/rotation/args/etc.) through JSX; not real DOM attributes.
+            "args",
+            "attach",
+            "position",
+            "rotation",
+            "scale",
+            "intensity",
+            "castShadow",
+            "receiveShadow",
+            "transparent",
+            "opacity",
+            "roughness",
+            "metalness",
+            "fog",
+            "dispose",
+          ],
+        },
       ],
       "react-hooks/rules-of-hooks": "error",
     },

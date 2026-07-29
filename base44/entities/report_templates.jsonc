@@ -1,0 +1,35 @@
+{
+  "name": "report_templates",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "document_type_key": {
+      "type": "string",
+      "enum": [
+        "proposal",
+        "manifest",
+        "invoice"
+      ]
+    },
+    "version_string": {
+      "type": "string",
+      "default": "1.0"
+    },
+    "header_footer_config_json": {
+      "type": "object"
+    },
+    "column_visibility_flags_json": {
+      "type": "object"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "document_type_key",
+    "version_string"
+  ]
+}

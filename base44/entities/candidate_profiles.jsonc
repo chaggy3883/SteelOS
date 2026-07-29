@@ -1,0 +1,46 @@
+{
+  "name": "candidate_profiles",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "candidate_name": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "position_applied": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Applied",
+        "Interviewing",
+        "Offer_Extended",
+        "Hired",
+        "Rejected"
+      ],
+      "default": "Applied"
+    },
+    "applied_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "hired_employee_id": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidate_name",
+    "position_applied"
+  ]
+}

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import {
-  Factory, Package, CheckCircle2, Clock, AlertTriangle,
-  Search, Filter, QrCode, Plus, BarChart3
+  Package, Search, QrCode, Plus
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,6 +50,21 @@ export default function Production() {
   const completedWeight = pieces.filter(p => ['shipped','erected'].includes(p.status)).reduce((sum, p) => sum + (p.weight_lbs || 0), 0);
   const progressPct = totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : 0;
 
+  const projectProgress = projects.map(proj => {
+    const projPieces = pieces.filter(p => p.project_id === proj.id);
+    const total = projPieces.length;
+    const pct = (predicate) => total > 0 ? Math.round((projPieces.filter(predicate).length / total) * 100) : 0;
+    return {
+      id: proj.id,
+      name: proj.name,
+      project_number: proj.project_number,
+      total,
+      detailingPct: pct(p => p.detailing_complete),
+      fabricatedPct: pct(p => ['fabricated', 'inspected', 'painted', 'shipped', 'erected'].includes(p.status)),
+      shippedPct: pct(p => ['shipped', 'erected'].includes(p.status)),
+    };
+  }).filter(p => p.total > 0);
+
   return (
     <div className="p-6 animate-fade-in">
       <PageHeader
@@ -79,6 +93,36 @@ export default function Production() {
           </div>
         ))}
       </div>
+
+      {/* Project Progress Grid */}
+      {projectProgress.length > 0 && (
+        <div className="mb-6">
+          <h3 className="font-semibold mb-3">Project Progress</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {projectProgress.map(p => (
+              <div key={p.id} className="steel-card p-4">
+                <p className="font-medium text-sm truncate">{p.name}</p>
+                <p className="text-xs text-muted-foreground font-mono mb-3">{p.project_number} · {p.total} pieces</p>
+                {[
+                  { label: '% Detailing', value: p.detailingPct, color: 'bg-purple-500' },
+                  { label: '% Fabricated', value: p.fabricatedPct, color: 'bg-blue-500' },
+                  { label: '% Shipped', value: p.shippedPct, color: 'bg-green-500' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="mb-2 last:mb-0">
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="font-medium">{value}%</span>
+                    </div>
+                    <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${value}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Progress Bar */}
       {pieces.length > 0 && (

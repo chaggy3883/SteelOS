@@ -1,0 +1,618 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { base44 } from '@/api/base44Client';
+import { getTerminalId, isTerminalLocked, recordFailedAttempt, recordSuccessfulLogin } from '@/lib/terminalSession';
+import { verifyPin } from '@/lib/hrSecurity';
+import { computeOvertimeForClockOut, resolveLaborScaleFromCategory, computeMultiScaleGrossPayCents } from '@/lib/attendanceMath';
+import { getPayrollRateScalesCents } from '@/lib/burdenedLabor';
+import { isMobileDevice, captureLocationCoordinates } from '@/lib/mobilePunch';
+import { hasFullEmployeeAccess } from '@/lib/employeesApi';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import PageHeader from '@/components/ui/PageHeader';
+import { useToast } from '@/components/ui/use-toast';
+import {
+  LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText, Download,
+  User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt,
+} from 'lucide-react';
+
+const LABOR_CATEGORIES = ['Shop_Fab', 'Drill_Line', 'Welding', 'Paint', 'Field_Erection'];
+const LEAVE_TYPES = ['PTO', 'Sick', 'Unpaid', 'Bereavement'];
+const EXPENSE_CATEGORIES = ['Lodging', 'Meals', 'Fuel', 'Tolls_Parking', 'Other'];
+const emptyLeaveForm = () => ({ leave_type: 'PTO', start_date: '', end_date: '', total_hours: '', reason: '' });
+const emptyExpenseForm = () => ({
+  expense_category: 'Lodging', merchant_name: '', amount: '', expense_date: '', per_diem_allowance: '', is_out_of_town_travel: true,
+});
+
+export default function EmployeeCenter() {
+  const { toast } = useToast();
+  const [terminalId] = useState(() => getTerminalId());
+  const [appUserRoles, setAppUserRoles] = useState(['user']);
+
+  const [employee, setEmployee] = useState(null);
+  const [kioskNumber, setKioskNumber] = useState('');
+  const [kioskPin, setKioskPin] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [lockInfo, setLockInfo] = useState({ locked: false });
+
+  const [projects, setProjects] = useState([]);
+  const [punches, setPunches] = useState([]);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [laborCategory, setLaborCategory] = useState('');
+
+  const [timeOffRequests, setTimeOffRequests] = useState([]);
+  const [allPendingLeave, setAllPendingLeave] = useState([]);
+  const [showLeaveForm, setShowLeaveForm] = useState(false);
+  const [leaveForm, setLeaveForm] = useState(emptyLeaveForm());
+
+  const [payrollDocs, setPayrollDocs] = useState([]);
+  const [vaultUnlocked, setVaultUnlocked] = useState(false);
+  const [showVaultGate, setShowVaultGate] = useState(false);
+  const [vaultPin, setVaultPin] = useState('');
+  const [pendingDownload, setPendingDownload] = useState(null);
+
+  const [rateScale, setRateScale] = useState(null);
+  const [expenses, setExpenses] = useState([]);
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [expenseForm, setExpenseForm] = useState(emptyExpenseForm());
+  const [savingExpense, setSavingExpense] = useState(false);
+
+  useEffect(() => {
+    checkLock();
+    base44.entities.Project.filter({ is_archived: false }, 'name', 50).then(setProjects).catch(() => setProjects([]));
+    base44.auth.me().then((me) => setAppUserRoles(me?.roles || ['user'])).catch(() => setAppUserRoles(['user']));
+    loadPendingLeaveQueue();
+    getPayrollRateScalesCents().then(setRateScale).catch(() => setRateScale(null));
+  }, []);
+
+  const checkLock = async () => {
+    const info = await isTerminalLocked(terminalId);
+    setLockInfo(info);
+  };
+
+  const loadPendingLeaveQueue = async () => {
+    try {
+      const rows = await base44.entities.time_off_requests.list('-created_date', 200);
+      setAllPendingLeave(rows);
+    } catch (e) {}
+  };
+
+  const isHrReviewer = hasFullEmployeeAccess(appUserRoles);
+
+  const loadEmployeeData = async (employeeId) => {
+    const [punchData, leaveData, payrollData, expenseData] = await Promise.all([
+      base44.entities.attendance_punches.filter({ employee_id: employeeId }, '-created_date', 200),
+      base44.entities.time_off_requests.filter({ employee_id: employeeId }, '-created_date', 100),
+      base44.entities.payroll_document_mappings.filter({ employee_id: employeeId }, '-created_date', 100),
+      base44.entities.credit_card_expenses.filter({ employee_id: employeeId }, '-created_date', 100),
+    ]);
+    setPunches(punchData);
+    setTimeOffRequests(leaveData);
+    setPayrollDocs(payrollData);
+    setExpenses(expenseData);
+  };
+
+  const handleKioskLogin = async () => {
+    const info = await isTerminalLocked(terminalId);
+    if (info.locked) {
+      setLockInfo(info);
+      toast({ title: 'Terminal locked', description: `Try again after ${info.lockedUntil.toLocaleTimeString()}.`, variant: 'destructive' });
+      return;
+    }
+    setLoggingIn(true);
+    try {
+      const matches = await base44.entities.employees.filter({ employee_number: kioskNumber.trim() });
+      const candidate = matches[0];
+      if (!candidate || !verifyPin(kioskPin, candidate.pin_encrypted)) {
+        const { justLocked, session } = await recordFailedAttempt(terminalId);
+        if (justLocked) {
+          setLockInfo({ locked: true, lockedUntil: new Date(session.locked_until_timestamp) });
+          toast({ title: 'Terminal locked for 5 minutes', description: 'Too many failed PIN attempts.', variant: 'destructive' });
+        } else {
+          toast({ title: 'Invalid employee number or PIN', variant: 'destructive' });
+        }
+        return;
+      }
+      await recordSuccessfulLogin(terminalId, candidate.id);
+      setEmployee(candidate);
+      setKioskNumber('');
+      setKioskPin('');
+      setVaultUnlocked(false);
+      await loadEmployeeData(candidate.id);
+      toast({ title: `Welcome, ${candidate.full_name}` });
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleKioskLogout = () => {
+    setEmployee(null);
+    setPunches([]);
+    setTimeOffRequests([]);
+    setPayrollDocs([]);
+    setExpenses([]);
+    setVaultUnlocked(false);
+    setSelectedProjectId('');
+    setLaborCategory('');
+  };
+
+  const sortedPunches = useMemo(() => [...punches].sort((a, b) => new Date(b.punch_time) - new Date(a.punch_time)), [punches]);
+  const lastPunch = sortedPunches[0];
+  const currentState = !lastPunch || lastPunch.punch_type === 'Clock_Out' ? 'OUT' : lastPunch.punch_type === 'Start_Break' ? 'ON_BREAK' : 'WORKING';
+
+  const handlePunch = async (punchType) => {
+    if (!employee) return;
+    if (punchType === 'Clock_In' && (!selectedProjectId || !laborCategory)) {
+      toast({ title: 'Select a project and labor category first', variant: 'destructive' });
+      return;
+    }
+    const punch_time = new Date().toISOString();
+    const isMobile = isMobileDevice();
+    const coordinates = isMobile ? await captureLocationCoordinates() : null;
+    const payload = {
+      employee_id: employee.id,
+      terminal_id: terminalId,
+      punch_type: punchType,
+      punch_time,
+      project_id: punchType === 'Clock_In' ? selectedProjectId : (lastPunch?.project_id || ''),
+      labor_activity_category: punchType === 'Clock_In' ? laborCategory : (lastPunch?.labor_activity_category || ''),
+      total_regular_minutes: 0,
+      total_overtime_minutes: 0,
+      is_mobile_remote_punch: isMobile,
+      punch_in_location_coordinates: punchType === 'Clock_In' ? coordinates : null,
+      punch_out_location_coordinates: punchType === 'Clock_Out' ? coordinates : null,
+    };
+    if (punchType === 'Clock_Out') {
+      const allEmployeePunches = await base44.entities.attendance_punches.filter({ employee_id: employee.id }, '-created_date', 500);
+      Object.assign(payload, computeOvertimeForClockOut(employee.id, punch_time, allEmployeePunches));
+    }
+    const created = await base44.entities.attendance_punches.create(payload);
+    setPunches((prev) => [created, ...prev]);
+    toast({
+      title: `${punchType.replace('_', ' ')} recorded`,
+      description: isMobile ? (coordinates ? `Remote mobile punch — location captured` : 'Remote mobile punch — location unavailable') : undefined,
+    });
+  };
+
+  const estimatedPayFor = (punch) => {
+    if (!rateScale || punch.punch_type !== 'Clock_Out') return null;
+    const laborScale = resolveLaborScaleFromCategory(punch.labor_activity_category);
+    const { totalGrossPayCents } = computeMultiScaleGrossPayCents({
+      laborScale,
+      regularMinutes: punch.total_regular_minutes,
+      overtimeMinutes: punch.total_overtime_minutes,
+      ...rateScale,
+    });
+    return (totalGrossPayCents / 100).toFixed(2);
+  };
+
+  const submitExpense = async () => {
+    if (!expenseForm.expense_date || !expenseForm.amount) {
+      toast({ title: 'Expense date and amount are required', variant: 'destructive' });
+      return;
+    }
+    setSavingExpense(true);
+    try {
+      const created = await base44.entities.credit_card_expenses.create({
+        employee_id: employee.id,
+        project_id: selectedProjectId || lastPunch?.project_id || '',
+        merchant_name: expenseForm.merchant_name.trim(),
+        expense_category: expenseForm.expense_category,
+        amount_cents: Math.round((Number(expenseForm.amount) || 0) * 100),
+        expense_date: expenseForm.expense_date,
+        per_diem_allowance_cents: Math.round((Number(expenseForm.per_diem_allowance) || 0) * 100),
+        is_out_of_town_travel: expenseForm.is_out_of_town_travel,
+        status: 'Pending',
+      });
+      setExpenses((prev) => [created, ...prev]);
+      setShowExpenseForm(false);
+      setExpenseForm(emptyExpenseForm());
+      toast({ title: 'Expense logged' });
+    } finally {
+      setSavingExpense(false);
+    }
+  };
+
+  const submitLeaveRequest = async () => {
+    if (!leaveForm.start_date || !leaveForm.end_date) {
+      toast({ title: 'Start and end dates are required', variant: 'destructive' });
+      return;
+    }
+    const created = await base44.entities.time_off_requests.create({
+      employee_id: employee.id,
+      ...leaveForm,
+      total_hours: Number(leaveForm.total_hours) || 0,
+      status: 'Submitted',
+    });
+    setTimeOffRequests((prev) => [created, ...prev]);
+    setAllPendingLeave((prev) => [created, ...prev]);
+    setShowLeaveForm(false);
+    setLeaveForm(emptyLeaveForm());
+    toast({ title: 'Time off request submitted' });
+  };
+
+  // Approving here is deliberately non-invasive to the Master Shop Scheduler:
+  // it doesn't inject fake shop_schedules rows (which would corrupt the
+  // capacity heatmap's tonnage math) — ShopOperations.jsx instead queries
+  // Approved time_off_requests live and annotates the week columns with them.
+  const decideLeaveRequest = async (request, status) => {
+    const updated = await base44.entities.time_off_requests.update(request.id, { status });
+    setAllPendingLeave((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+    if (employee && request.employee_id === employee.id) {
+      setTimeOffRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+    }
+    toast({ title: `Leave request ${status.toLowerCase()}` });
+  };
+
+  const requestInfoUpdate = async () => {
+    try {
+      await base44.entities.Notification.create({
+        title: 'Employee Info Update Request',
+        message: `${employee.full_name} (#${employee.employee_number}) requested a profile info update.`,
+        is_read: false,
+      });
+      toast({ title: 'Request sent to HR Admin' });
+    } catch (e) {
+      toast({ title: 'Unable to send request', variant: 'destructive' });
+    }
+  };
+
+  const openVaultGate = (doc) => {
+    setPendingDownload(doc || 'TAB');
+    setVaultPin('');
+    setShowVaultGate(true);
+  };
+
+  const submitVaultPin = () => {
+    if (!verifyPin(vaultPin, employee.pin_encrypted)) {
+      toast({ title: 'Incorrect PIN', variant: 'destructive' });
+      return;
+    }
+    setVaultUnlocked(true);
+    setShowVaultGate(false);
+    if (pendingDownload && pendingDownload !== 'TAB') {
+      window.open(pendingDownload.file_secure_uri || '#', '_blank');
+    }
+    setPendingDownload(null);
+    setVaultPin('');
+  };
+
+  const approvedLeaveHours = timeOffRequests.filter((r) => r.status === 'Approved').reduce((sum, r) => sum + (r.total_hours || 0), 0);
+
+  return (
+    <div className="p-4 md:p-6 space-y-4 animate-fade-in">
+      <PageHeader title="Employee Center" subtitle="Kiosk time clock, self-service profile, time off, and payroll document vault" />
+
+      {!employee ? (
+        <div className="steel-card p-6 max-w-sm mx-auto space-y-3">
+          <h3 className="font-semibold text-sm flex items-center gap-2"><KeyRound className="w-4 h-4 text-primary" />Kiosk Login</h3>
+          {lockInfo.locked ? (
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-600 flex items-center gap-2">
+              <Lock className="w-4 h-4" />Terminal locked until {lockInfo.lockedUntil?.toLocaleTimeString()}.
+            </div>
+          ) : (
+            <>
+              <div>
+                <Label className="text-xs">Employee Number</Label>
+                <Input value={kioskNumber} onChange={(e) => setKioskNumber(e.target.value)} placeholder="001" className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">5-Digit PIN</Label>
+                <Input type="password" maxLength={5} value={kioskPin} onChange={(e) => setKioskPin(e.target.value.replace(/\D/g, ''))} placeholder="•••••" className="mt-1" onKeyDown={(e) => e.key === 'Enter' && handleKioskLogin()} />
+              </div>
+              <Button onClick={handleKioskLogin} disabled={loggingIn} className="w-full steel-gradient text-white border-0">Log In</Button>
+            </>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="steel-card p-3 flex items-center justify-between">
+            <p className="text-sm font-medium">{employee.full_name} <span className="text-muted-foreground font-mono text-xs">#{employee.employee_number}</span></p>
+            <Button variant="outline" size="sm" onClick={handleKioskLogout}>Log Out</Button>
+          </div>
+
+          <Tabs defaultValue="kiosk" onValueChange={(v) => { if (v !== 'payroll') setVaultUnlocked(false); }}>
+            <TabsList className="mb-4 max-w-full overflow-x-auto justify-start">
+              <TabsTrigger value="kiosk">Time Clock Kiosk</TabsTrigger>
+              <TabsTrigger value="profile">My Profile</TabsTrigger>
+              <TabsTrigger value="timeoff">Time Off</TabsTrigger>
+              <TabsTrigger value="payroll">Payroll</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="kiosk" className="space-y-4">
+              <div className="steel-card p-4 space-y-3 max-w-md">
+                <h4 className="font-semibold text-sm">Cost-Coding Allocation (required to Clock In)</h4>
+                <div>
+                  <Label className="text-xs">Project</Label>
+                  <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select a project" /></SelectTrigger>
+                    <SelectContent>
+                      {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.project_number} — {p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Labor Activity Category</Label>
+                  <Select value={laborCategory} onValueChange={setLaborCategory}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select a category" /></SelectTrigger>
+                    <SelectContent>
+                      {LABOR_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c.replace(/_/g, ' ')}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {isMobileDevice() && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm">
+                  <Smartphone className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                  <span className="text-blue-700 dark:text-blue-400">Mobile device detected — punches here are tagged as remote and capture your location.</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 max-w-2xl">
+                <Button size="lg" className="h-24 sm:h-20 flex-col gap-1 bg-green-600 hover:bg-green-700 text-white border-0" disabled={currentState !== 'OUT'} onClick={() => handlePunch('Clock_In')}>
+                  <LogIn className="w-6 h-6 sm:w-5 sm:h-5" />Clock In
+                </Button>
+                <Button size="lg" className="h-24 sm:h-20 flex-col gap-1 bg-red-600 hover:bg-red-700 text-white border-0" disabled={currentState !== 'WORKING'} onClick={() => handlePunch('Clock_Out')}>
+                  <LogOut className="w-6 h-6 sm:w-5 sm:h-5" />Clock Out
+                </Button>
+                <Button size="lg" variant="outline" className="h-24 sm:h-20 flex-col gap-1" disabled={currentState !== 'WORKING'} onClick={() => handlePunch('Start_Break')}>
+                  <Coffee className="w-6 h-6 sm:w-5 sm:h-5" />Start Break
+                </Button>
+                <Button size="lg" variant="outline" className="h-24 sm:h-20 flex-col gap-1" disabled={currentState !== 'ON_BREAK'} onClick={() => handlePunch('End_Break')}>
+                  <Play className="w-6 h-6 sm:w-5 sm:h-5" />End Break
+                </Button>
+              </div>
+
+              <div className="steel-card p-4">
+                <h4 className="font-semibold text-sm mb-2">Recent Punches</h4>
+                {sortedPunches.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">No punches yet today.</p>
+                ) : sortedPunches.slice(0, 10).map((p) => {
+                  const estPay = estimatedPayFor(p);
+                  return (
+                    <div key={p.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 border-b border-border/50 py-2 text-sm">
+                      <span className="flex items-center gap-1.5 flex-wrap">
+                        {p.punch_type.replace('_', ' ')} {p.labor_activity_category ? `• ${p.labor_activity_category.replace('_', ' ')}` : ''}
+                        {p.is_mobile_remote_punch && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 font-medium">
+                            <Smartphone className="w-3 h-3" />Remote
+                          </span>
+                        )}
+                        {(p.punch_in_location_coordinates || p.punch_out_location_coordinates) && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">
+                            <MapPin className="w-3 h-3" />{p.punch_in_location_coordinates || p.punch_out_location_coordinates}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-muted-foreground text-xs">
+                        {new Date(p.punch_time).toLocaleString()}{p.total_overtime_minutes > 0 ? ` • OT ${p.total_overtime_minutes}m` : ''}{estPay ? ` • ~$${estPay}` : ''}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="steel-card p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-sm flex items-center gap-2"><Receipt className="w-4 h-4 text-primary" />Travel &amp; Per Diem (Out-of-Town Crews)</h4>
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowExpenseForm(true)}>
+                    <Plus className="w-3.5 h-3.5" />Log Expense
+                  </Button>
+                </div>
+                {expenses.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">No travel expenses on file.</p>
+                ) : expenses.map((e) => (
+                  <div key={e.id} className="flex items-center justify-between gap-2 border-b border-border/50 py-2 text-sm">
+                    <div>
+                      <p className="font-medium">{e.expense_category.replace('_', ' ')}{e.merchant_name ? ` — ${e.merchant_name}` : ''}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {e.expense_date} • {e.status}
+                        {e.is_out_of_town_travel && ' • Out-of-town'}
+                        {e.per_diem_allowance_cents > 0 && ` • Per diem $${(e.per_diem_allowance_cents / 100).toFixed(2)}`}
+                      </p>
+                    </div>
+                    <span className="font-mono text-sm flex-shrink-0">${((e.amount_cents || 0) / 100).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="profile" className="space-y-3">
+              <div className="steel-card p-4 max-w-lg">
+                <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><User className="w-4 h-4 text-primary" />Profile Overview</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div><span className="text-muted-foreground">Name</span><p className="font-medium">{employee.full_name}</p></div>
+                  <div><span className="text-muted-foreground">Title</span><p className="font-medium">{employee.classification || '—'}</p></div>
+                  <div><span className="text-muted-foreground">Department</span><p className="font-medium">{employee.department || 'Not on file'}</p></div>
+                  <div><span className="text-muted-foreground">Hire Date</span><p className="font-medium">{employee.hire_date || '—'}</p></div>
+                  <div><span className="text-muted-foreground">Emergency Contact</span><p className="font-medium">{employee.emergency_contact_name || 'Not on file'}</p></div>
+                  <div><span className="text-muted-foreground">Emergency Phone</span><p className="font-medium">{employee.emergency_contact_phone || 'Not on file'}</p></div>
+                </div>
+                <Button variant="outline" className="gap-2 mt-4" onClick={requestInfoUpdate}>
+                  <Send className="w-4 h-4" />Request Info Update
+                </Button>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="timeoff" className="space-y-4">
+              <div className="steel-card p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold text-sm">My Time Off Requests</h4>
+                  <Button size="sm" className="gap-2 steel-gradient text-white border-0" onClick={() => setShowLeaveForm(true)}>
+                    <Plus className="w-4 h-4" />New Request
+                  </Button>
+                </div>
+                {timeOffRequests.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">No time off requests yet.</p>
+                ) : timeOffRequests.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between rounded-lg border border-border p-3 text-sm mb-2">
+                    <div>
+                      <p className="font-medium">{r.leave_type} — {r.start_date} to {r.end_date}</p>
+                      <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                    </div>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${r.status === 'Approved' ? 'bg-green-500/10 text-green-600' : r.status === 'Rejected' ? 'bg-red-500/10 text-red-600' : 'bg-yellow-500/10 text-yellow-700'}`}>{r.status}</span>
+                  </div>
+                ))}
+              </div>
+
+              {isHrReviewer && (
+                <div className="steel-card p-4">
+                  <h4 className="font-semibold text-sm mb-3">HR Approval Queue (all employees)</h4>
+                  {allPendingLeave.filter((r) => r.status === 'Submitted' || r.status === 'Pending').length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">No pending requests.</p>
+                  ) : allPendingLeave.filter((r) => r.status === 'Submitted' || r.status === 'Pending').map((r) => (
+                    <div key={r.id} className="flex items-center justify-between rounded-lg border border-border p-3 text-sm mb-2">
+                      <div>
+                        <p className="font-medium">{r.employee_id} — {r.leave_type} ({r.start_date} to {r.end_date})</p>
+                        <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700 text-white border-0" onClick={() => decideLeaveRequest(r, 'Approved')}><CheckCircle2 className="w-3.5 h-3.5" />Approve</Button>
+                        <Button size="sm" variant="outline" className="gap-1 text-red-600 border-red-500/30" onClick={() => decideLeaveRequest(r, 'Rejected')}><Ban className="w-3.5 h-3.5" />Reject</Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="payroll" className="space-y-3">
+              {!vaultUnlocked ? (
+                <div className="steel-card p-8 max-w-sm mx-auto text-center space-y-3">
+                  <ShieldAlert className="w-8 h-8 text-yellow-600 mx-auto" />
+                  <p className="text-sm text-muted-foreground">Payroll documents are PIN-vaulted. Re-enter your PIN to view this tab.</p>
+                  <Button onClick={() => openVaultGate('TAB')} className="steel-gradient text-white border-0">Unlock Vault</Button>
+                </div>
+              ) : (
+                <div className="steel-card p-4">
+                  <h4 className="font-semibold text-sm mb-1">Pay Stubs &amp; W-2s</h4>
+                  <p className="text-xs text-muted-foreground mb-3">{approvedLeaveHours > 0 ? `${approvedLeaveHours}h of approved leave pending payout in the upcoming pay period.` : 'No approved leave hours pending payout.'}</p>
+                  {payrollDocs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">No payroll documents on file.</p>
+                  ) : payrollDocs.map((doc) => (
+                    <div key={doc.id} className="flex items-center justify-between rounded-lg border border-border p-3 text-sm mb-2">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-primary" />
+                        <div>
+                          <p className="font-medium">{doc.document_type} — {doc.tax_year}</p>
+                          <p className="text-xs text-muted-foreground">{doc.payout_date} • Net ${((doc.net_pay_cents || 0) / 100).toFixed(2)}</p>
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openVaultGate(doc)}>
+                        <Download className="w-3.5 h-3.5" />Download PDF
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
+
+      <Dialog open={showLeaveForm} onOpenChange={setShowLeaveForm}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>New Time Off Request</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Leave Type</Label>
+              <Select value={leaveForm.leave_type} onValueChange={(v) => setLeaveForm((f) => ({ ...f, leave_type: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {LEAVE_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Start Date</Label>
+                <Input type="date" value={leaveForm.start_date} onChange={(e) => setLeaveForm((f) => ({ ...f, start_date: e.target.value }))} className="mt-1" />
+              </div>
+              <div>
+                <Label>End Date</Label>
+                <Input type="date" value={leaveForm.end_date} onChange={(e) => setLeaveForm((f) => ({ ...f, end_date: e.target.value }))} className="mt-1" />
+              </div>
+            </div>
+            <div>
+              <Label>Total Hours</Label>
+              <Input type="number" value={leaveForm.total_hours} onChange={(e) => setLeaveForm((f) => ({ ...f, total_hours: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
+              <Label>Reason</Label>
+              <Textarea value={leaveForm.reason} onChange={(e) => setLeaveForm((f) => ({ ...f, reason: e.target.value }))} rows={2} className="mt-1" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLeaveForm(false)}>Cancel</Button>
+            <Button onClick={submitLeaveRequest} className="steel-gradient text-white border-0">Submit Request</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showVaultGate} onOpenChange={setShowVaultGate}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Re-Enter Your PIN</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground flex items-center gap-2"><Lock className="w-4 h-4" />Payroll access requires re-authentication.</p>
+            <Input type="password" maxLength={5} value={vaultPin} onChange={(e) => setVaultPin(e.target.value.replace(/\D/g, ''))} placeholder="•••••" onKeyDown={(e) => e.key === 'Enter' && submitVaultPin()} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVaultGate(false)}>Cancel</Button>
+            <Button onClick={submitVaultPin} className="steel-gradient text-white border-0">Unlock</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showExpenseForm} onOpenChange={setShowExpenseForm}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Log Travel Expense</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Category</Label>
+              <Select value={expenseForm.expense_category} onValueChange={(v) => setExpenseForm((f) => ({ ...f, expense_category: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {EXPENSE_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c.replace('_', ' ')}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Merchant</Label>
+              <Input value={expenseForm.merchant_name} onChange={(e) => setExpenseForm((f) => ({ ...f, merchant_name: e.target.value }))} className="mt-1" placeholder="Hampton Inn" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Amount ($)</Label>
+                <Input type="number" value={expenseForm.amount} onChange={(e) => setExpenseForm((f) => ({ ...f, amount: e.target.value }))} className="mt-1" />
+              </div>
+              <div>
+                <Label>Expense Date</Label>
+                <Input type="date" value={expenseForm.expense_date} onChange={(e) => setExpenseForm((f) => ({ ...f, expense_date: e.target.value }))} className="mt-1" />
+              </div>
+            </div>
+            <div>
+              <Label>Per Diem Allowance ($)</Label>
+              <Input type="number" value={expenseForm.per_diem_allowance} onChange={(e) => setExpenseForm((f) => ({ ...f, per_diem_allowance: e.target.value }))} className="mt-1" placeholder="0.00" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={expenseForm.is_out_of_town_travel} onCheckedChange={(v) => setExpenseForm((f) => ({ ...f, is_out_of_town_travel: v }))} />
+              <Label className="text-sm">Out-of-town travel</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExpenseForm(false)}>Cancel</Button>
+            <Button onClick={submitExpense} disabled={savingExpense} className="steel-gradient text-white border-0">
+              {savingExpense ? 'Saving…' : 'Log Expense'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

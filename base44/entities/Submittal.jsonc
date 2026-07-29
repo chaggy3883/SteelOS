@@ -1,0 +1,52 @@
+{
+  "name": "Submittal",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "submittal_number": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "spec_section": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "submitted",
+        "under_review",
+        "approved",
+        "approved_as_noted",
+        "rejected"
+      ],
+      "default": "draft"
+    },
+    "date_submitted": {
+      "type": "string",
+      "format": "date"
+    },
+    "date_required": {
+      "type": "string",
+      "format": "date"
+    },
+    "date_returned": {
+      "type": "string",
+      "format": "date"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "title"
+  ]
+}

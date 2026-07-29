@@ -21,6 +21,8 @@
         "general_conditions",
         "supplementary_conditions",
         "addendum",
+        "delay_notice",
+        "ifc",
         "structural_drawing",
         "architectural_drawing",
         "civil_drawing",
@@ -104,6 +106,9 @@
     "virtual_path": {
       "type": "string",
       "default": "/"
+    },
+    "qr_payload": {
+      "type": "string"
     },
     "tags": {
       "type": "array",

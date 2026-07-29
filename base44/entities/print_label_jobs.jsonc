@@ -1,0 +1,32 @@
+{
+  "name": "print_label_jobs",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "label_type": {
+      "type": "string",
+      "enum": ["Piece_Mark", "Material_Stock", "Shipping_Manifest"]
+    },
+    "target_record_id": {
+      "type": "string"
+    },
+    "zpl_payload_string": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["Pending", "Printed"],
+      "default": "Pending"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "label_type",
+    "target_record_id"
+  ]
+}

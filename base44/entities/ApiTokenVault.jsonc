@@ -1,0 +1,31 @@
+{
+  "name": "ApiTokenVault",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "token_name": {
+      "type": "string"
+    },
+    "partial_key_string": {
+      "type": "string"
+    },
+    "encrypted_secret_key": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["Active", "Revoked"],
+      "default": "Active"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "token_name",
+    "partial_key_string"
+  ]
+}

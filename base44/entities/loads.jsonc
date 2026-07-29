@@ -1,0 +1,46 @@
+{
+  "name": "loads",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "load_number_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Draft",
+        "Staged",
+        "Loaded",
+        "In_Transit",
+        "Delivered",
+        "Field_Issue"
+      ],
+      "default": "Draft"
+    },
+    "total_weight_lbs": {
+      "type": "number",
+      "default": 0
+    },
+    "carrier_vendor_id": {
+      "type": "string"
+    },
+    "max_weight_capacity_lbs": {
+      "type": "number",
+      "default": 45000
+    },
+    "is_overweight_permit_authorized": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "project_id",
+    "load_number_id"
+  ]
+}

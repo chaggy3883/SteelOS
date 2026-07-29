@@ -1,0 +1,68 @@
+{
+  "name": "StatutoryNotice",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "notice_type": {
+      "type": "string",
+      "enum": [
+        "preliminary_notice",
+        "notice_to_owner"
+      ],
+      "default": "preliminary_notice"
+    },
+    "statutory_deadline_days": {
+      "type": "number",
+      "default": 30
+    },
+    "work_start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "deadline_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "owner_name": {
+      "type": "string"
+    },
+    "legal_description": {
+      "type": "string"
+    },
+    "lender_name": {
+      "type": "string"
+    },
+    "lender_address": {
+      "type": "string"
+    },
+    "filed_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "filed",
+        "not_required"
+      ],
+      "default": "pending"
+    },
+    "filed_document_id": {
+      "type": "string"
+    },
+    "filed_date": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": [
+    "project_id",
+    "state",
+    "notice_type"
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "name": "MaterialTakeoffLine",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "material_type": {
+      "type": "string",
+      "enum": [
+        "beams",
+        "columns",
+        "angle",
+        "hss",
+        "channel",
+        "plates",
+        "bent_plates",
+        "round_pipe",
+        "square_pipe",
+        "custom"
+      ]
+    },
+    "material_size": {
+      "type": "string"
+    },
+    "custom_name": {
+      "type": "string"
+    },
+    "grade": {
+      "type": "string"
+    },
+    "length_raw": {
+      "type": "string"
+    },
+    "length_decimal_ft": {
+      "type": "number",
+      "default": 0
+    },
+    "quantity": {
+      "type": "number",
+      "default": 1
+    },
+    "weight_per_ft": {
+      "type": "number",
+      "default": 0
+    },
+    "tons_per_piece": {
+      "type": "number",
+      "default": 0
+    },
+    "total_tons": {
+      "type": "number",
+      "default": 0
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bid_id",
+    "material_type"
+  ]
+}

@@ -1,0 +1,88 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { base44 } from '@/api/base44Client';
+import { Truck, ShieldAlert, ArrowUpFromLine } from 'lucide-react';
+import PageHeader from '@/components/ui/PageHeader';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/components/ui/use-toast';
+import FleetRentalRegistry from '@/components/field-operations/FleetRentalRegistry';
+import InspectionRadar from '@/components/field-operations/InspectionRadar';
+import HookProductionTerminal from '@/components/field-operations/HookProductionTerminal';
+
+export default function FieldOperations() {
+  const { toast } = useToast();
+  const [assets, setAssets] = useState([]);
+  const [inspections, setInspections] = useState([]);
+  const [hookLogs, setHookLogs] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [pieces, setPieces] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadAll = useCallback(async () => {
+    try {
+      const [assetData, inspectionData, hookData, projectData, pieceData, vendorData] = await Promise.all([
+        base44.entities.erection_fleet_assets.list('-created_date', 200),
+        base44.entities.heavy_equipment_inspections.list('-created_date', 200),
+        base44.entities.field_hook_logs.list('-created_date', 500),
+        base44.entities.Project.filter({ is_archived: false }, 'name', 100),
+        base44.entities.pieces.list('-created_date', 500),
+        base44.entities.Vendor.filter({ vendor_type: 'equipment_rental', is_active: true }, 'name', 50),
+      ]);
+      setAssets(assetData);
+      setInspections(inspectionData);
+      setHookLogs(hookData);
+      setProjects(projectData);
+      setPieces(pieceData);
+      setVendors(vendorData);
+    } catch (e) {
+      // no-op — panels render empty states when their lists are empty
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const handleTogglePickup = async (asset) => {
+    await base44.entities.erection_fleet_assets.update(asset.id, { is_marked_ready_for_pickup: true });
+    await loadAll();
+    toast({ title: `${asset.asset_name} marked ready for pickup` });
+  };
+
+  const cranes = assets.filter((a) => a.asset_type === 'Crane');
+
+  if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  return (
+    <div className="p-4 md:p-6 space-y-4 animate-fade-in">
+      <PageHeader title="Field Operations" subtitle="Fleet & rental registry, OSHA/DOT inspection radar, and crane hook production logging" />
+
+      <Tabs defaultValue="fleet">
+        <TabsList className="mb-4">
+          <TabsTrigger value="fleet" className="gap-1.5"><Truck className="w-3.5 h-3.5" />Fleet &amp; Rental Registry</TabsTrigger>
+          <TabsTrigger value="radar" className="gap-1.5"><ShieldAlert className="w-3.5 h-3.5" />Inspection Radar</TabsTrigger>
+          <TabsTrigger value="hooks" className="gap-1.5"><ArrowUpFromLine className="w-3.5 h-3.5" />Hook Production Terminal</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="fleet">
+          <FleetRentalRegistry assets={assets} projects={projects} vendors={vendors} onTogglePickup={handleTogglePickup} />
+        </TabsContent>
+
+        <TabsContent value="radar">
+          <InspectionRadar inspections={inspections} assets={assets} />
+        </TabsContent>
+
+        <TabsContent value="hooks">
+          <HookProductionTerminal
+            cranes={cranes}
+            pieces={pieces}
+            projects={projects}
+            inspections={inspections}
+            hookLogs={hookLogs}
+            onReload={loadAll}
+          />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

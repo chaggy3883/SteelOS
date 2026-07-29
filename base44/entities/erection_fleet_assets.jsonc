@@ -1,0 +1,44 @@
+{
+  "name": "erection_fleet_assets",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "asset_name": {
+      "type": "string"
+    },
+    "asset_type": {
+      "type": "string",
+      "enum": ["Crane", "Truck", "Trailer", "Rigging_Equipment", "Other"],
+      "default": "Other"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["Internal_Owned", "Third_Party_Rented"],
+      "default": "Internal_Owned"
+    },
+    "runtime_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "project_location_id": {
+      "type": "string"
+    },
+    "rental_vendor_id": {
+      "type": "string"
+    },
+    "rental_target_off_rent_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_marked_ready_for_pickup": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "asset_name",
+    "status"
+  ]
+}

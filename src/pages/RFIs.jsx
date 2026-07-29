@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2 } from 'lucide-react';
+import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2, FileWarning } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -10,30 +10,96 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { generateDelayImpactNoticePDF } from '@/lib/delayNoticePdf';
 
 export default function RFIs() {
   const { toast } = useToast();
   const [rfis, setRfis] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ project_id: '', subject: '', description: '', priority: 'medium' });
   const [saving, setSaving] = useState(false);
+  const [generatingNoticeId, setGeneratingNoticeId] = useState(null);
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [rfiData, projData] = await Promise.all([
+      const [rfiData, projData, contractData] = await Promise.all([
         base44.entities.RFI.list('-created_date', 100),
         base44.entities.Project.filter({ is_archived: false }, 'name', 50),
+        base44.entities.Contract.list('-created_date', 100),
       ]);
       setRfis(rfiData);
       setProjects(projData);
+      setContracts(contractData);
     } catch (e) {} finally { setLoading(false); }
+  };
+
+  // Days elapsed past the contractually mandated RFI-response window for this
+  // RFI's project's Contract (if one has been scanned in the Legal module) —
+  // distinct from date_required, which is just a PM-set internal target date.
+  const getContractDelinquency = (rfi) => {
+    const contract = contracts.find(c => c.project_id === rfi.project_id);
+    if (!contract?.rfi_response_window_days || !rfi.date_submitted || ['answered', 'closed'].includes(rfi.status)) {
+      return { contract: null, daysDelayed: 0 };
+    }
+    const daysSinceSubmitted = Math.floor((new Date() - new Date(rfi.date_submitted)) / (1000 * 60 * 60 * 24));
+    const daysDelayed = daysSinceSubmitted - contract.rfi_response_window_days;
+    return { contract, daysDelayed: daysDelayed > 0 ? daysDelayed : 0 };
+  };
+
+  const handleGenerateDelayNotice = async (rfi) => {
+    const { contract, daysDelayed } = getContractDelinquency(rfi);
+    if (!contract || daysDelayed <= 0) return;
+    setGeneratingNoticeId(rfi.id);
+    try {
+      const project = projects.find(p => p.id === rfi.project_id);
+      const { blob, filename } = generateDelayImpactNoticePDF({ rfi, contract, daysDelayed, project });
+      const file = new File([blob], filename, { type: 'application/pdf' });
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+
+      await base44.entities.Document.create({
+        project_id: rfi.project_id,
+        name: filename,
+        file_url,
+        file_name: filename,
+        file_size: blob.size,
+        file_type: 'application/pdf',
+        document_type: 'delay_notice',
+        status: 'uploaded',
+      });
+
+      await base44.entities.change_orders.create({
+        project_id: rfi.project_id,
+        change_order_id: `CO-DELAY-${rfi.rfi_number}`,
+        description: `Schedule impact from unanswered ${rfi.rfi_number} (${rfi.subject}) — ${daysDelayed} day(s) beyond the contractual RFI response window. Delay Impact Notice attached as supporting legal evidence.`,
+        cost_impact: 0,
+        schedule_impact: daysDelayed,
+        status: 'Pending Review',
+        attachment_path: file_url,
+      });
+
+      await base44.entities.LegalAuditEvent.create({
+        project_id: rfi.project_id,
+        event_type: 'delay_impact_notice_generated',
+        related_entity_type: 'RFI',
+        related_entity_id: rfi.id,
+        description: `Delay Impact Notice generated for ${rfi.rfi_number} — ${daysDelayed} day(s) delayed beyond the contractual response window.`,
+        severity: 'warning',
+      });
+
+      toast({ title: 'Delay Impact Notice generated', description: `Logged to the Change Order queue for ${project?.name || rfi.project_id}.` });
+    } catch (e) {
+      toast({ title: 'Unable to generate notice', variant: 'destructive' });
+    } finally {
+      setGeneratingNoticeId(null);
+    }
   };
 
   const handleSave = async () => {
@@ -145,8 +211,10 @@ export default function RFIs() {
           filtered.map(r => {
             const proj = projects.find(p => p.id === r.project_id);
             const isOverdue = r.date_required && new Date(r.date_required) < new Date() && r.status !== 'closed';
+            const { daysDelayed } = getContractDelinquency(r);
+            const isContractuallyDelinquent = daysDelayed > 0;
             return (
-              <div key={r.id} className={`steel-card p-4 border-l-4 ${isOverdue ? 'border-l-red-500' : r.priority === 'critical' ? 'border-l-red-400' : r.priority === 'high' ? 'border-l-orange-400' : 'border-l-blue-400'}`}>
+              <div key={r.id} className={`steel-card p-4 border-l-4 ${isContractuallyDelinquent ? 'border-l-red-600' : isOverdue ? 'border-l-red-500' : r.priority === 'critical' ? 'border-l-red-400' : r.priority === 'high' ? 'border-l-orange-400' : 'border-l-blue-400'}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -154,11 +222,24 @@ export default function RFIs() {
                       <StatusBadge status={r.status} />
                       <span className={`text-xs font-medium ${PRIORITY_COLORS[r.priority]}`}>{r.priority?.toUpperCase()}</span>
                       {isOverdue && <span className="text-xs bg-red-500/10 text-red-500 px-2 py-0.5 rounded-full">OVERDUE</span>}
+                      {isContractuallyDelinquent && <span className="text-xs bg-red-600/10 text-red-600 px-2 py-0.5 rounded-full font-medium">{daysDelayed}d PAST CONTRACT WINDOW</span>}
                     </div>
                     <p className="font-medium text-sm">{r.subject}</p>
                     {proj && <p className="text-xs text-muted-foreground mt-1">{proj.project_number} — {proj.name}</p>}
                     {r.date_required && <p className="text-xs text-muted-foreground mt-1">Required by: {r.date_required}</p>}
                   </div>
+                  {isContractuallyDelinquent && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 border-red-500/30 hover:bg-red-500/10 flex-shrink-0"
+                      disabled={generatingNoticeId === r.id}
+                      onClick={() => handleGenerateDelayNotice(r)}
+                    >
+                      <FileWarning className="w-3.5 h-3.5 mr-1.5" />
+                      {generatingNoticeId === r.id ? 'Generating…' : 'Generate Delay Impact Notice'}
+                    </Button>
+                  )}
                 </div>
               </div>
             );

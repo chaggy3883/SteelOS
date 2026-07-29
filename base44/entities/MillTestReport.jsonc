@@ -1,0 +1,32 @@
+{
+  "name": "MillTestReport",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "po_id": {
+      "type": "string"
+    },
+    "vendor_id": {
+      "type": "string"
+    },
+    "heat_number": {
+      "type": "string"
+    },
+    "material_grade": {
+      "type": "string"
+    },
+    "cert_document_id": {
+      "type": "string"
+    },
+    "submitted_date": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": [
+    "po_id",
+    "heat_number"
+  ]
+}

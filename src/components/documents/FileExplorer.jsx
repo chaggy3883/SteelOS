@@ -14,7 +14,7 @@ const normalizePath = (path) => {
   return trimmed;
 };
 
-export default function FileExplorer({ projectId, onUpload }) {
+export default function FileExplorer({ projectId, onUpload, documentTypeFilter }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState(PAGE_SIZE);
@@ -25,11 +25,15 @@ export default function FileExplorer({ projectId, onUpload }) {
     let cancelled = false;
     setLoading(true);
     base44.entities.Document.filter({ project_id: projectId }, '-created_date', limit)
-      .then((docs) => { if (!cancelled) setDocuments(docs); })
+      .then((docs) => {
+        if (cancelled) return;
+        const types = documentTypeFilter ? (Array.isArray(documentTypeFilter) ? documentTypeFilter : [documentTypeFilter]) : null;
+        setDocuments(types ? docs.filter((d) => types.includes(d.document_type)) : docs);
+      })
       .catch((e) => console.error(e))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [projectId, limit]);
+  }, [projectId, limit, documentTypeFilter]);
 
   const hasMore = documents.length === limit;
 

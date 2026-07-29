@@ -1,0 +1,31 @@
+{
+  "name": "manager_overrides",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "piece_id": {
+      "type": "string"
+    },
+    "override_type": {
+      "type": "string",
+      "enum": [
+        "Expedite_Part",
+        "Reassign_QA"
+      ]
+    },
+    "authorized_by_mgr_id": {
+      "type": "string"
+    },
+    "executed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "piece_id",
+    "override_type",
+    "authorized_by_mgr_id"
+  ]
+}

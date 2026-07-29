@@ -4,27 +4,95 @@ import { base44 } from '@/api/base44Client';
 import { ShoppingCart, AlertTriangle, Package, TrendingDown, Plus, Search, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+const AUTO_APPROVE_THRESHOLD = 5000;
+
+const emptyPoForm = () => ({ vendor_id: '', project_id: '', cost_code: '', description: '', total_estimated_cost: '' });
+
 export default function Purchasing() {
+  const { toast } = useToast();
   const [inventory, setInventory] = useState([]);
   const [findings, setFindings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [vendors, setVendors] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [costCodes, setCostCodes] = useState([]);
+  const [showNewPo, setShowNewPo] = useState(false);
+  const [poForm, setPoForm] = useState(emptyPoForm());
+  const [savingPo, setSavingPo] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [invData, findData] = await Promise.all([
+      const [invData, findData, vendorData, projectData] = await Promise.all([
         base44.entities.InventoryItem.filter({ is_active: true }, '-created_date', 100),
         base44.entities.AIFinding.filter({ review_package: 'purchasing' }, '-created_date', 50),
+        base44.entities.Vendor.filter({ is_active: true }, '-created_date', 100),
+        base44.entities.Project.list('-created_date', 100),
       ]);
       setInventory(invData);
       setFindings(findData);
+      setVendors(vendorData);
+      setProjects(projectData);
     } catch (e) {} finally { setLoading(false); }
+  };
+
+  const startNewPo = () => {
+    setPoForm(emptyPoForm());
+    setCostCodes([]);
+    setShowNewPo(true);
+  };
+
+  const handleProjectChange = async (projectId) => {
+    setPoForm(f => ({ ...f, project_id: projectId, cost_code: '' }));
+    try {
+      const rows = await base44.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 100);
+      setCostCodes(rows.filter(r => (r.cost_code || '').startsWith('05')));
+    } catch (e) {
+      setCostCodes([]);
+    }
+  };
+
+  const handleSaveNewPo = async () => {
+    if (!poForm.vendor_id || !poForm.project_id || !poForm.description || !poForm.total_estimated_cost) {
+      toast({ title: 'Vendor, Project, Description, and Amount are required', variant: 'destructive' });
+      return;
+    }
+    setSavingPo(true);
+    try {
+      const totalEstimatedCost = Number(poForm.total_estimated_cost) || 0;
+      const approvalStatus = totalEstimatedCost <= AUTO_APPROVE_THRESHOLD ? 'Auto_Approved' : 'Exec_Review';
+      const vendor = vendors.find(v => v.id === poForm.vendor_id);
+      await base44.entities.purchase_orders.create({
+        vendor_id: poForm.vendor_id,
+        vendor_name: vendor?.name || '',
+        project_id: poForm.project_id,
+        po_number: `PO-${Date.now().toString().slice(-6)}`,
+        cost_code: poForm.cost_code,
+        description: poForm.description,
+        total_estimated_cost: totalEstimatedCost,
+        budgeted_cost: totalEstimatedCost,
+        approval_status: approvalStatus,
+        status: 'Open',
+        requires_signature: approvalStatus === 'Exec_Review',
+      });
+      toast({ title: `PO created — ${approvalStatus.replace(/_/g, ' ')}` });
+      setShowNewPo(false);
+      loadData();
+    } catch (e) {
+      toast({ title: 'Unable to create PO', variant: 'destructive' });
+    } finally {
+      setSavingPo(false);
+    }
   };
 
   const lowStock = inventory.filter(i => i.reorder_point && i.quantity_available <= i.reorder_point);
@@ -41,10 +109,15 @@ export default function Purchasing() {
         subtitle="Material procurement and AI-flagged purchasing requirements"
         actions={
           <div className="flex gap-2">
-            <Button className="steel-gradient text-white border-0"><Plus className="w-4 h-4 mr-2" />New PO</Button>
+            <Button className="steel-gradient text-white border-0" onClick={startNewPo}><Plus className="w-4 h-4 mr-2" />New PO</Button>
             <Link to="/purchasing/module">
               <Button variant="outline" className="gap-2">
                 <ArrowRight className="w-4 h-4" /> Procurement Module
+              </Button>
+            </Link>
+            <Link to="/purchasing/receiving-kiosk">
+              <Button variant="outline" className="gap-2">
+                <ArrowRight className="w-4 h-4" /> Receiving Kiosk
               </Button>
             </Link>
           </div>
@@ -142,6 +215,56 @@ export default function Purchasing() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={showNewPo} onOpenChange={setShowNewPo}>
+        <DialogContent className="border-2 border-primary/40">
+          <DialogHeader><DialogTitle>New Purchase Order</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Vendor</Label>
+              <Select value={poForm.vendor_id} onValueChange={(v) => setPoForm(f => ({ ...f, vendor_id: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select a vendor or subcontractor" /></SelectTrigger>
+                <SelectContent>
+                  {vendors.map(v => <SelectItem key={v.id} value={v.id}>{v.name} ({v.vendor_type?.replace(/_/g, ' ')})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Project</Label>
+              <Select value={poForm.project_id} onValueChange={handleProjectChange}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select a project" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Cost Code (Division 05)</Label>
+              <Select value={poForm.cost_code} onValueChange={(v) => setPoForm(f => ({ ...f, cost_code: v }))} disabled={costCodes.length === 0}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder={costCodes.length === 0 ? 'No Division 05 cost codes for this project' : 'Select a cost code'} /></SelectTrigger>
+                <SelectContent>
+                  {costCodes.map(c => <SelectItem key={c.id} value={c.cost_code}>{c.cost_code} — {c.description}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Input value={poForm.description} onChange={(e) => setPoForm(f => ({ ...f, description: e.target.value }))} className="mt-1" placeholder="e.g. Structural steel buyout" />
+            </div>
+            <div>
+              <Label>Total Estimated Cost ($)</Label>
+              <Input type="number" value={poForm.total_estimated_cost} onChange={(e) => setPoForm(f => ({ ...f, total_estimated_cost: e.target.value }))} className="mt-1" />
+              <p className="text-xs text-muted-foreground mt-1">≤ ${AUTO_APPROVE_THRESHOLD.toLocaleString()} auto-approves to the Purchasing queue; above that routes to Executive Review.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewPo(false)}>Cancel</Button>
+            <Button onClick={handleSaveNewPo} disabled={savingPo} className="steel-gradient text-white border-0">
+              {savingPo ? 'Creating…' : 'Create PO'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -43,6 +43,8 @@
     --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
     --font-display: 'Inter', ui-sans-serif, system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    color-scheme: light;
   }
 
   .dark {
@@ -71,6 +73,42 @@
     --sidebar-active: 213 94% 55%;
     --sidebar-hover: 220 22% 16%;
     --sidebar-border: 220 22% 16%;
+
+    color-scheme: dark;
+  }
+}
+
+/* Dark Mode High-Contrast Calendar / Date-Picker Overhaul.
+   `color-scheme` alone tells the browser to render the native date-picker
+   popup with dark chrome, but Chromium/Firefox still need the field itself
+   styled explicitly and the picker-indicator icon inverted for contrast. */
+@layer base {
+  input[type='date'],
+  input[type='datetime-local'],
+  input[type='time'],
+  input[type='month'],
+  input[type='week'] {
+    border-color: hsl(var(--border));
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+
+  .dark input[type='date']::-webkit-calendar-picker-indicator,
+  .dark input[type='datetime-local']::-webkit-calendar-picker-indicator,
+  .dark input[type='time']::-webkit-calendar-picker-indicator,
+  .dark input[type='month']::-webkit-calendar-picker-indicator,
+  .dark input[type='week']::-webkit-calendar-picker-indicator {
+    filter: invert(1) brightness(1.5);
+  }
+}
+
+/* PDF Proposal Export — Tailwind's print: variant handles hiding app chrome
+   and showing the print-only proposal sheet; this just sets the physical
+   page size/margins, which has no Tailwind utility equivalent. */
+@media print {
+  @page {
+    size: letter;
+    margin: 0.5in;
   }
 }
 

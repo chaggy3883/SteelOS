@@ -60,7 +60,8 @@
         "submitted",
         "won",
         "lost",
-        "cancelled"
+        "cancelled",
+        "Did_Not_Bid"
       ],
       "default": "draft"
     },
@@ -84,9 +85,17 @@
       "type": "number",
       "default": 0
     },
+    "shop_efficiency_pct": {
+      "type": "number",
+      "default": 100
+    },
     "tax_rate": {
       "type": "number",
       "default": 0
+    },
+    "joist_deck_tax_rate": {
+      "type": "number",
+      "default": 0.0675
     },
     "paint_gallons": {
       "type": "number",
@@ -129,10 +138,27 @@
     "loss_reason_notes": {
       "type": "string"
     },
+    "dnb_reason": {
+      "type": "string",
+      "enum": [
+        "",
+        "not_enough_time_to_bid",
+        "not_enough_time_in_shop",
+        "not_in_scope",
+        "cannot_meet_requirements",
+        "other"
+      ]
+    },
+    "dnb_reason_notes": {
+      "type": "string"
+    },
     "competitor_name": {
       "type": "string"
     },
     "won_project_id": {
+      "type": "string"
+    },
+    "project_id": {
       "type": "string"
     },
     "front_end_review_status": {
@@ -154,8 +180,25 @@
     "insurance_override": {
       "type": "number"
     },
+    "insurance_enabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "insurance_general_liability": {
+      "type": "number"
+    },
+    "insurance_umbrella": {
+      "type": "number"
+    },
+    "insurance_professional_liability": {
+      "type": "number"
+    },
     "bond_override": {
       "type": "number"
+    },
+    "bond_enabled": {
+      "type": "boolean",
+      "default": true
     },
     "procore_pay_override": {
       "type": "number"
@@ -175,6 +218,12 @@
     },
     "notes": {
       "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

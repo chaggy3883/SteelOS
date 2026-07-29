@@ -1,0 +1,54 @@
+{
+  "name": "ProjectJobCostSummary",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "cost_code": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "cost_class": {
+      "type": "string",
+      "enum": ["LAB", "MAT", "SUB", "DEB", "OTH", "FRT", "OFB"]
+    },
+    "original_estimate": {
+      "type": "number",
+      "default": 0
+    },
+    "approved_co": {
+      "type": "number",
+      "default": 0
+    },
+    "revised_estimated_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "jtd_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "jtd_costs": {
+      "type": "number",
+      "default": 0
+    },
+    "profit_loss": {
+      "type": "number",
+      "default": 0
+    },
+    "source_report_name": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "cost_code",
+    "cost_class"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "name": "ApiIntegrationLog",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "endpoint_url": {
+      "type": "string"
+    },
+    "payload_direction": {
+      "type": "string",
+      "enum": ["Incoming", "Outgoing"]
+    },
+    "payload_json": {
+      "type": "string"
+    },
+    "response_status": {
+      "type": "number"
+    },
+    "latency_ms": {
+      "type": "number"
+    },
+    "processed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "endpoint_url",
+    "payload_direction",
+    "response_status"
+  ]
+}

@@ -1,0 +1,197 @@
+// Reference weight-per-foot values for common structural shapes, used to estimate
+// tonnage during takeoff. These are representative/approximate figures for early
+// estimating purposes — verify against mill certs or AISC tables before final bids.
+
+export const MATERIAL_TYPES = [
+  'beams',
+  'columns',
+  'angle',
+  'hss',
+  'channel',
+  'plates',
+  'bent_plates',
+  'round_pipe',
+  'square_pipe',
+  'custom',
+];
+
+function plateSizes() {
+  const thicknesses = [
+    ['1/8', 0.125], ['3/16', 0.1875], ['1/4', 0.25], ['5/16', 0.3125],
+    ['3/8', 0.375], ['1/2', 0.5], ['5/8', 0.625], ['3/4', 0.75],
+    ['1', 1], ['1-1/4', 1.25], ['1-1/2', 1.5],
+  ];
+  // lb/ft of a nominal 12"-wide strip: thickness(in) * 40.8 lb/sqft-per-inch
+  return thicknesses.map(([label, thicknessIn]) => ({
+    value: `${label}x12`,
+    label: `${label}" (12" wide)`,
+    weightPerFt: Math.round(thicknessIn * 40.8 * 100) / 100,
+  }));
+}
+
+export const SHAPE_CATALOG = {
+  beams: {
+    label: 'Beams',
+    hoursPerTon: 1.2,
+    sizes: [
+      { value: 'W8X10', label: 'W8x10', weightPerFt: 10 },
+      { value: 'W8X15', label: 'W8x15', weightPerFt: 15 },
+      { value: 'W8X18', label: 'W8x18', weightPerFt: 18 },
+      { value: 'W8X24', label: 'W8x24', weightPerFt: 24 },
+      { value: 'W10X12', label: 'W10x12', weightPerFt: 12 },
+      { value: 'W10X15', label: 'W10x15', weightPerFt: 15 },
+      { value: 'W10X19', label: 'W10x19', weightPerFt: 19 },
+      { value: 'W10X26', label: 'W10x26', weightPerFt: 26 },
+      { value: 'W12X14', label: 'W12x14', weightPerFt: 14 },
+      { value: 'W12X19', label: 'W12x19', weightPerFt: 19 },
+      { value: 'W12X26', label: 'W12x26', weightPerFt: 26 },
+      { value: 'W12X30', label: 'W12x30', weightPerFt: 30 },
+      { value: 'W14X22', label: 'W14x22', weightPerFt: 22 },
+      { value: 'W14X30', label: 'W14x30', weightPerFt: 30 },
+      { value: 'W16X26', label: 'W16x26', weightPerFt: 26 },
+      { value: 'W16X36', label: 'W16x36', weightPerFt: 36 },
+      { value: 'W18X35', label: 'W18x35', weightPerFt: 35 },
+      { value: 'W18X46', label: 'W18x46', weightPerFt: 46 },
+      { value: 'W21X44', label: 'W21x44', weightPerFt: 44 },
+      { value: 'W24X55', label: 'W24x55', weightPerFt: 55 },
+    ],
+  },
+  columns: {
+    label: 'Columns',
+    hoursPerTon: 1.1,
+    sizes: [
+      { value: 'W8X31', label: 'W8x31', weightPerFt: 31 },
+      { value: 'W8X40', label: 'W8x40', weightPerFt: 40 },
+      { value: 'W8X48', label: 'W8x48', weightPerFt: 48 },
+      { value: 'W10X33', label: 'W10x33', weightPerFt: 33 },
+      { value: 'W10X39', label: 'W10x39', weightPerFt: 39 },
+      { value: 'W10X49', label: 'W10x49', weightPerFt: 49 },
+      { value: 'W10X60', label: 'W10x60', weightPerFt: 60 },
+      { value: 'W12X40', label: 'W12x40', weightPerFt: 40 },
+      { value: 'W12X50', label: 'W12x50', weightPerFt: 50 },
+      { value: 'W12X58', label: 'W12x58', weightPerFt: 58 },
+      { value: 'W12X65', label: 'W12x65', weightPerFt: 65 },
+      { value: 'W12X72', label: 'W12x72', weightPerFt: 72 },
+      { value: 'W14X48', label: 'W14x48', weightPerFt: 48 },
+      { value: 'W14X53', label: 'W14x53', weightPerFt: 53 },
+      { value: 'W14X61', label: 'W14x61', weightPerFt: 61 },
+      { value: 'W14X68', label: 'W14x68', weightPerFt: 68 },
+      { value: 'W14X74', label: 'W14x74', weightPerFt: 74 },
+      { value: 'W14X82', label: 'W14x82', weightPerFt: 82 },
+      { value: 'W14X90', label: 'W14x90', weightPerFt: 90 },
+      { value: 'W14X99', label: 'W14x99', weightPerFt: 99 },
+    ],
+  },
+  angle: {
+    label: 'Angle',
+    hoursPerTon: 0.85,
+    sizes: [
+      { value: 'L2X2X1/8', label: 'L2x2x1/8', weightPerFt: 1.65 },
+      { value: 'L2X2X1/4', label: 'L2x2x1/4', weightPerFt: 3.19 },
+      { value: 'L2.5X2.5X1/4', label: 'L2.5x2.5x1/4', weightPerFt: 4.1 },
+      { value: 'L3X3X3/16', label: 'L3x3x3/16', weightPerFt: 3.71 },
+      { value: 'L3X3X1/4', label: 'L3x3x1/4', weightPerFt: 4.9 },
+      { value: 'L3X3X3/8', label: 'L3x3x3/8', weightPerFt: 7.2 },
+      { value: 'L3.5X3.5X1/4', label: 'L3.5x3.5x1/4', weightPerFt: 5.8 },
+      { value: 'L3.5X3.5X3/8', label: 'L3.5x3.5x3/8', weightPerFt: 8.5 },
+      { value: 'L4X4X1/4', label: 'L4x4x1/4', weightPerFt: 6.6 },
+      { value: 'L4X4X3/8', label: 'L4x4x3/8', weightPerFt: 9.8 },
+      { value: 'L4X4X1/2', label: 'L4x4x1/2', weightPerFt: 12.8 },
+      { value: 'L5X5X3/8', label: 'L5x5x3/8', weightPerFt: 12.3 },
+      { value: 'L5X5X1/2', label: 'L5x5x1/2', weightPerFt: 16.2 },
+      { value: 'L6X6X3/8', label: 'L6x6x3/8', weightPerFt: 14.9 },
+      { value: 'L6X6X1/2', label: 'L6x6x1/2', weightPerFt: 19.6 },
+      { value: 'L6X6X3/4', label: 'L6x6x3/4', weightPerFt: 28.7 },
+      { value: 'L8X8X1/2', label: 'L8x8x1/2', weightPerFt: 26.4 },
+      { value: 'L8X8X1', label: 'L8x8x1', weightPerFt: 51.0 },
+    ],
+  },
+  hss: {
+    label: 'HSS',
+    hoursPerTon: 1.0,
+    sizes: [
+      { value: 'HSS2X2X1/8', label: 'HSS2x2x1/8', weightPerFt: 2.77 },
+      { value: 'HSS3X3X3/16', label: 'HSS3x3x3/16', weightPerFt: 6.87 },
+      { value: 'HSS4X4X1/4', label: 'HSS4x4x1/4', weightPerFt: 11.97 },
+      { value: 'HSS4X4X3/8', label: 'HSS4x4x3/8', weightPerFt: 16.96 },
+      { value: 'HSS5X5X1/4', label: 'HSS5x5x1/4', weightPerFt: 15.62 },
+      { value: 'HSS5X5X3/8', label: 'HSS5x5x3/8', weightPerFt: 22.37 },
+      { value: 'HSS6X6X1/4', label: 'HSS6x6x1/4', weightPerFt: 18.9 },
+      { value: 'HSS6X6X3/8', label: 'HSS6x6x3/8', weightPerFt: 27.48 },
+      { value: 'HSS6X6X1/2', label: 'HSS6x6x1/2', weightPerFt: 35.24 },
+      { value: 'HSS8X4X1/4', label: 'HSS8x4x1/4 (rect)', weightPerFt: 18.9 },
+      { value: 'HSS8X8X3/8', label: 'HSS8x8x3/8', weightPerFt: 37.69 },
+      { value: 'HSS10X10X1/2', label: 'HSS10x10x1/2', weightPerFt: 60.95 },
+    ],
+  },
+  channel: {
+    label: 'Channel',
+    hoursPerTon: 0.95,
+    sizes: [
+      { value: 'C3X4.1', label: 'C3x4.1', weightPerFt: 4.1 },
+      { value: 'C4X5.4', label: 'C4x5.4', weightPerFt: 5.4 },
+      { value: 'C5X6.7', label: 'C5x6.7', weightPerFt: 6.7 },
+      { value: 'C5X9', label: 'C5x9', weightPerFt: 9 },
+      { value: 'C6X8.2', label: 'C6x8.2', weightPerFt: 8.2 },
+      { value: 'C6X13', label: 'C6x13', weightPerFt: 13 },
+      { value: 'C7X9.8', label: 'C7x9.8', weightPerFt: 9.8 },
+      { value: 'C8X11.5', label: 'C8x11.5', weightPerFt: 11.5 },
+      { value: 'C8X18.75', label: 'C8x18.75', weightPerFt: 18.75 },
+      { value: 'C9X15', label: 'C9x15', weightPerFt: 15 },
+      { value: 'C9X20', label: 'C9x20', weightPerFt: 20 },
+      { value: 'C10X15.3', label: 'C10x15.3', weightPerFt: 15.3 },
+      { value: 'C10X30', label: 'C10x30', weightPerFt: 30 },
+      { value: 'MC8X8.5', label: 'MC8x8.5', weightPerFt: 8.5 },
+      { value: 'MC12X10.6', label: 'MC12x10.6', weightPerFt: 10.6 },
+    ],
+  },
+  plates: {
+    label: 'Plates',
+    hoursPerTon: 0.7,
+    sizes: plateSizes(),
+  },
+  bent_plates: {
+    label: 'Bent Plates',
+    hoursPerTon: 0.75,
+    sizes: plateSizes().map((s) => ({ ...s, value: `BENT_${s.value}` })),
+  },
+  round_pipe: {
+    label: 'Round Pipe',
+    hoursPerTon: 1.0,
+    sizes: [
+      { value: 'PIPE1X SCH40', label: '1" Sch 40', weightPerFt: 1.68 },
+      { value: 'PIPE1.5X SCH40', label: '1.5" Sch 40', weightPerFt: 2.72 },
+      { value: 'PIPE2X SCH40', label: '2" Sch 40', weightPerFt: 3.65 },
+      { value: 'PIPE2.5X SCH40', label: '2.5" Sch 40', weightPerFt: 5.79 },
+      { value: 'PIPE3X SCH40', label: '3" Sch 40', weightPerFt: 7.58 },
+      { value: 'PIPE4X SCH40', label: '4" Sch 40', weightPerFt: 10.79 },
+      { value: 'PIPE5X SCH40', label: '5" Sch 40', weightPerFt: 14.62 },
+      { value: 'PIPE6X SCH40', label: '6" Sch 40', weightPerFt: 18.97 },
+      { value: 'PIPE8X SCH40', label: '8" Sch 40', weightPerFt: 28.55 },
+      { value: 'PIPE10X SCH40', label: '10" Sch 40', weightPerFt: 40.48 },
+      { value: 'PIPE12X SCH40', label: '12" Sch 40', weightPerFt: 49.56 },
+    ],
+  },
+  square_pipe: {
+    label: 'Square Pipe',
+    hoursPerTon: 1.0,
+    sizes: [
+      { value: 'SQ2X2X1/8', label: '2x2x1/8', weightPerFt: 2.77 },
+      { value: 'SQ3X3X3/16', label: '3x3x3/16', weightPerFt: 6.87 },
+      { value: 'SQ4X4X1/4', label: '4x4x1/4', weightPerFt: 11.97 },
+      { value: 'SQ5X5X1/4', label: '5x5x1/4', weightPerFt: 15.62 },
+      { value: 'SQ6X6X1/4', label: '6x6x1/4', weightPerFt: 18.9 },
+      { value: 'SQ6X6X3/8', label: '6x6x3/8', weightPerFt: 27.48 },
+      { value: 'SQ8X8X3/8', label: '8x8x3/8', weightPerFt: 37.69 },
+    ],
+  },
+  custom: {
+    label: 'Custom',
+    hoursPerTon: 0,
+    sizes: [],
+  },
+};
+
+export function firstSizeValue(materialType) {
+  return SHAPE_CATALOG[materialType]?.sizes?.[0]?.value || '';
+}

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Factory, Target, Percent } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Factory, Target, Percent, Clock3 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { flagCostCodeOverruns } from '@/lib/jobCostAnalysis';
 
 const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308', '#14b8a6'];
 const STATIONS = ['saw', 'drill', 'fab', 'weld', 'paint'];
@@ -10,6 +11,8 @@ const STATIONS = ['saw', 'drill', 'fab', 'weld', 'paint'];
 export default function EstimatingAnalytics() {
   const [variances, setVariances] = useState([]);
   const [bids, setBids] = useState([]);
+  const [costOverruns, setCostOverruns] = useState([]);
+  const [projectNames, setProjectNames] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadData(); }, []);
@@ -17,12 +20,19 @@ export default function EstimatingAnalytics() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [varData, bidData] = await Promise.all([
+      const [varData, bidData, jobCostRows, projectData] = await Promise.all([
         base44.entities.HistoricalVariance.list('-completed_date', 100),
         base44.entities.Bid.filter({ is_archived: false }, '-created_date', 500),
+        base44.entities.ProjectJobCostSummary.list('-created_date', 500),
+        base44.entities.Project.list('-created_date', 200),
       ]);
       setVariances(varData);
       setBids(bidData);
+      setProjectNames(projectData.reduce((acc, p) => ({ ...acc, [p.id]: p.name }), {}));
+
+      const projectIds = [...new Set(jobCostRows.map(r => r.project_id))];
+      const flaggedLists = await Promise.all(projectIds.map(pid => flagCostCodeOverruns(pid)));
+      setCostOverruns(flaggedLists.flat());
     } catch (e) {} finally { setLoading(false); }
   };
 
@@ -104,6 +114,27 @@ export default function EstimatingAnalytics() {
           </div>
         ))}
       </div>
+
+      {/* Job Cost Overruns — closes the loop between Worksheet estimates and job-cost JTD actuals */}
+      {costOverruns.length > 0 && (
+        <div className="steel-card p-5 mb-6 border-red-500/20">
+          <h3 className="font-semibold mb-3 flex items-center gap-2"><Clock3 className="w-4 h-4 text-red-500" />Job Cost Overruns — Est. vs. JTD Hours by Cost Code</h3>
+          <div className="space-y-2">
+            {costOverruns.map((o, i) => (
+              <div key={`${o.project_id}-${o.cost_code}-${i}`} className="flex items-center gap-3 p-3 rounded-lg bg-red-500/5 border border-red-500/20">
+                <TrendingUp className="w-4 h-4 text-red-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium">{projectNames[o.project_id] || o.project_id} · {o.cost_code}{o.description ? ` — ${o.description}` : ''}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {o.estimated_hours.toLocaleString()} Estimated Hours vs {o.jtd_hours.toLocaleString()} JTD Hours —
+                    <strong className="text-red-500"> {o.overrun_pct > 0 ? '+' : ''}{o.overrun_pct.toFixed(0)}% over</strong>
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Smart Adjuster Alerts */}
       {adjusterAlerts.length > 0 && (

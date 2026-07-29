@@ -1,0 +1,55 @@
+{
+  "name": "ShopFloorZone",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "zone_type": {
+      "type": "string",
+      "enum": [
+        "indoor_bay",
+        "outdoor_yard",
+        "drive_thru_bay"
+      ],
+      "default": "indoor_bay"
+    },
+    "length_ft": {
+      "type": "number",
+      "default": 20
+    },
+    "width_ft": {
+      "type": "number",
+      "default": 20
+    },
+    "height_ft": {
+      "type": "number",
+      "default": 12
+    },
+    "pos_x": {
+      "type": "number",
+      "default": 0
+    },
+    "pos_y": {
+      "type": "number",
+      "default": 0
+    },
+    "rotation": {
+      "type": "number",
+      "default": 0
+    },
+    "color": {
+      "type": "string",
+      "default": "#3b82f6"
+    }
+  },
+  "required": [
+    "label",
+    "zone_type",
+    "length_ft",
+    "width_ft"
+  ]
+}

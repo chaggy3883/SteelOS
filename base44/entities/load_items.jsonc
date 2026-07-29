@@ -1,0 +1,32 @@
+{
+  "name": "load_items",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "load_id": {
+      "type": "string"
+    },
+    "piece_id": {
+      "type": "string"
+    },
+    "sequence_number": {
+      "type": "number",
+      "default": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Staged",
+        "Loaded",
+        "Field_Rejected"
+      ],
+      "default": "Staged"
+    }
+  },
+  "required": [
+    "load_id",
+    "piece_id"
+  ]
+}

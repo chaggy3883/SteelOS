@@ -1,0 +1,45 @@
+{
+  "name": "shipping_manifests",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "load_id": {
+      "type": "string"
+    },
+    "driver_name": {
+      "type": "string"
+    },
+    "driver_phone": {
+      "type": "string"
+    },
+    "trailer_type": {
+      "type": "string",
+      "enum": [
+        "Flatbed",
+        "Drop_Deck",
+        "Stretch",
+        "Step_Deck"
+      ],
+      "default": "Flatbed"
+    },
+    "license_plate": {
+      "type": "string"
+    },
+    "manifest_qr_payload_string": {
+      "type": "string"
+    },
+    "signed_bol_file_uri": {
+      "type": "string"
+    },
+    "delivery_ticket_file_uri": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "load_id",
+    "driver_name",
+    "trailer_type"
+  ]
+}

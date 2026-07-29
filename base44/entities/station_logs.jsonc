@@ -1,0 +1,49 @@
+{
+  "name": "station_logs",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "piece_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "station_id": {
+      "type": "number",
+      "enum": [1, 2, 3, 4, 5, 6]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "In_Progress",
+        "Paused",
+        "Complete"
+      ],
+      "default": "In_Progress"
+    },
+    "start_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "elapsed_minutes": {
+      "type": "number",
+      "default": 0
+    },
+    "auto_paused": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "piece_id",
+    "station_id",
+    "status"
+  ]
+}

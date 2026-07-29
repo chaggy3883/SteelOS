@@ -1,7 +1,34 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Info, RotateCcw, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { RotateCcw, Maximize2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { base44 } from '@/api/base44Client';
+
+// Unify the legacy hardcoded zones and admin-created ShopFloorZone rows into
+// one shape so the rendering loop below doesn't need to special-case either source.
+const normalizeStaticZone = (zone) => ({
+  id: zone.id,
+  label: zone.label,
+  centerX: zone.x + zone.w / 2,
+  centerZ: zone.z + zone.d / 2,
+  w: zone.w,
+  d: zone.d,
+  rotationDeg: 0,
+  color: zone.color,
+  description: zone.description,
+});
+
+const normalizeDbZone = (zone) => ({
+  id: zone.id,
+  label: zone.label,
+  centerX: zone.pos_x || 0,
+  centerZ: zone.pos_y || 0,
+  w: zone.width_ft || 20,
+  d: zone.length_ft || 20,
+  rotationDeg: zone.rotation || 0,
+  color: parseInt((zone.color || '#3b82f6').replace('#', ''), 16) || 0x3b82f6,
+  description: (zone.zone_type || '').replace(/_/g, ' '),
+});
 
 const ZONES = [
   { id: 'receiving', label: 'Receiving', x: -12, z: -8, w: 6, d: 4, color: 0x3b82f6, description: 'Incoming material receiving area' },
@@ -32,13 +59,39 @@ export default function Warehouse3D({ items = [] }) {
   const lastMouse = useRef({ x: 0, y: 0 });
   const cameraAngle = useRef({ theta: Math.PI / 4, phi: Math.PI / 3 });
   const cameraRadius = useRef(35);
+  const cameraTarget = useRef({ x: 0, y: 0, z: 0 });
+  const dragMode = useRef('rotate');
 
   const [selectedZone, setSelectedZone] = useState(null);
-  const [tooltip, setTooltip] = useState(null);
+  const [dbZones, setDbZones] = useState([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    document.body.style.overflow = isFullscreen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [isFullscreen]);
+
+  const toggleFullscreen = () => {
+    setIsFullscreen((prev) => !prev);
+    // Wait a frame for the layout to settle into its new size before telling
+    // the renderer/camera to recalculate off the container's new dimensions.
+    requestAnimationFrame(() => requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))));
+  };
 
   const getZoneItemCount = (zoneId) => {
     return items.filter(i => i.warehouse_zone === zoneId).length;
   };
+
+  // Ingestion hook: pull admin-created zones (Admin > 3D Shop Floor Layout) so this view stays in sync
+  useEffect(() => {
+    base44.entities.ShopFloorZone.list('-created_date', 200).then(setDbZones).catch(() => setDbZones([]));
+  }, []);
+
+  // Custom database zones (from the Admin 3D Modeler) are the sole source of
+  // truth once any exist — the hardcoded baseline only serves as a fallback
+  // before anyone has laid out a real facility.
+  const allZones = dbZones.length > 0 ? dbZones.map(normalizeDbZone) : ZONES.map(normalizeStaticZone);
+  const activeRacks = dbZones.length > 0 ? [] : RACKS;
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -48,11 +101,11 @@ export default function Warehouse3D({ items = [] }) {
     // Scene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0f1117);
-    scene.fog = new THREE.Fog(0x0f1117, 40, 80);
+    scene.fog = new THREE.Fog(0x0f1117, 40, 5000);
     sceneRef.current = scene;
 
     // Camera
-    const camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 200);
+    const camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 5000);
     cameraRef.current = camera;
     updateCamera();
 
@@ -100,11 +153,12 @@ export default function Warehouse3D({ items = [] }) {
     wallLine.position.y = 0.02;
     scene.add(wallLine);
 
-    // Zones
-    ZONES.forEach(zone => {
+    // Zones (static + admin-created ShopFloorZone rows, normalized above)
+    allZones.forEach(zone => {
       const itemCount = getZoneItemCount(zone.id);
       const fillRatio = Math.min(itemCount / 10, 1);
       const height = 0.15 + fillRatio * 0.3;
+      const rotationRad = THREE.MathUtils.degToRad(zone.rotationDeg || 0);
 
       const geo = new THREE.BoxGeometry(zone.w - 0.2, height, zone.d - 0.2);
       const mat = new THREE.MeshStandardMaterial({
@@ -115,7 +169,8 @@ export default function Warehouse3D({ items = [] }) {
         metalness: 0.3,
       });
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(zone.x + zone.w / 2, height / 2, zone.z + zone.d / 2);
+      mesh.position.set(zone.centerX, height / 2, zone.centerZ);
+      mesh.rotation.y = rotationRad;
       mesh.castShadow = true;
       mesh.userData = { type: 'zone', zoneId: zone.id, label: zone.label, description: zone.description, itemCount };
       scene.add(mesh);
@@ -125,6 +180,7 @@ export default function Warehouse3D({ items = [] }) {
       const edgeMat = new THREE.LineBasicMaterial({ color: zone.color, transparent: true, opacity: 0.9 });
       const edgeLines = new THREE.LineSegments(edges, edgeMat);
       edgeLines.position.copy(mesh.position);
+      edgeLines.rotation.copy(mesh.rotation);
       scene.add(edgeLines);
 
       // Label sprite
@@ -145,13 +201,14 @@ export default function Warehouse3D({ items = [] }) {
       const texture = new THREE.CanvasTexture(canvas);
       const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
       const sprite = new THREE.Sprite(spriteMat);
-      sprite.position.set(zone.x + zone.w / 2, 1.8, zone.z + zone.d / 2);
+      sprite.position.set(zone.centerX, 1.8, zone.centerZ);
       sprite.scale.set(4, 1, 1);
       scene.add(sprite);
     });
 
-    // Racks
-    RACKS.forEach(rack => {
+    // Racks (hidden once custom database zones take over, to avoid stale
+    // rack furniture floating over the new custom layout positions)
+    activeRacks.forEach(rack => {
       const rackGeo = new THREE.BoxGeometry(1.5, 2, 0.5);
       const rackMat = new THREE.MeshStandardMaterial({ color: 0x4a5568, roughness: 0.8, metalness: 0.6 });
       const rackMesh = new THREE.Mesh(rackGeo, rackMat);
@@ -183,30 +240,55 @@ export default function Warehouse3D({ items = [] }) {
       const intersects = raycaster.intersectObjects(scene.children, false);
       const hit = intersects.find(i => i.object.userData?.type);
       if (hit) {
-        const zone = ZONES.find(z => z.id === hit.object.userData.zoneId);
-        if (zone) setSelectedZone({ ...zone, itemCount: hit.object.userData.itemCount });
+        const zone = allZones.find(z => z.id === hit.object.userData.zoneId);
+        if (zone) {
+          setSelectedZone({ ...zone, itemCount: hit.object.userData.itemCount });
+          // One-click focus shortcut: snap the orbit target straight to the
+          // inspected zone's grid position instead of requiring a manual pan.
+          cameraTarget.current = { x: zone.centerX, y: 0, z: zone.centerZ };
+          updateCamera();
+        }
       } else {
         setSelectedZone(null);
       }
     };
 
-    // Mouse drag for orbit
+    // Mouse drag: left-click orbits, right-click pans the orbit target
     const onMouseDown = (e) => {
       isDragging.current = true;
+      dragMode.current = e.button === 2 ? 'pan' : 'rotate';
       lastMouse.current = { x: e.clientX, y: e.clientY };
     };
     const onMouseUp = () => { isDragging.current = false; };
+    const onContextMenu = (e) => { e.preventDefault(); };
     const onMouseMove = (e) => {
       if (!isDragging.current) return;
       const dx = e.clientX - lastMouse.current.x;
       const dy = e.clientY - lastMouse.current.y;
-      cameraAngle.current.theta -= dx * 0.005;
-      cameraAngle.current.phi = Math.max(0.3, Math.min(Math.PI / 2, cameraAngle.current.phi + dy * 0.005));
       lastMouse.current = { x: e.clientX, y: e.clientY };
+
+      if (dragMode.current === 'pan') {
+        // Derive the camera's actual current screen-aligned right/up vectors
+        // (post-lookAt) so panning tracks correctly regardless of tilt, and
+        // scale by distance so the pan speed feels consistent at any zoom level.
+        camera.updateMatrixWorld();
+        const right = new THREE.Vector3();
+        const up = new THREE.Vector3();
+        camera.matrixWorld.extractBasis(right, up, new THREE.Vector3());
+        const panScale = cameraRadius.current * 0.0015;
+        cameraTarget.current = {
+          x: cameraTarget.current.x + (-right.x * dx + up.x * dy) * panScale,
+          y: cameraTarget.current.y + (-right.y * dx + up.y * dy) * panScale,
+          z: cameraTarget.current.z + (-right.z * dx + up.z * dy) * panScale,
+        };
+      } else {
+        cameraAngle.current.theta -= dx * 0.005;
+        cameraAngle.current.phi = Math.max(0.3, Math.min(Math.PI / 2, cameraAngle.current.phi + dy * 0.005));
+      }
       updateCamera();
     };
     const onWheel = (e) => {
-      cameraRadius.current = Math.max(10, Math.min(60, cameraRadius.current + e.deltaY * 0.05));
+      cameraRadius.current = Math.max(10, Math.min(1200, cameraRadius.current + e.deltaY * 0.05));
       updateCamera();
     };
 
@@ -215,6 +297,7 @@ export default function Warehouse3D({ items = [] }) {
     window.addEventListener('mouseup', onMouseUp);
     renderer.domElement.addEventListener('mousemove', onMouseMove);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: true });
+    renderer.domElement.addEventListener('contextmenu', onContextMenu);
 
     // Animation
     const animate = () => {
@@ -241,53 +324,71 @@ export default function Warehouse3D({ items = [] }) {
       window.removeEventListener('mouseup', onMouseUp);
       renderer.domElement.removeEventListener('mousemove', onMouseMove);
       renderer.domElement.removeEventListener('wheel', onWheel);
+      renderer.domElement.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('resize', handleResize);
       if (mountRef.current && renderer.domElement.parentNode === mountRef.current) {
         mountRef.current.removeChild(renderer.domElement);
       }
       renderer.dispose();
     };
-  }, [items]);
+  }, [items, dbZones]);
 
   function updateCamera() {
     if (!cameraRef.current) return;
     const { theta, phi } = cameraAngle.current;
     const r = cameraRadius.current;
+    const t = cameraTarget.current;
     cameraRef.current.position.set(
-      r * Math.sin(phi) * Math.sin(theta),
-      r * Math.cos(phi),
-      r * Math.sin(phi) * Math.cos(theta)
+      t.x + r * Math.sin(phi) * Math.sin(theta),
+      t.y + r * Math.cos(phi),
+      t.z + r * Math.sin(phi) * Math.cos(theta)
     );
-    cameraRef.current.lookAt(0, 0, 0);
+    cameraRef.current.lookAt(t.x, t.y, t.z);
   }
 
   const resetCamera = () => {
     cameraAngle.current = { theta: Math.PI / 4, phi: Math.PI / 3 };
     cameraRadius.current = 35;
+    cameraTarget.current = { x: 0, y: 0, z: 0 };
     updateCamera();
   };
 
   return (
-    <div className="steel-card overflow-hidden">
-      <div className="flex items-center justify-between p-4 border-b border-border">
+    <div className={isFullscreen ? 'fixed inset-0 z-[100] bg-background flex flex-col' : 'steel-card overflow-hidden'}>
+      <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
         <div>
           <h3 className="font-semibold">3D Warehouse View</h3>
-          <p className="text-xs text-muted-foreground">Click zones to inspect • Drag to rotate • Scroll to zoom</p>
+          <p className="text-xs text-muted-foreground">Click zones to inspect &amp; focus • Drag to rotate • Right-click drag to pan • Scroll to zoom</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={resetCamera}>
             <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Reset View
           </Button>
+          {!isFullscreen && (
+            <Button variant="outline" size="sm" onClick={toggleFullscreen}>
+              <Maximize2 className="w-3.5 h-3.5 mr-1.5" /> Fullscreen
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="relative" style={{ height: '520px' }}>
+      <div className={isFullscreen ? 'relative flex-1' : 'relative'} style={isFullscreen ? undefined : { height: '520px' }}>
         <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+
+        {isFullscreen && (
+          <Button
+            size="lg"
+            onClick={toggleFullscreen}
+            className="absolute top-4 right-4 z-10 bg-red-600 hover:bg-red-700 text-white border-0 font-bold shadow-lg"
+          >
+            <X className="w-5 h-5 mr-2" /> Close 3D Map
+          </Button>
+        )}
 
         {/* Zone Legend */}
         <div className="absolute top-4 left-4 bg-card/90 backdrop-blur border border-border rounded-lg p-3 space-y-1.5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Zones</p>
-          {ZONES.slice(0, 6).map(zone => (
+          {allZones.slice(0, 6).map(zone => (
             <div key={zone.id} className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: `#${zone.color.toString(16).padStart(6, '0')}` }} />
               <span className="text-xs text-foreground/80">{zone.label}</span>
@@ -297,7 +398,7 @@ export default function Warehouse3D({ items = [] }) {
 
         {/* Selected Zone Info */}
         {selectedZone && (
-          <div className="absolute top-4 right-4 bg-card/95 backdrop-blur border border-border rounded-lg p-4 w-64 animate-fade-in">
+          <div className={`absolute ${isFullscreen ? 'top-20' : 'top-4'} right-4 bg-card/95 backdrop-blur border border-border rounded-lg p-4 w-64 animate-fade-in`}>
             <div className="flex items-start justify-between mb-2">
               <h4 className="font-semibold text-sm">{selectedZone.label}</h4>
               <button onClick={() => setSelectedZone(null)} className="text-muted-foreground hover:text-foreground text-xs">✕</button>
@@ -318,32 +419,34 @@ export default function Warehouse3D({ items = [] }) {
 
         {/* Controls hint */}
         <div className="absolute bottom-4 right-4 text-xs text-muted-foreground bg-card/80 backdrop-blur rounded px-2 py-1">
-          🖱 Drag to orbit • Scroll to zoom • Click zone for details
+          🖱 Drag to orbit • Right-click drag to pan • Scroll to zoom • Click zone to focus
         </div>
       </div>
 
       {/* Zone Summary Table */}
-      <div className="p-4 border-t border-border">
-        <h4 className="text-sm font-semibold mb-3">Zone Summary</h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {ZONES.map(zone => {
-            const count = getZoneItemCount(zone.id);
-            return (
-              <div
-                key={zone.id}
-                onClick={() => setSelectedZone({ ...zone, itemCount: count })}
-                className="flex items-center gap-2 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors"
-              >
-                <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: `#${zone.color.toString(16).padStart(6, '0')}` }} />
-                <div className="min-w-0">
-                  <p className="text-xs font-medium truncate">{zone.label}</p>
-                  <p className="text-xs text-muted-foreground">{count} items</p>
+      {!isFullscreen && (
+        <div className="p-4 border-t border-border">
+          <h4 className="text-sm font-semibold mb-3">Zone Summary</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {allZones.map(zone => {
+              const count = getZoneItemCount(zone.id);
+              return (
+                <div
+                  key={zone.id}
+                  onClick={() => setSelectedZone({ ...zone, itemCount: count })}
+                  className="flex items-center gap-2 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors"
+                >
+                  <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: `#${zone.color.toString(16).padStart(6, '0')}` }} />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium truncate">{zone.label}</p>
+                    <p className="text-xs text-muted-foreground">{count} items</p>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

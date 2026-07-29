@@ -85,6 +85,17 @@
     },
     "warehouse_rack": {
       "type": "string"
+    },
+    "detailing_complete": {
+      "type": "boolean",
+      "default": false
+    },
+    "detailing_complete_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "shipping_load_id": {
+      "type": "string"
     }
   },
   "required": [

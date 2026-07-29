@@ -1,0 +1,43 @@
+{
+  "name": "disciplinary_records",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "incident_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "Attendance",
+        "Safety_Violation",
+        "Conduct",
+        "Performance",
+        "Other"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "action_taken": {
+      "type": "string"
+    },
+    "signature_hash": {
+      "type": "string"
+    },
+    "recorded_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "employee_id",
+    "incident_date",
+    "category"
+  ]
+}

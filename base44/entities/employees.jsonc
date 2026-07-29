@@ -1,0 +1,61 @@
+{
+  "name": "employees",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_number": {
+      "type": "string"
+    },
+    "full_name": {
+      "type": "string"
+    },
+    "classification": {
+      "type": "string"
+    },
+    "hire_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "pin_encrypted": {
+      "type": "string"
+    },
+    "is_timeclock_locked": {
+      "type": "boolean",
+      "default": true
+    },
+    "has_w4_approved": {
+      "type": "boolean",
+      "default": false
+    },
+    "has_i9_approved": {
+      "type": "boolean",
+      "default": false
+    },
+    "ssn_last4": {
+      "type": "string"
+    },
+    "pay_rate_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "department": {
+      "type": "string"
+    },
+    "emergency_contact_name": {
+      "type": "string"
+    },
+    "emergency_contact_phone": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "employee_number",
+    "full_name"
+  ]
+}

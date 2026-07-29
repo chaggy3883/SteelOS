@@ -52,6 +52,18 @@
       "type": "number",
       "default": 95
     },
+    "max_shop_capacity_tons_weekly": {
+      "type": "number",
+      "default": 150
+    },
+    "stale_piece_alert_hours": {
+      "type": "number",
+      "default": 8
+    },
+    "station_bottleneck_threshold": {
+      "type": "number",
+      "default": 50
+    },
     "last_updated_by": {
       "type": "string"
     },

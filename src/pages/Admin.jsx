@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2 } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageHeader from '@/components/ui/PageHeader';
 import UserManagement from '@/components/admin/UserManagement';
@@ -10,6 +10,9 @@ import TaxZoneLookup from '@/components/admin/TaxZoneLookup';
 import CRMSync from '@/components/admin/CRMSync';
 import IntegrationsGateway from '@/components/admin/IntegrationsGateway';
 import RoleManager from '@/components/admin/RoleManager';
+import ShopFloorLayoutEditor from '@/components/admin/ShopFloorLayoutEditor';
+import CompanyBrandingPanel from '@/components/admin/CompanyBrandingPanel';
+import FormReportSettingsPanel from '@/components/admin/FormReportSettingsPanel';
 
 const TABS = [
   { id: 'users', label: 'User Management', icon: Users, Component: UserManagement },
@@ -19,6 +22,9 @@ const TABS = [
   { id: 'crm', label: 'CRM Sync', icon: Database, Component: CRMSync },
   { id: 'integrations', label: 'Integrations', icon: Plug, Component: IntegrationsGateway },
   { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck, Component: RoleManager },
+  { id: 'shopfloor', label: '3D Shop Floor Layout', icon: Boxes, Component: ShopFloorLayoutEditor },
+  { id: 'branding', label: 'Company Settings', icon: Palette, Component: CompanyBrandingPanel },
+  { id: 'form-report-settings', label: 'Form & Report Settings', icon: LayoutTemplate, Component: FormReportSettingsPanel },
 ];
 
 export default function Admin() {
@@ -36,7 +42,8 @@ export default function Admin() {
     </div>
   );
 
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'system_administrator' || currentUser?.is_admin === true || currentUser?.role === 'Demo Admin' || currentUser?.role === 'Admin';
+  const userRoles = currentUser?.roles || [];
+  const isAdmin = userRoles.includes('admin') || userRoles.includes('system_administrator') || currentUser?.is_admin === true || userRoles.includes('Demo Admin') || userRoles.includes('Admin');
 
   if (!isAdmin) return (
     <div className="flex flex-col items-center justify-center h-96 gap-3">

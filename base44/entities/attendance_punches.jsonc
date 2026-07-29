@@ -1,0 +1,64 @@
+{
+  "name": "attendance_punches",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "terminal_id": {
+      "type": "string"
+    },
+    "punch_type": {
+      "type": "string",
+      "enum": [
+        "Clock_In",
+        "Clock_Out",
+        "Start_Break",
+        "End_Break"
+      ]
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "labor_activity_category": {
+      "type": "string",
+      "enum": [
+        "Shop_Fab",
+        "Drill_Line",
+        "Welding",
+        "Paint",
+        "Field_Erection"
+      ]
+    },
+    "punch_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "total_regular_minutes": {
+      "type": "number",
+      "default": 0
+    },
+    "total_overtime_minutes": {
+      "type": "number",
+      "default": 0
+    },
+    "is_mobile_remote_punch": {
+      "type": "boolean",
+      "default": false
+    },
+    "punch_in_location_coordinates": {
+      "type": ["string", "null"]
+    },
+    "punch_out_location_coordinates": {
+      "type": ["string", "null"]
+    }
+  },
+  "required": [
+    "employee_id",
+    "punch_type",
+    "punch_time"
+  ]
+}

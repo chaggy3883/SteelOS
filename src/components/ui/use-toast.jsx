@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 
 const TOAST_LIMIT = 20;
 const TOAST_REMOVE_DELAY = 5000;
+const TOAST_AUTO_DISMISS_DELAY = 4000;
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
@@ -133,6 +134,10 @@ function toast({ ...props }) {
       },
     },
   });
+
+  // This toast isn't backed by a real Radix Toast primitive (no swipe/auto-close
+  // behavior), so nothing else ever schedules removal — dismiss it ourselves.
+  setTimeout(dismiss, TOAST_AUTO_DISMISS_DELAY);
 
   return {
     id,

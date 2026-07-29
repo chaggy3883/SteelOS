@@ -1,16 +1,20 @@
-import { ListChecks, Calculator, TrendingUp, History, Plus, FolderKanban, FileEdit, Factory, Truck, DollarSign, Activity } from 'lucide-react';
+import { ListChecks, Calculator, TrendingUp, History, Plus, FolderKanban, FileEdit, Factory, Truck, DollarSign, Activity, PackageCheck } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 
 export const ALL_MODULES = [
   { path: '/', label: 'Dashboard' },
   { path: '/estimating', label: 'Estimating' },
+  { path: '/estimating/analytics', label: 'Historical Analytics' },
   { path: '/projects', label: 'Projects' },
   { path: '/intelligence', label: 'Intelligence' },
   { path: '/crm', label: 'CRM' },
   { path: '/purchasing', label: 'Purchasing' },
+  { path: '/purchasing/module', label: 'Procurement Module' },
+  { path: '/purchasing/receiving-kiosk', label: 'Receiving Kiosk' },
   { path: '/inventory', label: 'Inventory' },
   { path: '/production', label: 'Production' },
   { path: '/shop-fabrication', label: 'Shop Fabrication' },
+  { path: '/shop-operations', label: 'Shop Operations' },
   { path: '/shipping', label: 'Shipping' },
   { path: '/quality', label: 'Quality' },
   { path: '/safety', label: 'Safety' },
@@ -18,9 +22,17 @@ export const ALL_MODULES = [
   { path: '/rfis', label: 'RFIs' },
   { path: '/accounting', label: 'Accounting' },
   { path: '/reports', label: 'Reports' },
+  { path: '/legal', label: 'Legal & Contracts' },
+  { path: '/portal/login', label: 'External Gateways (Portal)' },
   { path: '/users', label: 'Users' },
   { path: '/settings', label: 'Settings' },
   { path: '/admin', label: 'Admin Panel' },
+  { path: '/human-resources', label: 'Human Resources' },
+  { path: '/executive-analytics', label: 'Executive Analytics' },
+  { path: '/employee-center', label: 'Employee Center' },
+  { path: '/super-admin/dashboard', label: 'Super Admin Dashboard' },
+  { path: '/system-integrations', label: 'System Integrations' },
+  { path: '/field-operations', label: 'Field Operations' },
 ];
 
 export const WIDGET_LIBRARY = [
@@ -39,21 +51,24 @@ export const WIDGET_LIBRARY = [
   { id: 'shipments_calendar_widget', name: 'Logistics & Shipments Calendar', category: 'pm', icon: Truck, minW: 2, minH: 2, defaultW: 2, defaultH: 3, description: 'Upcoming trailer dispatch dates' },
   { id: 'buyout_variance_widget', name: 'Buyout Financial Variance', category: 'pm', icon: DollarSign, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Budgeted vs actual procurement spend' },
   { id: 'pending_requisition_approvals_widget', name: 'Pending Requisition Approvals', category: 'pm', icon: Activity, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Requisitions awaiting executive approval' },
+  { id: 'material_received_tracker_widget', name: 'Material Received Tracker', category: 'pm', icon: PackageCheck, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Recent receiving log status by PO' },
 ];
 
 export const BUILTIN_ROLES = [
   { name: 'admin', label: 'Admin', is_system: true, description: 'Full system access', allowed_modules: ['*'], allowed_widgets: ['*'] },
-  { name: 'estimator', label: 'Estimator', is_system: true, description: 'Estimating, BID Worksheet, CRM', allowed_modules: ['/', '/estimating', '/projects', '/crm', '/intelligence', '/documents', '/rfis'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_win_rate', 'bid_history', 'quick_add_bid'] },
-  { name: 'project_manager', label: 'Project Manager', is_system: true, description: 'Job Tracking, Change Orders, Logistics, Billing', allowed_modules: ['/', '/projects', '/production', '/shipping', '/accounting', '/documents', '/rfis', '/reports'], allowed_widgets: ['active_projects', 'change_orders', 'fab_progress', 'shipments_calendar', 'invoiced_vs_remaining', 'project_health_summary', 'change_order_pipeline', 'shipments_calendar_widget', 'pending_requisition_approvals_widget'] },
-  { name: 'purchasing_agent', label: 'Purchasing Agent', is_system: true, description: 'Purchasing & vendor management', allowed_modules: ['/', '/purchasing', '/crm', '/inventory'], allowed_widgets: ['buyout_variance_widget', 'pending_requisition_approvals_widget'] },
-  { name: 'shop_manager', label: 'Shop Manager', is_system: true, description: 'Production & quality oversight', allowed_modules: ['/', '/production', '/quality', '/safety', '/inventory'], allowed_widgets: ['fab_progress'] },
-  { name: 'inspector', label: 'Inspector', is_system: true, description: 'Quality inspection', allowed_modules: ['/', '/quality', '/documents'], allowed_widgets: [] },
-  { name: 'warehouse_clerk', label: 'Warehouse Clerk', is_system: true, description: 'Inventory & shipping', allowed_modules: ['/', '/inventory', '/shipping'], allowed_widgets: ['shipments_calendar'] },
-  { name: 'hr_admin', label: 'HR Admin', is_system: true, description: 'User management & accounting', allowed_modules: ['/', '/users', '/accounting', '/admin'], allowed_widgets: [] },
-  { name: 'president', label: 'President', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/estimating', '/projects', '/crm', '/accounting', '/reports', '/admin'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining'] },
-  { name: 'ceo', label: 'CEO', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/estimating', '/projects', '/crm', '/accounting', '/reports', '/admin'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining'] },
-  { name: 'finance_department', label: 'Finance Department', is_system: true, description: 'Financial review access', allowed_modules: ['/', '/accounting', '/estimating', '/reports'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'invoiced_vs_remaining'] },
-  { name: 'user', label: 'General User', is_system: true, description: 'Basic dashboard access', allowed_modules: ['/'], allowed_widgets: [] },
+  { name: 'estimator', label: 'Estimator', is_system: true, description: 'Estimating, BID Worksheet, CRM', allowed_modules: ['/', '/employee-center','/estimating', '/estimating/analytics', '/projects', '/crm', '/intelligence', '/documents', '/rfis', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_win_rate', 'bid_history', 'quick_add_bid'] },
+  { name: 'project_manager', label: 'Project Manager', is_system: true, description: 'Job Tracking, Change Orders, Logistics, Billing', allowed_modules: ['/', '/employee-center','/projects', '/production', '/shipping', '/field-operations', '/accounting', '/documents', '/rfis', '/reports', '/portal/login'], allowed_widgets: ['active_projects', 'change_orders', 'fab_progress', 'shipments_calendar', 'invoiced_vs_remaining', 'project_health_summary', 'change_order_pipeline', 'shipments_calendar_widget', 'pending_requisition_approvals_widget', 'material_received_tracker_widget'] },
+  { name: 'purchasing_agent', label: 'Purchasing Agent', is_system: true, description: 'Purchasing & vendor management', allowed_modules: ['/', '/employee-center','/purchasing', '/purchasing/module', '/purchasing/receiving-kiosk', '/crm', '/inventory', '/portal/login'], allowed_widgets: ['buyout_variance_widget', 'pending_requisition_approvals_widget'] },
+  { name: 'shop_manager', label: 'Shop Manager', is_system: true, description: 'Production & quality oversight', allowed_modules: ['/', '/employee-center','/production', '/quality', '/safety', '/inventory', '/shop-operations', '/field-operations'], allowed_widgets: ['fab_progress'] },
+  { name: 'inspector', label: 'Inspector', is_system: true, description: 'Quality inspection', allowed_modules: ['/', '/employee-center','/quality', '/documents'], allowed_widgets: [] },
+  { name: 'warehouse_clerk', label: 'Warehouse Clerk', is_system: true, description: 'Inventory & shipping', allowed_modules: ['/', '/employee-center','/inventory', '/shipping'], allowed_widgets: ['shipments_calendar'] },
+  { name: 'hr_admin', label: 'HR Admin', is_system: true, description: 'User management, accounting, and personnel records', allowed_modules: ['/', '/employee-center','/users', '/accounting', '/admin', '/human-resources', '/portal/login'], allowed_widgets: [] },
+  { name: 'payroll_admin', label: 'Payroll Admin', is_system: true, description: 'Payroll and personnel compensation records', allowed_modules: ['/', '/employee-center','/accounting', '/human-resources', '/portal/login'], allowed_widgets: [] },
+  { name: 'president', label: 'President', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/employee-center','/estimating', '/estimating/analytics', '/projects', '/crm', '/accounting', '/reports', '/executive-analytics', '/admin', '/legal', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining', 'pending_requisition_approvals_widget'] },
+  { name: 'ceo', label: 'CEO', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/employee-center','/estimating', '/estimating/analytics', '/projects', '/crm', '/accounting', '/reports', '/executive-analytics', '/admin', '/legal', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining', 'pending_requisition_approvals_widget'] },
+  { name: 'finance_department', label: 'Finance Department', is_system: true, description: 'Financial review access', allowed_modules: ['/', '/employee-center','/accounting', '/estimating', '/estimating/analytics', '/reports', '/executive-analytics', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'invoiced_vs_remaining'] },
+  { name: 'user', label: 'General User', is_system: true, description: 'Basic dashboard access', allowed_modules: ['/', '/employee-center','/documents', '/inventory'], allowed_widgets: [] },
+  { name: 'super_admin', label: 'Super Admin', is_system: true, description: 'Platform operator — cross-tenant support access, no home tenant', allowed_modules: ['/super-admin/dashboard'], allowed_widgets: [] },
 ];
 
 export function isModuleAllowed(path, allowedModules) {
@@ -74,7 +89,7 @@ export function getDefaultLayout(widgetIds) {
   return widgetIds.map((id, i) => {
     const w = getWidgetById(id);
     if (!w) return null;
-    return { i: id, x: (i % 2) * 2, y: Math.floor(i / 2) * 2, w: w.defaultW, h: w.defaultH };
+    return { i: id, x: (i % 2) * 2, y: Math.floor(i / 2) * 2, w: w.defaultW, h: w.defaultH, minW: w.minW, minH: w.minH };
   }).filter(Boolean);
 }
 
@@ -99,17 +114,32 @@ export function normalizeRoleName(roleName) {
   return aliases[normalized] || normalized;
 }
 
-export async function getUserPermissions(roleName) {
-  const normalizedRole = normalizeRoleName(roleName);
-  const builtin = BUILTIN_ROLES.find(r => r.name === normalizedRole);
-  if (builtin) return { modules: builtin.allowed_modules, widgets: builtin.allowed_widgets };
-  try {
-    const custom = await base44.entities.CustomRole.filter({ role_name: normalizedRole }, '-created_date', 1);
-    if (custom.length > 0) {
-      return { modules: custom[0].allowed_modules || ['/'], widgets: custom[0].allowed_widgets || [] };
+// Accepts a single role name or an array of role names (multi-role users) and
+// returns the UNION of every matching role's allowed modules/widgets.
+export async function getUserPermissions(roleNames) {
+  const names = Array.isArray(roleNames) ? roleNames : [roleNames];
+  const modules = new Set();
+  const widgets = new Set();
+
+  for (const roleName of names) {
+    const normalizedRole = normalizeRoleName(roleName);
+    const builtin = BUILTIN_ROLES.find(r => r.name === normalizedRole);
+    if (builtin) {
+      builtin.allowed_modules.forEach(m => modules.add(m));
+      builtin.allowed_widgets.forEach(w => widgets.add(w));
+      continue;
     }
-  } catch (e) {}
-  return { modules: ['/'], widgets: [] };
+    try {
+      const custom = await base44.entities.CustomRole.filter({ role_name: normalizedRole }, '-created_date', 1);
+      if (custom.length > 0) {
+        (custom[0].allowed_modules || ['/']).forEach(m => modules.add(m));
+        (custom[0].allowed_widgets || []).forEach(w => widgets.add(w));
+      }
+    } catch (e) {}
+  }
+
+  if (modules.size === 0) modules.add('/');
+  return { modules: Array.from(modules), widgets: Array.from(widgets) };
 }
 
 export async function getAllRoles() {

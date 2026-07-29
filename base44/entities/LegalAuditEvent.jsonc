@@ -1,0 +1,51 @@
+{
+  "name": "LegalAuditEvent",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "contract_scanned",
+        "risk_flag_raised",
+        "statutory_notice_created",
+        "statutory_notice_filed",
+        "statutory_deadline_warning",
+        "delay_impact_notice_generated",
+        "other"
+      ],
+      "default": "other"
+    },
+    "related_entity_type": {
+      "type": "string"
+    },
+    "related_entity_id": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ],
+      "default": "info"
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "event_type",
+    "description"
+  ]
+}

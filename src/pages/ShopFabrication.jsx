@@ -3,39 +3,136 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
-import { QrCode, ScanLine, ClipboardCheck, HardHat, PenTool, PaintBucket, PlayCircle, PauseCircle, CheckCircle2 } from 'lucide-react';
+import { getCertStatus } from '@/lib/certAlerts';
+import { sortPiecesByPriority, hasActiveOverride } from '@/lib/shopOpsMetrics';
+import { LABEL_STOCK_SIZES, buildZplPayload } from '@/lib/zplLabels';
+import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelSheet';
+import {
+  QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
+  CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer,
+} from 'lucide-react';
 
-const stations = ['Receiving', 'Shot Blaster', 'Iron Worker', 'Drill Line', 'Fabricator (Layout/Tack)', 'Paint'];
+const STATIONS = [
+  { id: 1, name: 'Receiving' },
+  { id: 2, name: 'Shot Blaster' },
+  { id: 3, name: 'Iron Worker' },
+  { id: 4, name: 'Drill Line' },
+  { id: 5, name: 'Fab (Layout / Tack)' },
+  { id: 6, name: 'Paint' },
+];
+const stationName = (id) => STATIONS.find((s) => s.id === Number(id))?.name || `Station ${id}`;
+
+// Module 10 safety gate: certain shop-floor stations are "locked" behind a
+// specific active (non-expired) certification. A dispatcher/fabricator can't
+// punch a worker into these stations without HR having that cert on file.
+const STATION_CERT_REQUIREMENTS = {
+  2: 'OSHA_10',
+  3: 'Rigging',
+};
+
+const assertStationCertClearance = async (employeeNumber, stationId) => {
+  const requiredCert = STATION_CERT_REQUIREMENTS[Number(stationId)];
+  if (!requiredCert) return { ok: true };
+  const matches = await base44.entities.employees.filter({ employee_number: String(employeeNumber).trim() });
+  const employee = matches[0];
+  if (!employee) return { ok: true }; // no HR record on file for this ID — nothing to block against
+  const certs = await base44.entities.employee_certifications.filter({ employee_id: employee.id, cert_type: requiredCert });
+  const hasValidCert = certs.some((c) => getCertStatus(c.expiration_date) !== 'Expired');
+  if (!hasValidCert) {
+    return { ok: false, message: `${employee.full_name} needs a valid ${requiredCert.replace(/_/g, ' ')} certification for ${stationName(stationId)}.` };
+  }
+  return { ok: true };
+};
+
+// No real backend/cron exists in this app — the "shift-end fail-safe" runs as
+// a client-side check on page load instead of a true midnight cron job.
+const SHIFT_END_HOUR = 17;
+
+const isPastShiftEnd = (log) => {
+  if (log.status !== 'In_Progress') return false;
+  return new Date(log.start_time).toDateString() !== new Date().toDateString();
+};
 
 export default function ShopFabrication() {
   const { toast } = useToast();
   const [pieces, setPieces] = useState([]);
   const [stationLogs, setStationLogs] = useState([]);
   const [qaInspections, setQaInspections] = useState([]);
-  const [selectedPiece, setSelectedPiece] = useState(null);
+  const [selectedPieceId, setSelectedPieceId] = useState(null);
   const [employeeId, setEmployeeId] = useState('EMP-101');
-  const [activeStation, setActiveStation] = useState('Receiving');
   const [loading, setLoading] = useState(true);
   const [scanValue, setScanValue] = useState('');
-  const [currentTimer, setCurrentTimer] = useState(null);
+  const [showBlueprint, setShowBlueprint] = useState(false);
+  const [stampCredentials, setStampCredentials] = useState('');
+  const [qaNotes, setQaNotes] = useState('');
+  const [schedules, setSchedules] = useState([]);
+  const [overrides, setOverrides] = useState([]);
+  const [printSheet, setPrintSheet] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+
+  const openPrintSheet = (piece) => {
+    setPrintSheet({
+      size: LABEL_STOCK_SIZES.Piece_Mark,
+      title: piece.piece_mark,
+      subtitle: piece.material_shape,
+      qrPayload: piece.qr_payload_string,
+      targetRecordId: piece.id,
+    });
+  };
+
+  const handleTagPrinted = async () => {
+    if (!printSheet?.targetRecordId) return;
+    await base44.entities.print_label_jobs.create({
+      label_type: 'Piece_Mark',
+      target_record_id: printSheet.targetRecordId,
+      zpl_payload_string: buildZplPayload({ labelType: 'Piece_Mark', title: printSheet.title, subtitle: printSheet.subtitle, qrPayload: printSheet.qrPayload }),
+      status: 'Printed',
+      created_at: new Date().toISOString(),
+    });
+  };
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [pieceData, logsData, qaData] = await Promise.all([
+      const [pieceData, logsData, qaData, scheduleData, overrideData] = await Promise.all([
         base44.entities.pieces.list('-created_date', 100),
         base44.entities.station_logs.list('-created_date', 100),
         base44.entities.qa_inspections.list('-created_date', 100),
+        base44.entities.shop_schedules.list('-created_date', 200),
+        base44.entities.manager_overrides.list('-created_date', 200),
       ]);
+      setSchedules(scheduleData);
+      setOverrides(overrideData);
+
+      const failSafeLogs = logsData.filter(isPastShiftEnd);
+      let finalLogs = logsData;
+      if (failSafeLogs.length > 0) {
+        const fixed = await Promise.all(failSafeLogs.map((log) => {
+          const started = new Date(log.start_time);
+          const cutoff = new Date(started);
+          cutoff.setHours(SHIFT_END_HOUR, 0, 0, 0);
+          const elapsed_minutes = Math.max(0, Math.round((cutoff.getTime() - started.getTime()) / 60000));
+          return base44.entities.station_logs.update(log.id, {
+            status: 'Paused',
+            end_time: cutoff.toISOString(),
+            elapsed_minutes,
+            auto_paused: true,
+          });
+        }));
+        const fixedIds = new Set(fixed.map((f) => f.id));
+        finalLogs = logsData.map((log) => (fixedIds.has(log.id) ? fixed.find((f) => f.id === log.id) : log));
+        toast({ title: 'Shift-end fail-safe applied', description: `${fixed.length} log(s) left running past shift end were auto-paused.` });
+      }
+
       setPieces(pieceData);
-      setStationLogs(logsData);
+      setStationLogs(finalLogs);
       setQaInspections(qaData);
-      if (pieceData[0]) setSelectedPiece(pieceData[0]);
+      if (pieceData[0] && !selectedPieceId) setSelectedPieceId(pieceData[0].id);
     } catch (error) {
       console.error(error);
     } finally {
@@ -43,102 +140,171 @@ export default function ShopFabrication() {
     }
   };
 
+  const selectedPiece = useMemo(() => pieces.find((p) => p.id === selectedPieceId) || null, [pieces, selectedPieceId]);
+  const pieceLogs = useMemo(() => stationLogs.filter((entry) => entry.piece_id === selectedPieceId), [stationLogs, selectedPieceId]);
+  const activeLog = useMemo(() => pieceLogs.find((entry) => entry.status === 'In_Progress'), [pieceLogs]);
+  const autoPausedLogs = useMemo(() => pieceLogs.filter((entry) => entry.status === 'Paused' && entry.auto_paused), [pieceLogs]);
+  const isFrozen = selectedPiece?.workflow_status === 'Inspector_Queue';
+  // Module 10b real-time priority sync: Expedite_Part overrides always sort
+  // first, then each piece's project priority_weight from the Scheduler
+  // Matrix — a single shared function (shopOpsMetrics.js) keeps this in sync
+  // with the Scheduler Matrix UI rather than reimplementing the sort here.
+  const sortedPieces = useMemo(() => sortPiecesByPriority(pieces, schedules, overrides), [pieces, schedules, overrides]);
+
+  // Which QA stage is next for a piece: 1_Layout until it's Approved, then 2_Weld.
+  const pendingStage = (piece) => {
+    const layoutApproved = qaInspections.some((q) => q.piece_id === piece.id && q.stage === '1_Layout' && q.status === 'Approved');
+    return layoutApproved ? '2_Weld' : '1_Layout';
+  };
+
   const handleScan = () => {
-    const found = pieces.find((piece) => piece.qr_code === scanValue || piece.piece_mark === scanValue);
+    const found = pieces.find((piece) => piece.qr_payload_string === scanValue || piece.piece_mark === scanValue);
     if (!found) {
       toast({ title: 'Piece not found', variant: 'destructive' });
       return;
     }
-    setSelectedPiece(found);
-    toast({ title: `Loaded ${found.piece_mark}` });
+    setSelectedPieceId(found.id);
+    setShowBlueprint(true);
+    toast({ title: `Loaded ${found.piece_mark}`, description: 'Blueprint opened.' });
   };
 
-  const logWork = async (mode) => {
+  const startWork = async () => {
+    if (!selectedPiece || isFrozen) return;
+    const expedited = hasActiveOverride(overrides, selectedPiece.id, 'Expedite_Part');
+    if (!expedited) {
+      const clearance = await assertStationCertClearance(employeeId, selectedPiece.current_station_id);
+      if (!clearance.ok) {
+        toast({ title: 'Certification block', description: clearance.message, variant: 'destructive' });
+        return;
+      }
+    }
+    const log = await base44.entities.station_logs.create({
+      piece_id: selectedPiece.id,
+      employee_id: employeeId,
+      station_id: selectedPiece.current_station_id,
+      status: 'In_Progress',
+      start_time: new Date().toISOString(),
+      elapsed_minutes: 0,
+      auto_paused: false,
+    });
+    setStationLogs((prev) => [log, ...prev]);
+    toast({ title: 'Work started' });
+  };
+
+  const finishWork = async (nextStatus) => {
+    if (!activeLog) return;
+    const endTime = new Date().toISOString();
+    const elapsed_minutes = Math.max(1, Math.round((new Date(endTime).getTime() - new Date(activeLog.start_time).getTime()) / 60000));
+    const updated = await base44.entities.station_logs.update(activeLog.id, {
+      status: nextStatus,
+      end_time: endTime,
+      elapsed_minutes,
+      auto_paused: false,
+    });
+    setStationLogs((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+    toast({ title: nextStatus === 'Paused' ? 'Timer paused' : 'Work completed' });
+  };
+
+  const resumeWork = async (pausedLog) => {
     if (!selectedPiece) return;
-    if (mode === 'start') {
-      const startLog = await base44.entities.station_logs.create({
+    const log = await base44.entities.station_logs.create({
+      piece_id: selectedPiece.id,
+      employee_id: employeeId,
+      station_id: pausedLog?.station_id ?? selectedPiece.current_station_id,
+      status: 'In_Progress',
+      start_time: new Date().toISOString(),
+      elapsed_minutes: 0,
+      auto_paused: false,
+    });
+    setStationLogs((prev) => [log, ...prev]);
+    toast({ title: 'Work resumed', description: 'A fresh ledger block was started.' });
+  };
+
+  const moveToStation = async (nextStationId) => {
+    if (!selectedPiece || isFrozen || activeLog) return;
+    const expedited = hasActiveOverride(overrides, selectedPiece.id, 'Expedite_Part');
+    if (!expedited) {
+      const clearance = await assertStationCertClearance(employeeId, nextStationId);
+      if (!clearance.ok) {
+        toast({ title: 'Certification block', description: clearance.message, variant: 'destructive' });
+        return;
+      }
+    }
+    try {
+      const log = await base44.entities.station_logs.create({
         piece_id: selectedPiece.id,
-        piece_mark: selectedPiece.piece_mark,
         employee_id: employeeId,
-        station: activeStation,
-        status: 'In Progress',
+        station_id: nextStationId,
+        status: 'In_Progress',
         start_time: new Date().toISOString(),
-        duration_minutes: 0,
+        elapsed_minutes: 0,
+        auto_paused: false,
       });
-      setStationLogs([startLog, ...stationLogs]);
-      setCurrentTimer(startLog.id);
-      toast({ title: 'Work started' });
+      const updatedPiece = await base44.entities.pieces.update(selectedPiece.id, { current_station_id: nextStationId });
+      setStationLogs((prev) => [log, ...prev]);
+      setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
+      toast({ title: `Routed to ${stationName(nextStationId)}` });
+    } catch (e) {
+      toast({ title: 'Routing blocked', description: e.message, variant: 'destructive' });
+    }
+  };
+
+  const requestInspection = async () => {
+    if (!selectedPiece) return;
+    const updated = await base44.entities.pieces.update(selectedPiece.id, { workflow_status: 'Inspector_Queue' });
+    setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    toast({ title: 'Sent to Inspector Queue', description: 'Workspace frozen pending approval.' });
+  };
+
+  const submitInspection = async (status) => {
+    if (!selectedPiece) return;
+    if (!stampCredentials.trim()) {
+      toast({ title: 'Digital stamp required', variant: 'destructive' });
       return;
     }
-
-    if (mode === 'complete' || mode === 'pause') {
-      const active = stationLogs.find((entry) => entry.piece_id === selectedPiece.id && entry.status === 'In Progress');
-      if (!active) return;
-      const endTime = new Date().toISOString();
-      const elapsed = Math.max(1, Math.round((new Date(endTime).getTime() - new Date(active.start_time).getTime()) / 60000));
-      const updated = await base44.entities.station_logs.update(active.id, {
-        status: mode === 'pause' ? 'Paused - In Progress' : 'Complete',
-        end_time: endTime,
-        duration_minutes: elapsed,
-      });
-      setStationLogs((current) => current.map((item) => (item.id === active.id ? updated : item)));
-      setCurrentTimer(null);
-      toast({ title: mode === 'pause' ? 'Timer paused' : 'Work completed' });
-      return;
-    }
-
-    if (mode === 'resume') {
-      const resumed = await base44.entities.station_logs.create({
-        piece_id: selectedPiece.id,
-        piece_mark: selectedPiece.piece_mark,
-        employee_id: employeeId,
-        station: activeStation,
-        status: 'In Progress',
-        start_time: new Date().toISOString(),
-        duration_minutes: 0,
-      });
-      setStationLogs([resumed, ...stationLogs]);
-      setCurrentTimer(resumed.id);
-      toast({ title: 'Work resumed' });
-    }
-  };
-
-  const inspectLayout = async (decision) => {
-    if (!selectedPiece) return;
+    const stage = pendingStage(selectedPiece);
     const created = await base44.entities.qa_inspections.create({
       piece_id: selectedPiece.id,
-      piece_mark: selectedPiece.piece_mark,
+      stage,
       inspector_id: employeeId,
-      inspection_stage: 'Layout',
-      decision,
-      notes: decision === 'Approve Layout' ? 'Approved against PDF' : 'Layout failed - rework required',
+      digital_stamp_credentials: stampCredentials.trim(),
+      status,
+      notes: qaNotes,
+      inspected_at: new Date().toISOString(),
     });
-    setQaInspections([created, ...qaInspections]);
-    const nextStatus = decision === 'Approve Layout' ? 'Ready for Weld' : 'Fabricator Rework';
-    await base44.entities.pieces.update(selectedPiece.id, { qa_layout_status: decision === 'Approve Layout' ? 'Approved' : 'Failed', status: nextStatus });
-    toast({ title: decision === 'Approve Layout' ? 'Layout approved' : 'Layout failed' });
+    setQaInspections((prev) => [created, ...prev]);
+
+    let nextWorkflowStatus;
+    if (stage === '1_Layout') {
+      nextWorkflowStatus = status === 'Approved' ? 'Weld_Unlocked' : 'In_Fabrication';
+    } else {
+      nextWorkflowStatus = status === 'Approved' ? 'Paint_Unlocked' : 'Weld_Unlocked';
+    }
+    const updatedPiece = await base44.entities.pieces.update(selectedPiece.id, { workflow_status: nextWorkflowStatus });
+    setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
+    setStampCredentials('');
+    setQaNotes('');
+    toast({ title: `${stage.replace('_', ' ')} ${status}` });
   };
 
-  const inspectWeld = async () => {
-    if (!selectedPiece) return;
-    const created = await base44.entities.qa_inspections.create({
-      piece_id: selectedPiece.id,
-      piece_mark: selectedPiece.piece_mark,
-      inspector_id: employeeId,
-      inspection_stage: 'Weld',
-      decision: 'Approve Welds',
-      notes: 'Structural weld profile inspected',
-    });
-    setQaInspections([created, ...qaInspections]);
-    await base44.entities.pieces.update(selectedPiece.id, { qa_weld_status: 'Approved', station_status: 'Paint' });
-    toast({ title: 'Weld inspection approved' });
-  };
-
-  const pieceLogs = useMemo(() => stationLogs.filter((entry) => entry.piece_id === selectedPiece?.id), [stationLogs, selectedPiece]);
+  if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
 
   return (
     <div className="p-4 md:p-6 space-y-4 animate-fade-in">
-      <PageHeader title="Shop & Fabrication" subtitle="Tablet-friendly production, QR tracking, and QA workflow" />
+      <PageHeader title="Shop & Fabrication" subtitle="Tablet-friendly station scanning, time tracking, and two-stage QA locks" />
+
+      {autoPausedLogs.length > 0 && (
+        <div className="steel-card p-3 border-yellow-500/30 bg-yellow-500/5 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 text-sm">
+            <AlertTriangle className="w-4 h-4 text-yellow-600" />
+            <span>{autoPausedLogs.length} punch{autoPausedLogs.length > 1 ? 'es' : ''} auto-paused at shift end for this piece.</span>
+          </div>
+          <Button size="sm" variant="outline" className="gap-2" onClick={() => resumeWork(autoPausedLogs[0])}>
+            <PlayCircle className="w-4 h-4" />Resume Work
+          </Button>
+        </div>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="steel-card p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -146,9 +312,10 @@ export default function ShopFabrication() {
             <span className="text-sm font-medium">QR / Piece Scan</span>
           </div>
           <div className="flex flex-col gap-2 md:flex-row">
-            <Input value={scanValue} onChange={(event) => setScanValue(event.target.value)} placeholder="Scan QR or enter piece mark" />
+            <Input value={scanValue} onChange={(e) => setScanValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleScan()} placeholder="Scan QR payload or enter piece mark" />
             <Button onClick={handleScan} className="steel-gradient text-white border-0">Scan</Button>
           </div>
+
           {selectedPiece ? (
             <div className="rounded-xl border border-border p-4 space-y-3">
               <div className="flex items-center justify-between">
@@ -156,20 +323,41 @@ export default function ShopFabrication() {
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Active Piece</p>
                   <p className="text-lg font-semibold">{selectedPiece.piece_mark}</p>
                 </div>
-                <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{selectedPiece.station_status || 'Receiving'}</span>
+                <div className="flex items-center gap-2">
+                  {isFrozen && <span className="flex items-center gap-1 rounded-full bg-red-500/10 px-3 py-1 text-xs font-medium text-red-600"><Lock className="w-3 h-3" />Frozen</span>}
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{stationName(selectedPiece.current_station_id)}</span>
+                </div>
               </div>
               <div className="grid gap-2 text-sm md:grid-cols-2">
-                <div><span className="text-muted-foreground">Assembly</span><p className="font-medium">{selectedPiece.assembly}</p></div>
-                <div><span className="text-muted-foreground">Material</span><p className="font-medium">{selectedPiece.material_shape}</p></div>
-                <div><span className="text-muted-foreground">Length</span><p className="font-medium">{selectedPiece.length_ft} ft</p></div>
-                <div><span className="text-muted-foreground">Grade</span><p className="font-medium">{selectedPiece.material_grade}</p></div>
+                <div><span className="text-muted-foreground">Material Shape</span><p className="font-medium">{selectedPiece.material_shape}</p></div>
+                <div><span className="text-muted-foreground">Dimensions</span><p className="font-medium">{selectedPiece.dimensions}</p></div>
+                <div><span className="text-muted-foreground">Weight</span><p className="font-medium">{selectedPiece.weight} lb</p></div>
+                <div><span className="text-muted-foreground">Workflow Status</span><p className="font-medium">{selectedPiece.workflow_status.replace(/_/g, ' ')}</p></div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" className="gap-2" onClick={() => window.open(selectedPiece.drawing_path || '/drawings/PM-100.pdf', '_blank')}><ScanLine className="w-4 h-4" />View Blueprint</Button>
-                <Button variant="outline" className="gap-2" onClick={() => logWork('start')}><PlayCircle className="w-4 h-4" />Start Work</Button>
-                <Button variant="outline" className="gap-2" onClick={() => logWork('complete')}><CheckCircle2 className="w-4 h-4" />Complete</Button>
-                <Button variant="outline" className="gap-2" onClick={() => logWork('pause')}><PauseCircle className="w-4 h-4" />Pause / End Shift</Button>
-                {currentTimer ? <Button variant="outline" className="gap-2" onClick={() => logWork('resume')}><PlayCircle className="w-4 h-4" />Resume</Button> : null}
+                <Button variant="outline" className="gap-2" onClick={() => setShowBlueprint(true)}><ScanLine className="w-4 h-4" />View Blueprint</Button>
+                <Button variant="outline" className="gap-2" disabled={isFrozen || !!activeLog} onClick={startWork}><PlayCircle className="w-4 h-4" />Start Work</Button>
+                <Button variant="outline" className="gap-2" disabled={!activeLog} onClick={() => finishWork('Complete')}><CheckCircle2 className="w-4 h-4" />Complete</Button>
+                <Button variant="outline" className="gap-2" disabled={!activeLog} onClick={() => finishWork('Paused')}><PauseCircle className="w-4 h-4" />Pause / End Shift</Button>
+              </div>
+              <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+                {selectedPiece.current_station_id < 5 && (
+                  <Button variant="outline" className="gap-2" disabled={isFrozen || !!activeLog} onClick={() => moveToStation(selectedPiece.current_station_id + 1)}>
+                    <ArrowRightCircle className="w-4 h-4" />Advance to {stationName(selectedPiece.current_station_id + 1)}
+                  </Button>
+                )}
+                {selectedPiece.current_station_id === 5 && selectedPiece.workflow_status === 'In_Fabrication' && (
+                  <Button variant="outline" className="gap-2" onClick={requestInspection}><ClipboardCheck className="w-4 h-4" />Ready for Layout</Button>
+                )}
+                {selectedPiece.current_station_id === 5 && selectedPiece.workflow_status === 'Weld_Unlocked' && (
+                  <Button variant="outline" className="gap-2" onClick={requestInspection}><ClipboardCheck className="w-4 h-4" />Ready for Weld</Button>
+                )}
+                {selectedPiece.workflow_status === 'Paint_Unlocked' && selectedPiece.current_station_id !== 6 && (
+                  <Button variant="outline" className="gap-2" onClick={() => moveToStation(6)}><ArrowRightCircle className="w-4 h-4" />Route to Paint (Station 6)</Button>
+                )}
+                {selectedPiece.workflow_status === 'Rejected' && (
+                  <span className="flex items-center gap-1 text-xs text-red-600"><Ban className="w-3.5 h-3.5" />Rejected — awaiting rework</span>
+                )}
               </div>
             </div>
           ) : null}
@@ -178,18 +366,36 @@ export default function ShopFabrication() {
         <div className="steel-card p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <HardHat className="w-5 h-5 text-primary" />
-            <span className="text-sm font-medium">Production Station Routing</span>
+            <span className="text-sm font-medium">Two-Stage QA Inspection Gateway</span>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {stations.map((station) => (
-              <button key={station} onClick={() => setActiveStation(station)} className={`rounded-xl border px-3 py-3 text-left text-sm ${activeStation === station ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>
-                {station}
-              </button>
-            ))}
-          </div>
-          <div>
+          {selectedPiece && isFrozen ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{selectedPiece.piece_mark}</span> is queued for <span className="font-medium text-foreground">{pendingStage(selectedPiece).replace('_', ' ')}</span> inspection.
+              </p>
+              <div>
+                <Label className="text-xs">Digital Stamp Credentials</Label>
+                <div className="relative mt-1">
+                  <Stamp className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={stampCredentials} onChange={(e) => setStampCredentials(e.target.value)} className="pl-9" placeholder="INSP-JD-4471" />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Notes</Label>
+                <Textarea value={qaNotes} onChange={(e) => setQaNotes(e.target.value)} rows={2} placeholder="Inspection notes…" />
+              </div>
+              <div className="flex gap-2">
+                <Button className="flex-1 gap-2 bg-green-600 hover:bg-green-700 text-white border-0" onClick={() => submitInspection('Approved')}><CheckCircle2 className="w-4 h-4" />Approve</Button>
+                <Button variant="outline" className="flex-1 gap-2 text-red-600 border-red-500/30 hover:bg-red-500/10" onClick={() => submitInspection('Failed')}><Ban className="w-4 h-4" />Fail</Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Select a piece queued for inspection to review it here. Fabricator clicks "Ready for Layout"/"Ready for Weld" to freeze the workspace and send it to this queue.</p>
+          )}
+          <div className="pt-2 border-t border-border">
             <Label>Employee ID</Label>
-            <Input value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} />
+            <Input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="mt-1" />
+            <p className="text-xs text-muted-foreground mt-1">Used as both the fabricator/employee ID and the inspector ID when acting on this tablet.</p>
           </div>
         </div>
       </div>
@@ -201,46 +407,92 @@ export default function ShopFabrication() {
           <TabsTrigger value="pieces">Pieces</TabsTrigger>
         </TabsList>
         <TabsContent value="logs" className="space-y-3">
-          {pieceLogs.map((entry) => (
+          {pieceLogs.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">No work logs for this piece yet.</p>
+          ) : pieceLogs.map((entry) => (
             <div key={entry.id} className="steel-card p-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="font-medium">{entry.station}</span>
-                <span className="text-muted-foreground">{entry.status}</span>
+                <span className="font-medium">{stationName(entry.station_id)}</span>
+                <span className="text-muted-foreground">{entry.status}{entry.auto_paused ? ' (shift-end fail-safe)' : ''}</span>
               </div>
-              <p className="mt-1 text-muted-foreground">Employee {entry.employee_id} • {entry.duration_minutes || 0} min</p>
+              <p className="mt-1 text-muted-foreground">Employee {entry.employee_id} • {entry.elapsed_minutes || 0} min</p>
             </div>
           ))}
         </TabsContent>
         <TabsContent value="qa" className="space-y-3">
-          <div className="steel-card p-4 space-y-3">
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" className="gap-2" onClick={() => inspectLayout('Approve Layout')}><ClipboardCheck className="w-4 h-4" />Approve Layout</Button>
-              <Button variant="outline" className="gap-2" onClick={() => inspectLayout('Fail Layout')}><ClipboardCheck className="w-4 h-4" />Fail Layout</Button>
-              <Button variant="outline" className="gap-2" onClick={() => inspectWeld()}><CheckCircle2 className="w-4 h-4" />Approve Welds</Button>
-            </div>
-            {qaInspections.map((inspection) => (
-              <div key={inspection.id} className="rounded-lg border border-border p-3 text-sm">
-                <p className="font-medium">{inspection.inspection_stage} • {inspection.decision}</p>
-                <p className="text-muted-foreground">{inspection.notes}</p>
+          {qaInspections.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">No QA inspections logged yet.</p>
+          ) : qaInspections.map((inspection) => (
+            <div key={inspection.id} className="rounded-lg border border-border p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <p className="font-medium">{inspection.stage.replace('_', ' ')} • {inspection.status}</p>
+                <span className="text-xs text-muted-foreground font-mono">{inspection.digital_stamp_credentials}</span>
               </div>
-            ))}
-          </div>
+              <p className="text-muted-foreground">{inspection.notes}</p>
+            </div>
+          ))}
         </TabsContent>
         <TabsContent value="pieces" className="space-y-3">
-          {pieces.map((piece) => (
-            <div key={piece.id} className="steel-card p-3 text-sm flex items-center justify-between">
+          {sortedPieces.map((piece) => (
+            <div key={piece.id} onClick={() => setSelectedPieceId(piece.id)} className={`steel-card p-3 text-sm flex items-center justify-between w-full text-left transition-colors cursor-pointer ${piece.id === selectedPieceId ? 'ring-1 ring-primary' : ''}`}>
               <div>
-                <p className="font-medium">{piece.piece_mark}</p>
-                <p className="text-muted-foreground">{piece.assembly} • {piece.material_shape}</p>
+                <p className="font-medium flex items-center gap-1.5">
+                  {piece.piece_mark}
+                  {hasActiveOverride(overrides, piece.id, 'Expedite_Part') && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-700 font-semibold">EXPEDITED</span>
+                  )}
+                </p>
+                <p className="text-muted-foreground">{piece.material_shape} • {stationName(piece.current_station_id)}</p>
               </div>
-              <div className="text-right">
-                <p className="font-medium">{piece.qa_weld_status === 'Approved' ? 'Paint Unlock' : 'QA Pending'}</p>
-                <p className="text-muted-foreground">{piece.qr_code}</p>
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <p className="font-medium">{piece.workflow_status.replace(/_/g, ' ')}</p>
+                  <p className="text-muted-foreground font-mono text-xs">{piece.qr_payload_string}</p>
+                </div>
+                <button
+                  type="button"
+                  title="Print Tracking Tag"
+                  onClick={(e) => { e.stopPropagation(); openPrintSheet(piece); }}
+                  className="p-1.5 rounded-md hover:bg-muted flex-shrink-0"
+                >
+                  <Printer className="w-4 h-4 text-muted-foreground" />
+                </button>
               </div>
             </div>
           ))}
         </TabsContent>
       </Tabs>
+
+      {showBlueprint && selectedPiece && (
+        <div className="fixed inset-0 z-[100] bg-background flex flex-col">
+          <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
+            <div>
+              <h3 className="font-semibold">{selectedPiece.piece_mark} — Blueprint</h3>
+              <p className="text-xs text-muted-foreground">{selectedPiece.blueprint_file_uri || 'No blueprint on file'}</p>
+            </div>
+            <Button size="lg" onClick={() => setShowBlueprint(false)} className="bg-red-600 hover:bg-red-700 text-white border-0 font-bold shadow-lg">
+              <X className="w-5 h-5 mr-2" />Close Blueprint
+            </Button>
+          </div>
+          <div className="flex-1 bg-muted/30">
+            {selectedPiece.blueprint_file_uri ? (
+              <iframe src={selectedPiece.blueprint_file_uri} title={`Blueprint for ${selectedPiece.piece_mark}`} className="w-full h-full border-0" />
+            ) : (
+              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">No blueprint file on record for this piece.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <PrintableLabelSheet
+        open={!!printSheet}
+        onClose={() => setPrintSheet(null)}
+        onPrinted={handleTagPrinted}
+        size={printSheet?.size || LABEL_STOCK_SIZES.Piece_Mark}
+        title={printSheet?.title}
+        subtitle={printSheet?.subtitle}
+        qrPayload={printSheet?.qrPayload}
+      />
     </div>
   );
 }

@@ -1,0 +1,52 @@
+{
+  "name": "employee_certifications",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "cert_type": {
+      "type": "string",
+      "enum": [
+        "OSHA_10",
+        "OSHA_30",
+        "Crane_Operator",
+        "Forklift",
+        "Welding_6G",
+        "Welding_3G",
+        "Rigging"
+      ]
+    },
+    "cert_number": {
+      "type": "string"
+    },
+    "issued_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "expiration_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "file_uri": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Valid",
+        "Expiring_Soon",
+        "Expired"
+      ],
+      "default": "Valid"
+    }
+  },
+  "required": [
+    "employee_id",
+    "cert_type",
+    "expiration_date"
+  ]
+}

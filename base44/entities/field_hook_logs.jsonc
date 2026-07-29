@@ -1,0 +1,34 @@
+{
+  "name": "field_hook_logs",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "crane_asset_id": {
+      "type": "string"
+    },
+    "piece_mark_id": {
+      "type": "string"
+    },
+    "hooked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "bolted_complete_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "elapsed_minutes": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "project_id",
+    "crane_asset_id",
+    "piece_mark_id"
+  ]
+}

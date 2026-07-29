@@ -1,0 +1,52 @@
+{
+  "name": "time_off_requests",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "leave_type": {
+      "type": "string",
+      "enum": [
+        "PTO",
+        "Sick",
+        "Unpaid",
+        "Bereavement"
+      ]
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "total_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "reason": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Submitted",
+        "Pending",
+        "Approved",
+        "Rejected"
+      ],
+      "default": "Submitted"
+    }
+  },
+  "required": [
+    "employee_id",
+    "leave_type",
+    "start_date",
+    "end_date"
+  ]
+}
