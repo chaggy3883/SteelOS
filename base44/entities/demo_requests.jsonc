@@ -1,0 +1,34 @@
+{
+  "name": "demo_requests",
+  "type": "object",
+  "properties": {
+    "company_name": {
+      "type": "string"
+    },
+    "annual_ton_capacity": {
+      "type": "number"
+    },
+    "contact_name": {
+      "type": "string"
+    },
+    "contact_email": {
+      "type": "string"
+    },
+    "contact_phone": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["New", "Contacted", "Scheduled"],
+      "default": "New"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "company_name",
+    "contact_email"
+  ]
+}

@@ -52,6 +52,10 @@
     },
     "emergency_contact_phone": {
       "type": "string"
+    },
+    "is_active_login": {
+      "type": "boolean",
+      "default": true
     }
   },
   "required": [

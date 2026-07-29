@@ -1,4 +1,4 @@
-import { stubSignatureHash } from '@/lib/hrSecurity';
+import { stubSignatureHash, verifyPin } from '@/lib/hrSecurity';
 import { encodeFormulaPin } from '@/lib/pinFormula';
 
 const STORAGE_KEY = 'steelos_local_db_v1';
@@ -109,6 +109,7 @@ const buildSeedData = () => {
       {
         id: 'company-hancock',
         name: 'Hancock Steel',
+        company_code: 'hancock',
         company_type: 'structural_steel_fabricator',
         city: 'Findlay',
         state: 'OH',
@@ -123,6 +124,7 @@ const buildSeedData = () => {
       {
         id: 'company-arlington',
         name: 'Arlington Fab',
+        company_code: 'arlington',
         company_type: 'miscellaneous_metals',
         city: 'Arlington',
         state: 'TX',
@@ -974,6 +976,7 @@ const buildSeedData = () => {
         has_i9_approved: true,
         ssn_last4: '0000',
         pay_rate_cents: 2800,
+        is_active_login: true,
         created_date: now,
         updated_date: now
       },
@@ -991,6 +994,7 @@ const buildSeedData = () => {
         has_i9_approved: false,
         ssn_last4: '0000',
         pay_rate_cents: 2400,
+        is_active_login: false,
         created_date: now,
         updated_date: now
       }
@@ -1170,6 +1174,7 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
+    demo_requests: [],
     employee_portal_sessions: [],
     purchase_orders: [
       {
@@ -1608,6 +1613,8 @@ export const createEntityApi = (entityName) => {
 export const createAuthApi = () => {
   const store = getLocalStore();
   const users = ensureCollection(store, 'User');
+  const employees = ensureCollection(store, 'employees');
+  const companies = ensureCollection(store, 'Company');
 
   const persist = () => {
     const latest = loadStore();
@@ -1634,6 +1641,40 @@ export const createAuthApi = () => {
       const token = `local-${user.id}`;
       setAuthState({ user: { ...user, password: undefined }, token });
       return { user: { ...user, password: undefined }, token };
+    },
+
+    // Shop/Field Labor login — completely uncoupled from the email/password
+    // path above. Employees aren't User accounts in this app, so a
+    // successful Employee Number + formula PIN match (the same check
+    // EmployeeCenter.jsx's kiosk login already does) synthesizes a session
+    // the same way loginViaEmailPassword does, just sourced from an
+    // `employees` row instead of a `User` row.
+    async loginViaEmployeePin(companyCode, employeeNumber, pin) {
+      const normalizedCode = toLowerCase(companyCode);
+      const company = companies.find((c) => toLowerCase(c.company_code) === normalizedCode);
+      if (!company) {
+        throw new Error('Company code not found');
+      }
+      const employee = employees.find((e) => e.company_id === company.id && e.employee_number === String(employeeNumber).trim());
+      if (!employee || !verifyPin(pin, employee.pin_encrypted)) {
+        throw new Error('Invalid employee number or PIN');
+      }
+      if (employee.is_active_login === false) {
+        throw new Error('Account suspended. Please contact system administration.');
+      }
+
+      const syntheticUser = {
+        id: `employee-session-${employee.id}`,
+        email: '',
+        full_name: employee.full_name,
+        roles: ['user'],
+        company_id: company.id,
+        employee_id: employee.id,
+        is_active: true,
+      };
+      const token = `local-employee-${employee.id}`;
+      setAuthState({ user: syntheticUser, token });
+      return { user: syntheticUser, token };
     },
 
     async register(payload = {}) {

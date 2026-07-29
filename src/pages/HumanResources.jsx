@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff } from 'lucide-react';
@@ -105,6 +106,12 @@ export default function HumanResources() {
     const relocked = await reevaluateTimeclockLock(updated);
     setEmployees((prev) => prev.map((e) => (e.id === relocked.id ? relocked : e)));
     toast({ title: relocked.is_timeclock_locked ? 'Timeclock still locked' : 'Timeclock unlocked — both W-4 and I-9 approved' });
+  };
+
+  const toggleAccountActive = async (employee, value) => {
+    const updated = await base44.entities.employees.update(employee.id, { is_active_login: value });
+    setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+    toast({ title: value ? `${updated.full_name}'s login re-enabled` : `${updated.full_name}'s login suspended` });
   };
 
   const updateSsnLast4 = async (employee, value) => {
@@ -204,6 +211,7 @@ export default function HumanResources() {
                       {isFullAccess && <th className="text-left py-3 px-4">SSN (last 4)</th>}
                       {isFullAccess && <th className="text-right py-3 px-4">Pay Rate</th>}
                       <th className="text-left py-3 px-4">Timeclock</th>
+                      <th className="text-left py-3 px-4">Account Active</th>
                       {isFullAccess && <th className="text-left py-3 px-4">Compliance</th>}
                     </tr>
                   </thead>
@@ -224,6 +232,18 @@ export default function HumanResources() {
                             {emp.is_timeclock_locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
                             {emp.is_timeclock_locked ? 'Locked' : 'Unlocked'}
                           </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          {isFullAccess ? (
+                            <div className="flex items-center gap-2">
+                              <Switch checked={emp.is_active_login !== false} onCheckedChange={(v) => toggleAccountActive(emp, v)} />
+                              <span className="text-xs text-muted-foreground">{emp.is_active_login !== false ? 'Active' : 'Suspended'}</span>
+                            </div>
+                          ) : (
+                            <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full ${emp.is_active_login !== false ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
+                              {emp.is_active_login !== false ? 'Active' : 'Suspended'}
+                            </span>
+                          )}
                         </td>
                         {isFullAccess && (
                           <td className="py-3 px-4 text-xs space-y-1">

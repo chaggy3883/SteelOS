@@ -78,6 +78,15 @@ export default function SuperAdminDashboard() {
     toast({ title: `${updated.name} plan set to ${plan.replace(/_/g, ' ')}` });
   };
 
+  // Super-Admin Logo Master Controller — this page is already 100%
+  // super_admin-gated (see the clearance check below), so no extra role
+  // check is needed here: a standard tenant admin can never reach this row.
+  const handleLogoChange = async (company, logoUrl) => {
+    const updated = await base44.entities.Company.update(company.id, { logo_url: logoUrl });
+    setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    toast({ title: `${updated.name} logo asset URL updated` });
+  };
+
   const handleCreateTenant = async () => {
     if (!tenantForm.name.trim()) {
       toast({ title: 'Tenant name is required', variant: 'destructive' });
@@ -142,6 +151,7 @@ export default function SuperAdminDashboard() {
               <th className="text-left py-3 px-4">Plan</th>
               <th className="text-left py-3 px-4">Subscription Status</th>
               <th className="text-left py-3 px-4">Simulate Webhook</th>
+              <th className="text-left py-3 px-4">Logo Asset URL</th>
               <th className="text-right py-3 px-4">Action</th>
             </tr>
           </thead>
@@ -169,6 +179,14 @@ export default function SuperAdminDashboard() {
                       {SUBSCRIPTION_PLANS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
                     </select>
                   </div>
+                </td>
+                <td className="py-3 px-4">
+                  <Input
+                    defaultValue={company.logo_url}
+                    onBlur={(e) => handleLogoChange(company, e.target.value)}
+                    placeholder="https://.../logo.png"
+                    className="h-8 w-48 text-xs font-mono"
+                  />
                 </td>
                 <td className="py-3 px-4 text-right">
                   <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleLogIntoInstance(company)}>

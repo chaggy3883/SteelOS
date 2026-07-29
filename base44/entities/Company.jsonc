@@ -4,6 +4,9 @@
     "name": {
       "type": "string"
     },
+    "company_code": {
+      "type": "string"
+    },
     "company_type": {
       "type": "string",
       "enum": [

@@ -1,7 +1,7 @@
 import { base44 } from '@/api/base44Client';
 import { encodeFormulaPin } from '@/lib/pinFormula';
 
-const PUBLIC_FIELDS = ['id', 'employee_number', 'full_name', 'classification', 'hire_date', 'is_active', 'created_date', 'updated_date'];
+const PUBLIC_FIELDS = ['id', 'employee_number', 'full_name', 'classification', 'hire_date', 'is_active', 'is_active_login', 'created_date', 'updated_date'];
 const FULL_ACCESS_ROLES = ['hr_admin', 'payroll_admin', 'admin'];
 
 const normalizeRoles = (roles) => (Array.isArray(roles) ? roles : [roles]).map((r) => String(r || '').toLowerCase().trim());
@@ -65,6 +65,7 @@ export async function hireCandidate(candidateId) {
     has_i9_approved: false,
     ssn_last4: '',
     pay_rate_cents: 0,
+    is_active_login: true,
   });
 
   await base44.entities.candidate_profiles.update(candidateId, {
