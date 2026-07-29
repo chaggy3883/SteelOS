@@ -69,6 +69,7 @@ export const BUILTIN_ROLES = [
   { name: 'finance_department', label: 'Finance Department', is_system: true, description: 'Financial review access', allowed_modules: ['/', '/employee-center','/accounting', '/estimating', '/estimating/analytics', '/reports', '/executive-analytics', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'invoiced_vs_remaining'] },
   { name: 'user', label: 'General User', is_system: true, description: 'Basic dashboard access', allowed_modules: ['/', '/employee-center','/documents', '/inventory'], allowed_widgets: [] },
   { name: 'super_admin', label: 'Super Admin', is_system: true, description: 'Platform operator — cross-tenant support access, no home tenant', allowed_modules: ['/super-admin/dashboard'], allowed_widgets: [] },
+  { name: 'Maintenance_Manager', label: 'Maintenance Manager', is_system: true, description: 'Exclusive write access to the Field Operations fleet, repair, and rigging ledgers', allowed_modules: ['/', '/employee-center', '/field-operations'], allowed_widgets: [] },
 ];
 
 export function isModuleAllowed(path, allowedModules) {
@@ -110,6 +111,14 @@ export function normalizeRoleName(roleName) {
     'shopmanager': 'shop_manager',
     'shop manager': 'shop_manager',
     'shop-manager': 'shop_manager',
+    // BUILTIN_ROLES.name for this one is 'Maintenance_Manager' (mixed case,
+    // as explicitly specified), but this function always lowercases its
+    // input first — this alias maps that lowercased form back to the exact
+    // stored casing so getUserPermissions' `r.name === normalizedRole` match
+    // actually succeeds instead of silently granting zero permissions.
+    'maintenance_manager': 'Maintenance_Manager',
+    'maintenance manager': 'Maintenance_Manager',
+    'maintenance-manager': 'Maintenance_Manager',
   };
   return aliases[normalized] || normalized;
 }

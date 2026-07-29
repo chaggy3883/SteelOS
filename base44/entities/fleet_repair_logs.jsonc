@@ -1,0 +1,40 @@
+{
+  "name": "fleet_repair_logs",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "asset_id": {
+      "type": "string"
+    },
+    "repair_category": {
+      "type": "string",
+      "enum": ["Routine_PM", "Breakdown_Repair", "Warranty_Service"]
+    },
+    "runtime_hours_at_repair": {
+      "type": "number",
+      "default": 0
+    },
+    "cost_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "repair_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "asset_id",
+    "repair_category",
+    "repair_date"
+  ]
+}

@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Edit2, Trash2, Loader2, Shield, Lock } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { BUILTIN_ROLES, ALL_MODULES, WIDGET_LIBRARY } from '@/components/dashboard/rbacConfig';
+import { isSuperAdmin } from '@/lib/tenantContext';
 
 export default function RoleManager() {
   const { toast } = useToast();
@@ -17,8 +18,16 @@ export default function RoleManager() {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ role_name: '', label: '', description: '', allowed_modules: [], allowed_widgets: [] });
+  const [viewerIsSuperAdmin, setViewerIsSuperAdmin] = useState(false);
 
-  useEffect(() => { loadRoles(); }, []);
+  useEffect(() => {
+    loadRoles();
+    base44.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
+  }, []);
+
+  // Super-Admin Role Firewall: a plain tenant admin never sees the
+  // platform-operator role card at all — not even read-only.
+  const visibleBuiltinRoles = BUILTIN_ROLES.filter((r) => r.name !== 'user' && (viewerIsSuperAdmin || r.name !== 'super_admin'));
 
   const loadRoles = async () => {
     setLoading(true);
@@ -70,7 +79,7 @@ export default function RoleManager() {
       <div>
         <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Shield className="w-4 h-4 text-primary" />Built-in Roles</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {BUILTIN_ROLES.filter(r => r.name !== 'user').map(role => (
+          {visibleBuiltinRoles.map(role => (
             <div key={role.name} className="steel-card p-4">
               <div className="flex items-center justify-between mb-2">
                 <p className="font-medium text-sm">{role.label}</p>

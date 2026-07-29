@@ -9,6 +9,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { isSuperAdmin } from '@/lib/tenantContext';
 
 const ROLES = [
   'system_administrator', 'company_administrator', 'executive', 'operations_manager',
@@ -39,9 +40,13 @@ export default function Users() {
   const [inviteRoles, setInviteRoles] = useState(['estimator']);
   const [inviting, setInviting] = useState(false);
   const [newUserId, setNewUserId] = useState(null);
+  const [viewerIsSuperAdmin, setViewerIsSuperAdmin] = useState(false);
   const rowRefs = useRef({});
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => {
+    loadUsers();
+    base44.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
+  }, []);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -91,7 +96,10 @@ export default function Users() {
     } finally { setInviting(false); }
   };
 
-  const filtered = users.filter(u =>
+  // Super-Admin Role Firewall: a plain tenant admin never sees a
+  // super_admin-holding user row, even in counts/search results.
+  const visibleUsers = viewerIsSuperAdmin ? users : users.filter((u) => !(u.roles || []).includes('super_admin'));
+  const filtered = visibleUsers.filter(u =>
     !search ||
     u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
     u.email?.toLowerCase().includes(search.toLowerCase())
@@ -147,9 +155,9 @@ export default function Users() {
       {/* Role Legend */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'Administrators', count: users.filter(u => u.roles?.includes('admin')).length, color: 'text-red-500' },
-          { label: 'Office Users', count: users.filter(u => u.roles?.includes('user')).length, color: 'text-blue-500' },
-          { label: 'Total Active', count: users.length, color: 'text-green-500' },
+          { label: 'Administrators', count: visibleUsers.filter(u => u.roles?.includes('admin')).length, color: 'text-red-500' },
+          { label: 'Office Users', count: visibleUsers.filter(u => u.roles?.includes('user')).length, color: 'text-blue-500' },
+          { label: 'Total Active', count: visibleUsers.length, color: 'text-green-500' },
           { label: 'Pending Invite', count: 0, color: 'text-orange-500' },
         ].map(({ label, count, color }) => (
           <div key={label} className="steel-card p-4">

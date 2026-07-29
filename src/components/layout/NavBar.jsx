@@ -3,6 +3,10 @@ import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { base44 } from '@/api/base44Client';
 import { getUserPermissions, isModuleAllowed } from '@/components/dashboard/rbacConfig';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { isErectPlan } from '@/lib/planGating';
+
+const ERECT_PLAN_HIDDEN_PATHS = ['/shop-fabrication', '/shop-operations'];
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem
 } from '@/components/ui/dropdown-menu';
@@ -92,6 +96,7 @@ export default function NavBar() {
   const location = useLocation();
   const [allowedModules, setAllowedModules] = useState(['*']);
   const [openSection, setOpenSection] = useState(null);
+  const [erectPlan, setErectPlan] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -103,7 +108,16 @@ export default function NavBar() {
         setAllowedModules(['*']);
       }
     })();
+    getEffectiveCompany().then((company) => setErectPlan(isErectPlan(company))).catch(() => setErectPlan(false));
   }, []);
+
+  // Absolute Plan Tabs Enforcement: SteelOS_Erect is erection-only — Shop
+  // Fabrication/Shop Operations are hard-removed from the nav, not just
+  // permission-gated, since Field Operations already covers this plan's
+  // fleet/erection workflow in their place.
+  const visibleNavGroups = erectPlan
+    ? navGroups.map((group) => ({ ...group, items: group.items.filter((item) => !ERECT_PLAN_HIDDEN_PATHS.includes(item.path)) }))
+    : navGroups;
 
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';
@@ -123,7 +137,7 @@ export default function NavBar() {
         <House className="w-4 h-4" />
         Home
       </Link>
-      {navGroups.map((group) => {
+      {visibleNavGroups.map((group) => {
         const filteredItems = group.items.filter(item => isModuleAllowed(item.path, allowedModules));
         if (filteredItems.length === 0) return null;
         const hasActive = hasActiveInGroup(filteredItems);

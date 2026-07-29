@@ -1,0 +1,43 @@
+{
+  "name": "rigging_inventory_ledger",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "serial_tag": {
+      "type": "string"
+    },
+    "rigging_category": {
+      "type": "string",
+      "enum": ["Spreader_Bar", "Cable_Sling", "Nylon_Sling", "Endless_Sling", "Shackle_Hook"]
+    },
+    "length_inches": {
+      "type": "number"
+    },
+    "capacity_tons": {
+      "type": "number"
+    },
+    "beam_width_feet": {
+      "type": "number"
+    },
+    "diameter_inches": {
+      "type": "number"
+    },
+    "ply_count": {
+      "type": "string",
+      "enum": ["1-Ply", "2-Ply"]
+    },
+    "width_inches": {
+      "type": "number"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "serial_tag",
+    "rigging_category"
+  ]
+}

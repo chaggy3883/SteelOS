@@ -595,6 +595,58 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
+    fleet_repair_logs: [
+      {
+        id: 'repair-log-1',
+        company_id: 'company-hancock',
+        asset_id: 'fleet-asset-1',
+        repair_category: 'Routine_PM',
+        runtime_hours_at_repair: 4800,
+        cost_cents: 32500,
+        repair_date: yesterday.slice(0, 10),
+        notes: '250-hour service — fluids, filters, boom cable inspection.',
+        created_at: now,
+        created_date: now,
+        updated_date: now
+      }
+    ],
+    rigging_inventory_ledger: [
+      {
+        id: 'rigging-1',
+        company_id: 'company-hancock',
+        serial_tag: 'SB-1001',
+        rigging_category: 'Spreader_Bar',
+        length_inches: 144,
+        capacity_tons: 20,
+        beam_width_feet: 12,
+        created_at: now,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'rigging-2',
+        company_id: 'company-hancock',
+        serial_tag: 'CS-2004',
+        rigging_category: 'Cable_Sling',
+        length_inches: 72,
+        diameter_inches: 0.75,
+        created_at: now,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'rigging-3',
+        company_id: 'company-hancock',
+        serial_tag: 'NS-3007',
+        rigging_category: 'Nylon_Sling',
+        length_inches: 96,
+        ply_count: '2-Ply',
+        width_inches: 4,
+        created_at: now,
+        created_date: now,
+        updated_date: now
+      }
+    ],
     ApiIntegrationLog: [
       {
         id: 'api-log-1',
@@ -1384,7 +1436,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();

@@ -12,6 +12,11 @@ import { useToast } from '@/components/ui/use-toast';
 import { ShieldAlert, LogIn, LogOut, Plus, Webhook } from 'lucide-react';
 
 const SUBSCRIPTION_STATUSES = ['Active', 'Past_Due', 'Inactive'];
+const SUBSCRIPTION_PLANS = [
+  { value: 'SteelOS_Fab', label: 'SteelOS Fab (Fabricator Pack)' },
+  { value: 'SteelOS_Erect', label: 'SteelOS Erect (Erector Pack)' },
+  { value: 'Enterprise_Connect', label: 'Enterprise Connect (Unified Suite)' },
+];
 const STATUS_COLOR = { Active: 'bg-green-500/10 text-green-600', Past_Due: 'bg-yellow-500/10 text-yellow-700', Inactive: 'bg-red-500/10 text-red-600' };
 const emptyTenantForm = () => ({ name: '', company_type: 'structural_steel_fabricator', city: '', state: '' });
 
@@ -64,6 +69,13 @@ export default function SuperAdminDashboard() {
     const updated = await base44.entities.Company.update(company.id, { subscription_status: status });
     setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     toast({ title: `${updated.name} subscription set to ${status.replace('_', ' ')}`, description: 'Simulated webhook — no real Stripe integration exists.' });
+  };
+
+  const handlePlanChange = async (company, plan) => {
+    const updated = await base44.entities.Company.update(company.id, { subscription_plan: plan });
+    setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    await loadTenants();
+    toast({ title: `${updated.name} plan set to ${plan.replace(/_/g, ' ')}` });
   };
 
   const handleCreateTenant = async () => {
@@ -142,12 +154,21 @@ export default function SuperAdminDashboard() {
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_COLOR[company.subscription_status] || ''}`}>{(company.subscription_status || 'Active').replace('_', ' ')}</span>
                 </td>
                 <td className="py-3 px-4">
-                  <Select value={company.subscription_status || 'Active'} onValueChange={(v) => simulateSubscriptionChange(company, v)}>
-                    <SelectTrigger className="h-8 w-36 text-xs"><Webhook className="w-3.5 h-3.5 mr-1" /><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {SUBSCRIPTION_STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace('_', ' ')}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-2">
+                    <Select value={company.subscription_status || 'Active'} onValueChange={(v) => simulateSubscriptionChange(company, v)}>
+                      <SelectTrigger className="h-8 w-36 text-xs"><Webhook className="w-3.5 h-3.5 mr-1" /><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {SUBSCRIPTION_STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace('_', ' ')}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <select
+                      value={company.subscription_plan || ''}
+                      onChange={(e) => handlePlanChange(company, e.target.value)}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium"
+                    >
+                      {SUBSCRIPTION_PLANS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                    </select>
+                  </div>
                 </td>
                 <td className="py-3 px-4 text-right">
                   <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleLogIntoInstance(company)}>

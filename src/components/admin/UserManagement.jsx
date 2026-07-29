@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { SYSTEM_ROLES } from '@/components/admin/adminConstants';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
+import { isSuperAdmin } from '@/lib/tenantContext';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function UserManagement() {
@@ -18,8 +19,19 @@ export default function UserManagement() {
   const [builderForm, setBuilderForm] = useState({ full_name: '', email: '', password: '', role: 'estimator' });
   const [permissions, setPermissions] = useState({ can_view_bid_workspace: true, can_upload_documents: true, can_manage_users: false, can_view_financials: false });
   const [allRoles, setAllRoles] = useState(SYSTEM_ROLES);
+  const [viewerIsSuperAdmin, setViewerIsSuperAdmin] = useState(false);
 
-  useEffect(() => { loadUsers(); getAllRoles().then(setAllRoles); }, []);
+  useEffect(() => {
+    loadUsers();
+    getAllRoles().then(setAllRoles);
+    base44.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
+  }, []);
+
+  // Super-Admin Role Firewall: a plain tenant `admin` (not a platform
+  // `super_admin`) may never see, assign, or view the `super_admin` tier —
+  // it's the platform-operator role, not a tenant permission level.
+  const assignableRoles = viewerIsSuperAdmin ? allRoles : allRoles.filter((r) => r.value !== 'super_admin');
+  const visibleUsers = viewerIsSuperAdmin ? users : users.filter((u) => !(u.roles || []).includes('super_admin'));
 
   const loadUsers = async () => {
     setLoading(true);
@@ -31,7 +43,7 @@ export default function UserManagement() {
     } finally { setLoading(false); }
   };
 
-  const filtered = users.filter(u =>
+  const filtered = visibleUsers.filter(u =>
     u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
     u.email?.toLowerCase().includes(search.toLowerCase())
   );
@@ -39,6 +51,10 @@ export default function UserManagement() {
   const handleCreateUser = async () => {
     if (!builderForm.full_name || !builderForm.email || !builderForm.password) {
       toast({ title: 'Complete all required fields', variant: 'destructive' });
+      return;
+    }
+    if (builderForm.role === 'super_admin' && !viewerIsSuperAdmin) {
+      toast({ title: 'Only a super_admin can create a super_admin account', variant: 'destructive' });
       return;
     }
     try {
@@ -61,6 +77,10 @@ export default function UserManagement() {
   };
 
   const handleRoleChange = async (userId, newRole) => {
+    if (newRole === 'super_admin' && !viewerIsSuperAdmin) {
+      toast({ title: 'Only a super_admin can assign the super_admin tier', variant: 'destructive' });
+      return;
+    }
     try {
       await base44.entities.User.update(userId, { roles: [newRole] });
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, roles: [newRole] } : u));
@@ -131,7 +151,7 @@ export default function UserManagement() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {allRoles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                      {assignableRoles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </td>
@@ -164,7 +184,7 @@ export default function UserManagement() {
             <div><Label>Name</Label><Input value={builderForm.full_name} onChange={e => setBuilderForm(f => ({ ...f, full_name: e.target.value }))} className="mt-1" /></div>
             <div><Label>Email</Label><Input type="email" value={builderForm.email} onChange={e => setBuilderForm(f => ({ ...f, email: e.target.value }))} className="mt-1" /></div>
             <div><Label>Password</Label><Input type="password" value={builderForm.password} onChange={e => setBuilderForm(f => ({ ...f, password: e.target.value }))} className="mt-1" /></div>
-            <div><Label>Base Role</Label><Select value={builderForm.role} onValueChange={v => setBuilderForm(f => ({ ...f, role: v }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{allRoles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Base Role</Label><Select value={builderForm.role} onValueChange={v => setBuilderForm(f => ({ ...f, role: v }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{assignableRoles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent></Select></div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {Object.entries(permissions).map(([key, value]) => (

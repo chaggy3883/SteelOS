@@ -9,6 +9,10 @@ import {
 import { cn } from '@/lib/utils';
 import { base44 } from '@/api/base44Client';
 import { getUserPermissions, isModuleAllowed } from '@/components/dashboard/rbacConfig';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { isErectPlan } from '@/lib/planGating';
+
+const ERECT_PLAN_HIDDEN_PATHS = ['/shop-fabrication', '/shop-operations'];
 
 const navGroups = [
   {
@@ -67,15 +71,21 @@ const navGroups = [
 export default function Sidebar({ collapsed, setCollapsed, mobileOpen, onClose }) {
   const location = useLocation();
   const [allowedModules, setAllowedModules] = useState(['*']);
+  const [erectPlan, setErectPlan] = useState(false);
 
   useEffect(() => {
     base44.auth.me().then(async (u) => {
       const perms = await getUserPermissions(u.roles || ['user']);
       setAllowedModules(perms.modules);
     }).catch(() => {});
+    getEffectiveCompany().then((company) => setErectPlan(isErectPlan(company))).catch(() => setErectPlan(false));
   }, []);
 
   useEffect(() => { if (onClose) onClose(); }, [location.pathname]);
+
+  const visibleNavGroups = erectPlan
+    ? navGroups.map((group) => ({ ...group, items: group.items.filter((item) => !ERECT_PLAN_HIDDEN_PATHS.includes(item.path)) }))
+    : navGroups;
 
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';
@@ -125,7 +135,7 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, onClose }
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto scrollbar-thin py-4 px-2">
-        {navGroups.map((group) => {
+        {visibleNavGroups.map((group) => {
           const filteredItems = group.items.filter(item => isModuleAllowed(item.path, allowedModules));
           if (filteredItems.length === 0) return null;
           return (

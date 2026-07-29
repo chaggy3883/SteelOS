@@ -35,6 +35,10 @@
     "is_marked_ready_for_pickup": {
       "type": "boolean",
       "default": false
+    },
+    "maintenance_threshold_hours": {
+      "type": "number",
+      "default": 500
     }
   },
   "required": [

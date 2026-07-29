@@ -13,6 +13,8 @@ const createLocalApi = () => ({
     erection_fleet_assets: createEntityApi('erection_fleet_assets'),
     heavy_equipment_inspections: createEntityApi('heavy_equipment_inspections'),
     field_hook_logs: createEntityApi('field_hook_logs'),
+    fleet_repair_logs: createEntityApi('fleet_repair_logs'),
+    rigging_inventory_ledger: createEntityApi('rigging_inventory_ledger'),
     form_layouts: createEntityApi('form_layouts'),
     report_templates: createEntityApi('report_templates'),
     Bid: createEntityApi('Bid'),

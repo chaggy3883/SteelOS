@@ -54,7 +54,9 @@
         "starter",
         "professional",
         "enterprise",
-        "SteelOS_Erect"
+        "SteelOS_Fab",
+        "SteelOS_Erect",
+        "Enterprise_Connect"
       ],
       "default": "starter"
     },
