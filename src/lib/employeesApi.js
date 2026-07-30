@@ -1,5 +1,6 @@
 import { base44 } from '@/api/base44Client';
 import { encodeFormulaPin } from '@/lib/pinFormula';
+import { encodePin } from '@/lib/hrSecurity';
 
 const PUBLIC_FIELDS = ['id', 'employee_number', 'full_name', 'classification', 'hire_date', 'is_active', 'is_active_login', 'created_date', 'updated_date'];
 const FULL_ACCESS_ROLES = ['hr_admin', 'payroll_admin', 'admin'];
@@ -83,9 +84,18 @@ export async function reevaluateTimeclockLock(employee) {
   return base44.entities.employees.update(employee.id, { is_timeclock_locked: !shouldUnlock });
 }
 
-// The PIN is never manually set — it's always recomputed from the formula
-// whenever the underlying fields (ssn_last4, employee_number) change, so
-// there's exactly one source of truth for what an employee's PIN is.
+// The formula PIN is the auto-assigned DEFAULT whenever the underlying
+// fields (ssn_last4, employee_number) change — it is no longer the only
+// source of truth. The System Access Portal (HumanResources.jsx) lets HR
+// explicitly overwrite an employee's PIN via setManualPin below; that
+// override sticks until either HR sets a new one or edits ssn_last4/employee
+// number again, which recomputes the formula and replaces it.
 export async function syncFormulaPin(employee) {
   return base44.entities.employees.update(employee.id, { pin_encrypted: encodeFormulaPin(employee) });
+}
+
+// Explicit HR override — bypasses the formula entirely. `rawPin` must be
+// exactly 5 digits (enforced by the System Access Portal's input mask).
+export async function setManualPin(employee, rawPin) {
+  return base44.entities.employees.update(employee.id, { pin_encrypted: encodePin(rawPin) });
 }

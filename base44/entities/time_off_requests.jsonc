@@ -41,6 +41,9 @@
         "Rejected"
       ],
       "default": "Submitted"
+    },
+    "supervisor_notes": {
+      "type": "string"
     }
   },
   "required": [

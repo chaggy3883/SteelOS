@@ -10,9 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
-import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff } from 'lucide-react';
+import EmployeeProfileDialog from '@/components/hr/EmployeeProfileDialog';
+import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban } from 'lucide-react';
 
 const POSITIONS = ['Ironworker', 'Welder', 'Fabricator', 'Painter', 'Shop Manager', 'Inspector', 'Office'];
 const CANDIDATE_STATUSES = ['Applied', 'Interviewing', 'Offer_Extended', 'Hired', 'Rejected'];
@@ -34,6 +36,13 @@ export default function HumanResources() {
   const [terminalEmployeeNumber, setTerminalEmployeeNumber] = useState('');
   const [terminalPin, setTerminalPin] = useState('');
 
+  const [profileEmployee, setProfileEmployee] = useState(null);
+  const [showProfileDialog, setShowProfileDialog] = useState(false);
+
+  const [pendingLeave, setPendingLeave] = useState([]);
+  const [decliningRequestId, setDecliningRequestId] = useState(null);
+  const [declineNote, setDeclineNote] = useState('');
+
   useEffect(() => { init(); }, []);
 
   const init = async () => {
@@ -50,14 +59,16 @@ export default function HumanResources() {
 
   const loadAll = async (currentRoles) => {
     try {
-      const [candidateData, employeeData, certData] = await Promise.all([
+      const [candidateData, employeeData, certData, leaveData] = await Promise.all([
         base44.entities.candidate_profiles.list('-created_date', 100),
         listEmployeesForRole(currentRoles),
         base44.entities.employee_certifications.list('-created_date', 200),
+        base44.entities.time_off_requests.list('-created_date', 200),
       ]);
       setCandidates(candidateData);
       setEmployees(employeeData);
       setCertifications(certData);
+      setPendingLeave(leaveData.filter((r) => r.status === 'Submitted' || r.status === 'Pending'));
     } catch (e) {}
   };
 
@@ -108,6 +119,15 @@ export default function HumanResources() {
     toast({ title: relocked.is_timeclock_locked ? 'Timeclock still locked' : 'Timeclock unlocked — both W-4 and I-9 approved' });
   };
 
+  const openProfile = (employee) => {
+    setProfileEmployee(employee);
+    setShowProfileDialog(true);
+  };
+
+  const handleProfileUpdated = (updated) => {
+    setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+  };
+
   const toggleAccountActive = async (employee, value) => {
     const updated = await base44.entities.employees.update(employee.id, { is_active_login: value });
     setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
@@ -146,6 +166,25 @@ export default function HumanResources() {
     }
   };
 
+  // Persists the outcome + supervisor notes to the request record itself,
+  // which is what EmployeeCenter.jsx's "My Time Off Requests" list reads to
+  // show the employee their decision and comments in their own view.
+  const decideLeaveRequest = async (request, status, notes = '') => {
+    const updated = await base44.entities.time_off_requests.update(request.id, { status, supervisor_notes: notes });
+    setPendingLeave((prev) => prev.filter((r) => r.id !== updated.id));
+    setDecliningRequestId(null);
+    setDeclineNote('');
+    toast({ title: `Leave request ${status.toLowerCase()}` });
+  };
+
+  const confirmDecline = (request) => {
+    if (!declineNote.trim()) {
+      toast({ title: 'Administrative Comments are required to decline a request', variant: 'destructive' });
+      return;
+    }
+    decideLeaveRequest(request, 'Rejected', declineNote.trim());
+  };
+
   const expiringCerts = getExpiringCertifications(certifications, 60);
 
   if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
@@ -167,6 +206,14 @@ export default function HumanResources() {
         <TabsList className="mb-4">
           <TabsTrigger value="ats">Candidates (ATS)</TabsTrigger>
           <TabsTrigger value="employees">Employees</TabsTrigger>
+          {isFullAccess && (
+            <TabsTrigger value="timeoff" className="gap-1.5">
+              Time Off Approvals
+              {pendingLeave.length > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-yellow-500 text-white text-[10px] font-bold">{pendingLeave.length}</span>
+              )}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="safety">Safety Radar</TabsTrigger>
           <TabsTrigger value="terminal">Timeclock Terminal</TabsTrigger>
         </TabsList>
@@ -213,6 +260,7 @@ export default function HumanResources() {
                       <th className="text-left py-3 px-4">Timeclock</th>
                       <th className="text-left py-3 px-4">Account Active</th>
                       {isFullAccess && <th className="text-left py-3 px-4">Compliance</th>}
+                      {isFullAccess && <th className="text-right py-3 px-4">Profile</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -255,6 +303,13 @@ export default function HumanResources() {
                             </label>
                           </td>
                         )}
+                        {isFullAccess && (
+                          <td className="py-3 px-4 text-right">
+                            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openProfile(emp)}>
+                              <IdCard className="w-3.5 h-3.5" />Manage
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -263,6 +318,44 @@ export default function HumanResources() {
             </div>
           )}
         </TabsContent>
+
+        {isFullAccess && (
+          <TabsContent value="timeoff" className="space-y-3">
+            <div className="steel-card p-4">
+              <h4 className="font-semibold text-sm mb-1 flex items-center gap-2"><CalendarClock className="w-4 h-4 text-primary" />Pending Time-Off Requests</h4>
+              <p className="text-xs text-muted-foreground mb-3">Approve or decline requests submitted from the Employee Center. Declines require a written comment.</p>
+              {pendingLeave.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">No pending requests.</p>
+              ) : pendingLeave.map((r) => {
+                const requester = employees.find((e) => e.id === r.employee_id);
+                return (
+                  <div key={r.id} className="rounded-lg border border-border p-3 text-sm mb-2">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <p className="font-medium">{requester?.full_name || r.employee_id} — {r.leave_type} ({r.start_date} to {r.end_date})</p>
+                        <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700 text-white border-0" onClick={() => decideLeaveRequest(r, 'Approved')}><CheckCircle2 className="w-3.5 h-3.5" />Approve</Button>
+                        <Button size="sm" variant="outline" className="gap-1 text-red-600 border-red-500/30" onClick={() => { setDecliningRequestId(r.id); setDeclineNote(''); }}><Ban className="w-3.5 h-3.5" />Decline</Button>
+                      </div>
+                    </div>
+                    {decliningRequestId === r.id && (
+                      <div className="mt-3 pt-3 border-t border-border/50 space-y-2">
+                        <Label className="text-xs">Administrative Comments (required)</Label>
+                        <Textarea value={declineNote} onChange={(e) => setDeclineNote(e.target.value)} rows={2} placeholder="Explain why this request is being declined…" />
+                        <div className="flex gap-2 justify-end">
+                          <Button size="sm" variant="outline" onClick={() => { setDecliningRequestId(null); setDeclineNote(''); }}>Cancel</Button>
+                          <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white border-0" onClick={() => confirmDecline(r)}>Confirm Decline</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </TabsContent>
+        )}
 
         <TabsContent value="safety" className="space-y-3">
           <div className="steel-card p-4">
@@ -336,6 +429,16 @@ export default function HumanResources() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {profileEmployee && (
+        <EmployeeProfileDialog
+          employee={profileEmployee}
+          roles={roles}
+          open={showProfileDialog}
+          onOpenChange={setShowProfileDialog}
+          onEmployeeUpdated={handleProfileUpdated}
+        />
+      )}
     </div>
   );
 }

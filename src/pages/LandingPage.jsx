@@ -59,6 +59,11 @@ export default function LandingPage() {
             SteelOS
           </div>
           <div className="flex items-center gap-2">
+            <Link to="/portal/login?type=customer">
+              <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
+                <ArrowRight className="w-3.5 h-3.5" />Quick Demo Portal Login
+              </Button>
+            </Link>
             <Button variant="outline" className="gap-2" onClick={() => setShowBillingStub(true)}>
               <CreditCard className="w-4 h-4" />Client Account Portal
             </Button>

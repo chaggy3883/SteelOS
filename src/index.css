@@ -102,6 +102,30 @@
   }
 }
 
+/* Inverse-Contrast Theme Injectors — calendar popups, dropdown/select
+   grids, and toggle backgrounds (Popover/Select/DropdownMenu content,
+   react-day-picker, Switch, Toggle — see the `theme-invert-surface` /
+   `theme-invert-toggle` marker classes in src/components/ui/*.jsx) are
+   forced to the inverse of the ambient theme for maximum contrast:
+   solid white surfaces in Dark Mode, solid black boundaries in Light
+   Mode. `!important` is required to beat Tailwind's own `dark:` and
+   `data-[state=]` utility classes applied to the same elements. */
+.dark .theme-invert-surface {
+  background-color: #fff !important;
+  color: #000 !important;
+  border-color: #000 !important;
+}
+
+.dark .theme-invert-toggle {
+  background-color: #fff !important;
+  border-color: #000 !important;
+}
+
+:root:not(.dark) .theme-invert-surface,
+:root:not(.dark) .theme-invert-toggle {
+  border-color: #000 !important;
+}
+
 /* PDF Proposal Export — Tailwind's print: variant handles hiding app chrome
    and showing the print-only proposal sheet; this just sets the physical
    page size/margins, which has no Tailwind utility equivalent. */

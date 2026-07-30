@@ -4,16 +4,20 @@ import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import {
   LogIn, Mail, Lock, Loader2, ShieldCheck, Briefcase, Wrench, Package,
-  Building2, ArrowLeft, KeyRound, Hash,
+  Building2, ArrowLeft, KeyRound, Hash, Settings,
 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import GoogleIcon from "@/components/GoogleIcon";
+import KioskKeypadLogin from "@/components/auth/KioskKeypadLogin";
+import { isKioskModeEnabled, getKioskMode, enableKioskMode } from "@/lib/kioskMode";
 
 export default function Login() {
   const { toast } = useToast();
+  const kiosk = getKioskMode();
   const [step, setStep] = useState("company"); // 'company' | 'credentials'
   const [companyCode, setCompanyCode] = useState("");
   const [company, setCompany] = useState(null);
@@ -27,6 +31,33 @@ export default function Login() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [showKioskSetup, setShowKioskSetup] = useState(false);
+  const [kioskSetupCode, setKioskSetupCode] = useState("");
+  const [kioskSetupError, setKioskSetupError] = useState("");
+  const [savingKioskSetup, setSavingKioskSetup] = useState(false);
+
+  if (isKioskModeEnabled()) {
+    return <KioskKeypadLogin companyCode={kiosk.companyCode} companyName={kiosk.companyName} />;
+  }
+
+  const handleEnableKioskMode = async (e) => {
+    e.preventDefault();
+    setKioskSetupError("");
+    setSavingKioskSetup(true);
+    try {
+      const rows = await base44.entities.Company.list("-created_date", 200);
+      const match = rows.find((c) => (c.company_code || "").toLowerCase() === kioskSetupCode.trim().toLowerCase());
+      if (!match) {
+        setKioskSetupError("Company code not found");
+        return;
+      }
+      enableKioskMode(match.company_code, match.name);
+      window.location.reload();
+    } finally {
+      setSavingKioskSetup(false);
+    }
+  };
 
   const handleResolveCompany = async (e) => {
     e.preventDefault();
@@ -157,6 +188,45 @@ export default function Login() {
             </Button>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowKioskSetup(true)}
+          className="mt-6 w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:underline"
+        >
+          <Settings className="w-3.5 h-3.5" />Set up this device as a Shop Kiosk
+        </button>
+
+        <Dialog open={showKioskSetup} onOpenChange={setShowKioskSetup}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Dedicated Shop Kiosk Setup</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              This locks this device permanently to a single company. Every future visit skips straight to an Employee
+              Number + PIN keypad — no email login, no company code screen. Use only on a shared shop-floor terminal.
+            </p>
+            <form onSubmit={handleEnableKioskMode} className="space-y-3">
+              <div>
+                <Label htmlFor="kiosk-company-code">Company Code</Label>
+                <Input
+                  id="kiosk-company-code"
+                  autoFocus
+                  placeholder="e.g. hancock"
+                  value={kioskSetupCode}
+                  onChange={(e) => setKioskSetupCode(e.target.value)}
+                  className="mt-1"
+                  required
+                />
+              </div>
+              {kioskSetupError && <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{kioskSetupError}</div>}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setShowKioskSetup(false)}>Cancel</Button>
+                <Button type="submit" disabled={savingKioskSetup} className="steel-gradient text-white border-0">
+                  {savingKioskSetup ? "Enabling…" : "Enable Kiosk Mode for This Device"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </AuthLayout>
     );
   }

@@ -92,11 +92,20 @@ const navGroups = [
   },
 ];
 
+// Sandboxed Kiosk Navigation Block — an Employee-PIN session (base44's
+// synthetic session from loginViaEmployeePin, identified by employee_id)
+// is a shared shop-floor terminal identity, not a real app account. Its
+// 'user' role still legitimately grants /inventory and /documents for
+// non-kiosk general users, so this can't be fixed in rbacConfig — it's
+// hard-removed here by group label regardless of role-derived modules.
+const KIOSK_SESSION_HIDDEN_GROUPS = ['Inventory', 'Quality & Safety'];
+
 export default function NavBar() {
   const location = useLocation();
   const [allowedModules, setAllowedModules] = useState(['*']);
   const [openSection, setOpenSection] = useState(null);
   const [erectPlan, setErectPlan] = useState(false);
+  const [isKioskSession, setIsKioskSession] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -104,6 +113,7 @@ export default function NavBar() {
         const u = await base44.auth.me();
         const perms = await getUserPermissions(u.roles || ['user']);
         setAllowedModules(perms.modules);
+        setIsKioskSession(!!u?.employee_id);
       } catch (e) {
         setAllowedModules(['*']);
       }
@@ -115,9 +125,10 @@ export default function NavBar() {
   // Fabrication/Shop Operations are hard-removed from the nav, not just
   // permission-gated, since Field Operations already covers this plan's
   // fleet/erection workflow in their place.
-  const visibleNavGroups = erectPlan
+  const visibleNavGroups = (erectPlan
     ? navGroups.map((group) => ({ ...group, items: group.items.filter((item) => !ERECT_PLAN_HIDDEN_PATHS.includes(item.path)) }))
-    : navGroups;
+    : navGroups
+  ).filter((group) => !isKioskSession || !KIOSK_SESSION_HIDDEN_GROUPS.includes(group.label));
 
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';

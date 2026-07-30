@@ -17,8 +17,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import {
-  LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText, Download,
-  User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt,
+  LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText,
+  User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt, DoorOpen,
 } from 'lucide-react';
 
 const LABOR_CATEGORIES = ['Shop_Fab', 'Drill_Line', 'Welding', 'Paint', 'Field_Erection'];
@@ -35,6 +35,8 @@ export default function EmployeeCenter() {
   const [appUserRoles, setAppUserRoles] = useState(['user']);
 
   const [employee, setEmployee] = useState(null);
+  const [company, setCompany] = useState(null);
+  const [isKioskSession, setIsKioskSession] = useState(false);
   const [kioskNumber, setKioskNumber] = useState('');
   const [kioskPin, setKioskPin] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
@@ -54,7 +56,9 @@ export default function EmployeeCenter() {
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [showVaultGate, setShowVaultGate] = useState(false);
   const [vaultPin, setVaultPin] = useState('');
-  const [pendingDownload, setPendingDownload] = useState(null);
+
+  const [decliningRequestId, setDecliningRequestId] = useState(null);
+  const [declineNote, setDeclineNote] = useState('');
 
   const [rateScale, setRateScale] = useState(null);
   const [expenses, setExpenses] = useState([]);
@@ -65,7 +69,24 @@ export default function EmployeeCenter() {
   useEffect(() => {
     checkLock();
     base44.entities.Project.filter({ is_archived: false }, 'name', 50).then(setProjects).catch(() => setProjects([]));
-    base44.auth.me().then((me) => setAppUserRoles(me?.roles || ['user'])).catch(() => setAppUserRoles(['user']));
+    base44.auth.me()
+      .then((me) => {
+        setAppUserRoles(me?.roles || ['user']);
+        // A kiosk-PIN session (Login.jsx / KioskKeypadLogin.jsx) already
+        // proved identity via employee_id — resolving it here means the
+        // worker never re-enters their Employee Number + PIN a second time
+        // through the Kiosk Login card below.
+        if (me?.employee_id) {
+          setIsKioskSession(true);
+          return base44.entities.employees.get(me.employee_id).then((emp) => {
+            if (!emp) return;
+            setEmployee(emp);
+            setVaultUnlocked(false);
+            return Promise.all([loadEmployeeData(emp.id), loadCompany(emp.company_id)]);
+          });
+        }
+      })
+      .catch(() => setAppUserRoles(['user']));
     loadPendingLeaveQueue();
     getPayrollRateScalesCents().then(setRateScale).catch(() => setRateScale(null));
   }, []);
@@ -73,6 +94,18 @@ export default function EmployeeCenter() {
   const checkLock = async () => {
     const info = await isTerminalLocked(terminalId);
     setLockInfo(info);
+  };
+
+  const loadCompany = async (companyId) => {
+    if (!companyId) {
+      setCompany(null);
+      return;
+    }
+    try {
+      setCompany(await base44.entities.Company.get(companyId));
+    } catch (e) {
+      setCompany(null);
+    }
   };
 
   const loadPendingLeaveQueue = async () => {
@@ -123,7 +156,7 @@ export default function EmployeeCenter() {
       setKioskNumber('');
       setKioskPin('');
       setVaultUnlocked(false);
-      await loadEmployeeData(candidate.id);
+      await Promise.all([loadEmployeeData(candidate.id), loadCompany(candidate.company_id)]);
       toast({ title: `Welcome, ${candidate.full_name}` });
     } finally {
       setLoggingIn(false);
@@ -132,6 +165,7 @@ export default function EmployeeCenter() {
 
   const handleKioskLogout = () => {
     setEmployee(null);
+    setCompany(null);
     setPunches([]);
     setTimeOffRequests([]);
     setPayrollDocs([]);
@@ -139,6 +173,17 @@ export default function EmployeeCenter() {
     setVaultUnlocked(false);
     setSelectedProjectId('');
     setLaborCategory('');
+  };
+
+  // Kiosk Reset Action — a real kiosk-PIN session (isKioskSession) has no
+  // office account underneath it to preserve, unlike the manual PIN-entry
+  // path above (an office user testing/covering the terminal, who should
+  // stay signed into their own account). A full base44.auth.logout clears
+  // the session entirely and hard-redirects to /login, which — since the
+  // device's kiosk-mode localStorage flag is untouched — lands back on the
+  // clean KioskKeypadLogin numeric dialer for the next worker.
+  const handleFinishAndExitTerminal = () => {
+    base44.auth.logout('/login');
   };
 
   const sortedPunches = useMemo(() => [...punches].sort((a, b) => new Date(b.punch_time) - new Date(a.punch_time)), [punches]);
@@ -240,13 +285,23 @@ export default function EmployeeCenter() {
   // it doesn't inject fake shop_schedules rows (which would corrupt the
   // capacity heatmap's tonnage math) — ShopOperations.jsx instead queries
   // Approved time_off_requests live and annotates the week columns with them.
-  const decideLeaveRequest = async (request, status) => {
-    const updated = await base44.entities.time_off_requests.update(request.id, { status });
+  const decideLeaveRequest = async (request, status, notes = '') => {
+    const updated = await base44.entities.time_off_requests.update(request.id, { status, supervisor_notes: notes });
     setAllPendingLeave((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
     if (employee && request.employee_id === employee.id) {
       setTimeOffRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
     }
+    setDecliningRequestId(null);
+    setDeclineNote('');
     toast({ title: `Leave request ${status.toLowerCase()}` });
+  };
+
+  const confirmDecline = (request) => {
+    if (!declineNote.trim()) {
+      toast({ title: 'Administrative Comments are required to decline a request', variant: 'destructive' });
+      return;
+    }
+    decideLeaveRequest(request, 'Rejected', declineNote.trim());
   };
 
   const requestInfoUpdate = async () => {
@@ -262,8 +317,7 @@ export default function EmployeeCenter() {
     }
   };
 
-  const openVaultGate = (doc) => {
-    setPendingDownload(doc || 'TAB');
+  const openVaultGate = () => {
     setVaultPin('');
     setShowVaultGate(true);
   };
@@ -275,14 +329,23 @@ export default function EmployeeCenter() {
     }
     setVaultUnlocked(true);
     setShowVaultGate(false);
-    if (pendingDownload && pendingDownload !== 'TAB') {
-      window.open(pendingDownload.file_secure_uri || '#', '_blank');
-    }
-    setPendingDownload(null);
     setVaultPin('');
   };
 
+  // 404 PDF Interceptor — this app has no backend to actually generate/host a
+  // PDF at doc.file_secure_uri (seed data points it at a path that doesn't
+  // exist), so "Download PDF" was a dead link. This computes the same
+  // year-to-date hours a real paystub/W-2 would summarize, straight from
+  // the punch ledger already loaded, and renders it inline instead.
+  const ytdHoursForYear = (year) => {
+    const minutes = punches
+      .filter((p) => p.punch_type === 'Clock_Out' && new Date(p.punch_time).getFullYear() === year)
+      .reduce((sum, p) => sum + (p.total_regular_minutes || 0) + (p.total_overtime_minutes || 0), 0);
+    return (minutes / 60).toFixed(1);
+  };
+
   const approvedLeaveHours = timeOffRequests.filter((r) => r.status === 'Approved').reduce((sum, r) => sum + (r.total_hours || 0), 0);
+  const travelExpensePlanEnabled = company?.subscription_plan === 'SteelOS_Fab' || company?.subscription_plan === 'Enterprise_Connect';
 
   return (
     <div className="p-4 md:p-6 space-y-4 animate-fade-in">
@@ -315,6 +378,16 @@ export default function EmployeeCenter() {
             <p className="text-sm font-medium">{employee.full_name} <span className="text-muted-foreground font-mono text-xs">#{employee.employee_number}</span></p>
             <Button variant="outline" size="sm" onClick={handleKioskLogout}>Log Out</Button>
           </div>
+
+          {isKioskSession && (
+            <Button
+              size="lg"
+              onClick={handleFinishAndExitTerminal}
+              className="w-full h-16 text-lg font-bold gap-3 bg-red-600 hover:bg-red-700 text-white border-0"
+            >
+              <DoorOpen className="w-6 h-6" />FINISH &amp; EXIT TERMINAL
+            </Button>
+          )}
 
           <Tabs defaultValue="kiosk" onValueChange={(v) => { if (v !== 'payroll') setVaultUnlocked(false); }}>
             <TabsList className="mb-4 max-w-full overflow-x-auto justify-start">
@@ -398,29 +471,31 @@ export default function EmployeeCenter() {
                 })}
               </div>
 
-              <div className="steel-card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-semibold text-sm flex items-center gap-2"><Receipt className="w-4 h-4 text-primary" />Travel &amp; Per Diem (Out-of-Town Crews)</h4>
-                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowExpenseForm(true)}>
-                    <Plus className="w-3.5 h-3.5" />Log Expense
-                  </Button>
-                </div>
-                {expenses.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">No travel expenses on file.</p>
-                ) : expenses.map((e) => (
-                  <div key={e.id} className="flex items-center justify-between gap-2 border-b border-border/50 py-2 text-sm">
-                    <div>
-                      <p className="font-medium">{e.expense_category.replace('_', ' ')}{e.merchant_name ? ` — ${e.merchant_name}` : ''}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {e.expense_date} • {e.status}
-                        {e.is_out_of_town_travel && ' • Out-of-town'}
-                        {e.per_diem_allowance_cents > 0 && ` • Per diem $${(e.per_diem_allowance_cents / 100).toFixed(2)}`}
-                      </p>
-                    </div>
-                    <span className="font-mono text-sm flex-shrink-0">${((e.amount_cents || 0) / 100).toFixed(2)}</span>
+              {travelExpensePlanEnabled && (
+                <div className="steel-card p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-semibold text-sm flex items-center gap-2"><Receipt className="w-4 h-4 text-primary" />Travel &amp; Per Diem (Out-of-Town Crews)</h4>
+                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowExpenseForm(true)}>
+                      <Plus className="w-3.5 h-3.5" />Log Expense
+                    </Button>
                   </div>
-                ))}
-              </div>
+                  {expenses.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">No travel expenses on file.</p>
+                  ) : expenses.map((e) => (
+                    <div key={e.id} className="flex items-center justify-between gap-2 border-b border-border/50 py-2 text-sm">
+                      <div>
+                        <p className="font-medium">{e.expense_category.replace('_', ' ')}{e.merchant_name ? ` — ${e.merchant_name}` : ''}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {e.expense_date} • {e.status}
+                          {e.is_out_of_town_travel && ' • Out-of-town'}
+                          {e.per_diem_allowance_cents > 0 && ` • Per diem $${(e.per_diem_allowance_cents / 100).toFixed(2)}`}
+                        </p>
+                      </div>
+                      <span className="font-mono text-sm flex-shrink-0">${((e.amount_cents || 0) / 100).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="profile" className="space-y-3">
@@ -451,12 +526,19 @@ export default function EmployeeCenter() {
                 {timeOffRequests.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">No time off requests yet.</p>
                 ) : timeOffRequests.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between rounded-lg border border-border p-3 text-sm mb-2">
-                    <div>
-                      <p className="font-medium">{r.leave_type} — {r.start_date} to {r.end_date}</p>
-                      <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                  <div key={r.id} className="rounded-lg border border-border p-3 text-sm mb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{r.leave_type} — {r.start_date} to {r.end_date}</p>
+                        <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                      </div>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${r.status === 'Approved' ? 'bg-green-500/10 text-green-600' : r.status === 'Rejected' ? 'bg-red-500/10 text-red-600' : 'bg-yellow-500/10 text-yellow-700'}`}>{r.status}</span>
                     </div>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${r.status === 'Approved' ? 'bg-green-500/10 text-green-600' : r.status === 'Rejected' ? 'bg-red-500/10 text-red-600' : 'bg-yellow-500/10 text-yellow-700'}`}>{r.status}</span>
+                    {r.supervisor_notes && (
+                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
+                        <span className="font-medium">Supervisor comments:</span> {r.supervisor_notes}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -467,15 +549,27 @@ export default function EmployeeCenter() {
                   {allPendingLeave.filter((r) => r.status === 'Submitted' || r.status === 'Pending').length === 0 ? (
                     <p className="text-sm text-muted-foreground py-4 text-center">No pending requests.</p>
                   ) : allPendingLeave.filter((r) => r.status === 'Submitted' || r.status === 'Pending').map((r) => (
-                    <div key={r.id} className="flex items-center justify-between rounded-lg border border-border p-3 text-sm mb-2">
-                      <div>
-                        <p className="font-medium">{r.employee_id} — {r.leave_type} ({r.start_date} to {r.end_date})</p>
-                        <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                    <div key={r.id} className="rounded-lg border border-border p-3 text-sm mb-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">{r.employee_id} — {r.leave_type} ({r.start_date} to {r.end_date})</p>
+                          <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700 text-white border-0" onClick={() => decideLeaveRequest(r, 'Approved')}><CheckCircle2 className="w-3.5 h-3.5" />Approve</Button>
+                          <Button size="sm" variant="outline" className="gap-1 text-red-600 border-red-500/30" onClick={() => { setDecliningRequestId(r.id); setDeclineNote(''); }}><Ban className="w-3.5 h-3.5" />Reject</Button>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700 text-white border-0" onClick={() => decideLeaveRequest(r, 'Approved')}><CheckCircle2 className="w-3.5 h-3.5" />Approve</Button>
-                        <Button size="sm" variant="outline" className="gap-1 text-red-600 border-red-500/30" onClick={() => decideLeaveRequest(r, 'Rejected')}><Ban className="w-3.5 h-3.5" />Reject</Button>
-                      </div>
+                      {decliningRequestId === r.id && (
+                        <div className="mt-3 pt-3 border-t border-border/50 space-y-2">
+                          <Label className="text-xs">Administrative Comments (required)</Label>
+                          <Textarea value={declineNote} onChange={(e) => setDeclineNote(e.target.value)} rows={2} placeholder="Explain why this request is being declined…" />
+                          <div className="flex gap-2 justify-end">
+                            <Button size="sm" variant="outline" onClick={() => { setDecliningRequestId(null); setDeclineNote(''); }}>Cancel</Button>
+                            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white border-0" onClick={() => confirmDecline(r)}>Confirm Decline</Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -487,7 +581,7 @@ export default function EmployeeCenter() {
                 <div className="steel-card p-8 max-w-sm mx-auto text-center space-y-3">
                   <ShieldAlert className="w-8 h-8 text-yellow-600 mx-auto" />
                   <p className="text-sm text-muted-foreground">Payroll documents are PIN-vaulted. Re-enter your PIN to view this tab.</p>
-                  <Button onClick={() => openVaultGate('TAB')} className="steel-gradient text-white border-0">Unlock Vault</Button>
+                  <Button onClick={() => openVaultGate()} className="steel-gradient text-white border-0">Unlock Vault</Button>
                 </div>
               ) : (
                 <div className="steel-card p-4">
@@ -501,12 +595,13 @@ export default function EmployeeCenter() {
                         <FileText className="w-4 h-4 text-primary" />
                         <div>
                           <p className="font-medium">{doc.document_type} — {doc.tax_year}</p>
-                          <p className="text-xs text-muted-foreground">{doc.payout_date} • Net ${((doc.net_pay_cents || 0) / 100).toFixed(2)}</p>
+                          <p className="text-xs text-muted-foreground">{doc.payout_date} • Gross ${((doc.gross_wages_cents || 0) / 100).toFixed(2)} • Net ${((doc.net_pay_cents || 0) / 100).toFixed(2)}</p>
                         </div>
                       </div>
-                      <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openVaultGate(doc)}>
-                        <Download className="w-3.5 h-3.5" />Download PDF
-                      </Button>
+                      <div className="text-right flex-shrink-0">
+                        <p className="font-mono text-sm font-semibold">{ytdHoursForYear(doc.tax_year)}h</p>
+                        <p className="text-[10px] text-muted-foreground">YTD {doc.tax_year} hours</p>
+                      </div>
                     </div>
                   ))}
                 </div>

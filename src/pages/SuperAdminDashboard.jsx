@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
+import LogoUploader from '@/components/admin/LogoUploader';
 import { ShieldAlert, LogIn, LogOut, Plus, Webhook } from 'lucide-react';
 
 const SUBSCRIPTION_STATUSES = ['Active', 'Past_Due', 'Inactive'];
@@ -144,6 +145,7 @@ export default function SuperAdminDashboard() {
       </div>
 
       <div className="steel-card overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
@@ -151,7 +153,7 @@ export default function SuperAdminDashboard() {
               <th className="text-left py-3 px-4">Plan</th>
               <th className="text-left py-3 px-4">Subscription Status</th>
               <th className="text-left py-3 px-4">Simulate Webhook</th>
-              <th className="text-left py-3 px-4">Logo Asset URL</th>
+              <th className="text-left py-3 px-4">Logo</th>
               <th className="text-right py-3 px-4">Action</th>
             </tr>
           </thead>
@@ -181,12 +183,7 @@ export default function SuperAdminDashboard() {
                   </div>
                 </td>
                 <td className="py-3 px-4">
-                  <Input
-                    defaultValue={company.logo_url}
-                    onBlur={(e) => handleLogoChange(company, e.target.value)}
-                    placeholder="https://.../logo.png"
-                    className="h-8 w-48 text-xs font-mono"
-                  />
+                  <LogoUploader value={company.logo_url} onSave={(dataUri) => handleLogoChange(company, dataUri)} />
                 </td>
                 <td className="py-3 px-4 text-right">
                   <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleLogIntoInstance(company)}>
@@ -197,6 +194,7 @@ export default function SuperAdminDashboard() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       <p className="text-xs text-muted-foreground">

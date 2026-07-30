@@ -53,6 +53,12 @@
     "emergency_contact_phone": {
       "type": "string"
     },
+    "emergency_contact_relationship": {
+      "type": "string"
+    },
+    "emergency_contact_phone_alt": {
+      "type": "string"
+    },
     "is_active_login": {
       "type": "boolean",
       "default": true
