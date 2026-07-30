@@ -121,6 +121,18 @@
   border-color: #000 !important;
 }
 
+/* Login Vault slideshow backdrop (LoginVaultBackdrop.jsx) — a continuous,
+   ultra-slow zoom/pan drift applied fresh each time a slide becomes active
+   (the component re-keys the element per rotation so this animation restarts
+   from 0% instead of jumping straight to its end state). */
+@keyframes login-vault-ken-burns {
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.15) translate(-10px, -5px); }
+}
+.login-vault-ken-burns {
+  animation: login-vault-ken-burns 7.5s ease-in-out forwards;
+}
+
 :root:not(.dark) .theme-invert-surface,
 :root:not(.dark) .theme-invert-toggle {
   border-color: #000 !important;

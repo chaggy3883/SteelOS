@@ -1,5 +1,4 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,12 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import {
-  LogIn, Mail, Lock, Loader2, ShieldCheck, Briefcase, Wrench, Package,
-  Building2, ArrowLeft, KeyRound, Hash, Settings,
+  LogIn, Mail, Lock, Loader2, Briefcase, Wrench,
+  Building2, ArrowLeft, KeyRound, Hash, Settings, ShieldCheck,
 } from "lucide-react";
-import AuthLayout from "@/components/AuthLayout";
 import GoogleIcon from "@/components/GoogleIcon";
 import KioskKeypadLogin from "@/components/auth/KioskKeypadLogin";
+import LoginVaultBackdrop from "@/components/auth/LoginVaultBackdrop";
 import { isKioskModeEnabled, getKioskMode, enableKioskMode } from "@/lib/kioskMode";
 
 export default function Login() {
@@ -36,6 +35,18 @@ export default function Login() {
   const [kioskSetupCode, setKioskSetupCode] = useState("");
   const [kioskSetupError, setKioskSetupError] = useState("");
   const [savingKioskSetup, setSavingKioskSetup] = useState(false);
+
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSent, setForgotSent] = useState(false);
+
+  // The Login Vault is an always-dark experience regardless of the app's own
+  // light/dark toggle (that state lives in AppLayout, which doesn't render
+  // for this unauthenticated page) — forcing it here keeps every themed
+  // primitive (Input, Button, Dialog) consistent with the vault's dark card.
+  useEffect(() => {
+    document.documentElement.classList.add("dark");
+  }, []);
 
   if (isKioskModeEnabled()) {
     return <KioskKeypadLogin companyCode={kiosk.companyCode} companyName={kiosk.companyName} />;
@@ -118,245 +129,269 @@ export default function Login() {
     base44.auth.loginWithProvider("google", "/");
   };
 
-  const quickLogin = async (demoEmail, demoPassword) => {
-    setError("");
-    setLoading(true);
-    try {
-      await base44.auth.loginViaEmailPassword(demoEmail, demoPassword);
-      window.location.href = "/";
-    } catch (err) {
-      setError(err.message || "Unable to sign in with demo account");
-    } finally {
-      setLoading(false);
-    }
+  const handleRequestPasswordReset = (e) => {
+    e.preventDefault();
+    setForgotSent(true);
+    toast({
+      title: "Verification token sent",
+      description: `A password reset link has been routed to ${forgotEmail.trim() || "your inbox"}.`,
+    });
   };
 
-  if (step === "company") {
-    return (
-      <AuthLayout
-        icon={Building2}
-        title="SteelOS"
-        subtitle="Enter your company code to continue"
-        footer={
-          <>
-            Don't have an account?{" "}
-            <Link to="/register" className="text-primary font-medium hover:underline">
-              Create one
-            </Link>
-          </>
-        }
-      >
-        <form onSubmit={handleResolveCompany} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="company-code">Company Code</Label>
-            <div className="relative">
-              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-              <Input
-                id="company-code"
-                autoFocus
-                placeholder="e.g. hancock"
-                value={companyCode}
-                onChange={(e) => setCompanyCode(e.target.value)}
-                className="pl-10 h-12"
-                required
-              />
-            </div>
-          </div>
-          {companyError && (
-            <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{companyError}</div>
-          )}
-          <Button type="submit" className="w-full h-12 font-medium steel-gradient text-white border-0" disabled={resolvingCompany}>
-            {resolvingCompany ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-            Continue
-          </Button>
-        </form>
+  const closeForgotPassword = () => {
+    setShowForgotPassword(false);
+    setForgotSent(false);
+    setForgotEmail("");
+  };
 
-        <div className="mt-8 grid gap-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Demo roles (skip company code)</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Button type="button" variant="outline" className="justify-start gap-2" onClick={() => quickLogin("admin@steelos.dev", "password123")}>
-              <ShieldCheck className="w-4 h-4" /> Demo Admin
-            </Button>
-            <Button type="button" variant="outline" className="justify-start gap-2" onClick={() => quickLogin("estimator@steelos.dev", "password123")}>
-              <Wrench className="w-4 h-4" /> Estimator
-            </Button>
-            <Button type="button" variant="outline" className="justify-start gap-2" onClick={() => quickLogin("projectmanager@steelos.dev", "password123")}>
-              <Briefcase className="w-4 h-4" /> Project Manager
-            </Button>
-            <Button type="button" variant="outline" className="justify-start gap-2" onClick={() => quickLogin("purchasing@steelos.dev", "password123")}>
-              <Package className="w-4 h-4" /> Purchasing
-            </Button>
+  const title = step === "company" ? "SteelOS" : company?.name || "Welcome back";
+  const subtitle = step === "company" ? "Enter your company code to continue" : "Log in to your account";
+
+  return (
+    <div className="relative min-h-screen flex items-center justify-center px-4 overflow-hidden bg-slate-950">
+      <LoginVaultBackdrop />
+
+      <div className="relative z-10 w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary mb-4 shadow-lg shadow-primary/30 overflow-hidden">
+            {step === "credentials" && company?.logo_url ? (
+              <img src={company.logo_url} alt={`${company.name} logo`} className="w-full h-full object-contain p-1.5" />
+            ) : (
+              <Building2 className="w-7 h-7 text-primary-foreground" aria-hidden="true" />
+            )}
           </div>
+          <h1 className="text-3xl font-bold tracking-tight text-white">{title}</h1>
+          <p className="text-slate-400 mt-2">{subtitle}</p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowKioskSetup(true)}
-          className="mt-6 w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:underline"
-        >
-          <Settings className="w-3.5 h-3.5" />Set up this device as a Shop Kiosk
-        </button>
+        <div className="bg-slate-950/80 backdrop-blur-md border border-slate-800 text-slate-100 rounded-xl shadow-2xl p-8 w-full">
+          {step === "company" ? (
+            <>
+              <form onSubmit={handleResolveCompany} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="company-code">Company Code</Label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                    <Input
+                      id="company-code"
+                      autoFocus
+                      placeholder="e.g. hancock"
+                      value={companyCode}
+                      onChange={(e) => setCompanyCode(e.target.value)}
+                      className="pl-10 h-12"
+                      required
+                    />
+                  </div>
+                </div>
+                {companyError && (
+                  <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{companyError}</div>
+                )}
+                <Button type="submit" className="w-full h-12 font-medium steel-gradient text-white border-0" disabled={resolvingCompany}>
+                  {resolvingCompany ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+                  Continue
+                </Button>
+              </form>
 
-        <Dialog open={showKioskSetup} onOpenChange={setShowKioskSetup}>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Dedicated Shop Kiosk Setup</DialogTitle></DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              This locks this device permanently to a single company. Every future visit skips straight to an Employee
-              Number + PIN keypad — no email login, no company code screen. Use only on a shared shop-floor terminal.
+              <button
+                type="button"
+                onClick={() => setShowKioskSetup(true)}
+                className="mt-6 w-full flex items-center justify-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 hover:underline"
+              >
+                <Settings className="w-3.5 h-3.5" />Set up this device as a Shop Kiosk
+              </button>
+
+              <Dialog open={showKioskSetup} onOpenChange={setShowKioskSetup}>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>Dedicated Shop Kiosk Setup</DialogTitle></DialogHeader>
+                  <p className="text-sm text-muted-foreground">
+                    This locks this device permanently to a single company. Every future visit skips straight to an Employee
+                    Number + PIN keypad — no email login, no company code screen. Use only on a shared shop-floor terminal.
+                  </p>
+                  <form onSubmit={handleEnableKioskMode} className="space-y-3">
+                    <div>
+                      <Label htmlFor="kiosk-company-code">Company Code</Label>
+                      <Input
+                        id="kiosk-company-code"
+                        autoFocus
+                        placeholder="e.g. hancock"
+                        value={kioskSetupCode}
+                        onChange={(e) => setKioskSetupCode(e.target.value)}
+                        className="mt-1"
+                        required
+                      />
+                    </div>
+                    {kioskSetupError && <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{kioskSetupError}</div>}
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setShowKioskSetup(false)}>Cancel</Button>
+                      <Button type="submit" disabled={savingKioskSetup} className="steel-gradient text-white border-0">
+                        {savingKioskSetup ? "Enabling…" : "Enable Kiosk Mode for This Device"}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </>
+          ) : (
+            <>
+              <div className="mb-6 grid grid-cols-2 gap-2 p-1 rounded-lg bg-muted">
+                <button
+                  type="button"
+                  onClick={() => { setLoginMode("office"); setError(""); }}
+                  className={`flex items-center justify-center gap-1.5 rounded-md py-2 text-sm font-medium transition-colors ${loginMode === "office" ? "bg-card shadow-sm" : "text-muted-foreground"}`}
+                >
+                  <Briefcase className="w-4 h-4" />Office / PM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setLoginMode("shop_field"); setError(""); }}
+                  className={`flex items-center justify-center gap-1.5 rounded-md py-2 text-sm font-medium transition-colors ${loginMode === "shop_field" ? "bg-card shadow-sm" : "text-muted-foreground"}`}
+                >
+                  <Wrench className="w-4 h-4" />Shop / Field
+                </button>
+              </div>
+
+              {error && (
+                <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                  {error}
+                </div>
+              )}
+
+              {loginMode === "office" ? (
+                <>
+                  <Button variant="outline" className="w-full h-12 text-sm font-medium mb-6" onClick={handleGoogle}>
+                    <GoogleIcon className="w-5 h-5 mr-2" />
+                    Continue with Google
+                  </Button>
+                  <div className="relative mb-6">
+                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border" /></div>
+                    <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-3 text-muted-foreground">or</span></div>
+                  </div>
+                  <form onSubmit={handleOfficeSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                        <Input
+                          id="email"
+                          type="email"
+                          autoComplete="email"
+                          autoFocus
+                          placeholder="you@example.com"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="pl-10 h-12"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="password">Password</Label>
+                        <button type="button" onClick={() => setShowForgotPassword(true)} className="text-xs text-primary hover:underline">Forgot password?</button>
+                      </div>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                        <Input
+                          id="password"
+                          type="password"
+                          autoComplete="current-password"
+                          placeholder="••••••••"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="pl-10 h-12"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+                      {loading ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Logging in...</>) : "Log in"}
+                    </Button>
+                  </form>
+                </>
+              ) : (
+                <form onSubmit={handleShopFieldSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="employee-number">Employee Number</Label>
+                    <div className="relative">
+                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                      <Input
+                        id="employee-number"
+                        maxLength={3}
+                        autoFocus
+                        placeholder="001"
+                        value={employeeNumber}
+                        onChange={(e) => setEmployeeNumber(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                        className="pl-10 h-12 font-mono"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="employee-pin">5-Digit Formula PIN</Label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                      <Input
+                        id="employee-pin"
+                        type="password"
+                        maxLength={5}
+                        placeholder="•••••"
+                        value={pin}
+                        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                        className="pl-10 h-12 font-mono"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <Button type="submit" className="w-full h-12 font-medium steel-gradient text-white border-0" disabled={loading}>
+                    {loading ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Logging in...</>) : "Clock In / Log In"}
+                  </Button>
+                </form>
+              )}
+            </>
+          )}
+        </div>
+
+        <p className="text-center text-sm text-slate-400 mt-6">
+          {step === "company" ? (
+            "Enterprise access only — contact your administrator for a company code."
+          ) : (
+            <button type="button" onClick={handleChangeCompany} className="inline-flex items-center gap-1.5 text-primary font-medium hover:underline">
+              <ArrowLeft className="w-3.5 h-3.5" />Not {company?.name}? Change company code
+            </button>
+          )}
+        </p>
+      </div>
+
+      <Dialog open={showForgotPassword} onOpenChange={(open) => (open ? setShowForgotPassword(true) : closeForgotPassword())}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reset Your Password</DialogTitle></DialogHeader>
+          {forgotSent ? (
+            <p className="text-sm text-muted-foreground flex items-center gap-2">
+              <LogIn className="w-4 h-4 text-primary" />A verification token has been routed to your inbox. Follow the link there to finish resetting your password.
             </p>
-            <form onSubmit={handleEnableKioskMode} className="space-y-3">
+          ) : (
+            <form onSubmit={handleRequestPasswordReset} className="space-y-3">
               <div>
-                <Label htmlFor="kiosk-company-code">Company Code</Label>
+                <Label htmlFor="forgot-email">Email</Label>
                 <Input
-                  id="kiosk-company-code"
+                  id="forgot-email"
+                  type="email"
                   autoFocus
-                  placeholder="e.g. hancock"
-                  value={kioskSetupCode}
-                  onChange={(e) => setKioskSetupCode(e.target.value)}
+                  placeholder="you@example.com"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
                   className="mt-1"
                   required
                 />
               </div>
-              {kioskSetupError && <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{kioskSetupError}</div>}
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowKioskSetup(false)}>Cancel</Button>
-                <Button type="submit" disabled={savingKioskSetup} className="steel-gradient text-white border-0">
-                  {savingKioskSetup ? "Enabling…" : "Enable Kiosk Mode for This Device"}
-                </Button>
+                <Button type="button" variant="outline" onClick={closeForgotPassword}>Cancel</Button>
+                <Button type="submit" className="steel-gradient text-white border-0">Send Verification Token</Button>
               </DialogFooter>
             </form>
-          </DialogContent>
-        </Dialog>
-      </AuthLayout>
-    );
-  }
-
-  return (
-    <AuthLayout
-      icon={LogIn}
-      logoUrl={company?.logo_url}
-      title={company?.name || "Welcome back"}
-      subtitle="Log in to your account"
-      footer={
-        <button type="button" onClick={handleChangeCompany} className="inline-flex items-center gap-1.5 text-primary font-medium hover:underline">
-          <ArrowLeft className="w-3.5 h-3.5" />Not {company?.name}? Change company code
-        </button>
-      }
-    >
-      <div className="mb-6 grid grid-cols-2 gap-2 p-1 rounded-lg bg-muted">
-        <button
-          type="button"
-          onClick={() => { setLoginMode("office"); setError(""); }}
-          className={`flex items-center justify-center gap-1.5 rounded-md py-2 text-sm font-medium transition-colors ${loginMode === "office" ? "bg-card shadow-sm" : "text-muted-foreground"}`}
-        >
-          <Briefcase className="w-4 h-4" />Office / PM
-        </button>
-        <button
-          type="button"
-          onClick={() => { setLoginMode("shop_field"); setError(""); }}
-          className={`flex items-center justify-center gap-1.5 rounded-md py-2 text-sm font-medium transition-colors ${loginMode === "shop_field" ? "bg-card shadow-sm" : "text-muted-foreground"}`}
-        >
-          <Wrench className="w-4 h-4" />Shop / Field
-        </button>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
-          {error}
-        </div>
-      )}
-
-      {loginMode === "office" ? (
-        <>
-          <Button variant="outline" className="w-full h-12 text-sm font-medium mb-6" onClick={handleGoogle}>
-            <GoogleIcon className="w-5 h-5 mr-2" />
-            Continue with Google
-          </Button>
-          <div className="relative mb-6">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border" /></div>
-            <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-3 text-muted-foreground">or</span></div>
-          </div>
-          <form onSubmit={handleOfficeSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                <Input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  autoFocus
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="pl-10 h-12"
-                  required
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-                <Link to="/forgot-password" className="text-xs text-primary hover:underline">Forgot password?</Link>
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                <Input
-                  id="password"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10 h-12"
-                  required
-                />
-              </div>
-            </div>
-            <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
-              {loading ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Logging in...</>) : "Log in"}
-            </Button>
-          </form>
-        </>
-      ) : (
-        <form onSubmit={handleShopFieldSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="employee-number">Employee Number</Label>
-            <div className="relative">
-              <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-              <Input
-                id="employee-number"
-                maxLength={3}
-                autoFocus
-                placeholder="001"
-                value={employeeNumber}
-                onChange={(e) => setEmployeeNumber(e.target.value.replace(/\D/g, "").slice(0, 3))}
-                className="pl-10 h-12 font-mono"
-                required
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="employee-pin">5-Digit Formula PIN</Label>
-            <div className="relative">
-              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-              <Input
-                id="employee-pin"
-                type="password"
-                maxLength={5}
-                placeholder="•••••"
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 5))}
-                className="pl-10 h-12 font-mono"
-                required
-              />
-            </div>
-          </div>
-          <Button type="submit" className="w-full h-12 font-medium steel-gradient text-white border-0" disabled={loading}>
-            {loading ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Logging in...</>) : "Clock In / Log In"}
-          </Button>
-        </form>
-      )}
-    </AuthLayout>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

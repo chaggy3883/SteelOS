@@ -3,11 +3,12 @@ import { Image as ImageIcon, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FileDropzone from '@/components/ui/FileDropzone';
 
-const CANVAS_SIZE = 200;
+const BASE_SIZE = 200;
+const PREVIEW_BASE_PX = 112;
 
-export default function LogoUploader({ value, onSave }) {
+export default function LogoUploader({ value, savedScalePct, onSave }) {
   const [imageSrc, setImageSrc] = useState(value || null);
-  const [scalePct, setScalePct] = useState(100);
+  const [scalePct, setScalePct] = useState(savedScalePct || 100);
   const [saving, setSaving] = useState(false);
   const imgRef = useRef(null);
   const canvasRef = useRef(null);
@@ -26,25 +27,23 @@ export default function LogoUploader({ value, onSave }) {
     setSaving(true);
     try {
       const canvas = canvasRef.current;
-      canvas.width = CANVAS_SIZE;
-      canvas.height = CANVAS_SIZE;
+      // Visual scaling directly translates to the output image's own pixel
+      // dimensions — the frame itself grows with the slider (up to 2.5x at
+      // 250%) instead of staying pinned at a fixed 200x200 crop.
+      const outputSize = Math.round(BASE_SIZE * (scalePct / 100));
+      canvas.width = outputSize;
+      canvas.height = outputSize;
       const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      ctx.clearRect(0, 0, outputSize, outputSize);
 
       const img = imgRef.current;
-      const scale = scalePct / 100;
-      const drawWidth = img.naturalWidth * scale;
-      const drawHeight = img.naturalHeight * scale;
-      // Fit within the canvas regardless of the slider, then center — the
-      // slider still controls perceived size (zoom in/out), it just can't
-      // paint outside the saved logo's fixed frame.
-      const fit = Math.min(1, CANVAS_SIZE / drawWidth, CANVAS_SIZE / drawHeight);
-      const w = drawWidth * fit;
-      const h = drawHeight * fit;
-      ctx.drawImage(img, (CANVAS_SIZE - w) / 2, (CANVAS_SIZE - h) / 2, w, h);
+      const fit = Math.min(outputSize / img.naturalWidth, outputSize / img.naturalHeight);
+      const w = img.naturalWidth * fit;
+      const h = img.naturalHeight * fit;
+      ctx.drawImage(img, (outputSize - w) / 2, (outputSize - h) / 2, w, h);
 
       const dataUri = canvas.toDataURL('image/png');
-      await onSave(dataUri);
+      await onSave(dataUri, scalePct);
     } finally {
       setSaving(false);
     }
@@ -56,13 +55,13 @@ export default function LogoUploader({ value, onSave }) {
         <FileDropzone accept="image/*" label="Drag & drop a logo, or click to browse" onFileSelected={handleFileSelected} className="w-56" />
       ) : (
         <div className="space-y-2">
-          <div className="w-28 h-28 rounded-lg border border-border bg-muted/30 flex items-center justify-center overflow-hidden mx-auto">
+          <div className="rounded-lg border border-border bg-muted/30 flex items-center justify-center mx-auto p-2">
             <img
               ref={imgRef}
               src={imageSrc}
               alt="Logo preview"
-              style={{ transform: `scale(${scalePct / 100})` }}
-              className="max-w-full max-h-full object-contain transition-transform"
+              style={{ width: `${PREVIEW_BASE_PX * (scalePct / 100)}px`, height: 'auto' }}
+              className="object-contain transition-all"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -70,7 +69,7 @@ export default function LogoUploader({ value, onSave }) {
             <input
               type="range"
               min={20}
-              max={200}
+              max={250}
               value={scalePct}
               onChange={(e) => setScalePct(Number(e.target.value))}
               className="w-full"

@@ -3,7 +3,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { base44 } from '@/api/base44Client';
 import { getUserPermissions, isModuleAllowed } from '@/components/dashboard/rbacConfig';
-import { getEffectiveCompany } from '@/lib/tenantContext';
+import { getEffectiveCompany, isImpersonating } from '@/lib/tenantContext';
+import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { isErectPlan } from '@/lib/planGating';
 
 const ERECT_PLAN_HIDDEN_PATHS = ['/shop-fabrication', '/shop-operations'];
@@ -111,8 +112,33 @@ export default function NavBar() {
     (async () => {
       try {
         const u = await base44.auth.me();
-        const perms = await getUserPermissions(u.roles || ['user']);
-        setAllowedModules(perms.modules);
+        // Direct Teleport Route: a super_admin's own role only allows
+        // /super-admin/dashboard — while impersonating a tenant they need
+        // that tenant's full workspace nav, not their own operator-only
+        // module list, or "Log into Instance" lands on a nav with nothing in it.
+        if (isImpersonating()) {
+          setAllowedModules(['*']);
+        } else {
+          const perms = await getUserPermissions(u.roles || ['user']);
+          let modules = perms.modules;
+          // Per-account Permissions Grid (permissionCatalog.js): an
+          // individual account's module-level overrides narrow their role's
+          // modules further. Kiosk/employee-PIN sessions store overrides on
+          // the employees row (/employee-center itself is never
+          // disable-able there); office sessions ARE the User row already
+          // returned by me(), no separate fetch needed.
+          if (u?.employee_id) {
+            try {
+              const emp = await base44.entities.employees.get(u.employee_id);
+              const overrides = emp?.permission_overrides || [];
+              modules = modules.filter((path) => path === '/employee-center' || isCapabilityAllowed(overrides, `module:${path}`));
+            } catch (e) {}
+          } else {
+            const overrides = u?.permission_overrides || [];
+            modules = modules.filter((path) => isCapabilityAllowed(overrides, `module:${path}`));
+          }
+          setAllowedModules(modules);
+        }
         setIsKioskSession(!!u?.employee_id);
       } catch (e) {
         setAllowedModules(['*']);

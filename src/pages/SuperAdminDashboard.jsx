@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import LogoUploader from '@/components/admin/LogoUploader';
+import LoginSlideshowManager from '@/components/admin/LoginSlideshowManager';
 import { ShieldAlert, LogIn, LogOut, Plus, Webhook } from 'lucide-react';
 
 const SUBSCRIPTION_STATUSES = ['Active', 'Past_Due', 'Inactive'];
@@ -50,10 +51,14 @@ export default function SuperAdminDashboard() {
 
   const impersonatingCompanyId = getImpersonatingCompanyId();
 
+  // Direct Teleport Route — a soft SPA navigate() left NavBar's permission
+  // set stale (it only resolves allowedModules on mount), landing on a
+  // crippled nav for the impersonated tenant. A hard redirect forces every
+  // piece of app chrome to remount fresh against the new runtime company
+  // context this just wrote to the auth cache.
   const handleLogIntoInstance = (company) => {
     startImpersonation(company.id);
-    toast({ title: `Now viewing ${company.name}`, description: 'Session tenant switched — no password required.' });
-    navigate('/');
+    window.location.href = '/';
   };
 
   const handleExitImpersonation = () => {
@@ -82,8 +87,8 @@ export default function SuperAdminDashboard() {
   // Super-Admin Logo Master Controller — this page is already 100%
   // super_admin-gated (see the clearance check below), so no extra role
   // check is needed here: a standard tenant admin can never reach this row.
-  const handleLogoChange = async (company, logoUrl) => {
-    const updated = await base44.entities.Company.update(company.id, { logo_url: logoUrl });
+  const handleLogoChange = async (company, logoUrl, scalePct) => {
+    const updated = await base44.entities.Company.update(company.id, { logo_url: logoUrl, logo_scale_pct: scalePct });
     setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     toast({ title: `${updated.name} logo asset URL updated` });
   };
@@ -183,7 +188,11 @@ export default function SuperAdminDashboard() {
                   </div>
                 </td>
                 <td className="py-3 px-4">
-                  <LogoUploader value={company.logo_url} onSave={(dataUri) => handleLogoChange(company, dataUri)} />
+                  <LogoUploader
+                    value={company.logo_url}
+                    savedScalePct={company.logo_scale_pct}
+                    onSave={(dataUri, scalePct) => handleLogoChange(company, dataUri, scalePct)}
+                  />
                 </td>
                 <td className="py-3 px-4 text-right">
                   <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleLogIntoInstance(company)}>
@@ -200,6 +209,8 @@ export default function SuperAdminDashboard() {
       <p className="text-xs text-muted-foreground">
         Tenant isolation here is a client-side data filter, not a real security boundary — this app has no backend, so every tenant's records still live in the same browser storage.
       </p>
+
+      <LoginSlideshowManager />
 
       <Dialog open={showTenantForm} onOpenChange={setShowTenantForm}>
         <DialogContent>

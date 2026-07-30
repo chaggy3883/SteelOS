@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SystemAccessPortal from '@/components/hr/SystemAccessPortal';
 import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
 import ComplianceDocumentCenter from '@/components/hr/ComplianceDocumentCenter';
+import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
 
 export default function EmployeeProfileDialog({ employee, roles, open, onOpenChange, onEmployeeUpdated }) {
   const [current, setCurrent] = useState(employee);
@@ -28,6 +29,7 @@ export default function EmployeeProfileDialog({ employee, roles, open, onOpenCha
             <TabsTrigger value="access">System Access</TabsTrigger>
             <TabsTrigger value="emergency">Emergency Contact</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
+            <TabsTrigger value="permissions">Permissions</TabsTrigger>
           </TabsList>
           <TabsContent value="access">
             <SystemAccessPortal employee={current} roles={roles} onUpdated={handleUpdated} />
@@ -37,6 +39,9 @@ export default function EmployeeProfileDialog({ employee, roles, open, onOpenCha
           </TabsContent>
           <TabsContent value="documents">
             <ComplianceDocumentCenter employee={current} />
+          </TabsContent>
+          <TabsContent value="permissions">
+            <PermissionsGridPanel subject={current} subjectType="employees" onUpdated={handleUpdated} />
           </TabsContent>
         </Tabs>
       </DialogContent>

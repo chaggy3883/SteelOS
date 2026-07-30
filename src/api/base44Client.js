@@ -32,6 +32,7 @@ const createLocalApi = () => ({
     issued_assets: createEntityApi('issued_assets'),
     payroll_document_mappings: createEntityApi('payroll_document_mappings'),
     time_off_requests: createEntityApi('time_off_requests'),
+    login_slideshow_images: createEntityApi('login_slideshow_images'),
     Contract: createEntityApi('Contract'),
     Customer: createEntityApi('Customer'),
     Contact: createEntityApi('Contact'),

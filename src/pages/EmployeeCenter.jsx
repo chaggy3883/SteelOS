@@ -6,6 +6,7 @@ import { computeOvertimeForClockOut, resolveLaborScaleFromCategory, computeMulti
 import { getPayrollRateScalesCents } from '@/lib/burdenedLabor';
 import { isMobileDevice, captureLocationCoordinates } from '@/lib/mobilePunch';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
+import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,6 +21,17 @@ import {
   LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText,
   User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt, DoorOpen,
 } from 'lucide-react';
+
+// Phase B tab-level enforcement (permissionCatalog.js) — these are the only
+// tab keys actually checked anywhere in the app right now. Employee Center's
+// own module can never be disabled (see LOCKED_MODULE_KEY), but individual
+// tabs inside it can be, e.g. hiding Payroll for a specific worker.
+const EMPLOYEE_CENTER_TABS = [
+  { value: 'kiosk', key: 'tab:/employee-center:kiosk' },
+  { value: 'profile', key: 'tab:/employee-center:profile' },
+  { value: 'timeoff', key: 'tab:/employee-center:timeoff' },
+  { value: 'payroll', key: 'tab:/employee-center:payroll' },
+];
 
 const LABOR_CATEGORIES = ['Shop_Fab', 'Drill_Line', 'Welding', 'Paint', 'Field_Erection'];
 const LEAVE_TYPES = ['PTO', 'Sick', 'Unpaid', 'Bereavement'];
@@ -347,6 +359,12 @@ export default function EmployeeCenter() {
   const approvedLeaveHours = timeOffRequests.filter((r) => r.status === 'Approved').reduce((sum, r) => sum + (r.total_hours || 0), 0);
   const travelExpensePlanEnabled = company?.subscription_plan === 'SteelOS_Fab' || company?.subscription_plan === 'Enterprise_Connect';
 
+  const visibleTabValues = EMPLOYEE_CENTER_TABS
+    .filter((t) => isCapabilityAllowed(employee?.permission_overrides, t.key))
+    .map((t) => t.value);
+  const isTabVisible = (value) => visibleTabValues.includes(value);
+  const defaultTabValue = visibleTabValues[0] || 'kiosk';
+
   return (
     <div className="p-4 md:p-6 space-y-4 animate-fade-in">
       <PageHeader title="Employee Center" subtitle="Kiosk time clock, self-service profile, time off, and payroll document vault" />
@@ -379,22 +397,12 @@ export default function EmployeeCenter() {
             <Button variant="outline" size="sm" onClick={handleKioskLogout}>Log Out</Button>
           </div>
 
-          {isKioskSession && (
-            <Button
-              size="lg"
-              onClick={handleFinishAndExitTerminal}
-              className="w-full h-16 text-lg font-bold gap-3 bg-red-600 hover:bg-red-700 text-white border-0"
-            >
-              <DoorOpen className="w-6 h-6" />FINISH &amp; EXIT TERMINAL
-            </Button>
-          )}
-
-          <Tabs defaultValue="kiosk" onValueChange={(v) => { if (v !== 'payroll') setVaultUnlocked(false); }}>
+          <Tabs defaultValue={defaultTabValue} onValueChange={(v) => { if (v !== 'payroll') setVaultUnlocked(false); }}>
             <TabsList className="mb-4 max-w-full overflow-x-auto justify-start">
-              <TabsTrigger value="kiosk">Time Clock Kiosk</TabsTrigger>
-              <TabsTrigger value="profile">My Profile</TabsTrigger>
-              <TabsTrigger value="timeoff">Time Off</TabsTrigger>
-              <TabsTrigger value="payroll">Payroll</TabsTrigger>
+              {isTabVisible('kiosk') && <TabsTrigger value="kiosk">Time Clock Kiosk</TabsTrigger>}
+              {isTabVisible('profile') && <TabsTrigger value="profile">My Profile</TabsTrigger>}
+              {isTabVisible('timeoff') && <TabsTrigger value="timeoff">Time Off</TabsTrigger>}
+              {isTabVisible('payroll') && <TabsTrigger value="payroll">Payroll</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="kiosk" className="space-y-4">
@@ -441,6 +449,16 @@ export default function EmployeeCenter() {
                   <Play className="w-6 h-6 sm:w-5 sm:h-5" />End Break
                 </Button>
               </div>
+
+              {isKioskSession && (
+                <Button
+                  size="lg"
+                  onClick={handleFinishAndExitTerminal}
+                  className="w-full max-w-2xl h-16 text-lg font-bold gap-3 bg-red-600 hover:bg-red-700 text-white border-0"
+                >
+                  <DoorOpen className="w-6 h-6" />COMPLETE PUNCH &amp; EXIT TERMINAL
+                </Button>
+              )}
 
               <div className="steel-card p-4">
                 <h4 className="font-semibold text-sm mb-2">Recent Punches</h4>

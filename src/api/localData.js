@@ -1760,7 +1760,7 @@ export const createAuthApi = () => {
       }
 
       const currentPath = window.location.pathname;
-      const authRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
+      const authRoutes = ['/login', '/forgot-password', '/reset-password'];
 
       if (authRoutes.includes(currentPath)) {
         return;

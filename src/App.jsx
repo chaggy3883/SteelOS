@@ -13,10 +13,8 @@ import PortalLayout from '@/components/portal/PortalLayout';
 
 // Auth pages
 import Login from '@/pages/Login';
-import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
-import LandingPage from '@/pages/LandingPage';
 
 // App pages
 import Dashboard from '@/pages/Dashboard';
@@ -81,12 +79,8 @@ const AuthenticatedApp = () => {
 
   return (
     <Routes>
-      {/* Public marketing site */}
-      <Route path="/welcome" element={<LandingPage />} />
-
       {/* Public auth routes */}
       <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
 

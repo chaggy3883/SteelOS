@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Users as UsersIcon, Plus, Search } from 'lucide-react';
+import { Users as UsersIcon, Plus, Search, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/ui/PageHeader';
@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { isSuperAdmin } from '@/lib/tenantContext';
+import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
 
 const ROLES = [
   'system_administrator', 'company_administrator', 'executive', 'operations_manager',
@@ -41,6 +42,7 @@ export default function Users() {
   const [inviting, setInviting] = useState(false);
   const [newUserId, setNewUserId] = useState(null);
   const [viewerIsSuperAdmin, setViewerIsSuperAdmin] = useState(false);
+  const [permissionsUser, setPermissionsUser] = useState(null);
   const rowRefs = useRef({});
 
   useEffect(() => {
@@ -183,15 +185,16 @@ export default function Users() {
                 <th className="text-left py-3 px-4">Role</th>
                 <th className="text-left py-3 px-4">Joined</th>
                 <th className="text-left py-3 px-4">Status</th>
+                <th className="text-right py-3 px-4">Permissions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={i}><td colSpan={4} className="py-3 px-4"><div className="h-8 bg-muted rounded animate-pulse" /></td></tr>
+                  <tr key={i}><td colSpan={5} className="py-3 px-4"><div className="h-8 bg-muted rounded animate-pulse" /></td></tr>
                 ))
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={4} className="py-16 text-center">
+                <tr><td colSpan={5} className="py-16 text-center">
                   <UsersIcon className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground">No users found</p>
                 </td></tr>
@@ -230,6 +233,11 @@ export default function Users() {
                         Active
                       </span>
                     </td>
+                    <td className="py-3 px-4 text-right">
+                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPermissionsUser(user)}>
+                        <ShieldCheck className="w-3.5 h-3.5" />Manage
+                      </Button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -237,6 +245,24 @@ export default function Users() {
           </table>
         </div>
       </div>
+
+      <Dialog open={!!permissionsUser} onOpenChange={(open) => !open && setPermissionsUser(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{permissionsUser?.full_name || permissionsUser?.email} — Permissions</DialogTitle>
+          </DialogHeader>
+          {permissionsUser && (
+            <PermissionsGridPanel
+              subject={permissionsUser}
+              subjectType="User"
+              onUpdated={(updated) => {
+                setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+                setPermissionsUser(updated);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

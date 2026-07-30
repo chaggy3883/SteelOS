@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Building2, Brain, Bell, Shield, Palette, Database, Layers } from 'lucide-react';
+import { Building2, Brain, Bell, Layers, Tablet, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { enableKioskMode } from '@/lib/kioskMode';
 
 const AI_RULES = [
   { id: 1, rule: 'Always verify AISC Fabricator Certification requirement', active: true },
@@ -27,6 +29,28 @@ export default function Settings() {
   const [aiRules, setAiRules] = useState(AI_RULES);
   const [newRule, setNewRule] = useState('');
   const [saving, setSaving] = useState(false);
+  const [provisioning, setProvisioning] = useState(false);
+
+  // Isolated Caching Portal — writes the admin's own effective tenant into
+  // THIS physical device's localStorage (see src/lib/kioskMode.js), then
+  // reloads straight into KioskKeypadLogin. Reuses the exact mechanism the
+  // "Set up this device as a Shop Kiosk" dialog on the login screen already
+  // uses, just triggered from an already-authenticated admin session so they
+  // don't have to retype the company code on the tablet.
+  const handleProvisionKiosk = async () => {
+    setProvisioning(true);
+    try {
+      const company = await getEffectiveCompany();
+      if (!company) {
+        toast({ title: 'No active tenant to provision this device for', variant: 'destructive' });
+        return;
+      }
+      enableKioskMode(company.company_code, company.name);
+      window.location.href = '/login';
+    } finally {
+      setProvisioning(false);
+    }
+  };
 
   const toggleRule = (id) => {
     setAiRules(r => r.map(rule => rule.id === id ? { ...rule, active: !rule.active } : rule));
@@ -54,6 +78,7 @@ export default function Settings() {
           <TabsTrigger value="ai"><Brain className="w-4 h-4 mr-1.5" /> AI Rules</TabsTrigger>
           <TabsTrigger value="notifications"><Bell className="w-4 h-4 mr-1.5" /> Notifications</TabsTrigger>
           <TabsTrigger value="integrations"><Layers className="w-4 h-4 mr-1.5" /> Integrations</TabsTrigger>
+          <TabsTrigger value="devices"><Tablet className="w-4 h-4 mr-1.5" /> Devices</TabsTrigger>
         </TabsList>
 
         {/* Company Settings */}
@@ -193,6 +218,22 @@ export default function Settings() {
                 </div>
               ))}
             </div>
+          </div>
+        </TabsContent>
+
+        {/* Devices */}
+        <TabsContent value="devices">
+          <div className="steel-card p-6">
+            <h3 className="font-semibold mb-1 flex items-center gap-2"><Tablet className="w-4 h-4 text-primary" /> Shop Floor Kiosk Provisioning</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Locks THIS physical device to your company permanently. Every future visit skips straight to a touch-friendly
+              3-Digit Badge + 5-Digit PIN keypad — no email login, no company code screen. Only provision a device you
+              intend to leave on the shop floor as a shared terminal.
+            </p>
+            <Button onClick={handleProvisionKiosk} disabled={provisioning} className="gap-2 steel-gradient text-white border-0">
+              {provisioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tablet className="w-4 h-4" />}
+              {provisioning ? 'Provisioning…' : 'Provision Local Shop Floor Kiosk Tablet'}
+            </Button>
           </div>
         </TabsContent>
       </Tabs>

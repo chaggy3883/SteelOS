@@ -1,0 +1,16 @@
+{
+  "name": "login_slideshow_images",
+  "type": "object",
+  "properties": {
+    "image_data_uri": {
+      "type": "string"
+    },
+    "display_order": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "image_data_uri"
+  ]
+}

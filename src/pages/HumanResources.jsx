@@ -14,16 +14,31 @@ import { Textarea } from '@/components/ui/textarea';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import EmployeeProfileDialog from '@/components/hr/EmployeeProfileDialog';
-import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban } from 'lucide-react';
+import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
+import { isCapabilityAllowed } from '@/lib/permissionCatalog';
+import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse } from 'lucide-react';
 
 const POSITIONS = ['Ironworker', 'Welder', 'Fabricator', 'Painter', 'Shop Manager', 'Inspector', 'Office'];
 const CANDIDATE_STATUSES = ['Applied', 'Interviewing', 'Offer_Extended', 'Hired', 'Rejected'];
+
+// Phase B tab-level enforcement (permissionCatalog.js) for office sessions —
+// mirrors the same pattern already wired into EmployeeCenter.jsx for kiosk
+// sessions, reading from this User account's own permission_overrides.
+const HR_TABS = [
+  { value: 'ats', key: 'tab:/human-resources:ats' },
+  { value: 'employees', key: 'tab:/human-resources:employees' },
+  { value: 'timeoff', key: 'tab:/human-resources:timeoff' },
+  { value: 'emergency', key: 'tab:/human-resources:emergency' },
+  { value: 'safety', key: 'tab:/human-resources:safety' },
+  { value: 'terminal', key: 'tab:/human-resources:terminal' },
+];
 
 const emptyCandidateForm = () => ({ candidate_name: '', email: '', phone: '', position_applied: 'Ironworker' });
 
 export default function HumanResources() {
   const { toast } = useToast();
   const [roles, setRoles] = useState(['user']);
+  const [permissionOverrides, setPermissionOverrides] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [certifications, setCertifications] = useState([]);
@@ -43,6 +58,8 @@ export default function HumanResources() {
   const [decliningRequestId, setDecliningRequestId] = useState(null);
   const [declineNote, setDeclineNote] = useState('');
 
+  const [emergencyContactEmployeeId, setEmergencyContactEmployeeId] = useState('');
+
   useEffect(() => { init(); }, []);
 
   const init = async () => {
@@ -51,6 +68,7 @@ export default function HumanResources() {
     try {
       const me = await base44.auth.me();
       currentRoles = me?.roles || me?.user?.roles || ['user'];
+      setPermissionOverrides(me?.permission_overrides || []);
     } catch (e) {}
     setRoles(currentRoles);
     await loadAll(currentRoles);
@@ -187,6 +205,13 @@ export default function HumanResources() {
 
   const expiringCerts = getExpiringCertifications(certifications, 60);
 
+  const isTabVisible = (value) => {
+    const tab = HR_TABS.find((t) => t.value === value);
+    return !tab || isCapabilityAllowed(permissionOverrides, tab.key);
+  };
+  const visibleTabValues = HR_TABS.filter((t) => isTabVisible(t.value)).map((t) => t.value);
+  const defaultTabValue = visibleTabValues[0] || 'ats';
+
   if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
 
   return (
@@ -202,11 +227,11 @@ export default function HumanResources() {
         }
       />
 
-      <Tabs defaultValue="ats">
+      <Tabs defaultValue={defaultTabValue}>
         <TabsList className="mb-4">
-          <TabsTrigger value="ats">Candidates (ATS)</TabsTrigger>
-          <TabsTrigger value="employees">Employees</TabsTrigger>
-          {isFullAccess && (
+          {isTabVisible('ats') && <TabsTrigger value="ats">Candidates (ATS)</TabsTrigger>}
+          {isTabVisible('employees') && <TabsTrigger value="employees">Employees</TabsTrigger>}
+          {isFullAccess && isTabVisible('timeoff') && (
             <TabsTrigger value="timeoff" className="gap-1.5">
               Time Off Approvals
               {pendingLeave.length > 0 && (
@@ -214,8 +239,9 @@ export default function HumanResources() {
               )}
             </TabsTrigger>
           )}
-          <TabsTrigger value="safety">Safety Radar</TabsTrigger>
-          <TabsTrigger value="terminal">Timeclock Terminal</TabsTrigger>
+          {isFullAccess && isTabVisible('emergency') && <TabsTrigger value="emergency">Emergency Contacts</TabsTrigger>}
+          {isTabVisible('safety') && <TabsTrigger value="safety">Safety Radar</TabsTrigger>}
+          {isTabVisible('terminal') && <TabsTrigger value="terminal">Timeclock Terminal</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="ats" className="space-y-3">
@@ -354,6 +380,29 @@ export default function HumanResources() {
                 );
               })}
             </div>
+          </TabsContent>
+        )}
+
+        {isFullAccess && (
+          <TabsContent value="emergency" className="space-y-3">
+            <div className="steel-card p-4 max-w-lg">
+              <h4 className="font-semibold text-sm mb-1 flex items-center gap-2"><HeartPulse className="w-4 h-4 text-primary" />Family Contact Matrix</h4>
+              <p className="text-xs text-muted-foreground mb-3">Select an employee to view or update their emergency contact on file.</p>
+              <Select value={emergencyContactEmployeeId} onValueChange={setEmergencyContactEmployeeId}>
+                <SelectTrigger><SelectValue placeholder="Select an employee" /></SelectTrigger>
+                <SelectContent>
+                  {employees.map((e) => <SelectItem key={e.id} value={e.id}>#{e.employee_number} — {e.full_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {emergencyContactEmployeeId && (() => {
+              const selected = employees.find((e) => e.id === emergencyContactEmployeeId);
+              return selected ? (
+                <div className="max-w-lg">
+                  <EmergencyContactPanel employee={selected} onUpdated={handleProfileUpdated} />
+                </div>
+              ) : null;
+            })()}
           </TabsContent>
         )}
 

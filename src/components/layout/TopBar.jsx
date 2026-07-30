@@ -50,10 +50,19 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
     base44.auth.logout('/login');
   };
 
+  // Dynamic Brand Scale Injection — the saved logo_scale_pct drives the
+  // header frame's own size (bounded to the header's real estate), separate
+  // from logo_url's baked pixel dimensions: the image is already scaled at
+  // the source, this just lets a bigger saved scale also render bigger here
+  // instead of every tenant's logo looking identical in the header regardless
+  // of what they picked in the Super-Admin dashboard.
+  const logoScalePct = company?.logo_scale_pct || 100;
+  const headerLogoSizePx = Math.min(60, Math.max(24, Math.round(40 * (logoScalePct / 100))));
+
   return (
     <header className="h-16 bg-card border-b border-border flex items-center justify-between px-4 lg:px-6 flex-shrink-0 print:hidden">
       {/* Logo */}
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-4 flex-shrink-0">
         <div className="w-8 h-8 rounded-lg steel-gradient flex items-center justify-center">
           <Layers className="w-4 h-4 text-white" />
         </div>
@@ -62,10 +71,17 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
           <span className="font-bold text-lg tracking-tight text-primary">OS</span>
         </div>
         {company?.logo_url && (
-          <>
-            <div className="w-px h-6 bg-border" />
-            <img src={company.logo_url} alt={`${company.name} logo`} className="h-6 w-auto max-w-[120px] object-contain" />
-          </>
+          <div
+            className="flex items-center justify-center p-1 bg-card rounded-md border border-input max-w-[240px] overflow-hidden flex-shrink-0"
+            style={{ maxHeight: `${headerLogoSizePx}px` }}
+          >
+            <img
+              src={company.logo_url}
+              alt={`${company.name} logo`}
+              className="max-w-[240px] w-auto h-auto object-contain"
+              style={{ maxHeight: `${headerLogoSizePx}px` }}
+            />
+          </div>
         )}
       </div>
 

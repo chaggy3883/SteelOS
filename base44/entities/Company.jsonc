@@ -82,6 +82,10 @@
     "brand_color_hex": {
       "type": "string",
       "default": "#2563eb"
+    },
+    "logo_scale_pct": {
+      "type": "integer",
+      "default": 100
     }
   },
   "required": [

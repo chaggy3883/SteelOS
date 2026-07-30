@@ -29,6 +29,13 @@
     "company_id": {
       "type": "string",
       "description": "The tenant this user belongs to. Platform-level super_admin users have no home tenant and leave this blank."
+    },
+    "permission_overrides": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
     }
   },
   "required": [
