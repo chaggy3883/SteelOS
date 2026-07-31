@@ -171,3 +171,81 @@ export async function runContractRiskAudit(bid, rawText) {
     analyzed_at: new Date().toISOString(),
   });
 }
+
+// Front-End Spec Review — same deterministic keyword/regex approach as the
+// risk audit above, seeding the three exception categories estimators most
+// often flag off a spec front-end: NDT scope, liquidated-damages dates, and
+// mill-source/domestic-steel requirements.
+const NDT_PHRASE = /(ultrasonic|UT|magnetic particle|MT|radiographic|RT|non-?destructive testing|NDT)/i;
+const LD_DATE_PHRASE = /liquidated damages[^.\n]{0,80}?(substantial completion|final completion|by\s+\d{1,2}\/\d{1,2}\/\d{2,4}|no later than[^.\n]{0,40})/i;
+const MILL_SOURCE_PHRASE = /(domestic steel|buy america|mill source|melted and manufactured|domestically produced)/i;
+
+function seedNdtLine(text, filename) {
+  const match = text.match(NDT_PHRASE);
+  return {
+    provision_number_tag: 'NDT-1',
+    owner_gc_cm_comment: match
+      ? `Spec calls out ${match[0]} — confirm scope, frequency, and who bears the testing cost.`
+      : 'No explicit NDT method called out — confirm with owner/GC whether AWS D1.1 visual inspection alone is acceptable.',
+    owner_gc_cm_question: 'Please confirm required NDT method(s), acceptance criteria, and frequency (spot vs. 100%).',
+    comment_to_estimator: 'Price third-party NDT if required beyond in-house visual/MT capability.',
+    document_source_key: filename,
+    location_page_reference: match ? snippet(text, match.index, match[0].length) : 'Not found in provided text — verify manually.',
+  };
+}
+
+function seedLiquidatedDamagesLine(text, filename) {
+  const match = text.match(LD_DATE_PHRASE);
+  return {
+    provision_number_tag: 'LD-1',
+    owner_gc_cm_comment: match
+      ? `Liquidated damages tied to a completion date — verify against the estimate's schedule contingency.`
+      : 'No liquidated-damages completion date identified — confirm schedule risk is otherwise unpriced.',
+    owner_gc_cm_question: 'Please confirm the liquidated damages rate and the completion milestone it is measured against.',
+    comment_to_estimator: 'Reconcile this date against our current fabrication and erection schedule before final pricing.',
+    document_source_key: filename,
+    location_page_reference: match ? snippet(text, match.index, match[0].length) : 'Not found in provided text — verify manually.',
+  };
+}
+
+function seedMillSourceLine(text, filename) {
+  const match = text.match(MILL_SOURCE_PHRASE);
+  return {
+    provision_number_tag: 'MTL-1',
+    owner_gc_cm_comment: match
+      ? `${match[0]} requirement identified — confirm mill certifications are available for our planned source.`
+      : 'No domestic-steel/mill-source requirement identified — confirm standard mill sourcing is acceptable.',
+    owner_gc_cm_question: 'Please confirm whether Buy America / domestic mill certification is required for this project.',
+    comment_to_estimator: 'Flag to purchasing if domestic-only sourcing is required — may affect mill lead time and cost.',
+    document_source_key: filename,
+    location_page_reference: match ? snippet(text, match.index, match[0].length) : 'Not found in provided text — verify manually.',
+  };
+}
+
+export async function simulateAiReview(bid, rawText, filename) {
+  const text = String(rawText || '');
+  const seeds = [seedNdtLine(text, filename), seedLiquidatedDamagesLine(text, filename), seedMillSourceLine(text, filename)];
+
+  const review = await base44.entities.frontend_contract_reviews.create({
+    bid_id: bid.id,
+    project_id: bid.project_id || bid.won_project_id || '',
+    document_source_key: filename,
+    raw_extracted_text: rawText,
+    reviewed_at: new Date().toISOString(),
+    status: 'reviewed',
+  });
+
+  const lines = await Promise.all(seeds.map((seed) => base44.entities.contract_exception_lines.create({
+    review_id: review.id,
+    bid_id: bid.id,
+    prior_bid_ask: false,
+    post_bid_ask: true,
+    estimated_additional_cost_cents: 0,
+    answer_text: '',
+    if_awarded_project_team_review: '',
+    sub_supplier_detailer_comment: '',
+    ...seed,
+  })));
+
+  return { review, lines };
+}

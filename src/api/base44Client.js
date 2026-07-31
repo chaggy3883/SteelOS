@@ -9,6 +9,8 @@ const createLocalApi = () => ({
     ApiIntegrationLog: createEntityApi('ApiIntegrationLog'),
     ApiTokenVault: createEntityApi('ApiTokenVault'),
     ai_contract_reviews: createEntityApi('ai_contract_reviews'),
+    frontend_contract_reviews: createEntityApi('frontend_contract_reviews'),
+    contract_exception_lines: createEntityApi('contract_exception_lines'),
     executive_metrics_snapshots: createEntityApi('executive_metrics_snapshots'),
     erection_fleet_assets: createEntityApi('erection_fleet_assets'),
     heavy_equipment_inspections: createEntityApi('heavy_equipment_inspections'),

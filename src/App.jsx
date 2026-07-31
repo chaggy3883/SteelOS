@@ -44,6 +44,7 @@ import Estimating from '@/pages/Estimating';
 import BidNew from '@/pages/BidNew';
 import BidDetail from '@/pages/BidDetail';
 import EstimatingAnalytics from '@/pages/EstimatingAnalytics';
+import FrontEndReview from '@/pages/FrontEndReview';
 import ShopFabrication from '@/pages/ShopFabrication';
 import ShopOperations from '@/pages/ShopOperations';
 import HumanResources from '@/pages/HumanResources';
@@ -109,6 +110,7 @@ const AuthenticatedApp = () => {
           <Route path="/estimating/new" element={<BidNew />} />
           <Route path="/estimating/:id" element={<BidDetail />} />
           <Route path="/estimating/analytics" element={<EstimatingAnalytics />} />
+          <Route path="/estimating/spec-review" element={<FrontEndReview />} />
           <Route path="/intelligence" element={<Intelligence />} />
           <Route path="/production" element={<Production />} />
           <Route path="/inventory" element={<Inventory />} />

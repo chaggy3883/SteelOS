@@ -1,0 +1,36 @@
+{
+  "name": "frontend_contract_reviews",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "document_source_key": {
+      "type": "string"
+    },
+    "raw_extracted_text": {
+      "type": "string"
+    },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "reviewed"
+      ],
+      "default": "pending"
+    }
+  },
+  "required": [
+    "bid_id"
+  ]
+}

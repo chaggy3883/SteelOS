@@ -31,6 +31,7 @@ export const PERMISSION_CATALOG = [
     { key: 'tab:/estimating:ai-contract-review', label: 'AI Contract Review' },
   ] },
   { key: 'module:/estimating/analytics', label: 'Historical Analytics' },
+  { key: 'module:/estimating/spec-review', label: 'Front-End Spec Review' },
   { key: 'module:/projects', label: 'Projects', tabs: [
     { key: 'tab:/projects:overview', label: 'Overview' },
     { key: 'tab:/projects:documents', label: 'Documents' },

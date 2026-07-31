@@ -1,0 +1,58 @@
+{
+  "name": "contract_exception_lines",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "review_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "prior_bid_ask": {
+      "type": "boolean",
+      "default": false
+    },
+    "post_bid_ask": {
+      "type": "boolean",
+      "default": false
+    },
+    "document_source_key": {
+      "type": "string"
+    },
+    "location_page_reference": {
+      "type": "string"
+    },
+    "provision_number_tag": {
+      "type": "string"
+    },
+    "owner_gc_cm_comment": {
+      "type": "string"
+    },
+    "owner_gc_cm_question": {
+      "type": "string"
+    },
+    "comment_to_estimator": {
+      "type": "string"
+    },
+    "sub_supplier_detailer_comment": {
+      "type": "string"
+    },
+    "estimated_additional_cost_cents": {
+      "type": "integer",
+      "default": 0
+    },
+    "answer_text": {
+      "type": "string"
+    },
+    "if_awarded_project_team_review": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_id",
+    "bid_id"
+  ]
+}
