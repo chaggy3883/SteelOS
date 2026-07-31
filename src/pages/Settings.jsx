@@ -33,10 +33,9 @@ export default function Settings() {
 
   // Isolated Caching Portal — writes the admin's own effective tenant into
   // THIS physical device's localStorage (see src/lib/kioskMode.js), then
-  // reloads straight into KioskKeypadLogin. Reuses the exact mechanism the
-  // "Set up this device as a Shop Kiosk" dialog on the login screen already
-  // uses, just triggered from an already-authenticated admin session so they
-  // don't have to retype the company code on the tablet.
+  // reloads straight into KioskKeypadLogin. This is now the only place a
+  // device can be locked into kiosk mode — the public login screen no
+  // longer exposes a company-code-driven kiosk setup shortcut of its own.
   const handleProvisionKiosk = async () => {
     setProvisioning(true);
     try {

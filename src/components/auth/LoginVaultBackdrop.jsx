@@ -42,7 +42,7 @@ export default function LoginVaultBackdrop() {
           {i === activeIndex && (
             <div
               key={`${img.id}-${cycle}`}
-              className="absolute inset-0 bg-cover bg-center login-vault-ken-burns"
+              className="absolute inset-0 bg-contain bg-center bg-no-repeat bg-slate-950 login-vault-ken-burns"
               style={{ backgroundImage: `url(${img.image_data_uri})` }}
             />
           )}
