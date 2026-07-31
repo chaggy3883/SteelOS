@@ -54,13 +54,14 @@ export default function BidNew() {
     setSaving(true);
     try {
       const yearSuffix = String(new Date().getFullYear()).slice(-2);
+      const bidPrefix = `E${yearSuffix}-`;
       const allBids = await base44.entities.Bid.list('-created_date', 500);
-      const currentYearBids = allBids.filter(b => String(b.bid_number || '').startsWith(`${yearSuffix}-`));
+      const currentYearBids = allBids.filter(b => String(b.bid_number || '').startsWith(bidPrefix));
       const maxNum = currentYearBids.reduce((max, b) => {
         const n = parseInt(String(b.bid_number || '').split('-')[1] || '0', 10);
         return n > max ? n : max;
       }, 0);
-      const bidNumber = `${yearSuffix}-${String(maxNum + 1).padStart(3, '0')}`;
+      const bidNumber = `${bidPrefix}${String(maxNum + 1).padStart(3, '0')}`;
 
       // Parse city/state from job_location
       const locParts = form.job_location.split(',').map(s => s.trim());
