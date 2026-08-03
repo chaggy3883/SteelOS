@@ -7,7 +7,7 @@ import { getEffectiveCompany, isImpersonating } from '@/lib/tenantContext';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { isErectPlan } from '@/lib/planGating';
 
-const ERECT_PLAN_HIDDEN_PATHS = ['/shop-fabrication', '/shop-operations'];
+const ERECT_PLAN_HIDDEN_PATHS = ['/shop-fabrication', '/shop-operations', '/shop-efficiency'];
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem
 } from '@/components/ui/dropdown-menu';
@@ -26,7 +26,9 @@ const navGroups = [
       { icon: Calculator, label: 'Estimating', path: '/estimating' },
       { icon: BarChart3, label: 'Historical Analytics', path: '/estimating/analytics' },
       { icon: FileSearch, label: 'Front-End Spec Review', path: '/estimating/spec-review' },
+      { icon: PackageCheck, label: 'Blueprint Takeoff', path: '/estimating/blueprint-takeoff' },
       { icon: Building2, label: 'CRM', path: '/crm' },
+      { icon: Users, label: 'Relationship Manager', path: '/crm/directory' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
     ]
   },
@@ -50,6 +52,7 @@ const navGroups = [
       { icon: Truck, label: 'Shipping', path: '/shipping' },
       { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },
       { icon: Gauge, label: 'Shop Operations', path: '/shop-operations' },
+      { icon: Gauge, label: 'Shop Efficiency', path: '/shop-efficiency' },
       { icon: HardHat, label: 'Field Operations', path: '/field-operations' },
     ]
   },

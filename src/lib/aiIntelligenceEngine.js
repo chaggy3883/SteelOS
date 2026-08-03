@@ -1,4 +1,5 @@
 import { base44 } from '@/api/base44Client';
+import { callTenantScopedLocalAI, getCompanyName } from '@/lib/localAiClient';
 
 // STUB DISCLOSURE — read before touching this file.
 // There is no real Claude/LLM call anywhere in this app; the only AI
@@ -8,6 +9,31 @@ import { base44 } from '@/api/base44Client';
 // honest, deterministic keyword/regex text analyzer that actually reads the
 // contract text you give it — it stands in for where a real Claude API call
 // would go, and is commented as such rather than pretending to be one.
+//
+// A private local model can now be plugged in via VITE_LOCAL_AI_URL (see
+// src/lib/localAiClient.js) — every attempt is wrapped in a tenant-scoped
+// system prompt keyed off the bid's company_id so the model only ever sees
+// that one company's context. If no local server responds, or its reply
+// isn't valid findings JSON, this falls straight back to the deterministic
+// analyzer below so the feature keeps working with zero local AI configured.
+
+const FINDINGS_JSON_INSTRUCTIONS = `Analyze the contract text the user provides and respond with ONLY a JSON array (no prose, no markdown fences) of finding objects, each shaped exactly as:
+{"category": string, "severity": "Red"|"Yellow"|"Green", "title": string, "detail": string, "matched_text": string}
+Cover at minimum: Liquidated_Damages, Retainage, Scope_Gap, Payment_Milestone categories if relevant text is present.`;
+
+async function tryLocalAiFindings(companyId, companyName, rawText) {
+  const reply = await callTenantScopedLocalAI(companyId, companyName, `${FINDINGS_JSON_INSTRUCTIONS}\n\nContract text:\n${rawText}`);
+  if (!reply) return null;
+  try {
+    const parsed = JSON.parse(reply);
+    if (Array.isArray(parsed) && parsed.every((f) => f && typeof f.category === 'string' && typeof f.severity === 'string')) {
+      return parsed;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
 
 const snippet = (text, index, length, radius = 60) => {
   const start = Math.max(0, index - radius);
@@ -162,13 +188,17 @@ export function extractContractRisks(rawText) {
 }
 
 export async function runContractRiskAudit(bid, rawText) {
-  const findings = extractContractRisks(rawText);
+  const companyName = await getCompanyName(bid.company_id);
+  const localFindings = await tryLocalAiFindings(bid.company_id, companyName, rawText);
+  const findings = localFindings || extractContractRisks(rawText);
   return base44.entities.ai_contract_reviews.create({
+    company_id: bid.company_id,
     bid_id: bid.id,
     project_id: bid.project_id || bid.won_project_id || '',
     raw_extracted_text: rawText,
     review_summary_json: findings,
     analyzed_at: new Date().toISOString(),
+    analysis_source: localFindings ? 'local_ai' : 'deterministic',
   });
 }
 

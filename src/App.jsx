@@ -31,6 +31,9 @@ import Shipping from '@/pages/Shipping';
 import RFIs from '@/pages/RFIs';
 import Documents from '@/pages/Documents';
 import CRM from '@/pages/CRM';
+import CrmDirectories from '@/pages/CrmDirectories';
+import BlueprintTakeoff from '@/pages/BlueprintTakeoff';
+import ShopEfficiency from '@/pages/ShopEfficiency';
 import Purchasing from '@/pages/Purchasing';
 import ProcurementModule from '@/pages/ProcurementModule';
 import ReceivingKiosk from '@/pages/ReceivingKiosk';
@@ -121,6 +124,9 @@ const AuthenticatedApp = () => {
           <Route path="/rfis" element={<RFIs />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/crm" element={<CRM />} />
+          <Route path="/crm/directory" element={<CrmDirectories />} />
+          <Route path="/estimating/blueprint-takeoff" element={<BlueprintTakeoff />} />
+          <Route path="/shop-efficiency" element={<ShopEfficiency />} />
           <Route path="/purchasing" element={<Purchasing />} />
           <Route path="/purchasing/module" element={<ProcurementModule />} />
           <Route path="/purchasing/receiving-kiosk" element={<ReceivingKiosk />} />

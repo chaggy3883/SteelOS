@@ -68,7 +68,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="p-6 animate-fade-in max-w-4xl">
+    <div className="p-6 animate-fade-in w-full max-w-none">
       <PageHeader title="Settings" subtitle="Configure SteelOS for your organization" />
 
       <Tabs defaultValue="company">

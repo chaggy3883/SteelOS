@@ -131,7 +131,7 @@ export default function SuperAdminDashboard() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-4">
+    <div className="p-6 w-full max-w-none space-y-4">
       <PageHeader title="Super Admin Dashboard" subtitle="Tenant impersonation matrix and billing status controls — platform operator only" />
 
       {impersonatingCompanyId && (

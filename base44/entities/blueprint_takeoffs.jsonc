@@ -1,0 +1,69 @@
+{
+  "name": "blueprint_takeoffs",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "file_url": {
+      "type": "string"
+    },
+    "file_name": {
+      "type": "string"
+    },
+    "page_number": {
+      "type": "number",
+      "default": 1
+    },
+    "scale_reference": {
+      "type": "string"
+    },
+    "accepted_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "shape_type": {
+            "type": "string"
+          },
+          "size_designation": {
+            "type": "string"
+          },
+          "bbox": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "quantity": {
+            "type": "number",
+            "default": 1
+          },
+          "unit_cost_cents": {
+            "type": "number",
+            "default": 0
+          }
+        }
+      }
+    },
+    "total_cost_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "created_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "file_url",
+    "page_number"
+  ]
+}

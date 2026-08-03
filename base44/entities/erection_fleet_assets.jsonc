@@ -32,6 +32,9 @@
       "type": "string",
       "format": "date"
     },
+    "linked_po_id": {
+      "type": "string"
+    },
     "is_marked_ready_for_pickup": {
       "type": "boolean",
       "default": false

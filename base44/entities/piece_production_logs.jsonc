@@ -1,0 +1,59 @@
+{
+  "name": "piece_production_logs",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "piece_mark": {
+      "type": "string"
+    },
+    "material_profile_type": {
+      "type": "string",
+      "enum": [
+        "Wide_Flange_Beam",
+        "Moment_Column",
+        "Angle",
+        "Channel",
+        "Plate",
+        "HSS",
+        "Other"
+      ],
+      "default": "Other"
+    },
+    "target_minutes": {
+      "type": "number",
+      "default": 0
+    },
+    "start_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "elapsed_minutes": {
+      "type": "number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "In_Progress",
+        "Complete"
+      ],
+      "default": "In_Progress"
+    }
+  },
+  "required": [
+    "employee_id",
+    "piece_mark",
+    "start_time"
+  ]
+}

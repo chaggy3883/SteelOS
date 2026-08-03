@@ -21,16 +21,25 @@ export default function Dashboard() {
   const [showDrawer, setShowDrawer] = useState(false);
   const [allowedWidgets, setAllowedWidgets] = useState([]);
   const saveTimer = useRef(null);
+  const pendingSave = useRef(null);
 
   useEffect(() => { if (user?.id) initDashboard(); }, [user?.id]);
+
+  useEffect(() => () => {
+    if (saveTimer.current && pendingSave.current) {
+      clearTimeout(saveTimer.current);
+      const { configId: pendingConfigId, layout: pendingLayout } = pendingSave.current;
+      base44.entities.UserDashboardConfig.update(pendingConfigId, { layout: pendingLayout, is_customized: true }).catch(() => {});
+    }
+  }, []);
 
   const initDashboard = async () => {
     try {
       const perms = await getUserPermissions(user.roles || ['user']);
       setAllowedWidgets(perms.widgets);
       const existing = await base44.entities.UserDashboardConfig.filter({ user_id: user.id }, '-created_date', 1);
-      if (existing.length > 0 && existing[0].layout?.length > 0) {
-        setLayout(existing[0].layout);
+      if (existing.length > 0 && (existing[0].is_customized || existing[0].layout?.length > 0)) {
+        setLayout(existing[0].layout || []);
         setConfigId(existing[0].id);
       } else {
         const widgetIds = perms.widgets.includes('*') ? WIDGET_LIBRARY.map(w => w.id) : perms.widgets;
@@ -50,7 +59,9 @@ export default function Dashboard() {
 
   const saveLayout = useCallback((newLayout) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    pendingSave.current = configId ? { configId, layout: newLayout } : null;
     saveTimer.current = setTimeout(async () => {
+      pendingSave.current = null;
       if (configId) {
         try { await base44.entities.UserDashboardConfig.update(configId, { layout: newLayout, is_customized: true }); }
         catch (e) { console.error(e); }
@@ -77,7 +88,11 @@ export default function Dashboard() {
   const handleRemoveWidget = (widgetId) => {
     const newLayout = layout.filter(item => item.i !== widgetId);
     setLayout(newLayout);
-    saveLayout(newLayout);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    pendingSave.current = null;
+    if (configId) {
+      base44.entities.UserDashboardConfig.update(configId, { layout: newLayout, is_customized: true }).catch(e => console.error(e));
+    }
   };
 
   const handleExitCustomize = () => {

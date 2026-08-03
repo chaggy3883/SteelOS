@@ -20,6 +20,7 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText,
   User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt, DoorOpen,
+  Timer, Square,
 } from 'lucide-react';
 
 // Phase B tab-level enforcement (permissionCatalog.js) — these are the only
@@ -34,6 +35,7 @@ const EMPLOYEE_CENTER_TABS = [
 ];
 
 const LABOR_CATEGORIES = ['Shop_Fab', 'Drill_Line', 'Welding', 'Paint', 'Field_Erection'];
+const MATERIAL_PROFILE_TYPES = ['Wide_Flange_Beam', 'Moment_Column', 'Angle', 'Channel', 'Plate', 'HSS', 'Other'];
 const LEAVE_TYPES = ['PTO', 'Sick', 'Unpaid', 'Bereavement'];
 const EXPENSE_CATEGORIES = ['Lodging', 'Meals', 'Fuel', 'Tolls_Parking', 'Other'];
 const emptyLeaveForm = () => ({ leave_type: 'PTO', start_date: '', end_date: '', total_hours: '', reason: '' });
@@ -48,6 +50,10 @@ export default function EmployeeCenter() {
 
   const [employee, setEmployee] = useState(null);
   const [company, setCompany] = useState(null);
+  const [pieceMarkInput, setPieceMarkInput] = useState('');
+  const [pieceProfileType, setPieceProfileType] = useState('Wide_Flange_Beam');
+  const [pieceTargetMinutes, setPieceTargetMinutes] = useState('');
+  const [activePieceLog, setActivePieceLog] = useState(null);
   const [isKioskSession, setIsKioskSession] = useState(false);
   const [kioskNumber, setKioskNumber] = useState('');
   const [kioskPin, setKioskPin] = useState('');
@@ -234,6 +240,40 @@ export default function EmployeeCenter() {
       title: `${punchType.replace('_', ' ')} recorded`,
       description: isMobile ? (coordinates ? `Remote mobile punch — location captured` : 'Remote mobile punch — location unavailable') : undefined,
     });
+  };
+
+  const handleStartFabrication = async () => {
+    if (!employee || !pieceMarkInput.trim() || !selectedProjectId) {
+      toast({ title: 'Enter a piece mark and select a job first', variant: 'destructive' });
+      return;
+    }
+    const created = await base44.entities.piece_production_logs.create({
+      company_id: employee.company_id,
+      project_id: selectedProjectId,
+      employee_id: employee.id,
+      piece_mark: pieceMarkInput.trim(),
+      material_profile_type: pieceProfileType,
+      target_minutes: Number(pieceTargetMinutes) || 0,
+      start_time: new Date().toISOString(),
+      status: 'In_Progress',
+    });
+    setActivePieceLog(created);
+    toast({ title: `Fabrication started — ${pieceMarkInput.trim()}` });
+  };
+
+  const handleCompletePiece = async () => {
+    if (!activePieceLog) return;
+    const endTime = new Date();
+    const elapsedMinutes = Math.max(0, Math.round((endTime - new Date(activePieceLog.start_time)) / 60000));
+    await base44.entities.piece_production_logs.update(activePieceLog.id, {
+      end_time: endTime.toISOString(),
+      elapsed_minutes: elapsedMinutes,
+      status: 'Complete',
+    });
+    toast({ title: `Piece complete — ${activePieceLog.piece_mark}`, description: `${elapsedMinutes} min` });
+    setActivePieceLog(null);
+    setPieceMarkInput('');
+    setPieceTargetMinutes('');
   };
 
   const estimatedPayFor = (punch) => {
@@ -426,6 +466,38 @@ export default function EmployeeCenter() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div className="steel-card p-4 space-y-3 max-w-2xl">
+                <h4 className="font-semibold text-sm flex items-center gap-2"><Timer className="w-4 h-4" />Log Piece Mark / Production Time</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-xs">Piece Mark</Label>
+                    <Input placeholder="e.g. B-12" value={pieceMarkInput} onChange={(e) => setPieceMarkInput(e.target.value)} disabled={!!activePieceLog} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Material Profile</Label>
+                    <Select value={pieceProfileType} onValueChange={setPieceProfileType} disabled={!!activePieceLog}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {MATERIAL_PROFILE_TYPES.map((t) => <SelectItem key={t} value={t}>{t.replace(/_/g, ' ')}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Target Minutes</Label>
+                    <Input type="number" min={0} placeholder="e.g. 45" value={pieceTargetMinutes} onChange={(e) => setPieceTargetMinutes(e.target.value)} disabled={!!activePieceLog} className="mt-1" />
+                  </div>
+                </div>
+                {activePieceLog ? (
+                  <Button size="lg" className="w-full h-14 bg-red-600 hover:bg-red-700 text-white border-0" onClick={handleCompletePiece}>
+                    <Square className="w-5 h-5 mr-2" />Complete Piece — {activePieceLog.piece_mark}
+                  </Button>
+                ) : (
+                  <Button size="lg" className="w-full h-14 bg-green-600 hover:bg-green-700 text-white border-0" onClick={handleStartFabrication}>
+                    <Timer className="w-5 h-5 mr-2" />Start Fabrication
+                  </Button>
+                )}
               </div>
 
               {isMobileDevice() && (

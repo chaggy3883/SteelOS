@@ -22,12 +22,13 @@ export default function FieldOperations() {
   const [projects, setProjects] = useState([]);
   const [pieces, setPieces] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [canManageFleet, setCanManageFleet] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadAll = useCallback(async () => {
     try {
-      const [assetData, inspectionData, hookData, repairData, riggingData, projectData, pieceData, vendorData] = await Promise.all([
+      const [assetData, inspectionData, hookData, repairData, riggingData, projectData, pieceData, vendorData, poData] = await Promise.all([
         base44.entities.erection_fleet_assets.list('-created_date', 200),
         base44.entities.heavy_equipment_inspections.list('-created_date', 200),
         base44.entities.field_hook_logs.list('-created_date', 500),
@@ -36,6 +37,7 @@ export default function FieldOperations() {
         base44.entities.Project.filter({ is_archived: false }, 'name', 100),
         base44.entities.pieces.list('-created_date', 500),
         base44.entities.Vendor.filter({ vendor_type: 'equipment_rental', is_active: true }, 'name', 50),
+        base44.entities.purchase_orders.filter({ status: 'Open' }, '-created_date', 200),
       ]);
       setAssets(assetData);
       setInspections(inspectionData);
@@ -45,6 +47,7 @@ export default function FieldOperations() {
       setProjects(projectData);
       setPieces(pieceData);
       setVendors(vendorData);
+      setPurchaseOrders(poData);
     } catch (e) {
       // no-op — panels render empty states when their lists are empty
     } finally {
@@ -83,7 +86,7 @@ export default function FieldOperations() {
         </TabsList>
 
         <TabsContent value="fleet">
-          <FleetRentalRegistry assets={assets} projects={projects} vendors={vendors} canManageFleet={canManageFleet} onTogglePickup={handleTogglePickup} onReload={loadAll} />
+          <FleetRentalRegistry assets={assets} projects={projects} vendors={vendors} purchaseOrders={purchaseOrders} canManageFleet={canManageFleet} onTogglePickup={handleTogglePickup} onReload={loadAll} />
         </TabsContent>
 
         <TabsContent value="radar">

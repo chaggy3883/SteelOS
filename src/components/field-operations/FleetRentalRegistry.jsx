@@ -14,10 +14,10 @@ const ASSET_TYPES = ['Crane', 'Truck', 'Trailer', 'Rigging_Equipment', 'Other'];
 const OWNERSHIP_STATUSES = ['Internal_Owned', 'Third_Party_Rented'];
 const emptyAssetForm = () => ({
   asset_name: '', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: '', maintenance_threshold_hours: '500',
-  project_location_id: '', rental_vendor_id: '', rental_target_off_rent_date: '',
+  project_location_id: '', rental_vendor_id: '', rental_target_off_rent_date: '', linked_po_id: '',
 });
 
-export default function FleetRentalRegistry({ assets, projects, vendors, canManageFleet, onTogglePickup, onReload }) {
+export default function FleetRentalRegistry({ assets, projects, vendors, purchaseOrders = [], canManageFleet, onTogglePickup, onReload }) {
   const { toast } = useToast();
   const [showAddForm, setShowAddForm] = useState(false);
   const [assetForm, setAssetForm] = useState(emptyAssetForm());
@@ -27,11 +27,16 @@ export default function FleetRentalRegistry({ assets, projects, vendors, canMana
 
   const projectName = (id) => projects.find((p) => p.id === id)?.name || '—';
   const vendorName = (id) => vendors.find((v) => v.id === id)?.name || '—';
+  const poNumber = (id) => purchaseOrders.find((po) => po.id === id)?.po_number || '—';
   const isDueForMaintenance = (asset) => (asset.runtime_hours || 0) >= (asset.maintenance_threshold_hours || Infinity);
 
   const handleAddAsset = async () => {
     if (!assetForm.asset_name.trim()) {
       toast({ title: 'Asset name is required', variant: 'destructive' });
+      return;
+    }
+    if (assetForm.status === 'Third_Party_Rented' && !assetForm.linked_po_id) {
+      toast({ title: 'A Purchase Order is required for rented equipment', description: 'Select an open PO before this asset can be committed or dispatched.', variant: 'destructive' });
       return;
     }
     setSaving(true);
@@ -45,6 +50,7 @@ export default function FleetRentalRegistry({ assets, projects, vendors, canMana
         project_location_id: assetForm.project_location_id,
         rental_vendor_id: assetForm.status === 'Third_Party_Rented' ? assetForm.rental_vendor_id : '',
         rental_target_off_rent_date: assetForm.status === 'Third_Party_Rented' ? assetForm.rental_target_off_rent_date : '',
+        linked_po_id: assetForm.status === 'Third_Party_Rented' ? assetForm.linked_po_id : '',
         is_marked_ready_for_pickup: false,
       });
       await onReload();
@@ -111,6 +117,7 @@ export default function FleetRentalRegistry({ assets, projects, vendors, canMana
                   <TableCell>
                     <Badge variant={isRented ? 'outline' : 'secondary'}>{isRented ? 'Third-Party Rented' : 'Internal Owned'}</Badge>
                     {isRented && <p className="text-xs text-muted-foreground mt-0.5">{vendorName(asset.rental_vendor_id)}</p>}
+                    {isRented && <p className="text-xs text-muted-foreground font-mono">{poNumber(asset.linked_po_id)}</p>}
                   </TableCell>
                   <TableCell className="text-sm">{projectName(asset.project_location_id)}</TableCell>
                   <TableCell>
@@ -187,24 +194,42 @@ export default function FleetRentalRegistry({ assets, projects, vendors, canMana
               </Select>
             </div>
             {assetForm.status === 'Third_Party_Rented' && (
-              <div className="grid grid-cols-2 gap-3">
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Rental Vendor</Label>
+                    <Select value={assetForm.rental_vendor_id} onValueChange={(v) => setAssetForm((f) => ({ ...f, rental_vendor_id: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select vendor" /></SelectTrigger>
+                      <SelectContent>{vendors.map((v) => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Target Off-Rent Date</Label>
+                    <Input type="date" value={assetForm.rental_target_off_rent_date} onChange={(e) => setAssetForm((f) => ({ ...f, rental_target_off_rent_date: e.target.value }))} className="mt-1" />
+                  </div>
+                </div>
                 <div>
-                  <Label>Rental Vendor</Label>
-                  <Select value={assetForm.rental_vendor_id} onValueChange={(v) => setAssetForm((f) => ({ ...f, rental_vendor_id: v }))}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select vendor" /></SelectTrigger>
-                    <SelectContent>{vendors.map((v) => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}</SelectContent>
+                  <Label>Purchase Order <span className="text-red-500">*required for rented equipment</span></Label>
+                  <Select value={assetForm.linked_po_id} onValueChange={(v) => setAssetForm((f) => ({ ...f, linked_po_id: v }))}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select an open PO" /></SelectTrigger>
+                    <SelectContent>
+                      {purchaseOrders.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-foreground">No open POs available</div>}
+                      {purchaseOrders.map((po) => <SelectItem key={po.id} value={po.id}>{po.po_number} — {vendorName(po.vendor_id)}</SelectItem>)}
+                    </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label>Target Off-Rent Date</Label>
-                  <Input type="date" value={assetForm.rental_target_off_rent_date} onChange={(e) => setAssetForm((f) => ({ ...f, rental_target_off_rent_date: e.target.value }))} className="mt-1" />
-                </div>
-              </div>
+              </>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddForm(false)}>Cancel</Button>
-            <Button onClick={handleAddAsset} disabled={saving} className="steel-gradient text-white border-0">{saving ? 'Saving…' : 'Add Equipment'}</Button>
+            <Button
+              onClick={handleAddAsset}
+              disabled={saving || (assetForm.status === 'Third_Party_Rented' && !assetForm.linked_po_id)}
+              className="steel-gradient text-white border-0"
+            >
+              {saving ? 'Saving…' : 'Add Equipment'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

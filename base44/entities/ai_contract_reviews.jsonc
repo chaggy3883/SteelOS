@@ -51,6 +51,11 @@
     "analyzed_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "analysis_source": {
+      "type": "string",
+      "enum": ["local_ai", "deterministic"],
+      "default": "deterministic"
     }
   },
   "required": [
