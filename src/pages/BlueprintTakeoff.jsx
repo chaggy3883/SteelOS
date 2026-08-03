@@ -5,7 +5,7 @@ import { simulateAiBatchTakeoff } from '@/lib/aiIntelligenceEngine';
 import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack } from 'lucide-react';
+import { Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical } from 'lucide-react';
 
 const emptyRow = (overrides = {}) => ({
   _key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -18,8 +18,23 @@ const emptyRow = (overrides = {}) => ({
   length_ft: 0,
   unit_cost_cents: 0,
   is_accepted: true,
+  notes: '',
+  is_demo: false,
   ...overrides,
 });
+
+// Explicit, clearly-labeled sample rows for checking the spreadsheet layout
+// without a local VLM connected — NOT a substitute for the honest "no model
+// reachable" state. These only ever load when a user clicks the dedicated
+// demo button below; they never silently replace a real scan's error/result,
+// and every row is flagged is_demo so it's unmistakable in the grid (this
+// feeds real job-cost totals in production, so a fabricated-but-unlabeled
+// row here would be a real estimating-accuracy hazard, not just a UI nit).
+const DEMO_ROWS = [
+  { page_number: 1, shape_type: 'Column', size_designation: 'W14x90', quantity: 8, unit_cost_cents: 56250, notes: 'NDT Testing required', confidence: 0.92 },
+  { page_number: 3, shape_type: 'Roof Beam', size_designation: 'W18x35', quantity: 14, unit_cost_cents: 0, notes: 'Standard Mill Source', confidence: 0.88 },
+  { page_number: 4, shape_type: 'Gusset Connection Plate', size_designation: '', quantity: 42, unit_cost_cents: 2857, notes: 'Liquidated damage risk dates attached', confidence: 0.81 },
+];
 
 export default function BlueprintTakeoff() {
   const { user } = useOutletContext() || {};
@@ -121,6 +136,14 @@ export default function BlueprintTakeoff() {
     setRows((prev) => [...prev, emptyRow()]);
   };
 
+  const loadDemoRows = () => {
+    const demoRows = DEMO_ROWS.map((d) => emptyRow({ ...d, is_demo: true }));
+    setSheetCount((prev) => prev || 4);
+    setRows(demoRows);
+    setScanError(null);
+    persist(demoRows);
+  };
+
   const acceptedRows = rows.filter((r) => r.is_accepted);
   const totalWeight = acceptedRows.reduce((sum, r) => sum + (r.quantity || 0) * (r.unit_weight_lbs_per_ft || 0) * (r.length_ft || 0), 0);
   const totalCost = acceptedRows.reduce((sum, r) => sum + (r.quantity || 0) * (r.unit_cost_cents || 0), 0) / 100;
@@ -166,6 +189,14 @@ export default function BlueprintTakeoff() {
         PROCESS FULL DOCUMENT TAKEOFF
       </Button>
 
+      {fileUrl && (
+        <div className="flex items-center justify-end">
+          <Button variant="outline" size="sm" onClick={loadDemoRows} disabled={scanning}>
+            <FlaskConical className="w-3.5 h-3.5 mr-1.5" />Load Demo Rows (sample data, not a real scan)
+          </Button>
+        </div>
+      )}
+
       {scanning && (
         <div className="w-full rounded-lg border-2 border-primary bg-primary text-primary-foreground px-4 py-3 flex items-center gap-3 animate-pulse">
           <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" />
@@ -185,6 +216,11 @@ export default function BlueprintTakeoff() {
             </h3>
             <Button size="sm" variant="outline" onClick={addManualRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Row</Button>
           </div>
+          {rows.some((r) => r.is_demo) && (
+            <p className="text-xs font-medium text-amber-600 flex items-center gap-1.5">
+              <FlaskConical className="w-3.5 h-3.5" />Sample rows loaded for layout testing — these are not real blueprint detections and should not be used for an actual bid.
+            </p>
+          )}
           <div className="border rounded-lg overflow-x-auto">
             <table className="w-full text-sm min-w-[1100px]">
               <thead className="bg-muted/40 text-left">
@@ -213,7 +249,15 @@ export default function BlueprintTakeoff() {
                         <input type="checkbox" checked={r.is_accepted} onChange={(e) => updateRow(r._key, 'is_accepted', e.target.checked)} />
                       </td>
                       <td className="p-2 text-xs text-muted-foreground">{r.page_number || 1}</td>
-                      <td className="p-2"><Input value={r.shape_type} onChange={(e) => updateRow(r._key, 'shape_type', e.target.value)} className="h-8" /></td>
+                      <td className="p-2">
+                        <Input value={r.shape_type} onChange={(e) => updateRow(r._key, 'shape_type', e.target.value)} className="h-8" />
+                        {(r.is_demo || r.notes) && (
+                          <p className="text-[10px] mt-0.5 flex items-center gap-1 text-amber-600">
+                            {r.is_demo && <span className="font-bold uppercase">[Demo]</span>}
+                            {r.notes}
+                          </p>
+                        )}
+                      </td>
                       <td className="p-2"><Input value={r.size_designation} onChange={(e) => updateRow(r._key, 'size_designation', e.target.value)} className="h-8" /></td>
                       <td className="p-2 text-xs text-muted-foreground">{r.confidence != null ? `${Math.round(r.confidence * 100)}%` : '—'}</td>
                       <td className="p-2"><Input type="number" min={0} value={r.quantity} onChange={(e) => updateRow(r._key, 'quantity', Number(e.target.value) || 0)} className="h-8" /></td>

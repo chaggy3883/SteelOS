@@ -65,6 +65,13 @@
           "is_accepted": {
             "type": "boolean",
             "default": true
+          },
+          "notes": {
+            "type": "string"
+          },
+          "is_demo": {
+            "type": "boolean",
+            "default": false
           }
         }
       }
