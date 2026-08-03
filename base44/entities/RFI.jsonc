@@ -7,6 +7,10 @@
     "project_id": {
       "type": "string"
     },
+    "bid_id": {
+      "type": "string",
+      "description": "Optional link to the estimate/Bid this RFI traces back to — set via the Estimate/Bid picker in the create form."
+    },
     "rfi_number": {
       "type": "string"
     },

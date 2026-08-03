@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
+import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -81,17 +82,7 @@ export default function ProjectManagement() {
   };
 
   const syncProjectMetrics = async (nextProject, nextOrders = changeOrders) => {
-    const approvedTotal = (nextOrders || []).filter((item) => item.status === 'Approved').reduce((sum, item) => sum + Number(item.cost_impact || 0), 0);
-    const revisedValue = Number(nextProject?.original_contract_value || 0) + approvedTotal;
-    const remainingBalance = revisedValue - Number(nextProject?.total_invoiced_to_date || 0);
-
-    const updatedProject = await base44.entities.projects.update(nextProject.id, {
-      approved_change_orders_total: approvedTotal,
-      current_revised_contract_value: revisedValue,
-      remaining_project_balance: remainingBalance,
-      execution_status: nextProject?.execution_status || 'Prefabrication'
-    });
-
+    const updatedProject = await syncProjectChangeOrderMetrics(nextProject, nextOrders);
     setProject(updatedProject);
     return updatedProject;
   };

@@ -1,0 +1,60 @@
+{
+  "name": "change_orders",
+  "type": "object",
+  "properties": {
+    "project_id": {
+      "type": "string"
+    },
+    "change_order_id": {
+      "type": "string",
+      "description": "Human-readable CO number, e.g. 'CO-001' — the existing per-project id used throughout ProjectManagement.jsx."
+    },
+    "co_sequence_number": {
+      "type": "number",
+      "description": "Numeric sequence position of this CO on its project (1, 2, 3...), for sorting/display in the cross-project Change Order Hub."
+    },
+    "description": {
+      "type": "string"
+    },
+    "cost_impact": {
+      "type": "number",
+      "default": 0,
+      "description": "Dollar contract-value impact — the authoritative field ProjectManagement.jsx's revised-contract-value rollup reads. total_change_order_value_cents mirrors this in cents; do not let them diverge."
+    },
+    "total_change_order_value_cents": {
+      "type": "number",
+      "default": 0,
+      "description": "Derived mirror of cost_impact in cents (cost_impact * 100) — kept for callers that want a cents-denominated field. cost_impact remains the source of truth."
+    },
+    "schedule_impact": {
+      "type": "number",
+      "default": 0,
+      "description": "Schedule impact in days."
+    },
+    "added_tonnage_weight_lbs": {
+      "type": "number",
+      "default": 0
+    },
+    "added_labor_hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Additional shop/field labor hours introduced by this change order."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["Draft", "Submitted to GC", "Approved", "Rejected", "Void"],
+      "default": "Draft"
+    },
+    "date_submitted": {
+      "type": "string",
+      "format": "date"
+    },
+    "attachment_path": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "change_order_id"
+  ]
+}

@@ -16,7 +16,7 @@ import {
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
-  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch
+  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit
 } from 'lucide-react';
 
 const navGroups = [
@@ -30,6 +30,7 @@ const navGroups = [
       { icon: Building2, label: 'CRM', path: '/crm' },
       { icon: Users, label: 'Relationship Manager', path: '/crm/directory' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
+      { icon: MessageSquare, label: 'RFIs', path: '/rfis' },
     ]
   },
   {
@@ -48,6 +49,7 @@ const navGroups = [
     label: 'Production & Project Management',
     items: [
       { icon: FolderKanban, label: 'Projects', path: '/projects' },
+      { icon: FileEdit, label: 'Change Orders', path: '/projects/change-orders' },
       { icon: Factory, label: 'Production', path: '/production' },
       { icon: Truck, label: 'Shipping', path: '/shipping' },
       { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },
@@ -92,7 +94,6 @@ const navGroups = [
       { icon: CheckSquare, label: 'Quality', path: '/quality' },
       { icon: Shield, label: 'Safety', path: '/safety' },
       { icon: FileText, label: 'Documents', path: '/documents' },
-      { icon: MessageSquare, label: 'RFIs', path: '/rfis' },
     ]
   },
 ];

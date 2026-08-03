@@ -21,23 +21,26 @@ export default function RFIs() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ project_id: '', subject: '', description: '', priority: 'medium' });
+  const [form, setForm] = useState({ project_id: '', bid_id: '', subject: '', description: '', priority: 'medium' });
   const [saving, setSaving] = useState(false);
   const [generatingNoticeId, setGeneratingNoticeId] = useState(null);
+  const [bids, setBids] = useState([]);
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [rfiData, projData, contractData] = await Promise.all([
+      const [rfiData, projData, contractData, bidData] = await Promise.all([
         base44.entities.RFI.list('-created_date', 100),
         base44.entities.Project.filter({ is_archived: false }, 'name', 50),
         base44.entities.Contract.list('-created_date', 100),
+        base44.entities.Bid.list('-created_date', 200),
       ]);
       setRfis(rfiData);
       setProjects(projData);
       setContracts(contractData);
+      setBids(bidData);
     } catch (e) {} finally { setLoading(false); }
   };
 
@@ -110,7 +113,7 @@ export default function RFIs() {
       await base44.entities.RFI.create({ ...form, rfi_number: `RFI-${String(rfiCount).padStart(3,'0')}`, status: 'draft', date_submitted: new Date().toISOString().split('T')[0] });
       toast({ title: 'RFI created!' });
       setOpen(false);
-      setForm({ project_id: '', subject: '', description: '', priority: 'medium' });
+      setForm({ project_id: '', bid_id: '', subject: '', description: '', priority: 'medium' });
       loadData();
     } catch (e) {
       toast({ title: 'Error', variant: 'destructive' });
@@ -150,6 +153,13 @@ export default function RFIs() {
                   <Select value={form.project_id} onValueChange={v => setForm(f => ({ ...f, project_id: v }))}>
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Select project" /></SelectTrigger>
                     <SelectContent>{projects.map(p => <SelectItem key={p.id} value={p.id}>{p.project_number} — {p.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Estimate / Bid</Label>
+                  <Select value={form.bid_id} onValueChange={v => setForm(f => ({ ...f, bid_id: v }))}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Link to an estimate (optional)" /></SelectTrigger>
+                    <SelectContent>{bids.map(b => <SelectItem key={b.id} value={b.id}>{b.bid_number} — {b.job_name || 'Untitled Bid'}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div><Label>Subject *</Label><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} className="mt-1" /></div>
@@ -210,6 +220,7 @@ export default function RFIs() {
         ) : (
           filtered.map(r => {
             const proj = projects.find(p => p.id === r.project_id);
+            const linkedBid = bids.find(b => b.id === r.bid_id);
             const isOverdue = r.date_required && new Date(r.date_required) < new Date() && r.status !== 'closed';
             const { daysDelayed } = getContractDelinquency(r);
             const isContractuallyDelinquent = daysDelayed > 0;
@@ -226,6 +237,7 @@ export default function RFIs() {
                     </div>
                     <p className="font-medium text-sm">{r.subject}</p>
                     {proj && <p className="text-xs text-muted-foreground mt-1">{proj.project_number} — {proj.name}</p>}
+                    {linkedBid && <p className="text-xs text-muted-foreground mt-0.5">Estimate: {linkedBid.bid_number}</p>}
                     {r.date_required && <p className="text-xs text-muted-foreground mt-1">Required by: {r.date_required}</p>}
                   </div>
                   {isContractuallyDelinquent && (
