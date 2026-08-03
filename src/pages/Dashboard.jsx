@@ -1,16 +1,24 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { Responsive, WidthProvider } from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
-import 'react-resizable/css/styles.css';
 import { Button } from '@/components/ui/button';
 import { Settings2, Plus, Check, Loader2 } from 'lucide-react';
 import DashboardWidget from '@/components/dashboard/DashboardWidget';
 import AddWidgetDrawer from '@/components/dashboard/AddWidgetDrawer';
 import { getUserPermissions, getDefaultLayout, getWidgetById, WIDGET_LIBRARY } from '@/components/dashboard/rbacConfig';
 
-const ResponsiveGridLayout = WidthProvider(Responsive);
+// Native CSS grid — no third-party layout library. col-span/row-span classes
+// per widget, computed from its stored `size`; the grid container itself is
+// a plain fixed grid-cols-4 (no responsive breakpoint remapping), which is
+// what makes this render identically on every machine regardless of screen
+// size — the js-measured pixel positioning react-grid-layout used was the
+// actual source of the cross-laptop inconsistency this replaces.
+const SIZE_CLASSES = {
+  '1x1': 'col-span-1 row-span-1',
+  '2x2': 'col-span-2 row-span-2',
+  '3x2': 'col-span-3 row-span-2',
+};
+const SIZE_OPTIONS = ['1x1', '2x2', '3x2'];
 
 export default function Dashboard() {
   const { user } = useOutletContext() || {};
@@ -20,18 +28,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [showDrawer, setShowDrawer] = useState(false);
   const [allowedWidgets, setAllowedWidgets] = useState([]);
-  const saveTimer = useRef(null);
-  const pendingSave = useRef(null);
 
-  useEffect(() => { if (user?.id) initDashboard(); }, [user?.id]);
-
-  useEffect(() => () => {
-    if (saveTimer.current && pendingSave.current) {
-      clearTimeout(saveTimer.current);
-      const { configId: pendingConfigId, layout: pendingLayout } = pendingSave.current;
-      base44.entities.UserDashboardConfig.update(pendingConfigId, { layout: pendingLayout, is_customized: true }).catch(() => {});
-    }
-  }, []);
+  React.useEffect(() => { if (user?.id) initDashboard(); }, [user?.id]);
 
   const initDashboard = async () => {
     try {
@@ -57,48 +55,33 @@ export default function Dashboard() {
     finally { setLoading(false); }
   };
 
-  const saveLayout = useCallback((newLayout) => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    pendingSave.current = configId ? { configId, layout: newLayout } : null;
-    saveTimer.current = setTimeout(async () => {
-      pendingSave.current = null;
-      if (configId) {
-        try { await base44.entities.UserDashboardConfig.update(configId, { layout: newLayout, is_customized: true }); }
-        catch (e) { console.error(e); }
-      }
-    }, 800);
-  }, [configId]);
-
-  const handleLayoutChange = (newLayout) => {
+  // Every mutation here is a single deliberate click (delete / size-snap /
+  // add) — not a continuous drag gesture — so there's no debounce needed
+  // anymore: persist immediately, every time, straight through
+  // base44.entities.UserDashboardConfig.update → localData.js's saveStore →
+  // the /__db-sync file mirror, so a size change or deletion is on disk
+  // before a refresh could ever race it.
+  const persistLayout = async (newLayout) => {
     setLayout(newLayout);
-    if (customizing) saveLayout(newLayout);
+    if (!configId) return;
+    try {
+      await base44.entities.UserDashboardConfig.update(configId, { layout: newLayout, is_customized: true });
+    } catch (e) { console.error(e); }
   };
 
   const handleAddWidget = (widgetId) => {
     const widget = getWidgetById(widgetId);
     if (!widget) return;
-    const maxY = layout.reduce((max, item) => Math.max(max, item.y + item.h), 0);
-    const newItem = { i: widgetId, x: 0, y: maxY, w: widget.defaultW, h: widget.defaultH, minW: widget.minW, minH: widget.minH };
-    const newLayout = [...layout, newItem];
-    setLayout(newLayout);
-    saveLayout(newLayout);
+    persistLayout([...layout, { i: widgetId, size: '1x1' }]);
     setShowDrawer(false);
   };
 
   const handleRemoveWidget = (widgetId) => {
-    const newLayout = layout.filter(item => item.i !== widgetId);
-    setLayout(newLayout);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    pendingSave.current = null;
-    if (configId) {
-      base44.entities.UserDashboardConfig.update(configId, { layout: newLayout, is_customized: true }).catch(e => console.error(e));
-    }
+    persistLayout(layout.filter(item => item.i !== widgetId));
   };
 
-  const handleExitCustomize = () => {
-    setCustomizing(false);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    if (configId) base44.entities.UserDashboardConfig.update(configId, { layout, is_customized: true }).catch(() => {});
+  const handleResizeWidget = (widgetId, size) => {
+    persistLayout(layout.map(item => item.i === widgetId ? { ...item, size } : item));
   };
 
   const currentWidgetIds = layout.map(item => item.i);
@@ -119,13 +102,13 @@ export default function Dashboard() {
             <Button onClick={() => setShowDrawer(true)} className="steel-gradient text-white border-0">
               <Plus className="w-4 h-4" />Add Widget
             </Button>
-            <Button onClick={handleExitCustomize} variant="default">
+            <Button onClick={() => setCustomizing(false)} variant="default">
               <Check className="w-4 h-4" />Done
             </Button>
           </div>
         ) : (
           <Button variant="outline" onClick={() => setCustomizing(true)}>
-            <Settings2 className="w-4 h-4" />Customize Dashboard
+            <Settings2 className="w-4 h-4" />Edit Dashboard Layout
           </Button>
         )}
       </div>
@@ -133,7 +116,7 @@ export default function Dashboard() {
       {customizing && (
         <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary flex items-center gap-2">
           <Settings2 className="w-4 h-4" />
-          <span>Drag widgets to reposition • Drag corners to resize • Click X to remove • Changes save automatically</span>
+          <span>Click the red button to remove a widget • Pick 1x1/2x2/3x2 to resize • Changes save immediately</span>
         </div>
       )}
 
@@ -145,24 +128,20 @@ export default function Dashboard() {
           </Button>
         </div>
       ) : (
-        <ResponsiveGridLayout
-          className="layout"
-          layouts={{ lg: layout, md: layout, sm: layout }}
-          breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-          cols={{ lg: 4, md: 4, sm: 2, xs: 1, xxs: 1 }}
-          rowHeight={100}
-          margin={[12, 12]}
-          isDraggable={customizing}
-          isResizable={customizing}
-          compactType="vertical"
-          onLayoutChange={handleLayoutChange}
-        >
+        <div className="grid grid-cols-4 gap-6 w-full max-w-none px-6 auto-rows-[200px]">
           {layout.map(item => (
-            <div key={item.i}>
-              <DashboardWidget widgetId={item.i} customizing={customizing} onRemove={() => handleRemoveWidget(item.i)} />
+            <div key={item.i} className={SIZE_CLASSES[item.size || '1x1']}>
+              <DashboardWidget
+                widgetId={item.i}
+                customizing={customizing}
+                size={item.size || '1x1'}
+                sizeOptions={SIZE_OPTIONS}
+                onRemove={() => handleRemoveWidget(item.i)}
+                onResize={(size) => handleResizeWidget(item.i, size)}
+              />
             </div>
           ))}
-        </ResponsiveGridLayout>
+        </div>
       )}
 
       <AddWidgetDrawer

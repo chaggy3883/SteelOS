@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { simulateAiReview } from '@/lib/aiIntelligenceEngine';
+import { extractTextFromPdf } from '@/lib/pdfTextExtractor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -67,22 +68,40 @@ export default function FrontEndReview() {
 
   const selectedBid = bids.find((b) => b.id === bidId);
 
-  const ingestFile = (file) => {
+  const ingestFile = async (file) => {
     if (!bidId) {
       toast({ title: 'Select a bid first', variant: 'destructive' });
       return;
     }
-    if (!(file.type === 'text/plain' || file.name.endsWith('.txt'))) {
-      toast({
-        title: 'PDF text extraction not available',
-        description: 'This app has no PDF-parsing library — upload a .txt spec dump instead.',
-        variant: 'destructive',
-      });
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const isTxt = file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt');
+    if (!isPdf && !isTxt) {
+      toast({ title: 'Unsupported file type', description: 'Upload a .pdf or .txt spec document.', variant: 'destructive' });
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => runSimulatedReview(String(e.target.result), file.name);
-    reader.readAsText(file);
+    if (isTxt) {
+      const reader = new FileReader();
+      reader.onload = (e) => runSimulatedReview(String(e.target.result), file.name);
+      reader.readAsText(file);
+      return;
+    }
+    setParsing(true);
+    try {
+      const text = await extractTextFromPdf(file);
+      if (!text) {
+        toast({
+          title: 'No extractable text found',
+          description: 'This PDF appears to be scanned images with no text layer — OCR it or export a .txt version instead.',
+          variant: 'destructive',
+        });
+        setParsing(false);
+        return;
+      }
+      await runSimulatedReview(text, file.name);
+    } catch (e) {
+      toast({ title: 'PDF parsing failed', description: e?.message || 'The file may be corrupted or password-protected.', variant: 'destructive' });
+      setParsing(false);
+    }
   };
 
   const runSimulatedReview = async (rawText, filename) => {
@@ -163,8 +182,8 @@ export default function FrontEndReview() {
               className={`rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${isDragging ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`}
             >
               <UploadCloud className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm font-medium">Drop a .txt spec dump here, or click to browse</p>
-              <p className="text-xs text-muted-foreground mt-1">PDFs are accepted but can't be text-extracted in this app — export to .txt first.</p>
+              <p className="text-sm font-medium">Drop a .pdf or .txt spec document here, or click to browse</p>
+              <p className="text-xs text-muted-foreground mt-1">PDF text is extracted directly in your browser — scanned/image-only PDFs with no text layer will need OCR or a .txt export first.</p>
               <input ref={fileInputRef} type="file" accept=".txt,.pdf" multiple className="hidden" onChange={handleFileSelect} />
             </div>
             {parsing && (

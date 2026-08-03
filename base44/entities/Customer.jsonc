@@ -15,8 +15,22 @@
         "engineer",
         "architect",
         "government",
+        "fabricator_subcontractor",
         "other"
       ]
+    },
+    "is_customer": {
+      "type": "boolean",
+      "default": true
+    },
+    "is_vendor": {
+      "type": "boolean",
+      "default": false
+    },
+    "relationship_type": {
+      "type": "string",
+      "enum": ["customer", "vendor", "both"],
+      "default": "customer"
     },
     "address": {
       "type": "string"

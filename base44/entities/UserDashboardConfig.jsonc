@@ -13,17 +13,10 @@
           "i": {
             "type": "string"
           },
-          "x": {
-            "type": "number"
-          },
-          "y": {
-            "type": "number"
-          },
-          "w": {
-            "type": "number"
-          },
-          "h": {
-            "type": "number"
+          "size": {
+            "type": "string",
+            "enum": ["1x1", "2x2", "3x2"],
+            "default": "1x1"
           }
         }
       }

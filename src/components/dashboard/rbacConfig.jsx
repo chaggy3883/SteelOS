@@ -93,11 +93,17 @@ export function getWidgetById(id) {
   return WIDGET_LIBRARY.find(w => w.id === id);
 }
 
+// Native CSS grid layout (see src/pages/Dashboard.jsx) — every widget starts
+// at the baseline 1x1 footprint; users size up to 2x2/3x2 via the per-widget
+// size-snap tray in edit mode. No x/y pixel positioning: items just flow in
+// array order through a plain `grid-cols-4` container, which is what makes
+// this consistent across different machines/screen sizes (the thing
+// react-grid-layout's JS-calculated pixel positioning was not).
 export function getDefaultLayout(widgetIds) {
-  return widgetIds.map((id, i) => {
+  return widgetIds.map((id) => {
     const w = getWidgetById(id);
     if (!w) return null;
-    return { i: id, x: (i % 2) * 2, y: Math.floor(i / 2) * 2, w: w.defaultW, h: w.defaultH, minW: w.minW, minH: w.minH };
+    return { i: id, size: '1x1' };
   }).filter(Boolean);
 }
 

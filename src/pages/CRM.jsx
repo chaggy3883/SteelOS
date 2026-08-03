@@ -15,7 +15,23 @@ const TYPE_COLORS = {
   engineer: 'bg-green-500/10 text-green-500',
   architect: 'bg-orange-500/10 text-orange-500',
   government: 'bg-red-500/10 text-red-500',
+  fabricator_subcontractor: 'bg-cyan-500/10 text-cyan-500',
   other: 'bg-gray-500/10 text-gray-500',
+};
+
+const DISCIPLINE_OPTIONS = ['general_contractor', 'owner', 'engineer', 'architect', 'government', 'fabricator_subcontractor', 'other'];
+const DISCIPLINE_LABELS = { fabricator_subcontractor: 'Fabricator/Subcontractor' };
+const disciplineLabel = (t) => DISCIPLINE_LABELS[t] || t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Customer/Vendor are independent toggles, not a single-select — both can be
+// true at once (a company that both supplies material to us and buys
+// fabrication from us). relationship_type is the derived, storable summary
+// of that pair, per the explicit mapping requested: customer-only →
+// 'customer', vendor-only → 'vendor', both checked → 'both'.
+const deriveRelationshipType = (isCustomer, isVendor) => {
+  if (isCustomer && isVendor) return 'both';
+  if (isVendor) return 'vendor';
+  return 'customer';
 };
 
 export default function CRM() {
@@ -25,7 +41,7 @@ export default function CRM() {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
-  const [form, setForm] = useState({ name: '', customer_type: 'general_contractor', phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '' });
+  const [form, setForm] = useState({ name: '', customer_type: 'general_contractor', is_customer: true, is_vendor: false, phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '' });
   const [contacts, setContacts] = useState([]);
   const [contactForm, setContactForm] = useState({ name: '', title: '', phone: '', email: '', notes: '' });
   const [saving, setSaving] = useState(false);
@@ -41,7 +57,7 @@ export default function CRM() {
   };
 
   const resetForm = () => {
-    setForm({ name: '', customer_type: 'general_contractor', phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '' });
+    setForm({ name: '', customer_type: 'general_contractor', is_customer: true, is_vendor: false, phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '' });
     setEditingCustomer(null);
     setContacts([]);
     setContactForm({ name: '', title: '', phone: '', email: '', notes: '' });
@@ -51,7 +67,8 @@ export default function CRM() {
     if (!form.name) return;
     setSaving(true);
     try {
-      const payload = { ...form, is_active: true, contacts };
+      const relationship_type = deriveRelationshipType(form.is_customer, form.is_vendor);
+      const payload = { ...form, relationship_type, is_active: true, contacts };
       if (editingCustomer) {
         await base44.entities.Customer.update(editingCustomer.id, payload);
         toast({ title: 'Customer updated' });
@@ -72,6 +89,8 @@ export default function CRM() {
     setForm({
       name: customer.name || '',
       customer_type: customer.customer_type || 'general_contractor',
+      is_customer: customer.is_customer !== false,
+      is_vendor: !!customer.is_vendor,
       phone: customer.phone || '',
       email: customer.email || '',
       city: customer.city || '',
@@ -114,13 +133,42 @@ export default function CRM() {
               <DialogHeader><DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add Customer'}</DialogTitle></DialogHeader>
               <div className="space-y-3 py-2 max-h-[80vh] overflow-y-auto px-2">
                 <div><Label>Company Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="mt-1" /></div>
+
+                <div className="rounded-lg border-2 border-primary/30 bg-primary/5 p-3 space-y-2">
+                  <Label className="text-sm font-semibold">Relationship Classification *</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4"
+                        checked={form.is_customer}
+                        onChange={e => setForm(f => ({ ...f, is_customer: e.target.checked }))}
+                      />
+                      Customer
+                    </label>
+                    <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4"
+                        checked={form.is_vendor}
+                        onChange={e => setForm(f => ({ ...f, is_vendor: e.target.checked }))}
+                      />
+                      Vendor
+                    </label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Saves as: <span className="font-semibold">{deriveRelationshipType(form.is_customer, form.is_vendor)}</span>
+                    {!form.is_customer && !form.is_vendor && ' (check at least one — defaulting to Customer)'}
+                  </p>
+                </div>
+
                 <div>
-                  <Label>Type</Label>
+                  <Label>Industry Type / Discipline</Label>
                   <Select value={form.customer_type} onValueChange={v => setForm(f => ({ ...f, customer_type: v }))}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {['general_contractor','owner','engineer','architect','government','other'].map(t => (
-                        <SelectItem key={t} value={t}>{t.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</SelectItem>
+                      {DISCIPLINE_OPTIONS.map(t => (
+                        <SelectItem key={t} value={t}>{disciplineLabel(t)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -195,7 +243,7 @@ export default function CRM() {
                 <div className="flex items-center gap-2">
                   <button onClick={() => startEdit(c)} className="text-muted-foreground hover:text-primary"><Pencil className="w-4 h-4" /></button>
                   <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_COLORS[c.customer_type] || TYPE_COLORS.other}`}>
-                    {c.customer_type?.replace(/_/g,' ').replace(/\b\w/g,ch=>ch.toUpperCase())}
+                    {c.customer_type ? disciplineLabel(c.customer_type) : ''}
                   </span>
                 </div>
               </div>

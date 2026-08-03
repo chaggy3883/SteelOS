@@ -1,5 +1,5 @@
 {
-  "name": "Nexus3D ERP",
+  "name": "SteelOS",
   "site": {
     "installCommand": "npm install",
     "buildCommand": "npm run build",
