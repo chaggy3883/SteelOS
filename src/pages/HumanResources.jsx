@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin } from '@/lib/employeesApi';
+import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { verifyPin } from '@/lib/hrSecurity';
 import { getExpiringCertifications } from '@/lib/certAlerts';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,8 @@ export default function HumanResources() {
   const [declineNote, setDeclineNote] = useState('');
 
   const [emergencyContactEmployeeId, setEmergencyContactEmployeeId] = useState('');
+  const [allRoles, setAllRoles] = useState([]);
+  const [assigningRoleId, setAssigningRoleId] = useState(null);
 
   useEffect(() => { init(); }, []);
 
@@ -72,6 +75,7 @@ export default function HumanResources() {
     } catch (e) {}
     setRoles(currentRoles);
     await loadAll(currentRoles);
+    getAllRoles().then(setAllRoles).catch(() => setAllRoles([]));
     setLoading(false);
   };
 
@@ -150,6 +154,17 @@ export default function HumanResources() {
     const updated = await base44.entities.employees.update(employee.id, { is_active_login: value });
     setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
     toast({ title: value ? `${updated.full_name}'s login re-enabled` : `${updated.full_name}'s login suspended` });
+  };
+
+  const assignPlatformRole = async (employee, role) => {
+    setAssigningRoleId(employee.id);
+    try {
+      const updated = await base44.entities.employees.update(employee.id, { platform_role: role });
+      setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      toast({ title: `${updated.full_name} assigned to ${allRoles.find((r) => r.value === role)?.label || role}` });
+    } finally {
+      setAssigningRoleId(null);
+    }
   };
 
   const updateSsnLast4 = async (employee, value) => {
@@ -270,6 +285,29 @@ export default function HumanResources() {
         </TabsContent>
 
         <TabsContent value="employees" className="space-y-3">
+          {isFullAccess && employees.some((e) => !e.platform_role) && (
+            <div className="steel-card p-4 space-y-2 border-amber-500/30">
+              <h4 className="font-semibold text-sm flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-amber-500" />Unassigned Platform Roles</h4>
+              <p className="text-xs text-muted-foreground">These new hires don't have a platform security role yet — assign one to grant them system access.</p>
+              <div className="space-y-2">
+                {employees.filter((e) => !e.platform_role).map((emp) => (
+                  <div key={emp.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-2">
+                    <div>
+                      <p className="text-sm font-medium">{emp.full_name}</p>
+                      <p className="text-xs text-muted-foreground">{emp.employee_number} · {emp.classification}</p>
+                    </div>
+                    <Select value={emp.platform_role || ''} onValueChange={(v) => assignPlatformRole(emp, v)} disabled={assigningRoleId === emp.id}>
+                      <SelectTrigger className="w-56 h-8 text-xs"><SelectValue placeholder="Assign a role…" /></SelectTrigger>
+                      <SelectContent>
+                        {allRoles.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {employees.length === 0 ? (
             <p className="text-sm text-muted-foreground p-6 text-center">No employees provisioned yet — hire a candidate first.</p>
           ) : (

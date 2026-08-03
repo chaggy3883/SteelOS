@@ -30,7 +30,7 @@ function Calendar({
         table: "w-full border-collapse space-y-1",
         head_row: "flex",
         head_cell:
-          "text-neutral-500 rounded-md w-8 font-normal text-[0.8rem]",
+          "text-neutral-700 rounded-md w-8 font-normal text-[0.8rem]",
         row: "flex w-full mt-2",
         cell: cn(
           "relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected].day-range-end)]:rounded-r-md",
@@ -51,10 +51,20 @@ function Calendar({
         // `text-neutral-900` just added to the shared `day` class above —
         // without it, Tailwind's utility generation order (not source order
         // in this file) decides the tie, which isn't reliable to reason about.
+        //
+        // day_outside/day_disabled intentionally use a literal neutral-600
+        // instead of the theme's --muted-foreground token: this component's
+        // surface is force-flipped to solid white in dark mode (see
+        // `.theme-invert-surface` in src/index.css), but --muted-foreground
+        // is ~55% lightness (tuned to sit on a dark surface) — on the forced
+        // white surface that reads as low-contrast, near-invisible gray.
+        // neutral-600 keeps the "muted/disabled" look distinguishable from a
+        // regular day while staying legible against a white surface in both
+        // themes.
         day_today: "bg-accent !text-accent-foreground",
         day_outside:
-          "day-outside !text-muted-foreground aria-selected:bg-accent/50 aria-selected:text-muted-foreground",
-        day_disabled: "!text-muted-foreground opacity-50",
+          "day-outside !text-neutral-600 aria-selected:bg-accent/50 aria-selected:text-neutral-600",
+        day_disabled: "!text-neutral-600 opacity-50",
         day_range_middle:
           "aria-selected:bg-accent aria-selected:text-accent-foreground",
         day_hidden: "invisible",

@@ -1,5 +1,5 @@
 import { base44 } from '@/api/base44Client';
-import { callTenantScopedLocalAI, getCompanyName } from '@/lib/localAiClient';
+import { callTenantScopedLocalAI, detectBlueprintShapesBatch, getCompanyName } from '@/lib/localAiClient';
 
 // STUB DISCLOSURE — read before touching this file.
 // There is no real Claude/LLM call anywhere in this app; the only AI
@@ -250,6 +250,16 @@ function seedMillSourceLine(text, filename) {
     document_source_key: filename,
     location_page_reference: match ? snippet(text, match.index, match[0].length) : 'Not found in provided text — verify manually.',
   };
+}
+
+// Single-batch, whole-document blueprint takeoff: no page-by-page manual
+// scanning — one call covers every sheet in the uploaded set at once, tagging
+// each detection with the page/sheet it came from. Returns null (never
+// throws) if no local VLM is reachable, so BlueprintTakeoff.jsx can fall back
+// to manual entry instead of the batch grid.
+export async function simulateAiBatchTakeoff(companyId, fileUrl, fileName, scaleReference) {
+  const companyName = await getCompanyName(companyId);
+  return detectBlueprintShapesBatch(companyId, companyName, fileUrl, fileName, scaleReference);
 }
 
 export async function simulateAiReview(bid, rawText, filename) {

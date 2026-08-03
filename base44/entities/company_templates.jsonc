@@ -1,0 +1,43 @@
+{
+  "name": "company_templates",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "template_name": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "Proposal",
+        "Invoice",
+        "Packing_Slip",
+        "Spreadsheet",
+        "Custom"
+      ],
+      "default": "Custom"
+    },
+    "file_url": {
+      "type": "string"
+    },
+    "file_name": {
+      "type": "string"
+    },
+    "layout_config_text": {
+      "type": "string"
+    },
+    "uploaded_by": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "template_name",
+    "file_url"
+  ]
+}

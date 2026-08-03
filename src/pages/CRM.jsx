@@ -112,7 +112,7 @@ export default function CRM() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add Customer'}</DialogTitle></DialogHeader>
-              <div className="space-y-3 py-2">
+              <div className="space-y-3 py-2 max-h-[80vh] overflow-y-auto px-2">
                 <div><Label>Company Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="mt-1" /></div>
                 <div>
                   <Label>Type</Label>

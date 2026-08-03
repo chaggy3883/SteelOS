@@ -111,11 +111,22 @@ export default function NavBar() {
   const [openSection, setOpenSection] = useState(null);
   const [erectPlan, setErectPlan] = useState(false);
   const [isKioskSession, setIsKioskSession] = useState(false);
+  const [isPlatformSuperAdmin, setIsPlatformSuperAdmin] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
         const u = await base44.auth.me();
+        // A tenant-level 'admin' role's allowed_modules is the wildcard '*'
+        // (see BUILTIN_ROLES in rbacConfig.jsx), which would otherwise pass
+        // isModuleAllowed() for /super-admin/dashboard too — that's a nav
+        // link, not real access (SuperAdminDashboard.jsx itself still gates
+        // on this same roles check), but a company admin seeing a "Super
+        // Admin" link at all leaks platform structure they have no business
+        // knowing about. Track the session's real roles independently of
+        // the derived module list so that link can be hidden unconditionally
+        // for anyone who isn't an actual super_admin operator.
+        setIsPlatformSuperAdmin((u?.roles || []).map((r) => String(r).toLowerCase()).includes('super_admin'));
         // Direct Teleport Route: a super_admin's own role only allows
         // /super-admin/dashboard — while impersonating a tenant they need
         // that tenant's full workspace nav, not their own operator-only
@@ -179,7 +190,10 @@ export default function NavBar() {
         Home
       </Link>
       {visibleNavGroups.map((group) => {
-        const filteredItems = group.items.filter(item => isModuleAllowed(item.path, allowedModules));
+        const filteredItems = group.items.filter(item =>
+          isModuleAllowed(item.path, allowedModules) &&
+          (item.path !== '/super-admin/dashboard' || isPlatformSuperAdmin)
+        );
         if (filteredItems.length === 0) return null;
         const hasActive = hasActiveInGroup(filteredItems);
         return (

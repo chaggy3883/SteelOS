@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Building2, Brain, Bell, Layers, Tablet, Loader2 } from 'lucide-react';
+import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet } from 'lucide-react';
+import TemplateVaultPanel from '@/components/settings/TemplateVaultPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -77,6 +78,7 @@ export default function Settings() {
           <TabsTrigger value="ai"><Brain className="w-4 h-4 mr-1.5" /> AI Rules</TabsTrigger>
           <TabsTrigger value="notifications"><Bell className="w-4 h-4 mr-1.5" /> Notifications</TabsTrigger>
           <TabsTrigger value="integrations"><Layers className="w-4 h-4 mr-1.5" /> Integrations</TabsTrigger>
+          <TabsTrigger value="templates"><FileSpreadsheet className="w-4 h-4 mr-1.5" /> Templates</TabsTrigger>
           <TabsTrigger value="devices"><Tablet className="w-4 h-4 mr-1.5" /> Devices</TabsTrigger>
         </TabsList>
 
@@ -218,6 +220,11 @@ export default function Settings() {
               ))}
             </div>
           </div>
+        </TabsContent>
+
+        {/* Templates */}
+        <TabsContent value="templates">
+          <TemplateVaultPanel />
         </TabsContent>
 
         {/* Devices */}

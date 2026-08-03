@@ -69,6 +69,10 @@
         "type": "string"
       },
       "default": []
+    },
+    "platform_role": {
+      "type": "string",
+      "default": ""
     }
   },
   "required": [

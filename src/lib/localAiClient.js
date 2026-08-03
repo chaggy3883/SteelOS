@@ -57,13 +57,24 @@ const VLM_DETECTION_INSTRUCTIONS = `You are scanning a structural steel blueprin
 {"detections": [{"shape_type": string, "size_designation": string, "bbox": [x, y, width, height], "confidence": number}]}
 bbox values must be fractions of the image width/height (0 to 1), measured from the top-left corner.`;
 
+// One document, every sheet, one call: the model receives the full uploaded
+// file (not a single rasterized page — this app has no PDF page-rendering
+// pipeline) and is instructed to walk every sheet in it itself, tagging each
+// detection with the page/sheet it came from. That's the honest way to
+// implement "no manual page selection, one unified batch result" without a
+// client-side per-page loop that would just be re-sending the same file URL
+// under different page numbers to a model that can't tell the difference.
+const VLM_BATCH_DETECTION_INSTRUCTIONS = `You are scanning a multi-page/multi-sheet structural steel blueprint document in its entirety — every sheet, not just the first page. For each sheet, identify every steel shape annotation (columns, beams, gusset plates). Respond with ONLY a JSON object (no prose, no markdown fences) shaped exactly as:
+{"sheet_count": number, "detections": [{"page_number": number, "shape_type": string, "size_designation": string, "bbox": [x, y, width, height], "confidence": number}]}
+page_number is 1-indexed and identifies which sheet each detection came from. bbox values are fractions (0 to 1) of that sheet's width/height, measured from the top-left corner. Cover every sheet in the document — do not stop at the first page.`;
+
 export function getLocalVlmBaseUrl() {
   return import.meta.env.VITE_LOCAL_VLM_URL || DEFAULT_LOCAL_VLM_URL;
 }
 
-// imageDataUrl is a data: or blob: URL for the blueprint page image. Returns
-// a validated detections array, or null if the local VLM is unreachable or
-// its reply doesn't match the expected contract.
+// imageDataUrl is a data: or blob: URL for a single blueprint page image.
+// Returns a validated detections array, or null if the local VLM is
+// unreachable or its reply doesn't match the expected contract.
 export async function detectBlueprintShapes(companyId, companyName, imageDataUrl, scaleReference) {
   const messages = [
     { role: 'system', content: buildTenantSystemPrompt(companyId, companyName) },
@@ -81,6 +92,35 @@ export async function detectBlueprintShapes(companyId, companyName, imageDataUrl
     const parsed = JSON.parse(reply);
     if (Array.isArray(parsed?.detections)) return parsed.detections;
     return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// fileUrl is the full uploaded document (multi-page PDF or drawing set), not
+// a single page. Returns { sheetCount, detections } across every sheet in one
+// shot, or null if the local VLM is unreachable / replies with something
+// that doesn't match the expected contract.
+export async function detectBlueprintShapesBatch(companyId, companyName, fileUrl, fileName, scaleReference) {
+  const messages = [
+    { role: 'system', content: buildTenantSystemPrompt(companyId, companyName) },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: `${VLM_BATCH_DETECTION_INSTRUCTIONS}\nDocument: ${fileName || 'uploaded blueprint set'}. Drawing scale: ${scaleReference || 'unknown'}.` },
+        { type: 'image_url', image_url: { url: fileUrl } },
+      ],
+    },
+  ];
+  const reply = await callLocalAI(messages, { baseUrl: getLocalVlmBaseUrl(), temperature: 0.1 });
+  if (!reply) return null;
+  try {
+    const parsed = JSON.parse(reply);
+    if (!Array.isArray(parsed?.detections)) return null;
+    return {
+      sheetCount: Number(parsed.sheet_count) || 1,
+      detections: parsed.detections.map((d) => ({ ...d, page_number: Number(d.page_number) || 1 })),
+    };
   } catch (e) {
     return null;
   }

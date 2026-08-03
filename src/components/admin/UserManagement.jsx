@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { SYSTEM_ROLES } from '@/components/admin/adminConstants';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { isSuperAdmin } from '@/lib/tenantContext';
@@ -174,31 +175,32 @@ export default function UserManagement() {
         </table>
       </div>
       <p className="text-xs text-muted-foreground">{filtered.length} user(s) • Role changes take effect on next login</p>
-      {showBuilder && (
-        <div className="steel-card p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold">Manual User Builder</h3>
-            <Button variant="ghost" size="sm" onClick={() => setShowBuilder(false)}>Close</Button>
+
+      <Dialog open={showBuilder} onOpenChange={setShowBuilder}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Create New User</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><Label>Name</Label><Input value={builderForm.full_name} onChange={e => setBuilderForm(f => ({ ...f, full_name: e.target.value }))} className="mt-1" /></div>
+              <div><Label>Email</Label><Input type="email" value={builderForm.email} onChange={e => setBuilderForm(f => ({ ...f, email: e.target.value }))} className="mt-1" /></div>
+              <div><Label>Password</Label><Input type="password" value={builderForm.password} onChange={e => setBuilderForm(f => ({ ...f, password: e.target.value }))} className="mt-1" /></div>
+              <div><Label>Base Role</Label><Select value={builderForm.role} onValueChange={v => setBuilderForm(f => ({ ...f, role: v }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{assignableRoles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent></Select></div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {Object.entries(permissions).map(([key, value]) => (
+                <label key={key} className="flex items-center gap-2 rounded-lg border border-border p-2 text-sm">
+                  <input type="checkbox" checked={value} onChange={() => setPermissions(prev => ({ ...prev, [key]: !prev[key] }))} />
+                  <span>{key.replace(/_/g, ' ')}</span>
+                </label>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><Label>Name</Label><Input value={builderForm.full_name} onChange={e => setBuilderForm(f => ({ ...f, full_name: e.target.value }))} className="mt-1" /></div>
-            <div><Label>Email</Label><Input type="email" value={builderForm.email} onChange={e => setBuilderForm(f => ({ ...f, email: e.target.value }))} className="mt-1" /></div>
-            <div><Label>Password</Label><Input type="password" value={builderForm.password} onChange={e => setBuilderForm(f => ({ ...f, password: e.target.value }))} className="mt-1" /></div>
-            <div><Label>Base Role</Label><Select value={builderForm.role} onValueChange={v => setBuilderForm(f => ({ ...f, role: v }))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{assignableRoles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent></Select></div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {Object.entries(permissions).map(([key, value]) => (
-              <label key={key} className="flex items-center gap-2 rounded-lg border border-border p-2 text-sm">
-                <input type="checkbox" checked={value} onChange={() => setPermissions(prev => ({ ...prev, [key]: !prev[key] }))} />
-                <span>{key.replace(/_/g, ' ')}</span>
-              </label>
-            ))}
-          </div>
-          <div className="flex justify-end">
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBuilder(false)}>Cancel</Button>
             <Button onClick={handleCreateUser} className="steel-gradient text-white border-0">Create Account</Button>
-          </div>
-        </div>
-      )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

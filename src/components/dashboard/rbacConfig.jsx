@@ -36,23 +36,29 @@ export const ALL_MODULES = [
   { path: '/field-operations', label: 'Field Operations' },
 ];
 
+// Every widget shares the same minW/minH floor (2x2) so the resize handle
+// behaves identically no matter which tile a user is dragging — no widget
+// gets a smaller minimum than any other.
+const WIDGET_MIN_W = 2;
+const WIDGET_MIN_H = 2;
+
 export const WIDGET_LIBRARY = [
-  { id: 'bid_list', name: 'Bid List', category: 'estimator', icon: ListChecks, minW: 2, minH: 2, defaultW: 2, defaultH: 3, description: 'Recent bids with status' },
-  { id: 'active_bids_count', name: 'Active Bids', category: 'estimator', icon: Calculator, minW: 1, minH: 1, defaultW: 1, defaultH: 1, description: 'Count of in-progress bids' },
-  { id: 'bid_win_rate', name: 'Bid Win %', category: 'estimator', icon: TrendingUp, minW: 1, minH: 1, defaultW: 1, defaultH: 1, description: 'Win rate percentage' },
-  { id: 'bid_history', name: 'Bid History', category: 'estimator', icon: History, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Won/lost/submitted trends' },
-  { id: 'quick_add_bid', name: 'Quick Add Bid', category: 'estimator', icon: Plus, minW: 1, minH: 2, defaultW: 1, defaultH: 2, description: 'Fast bid creation form' },
-  { id: 'active_projects', name: 'Active Projects', category: 'pm', icon: FolderKanban, minW: 2, minH: 2, defaultW: 2, defaultH: 3, description: 'Project status overview' },
-  { id: 'change_orders', name: 'Change Orders', category: 'pm', icon: FileEdit, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Approval pipeline' },
-  { id: 'fab_progress', name: 'Fab Progress', category: 'pm', icon: Factory, minW: 2, minH: 2, defaultW: 4, defaultH: 2, description: 'Fabrication progress bars' },
-  { id: 'shipments_calendar', name: 'Shipments', category: 'pm', icon: Truck, minW: 2, minH: 2, defaultW: 2, defaultH: 3, description: 'Upcoming shipment schedule' },
-  { id: 'invoiced_vs_remaining', name: 'Invoiced vs Remaining', category: 'pm', icon: DollarSign, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Billing status by project' },
-  { id: 'project_health_summary', name: 'Active Project Health Summary', category: 'pm', icon: Activity, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Project ID, status, and tonnage health' },
-  { id: 'change_order_pipeline', name: 'Change Order Pipeline', category: 'pm', icon: FileEdit, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'COs grouped by workflow status' },
-  { id: 'shipments_calendar_widget', name: 'Logistics & Shipments Calendar', category: 'pm', icon: Truck, minW: 2, minH: 2, defaultW: 2, defaultH: 3, description: 'Upcoming trailer dispatch dates' },
-  { id: 'buyout_variance_widget', name: 'Buyout Financial Variance', category: 'pm', icon: DollarSign, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Budgeted vs actual procurement spend' },
-  { id: 'pending_requisition_approvals_widget', name: 'Pending Requisition Approvals', category: 'pm', icon: Activity, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Requisitions awaiting executive approval' },
-  { id: 'material_received_tracker_widget', name: 'Material Received Tracker', category: 'pm', icon: PackageCheck, minW: 2, minH: 2, defaultW: 2, defaultH: 2, description: 'Recent receiving log status by PO' },
+  { id: 'bid_list', name: 'Bid List', category: 'estimator', icon: ListChecks, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 3, description: 'Recent bids with status', route: '/estimating' },
+  { id: 'active_bids_count', name: 'Active Bids', category: 'estimator', icon: Calculator, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Count of in-progress bids', route: '/estimating' },
+  { id: 'bid_win_rate', name: 'Bid Win %', category: 'estimator', icon: TrendingUp, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Win rate percentage', route: '/estimating/analytics' },
+  { id: 'bid_history', name: 'Bid History', category: 'estimator', icon: History, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Won/lost/submitted trends', route: '/estimating/analytics' },
+  { id: 'quick_add_bid', name: 'Quick Add Bid', category: 'estimator', icon: Plus, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Fast bid creation form', route: '/estimating' },
+  { id: 'active_projects', name: 'Active Projects', category: 'pm', icon: FolderKanban, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 3, description: 'Project status overview', route: '/projects' },
+  { id: 'change_orders', name: 'Change Orders', category: 'pm', icon: FileEdit, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Approval pipeline', route: '/rfis' },
+  { id: 'fab_progress', name: 'Fab Progress', category: 'pm', icon: Factory, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 4, defaultH: 2, description: 'Fabrication progress bars', route: '/production' },
+  { id: 'shipments_calendar', name: 'Shipments', category: 'pm', icon: Truck, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 3, description: 'Upcoming shipment schedule', route: '/shipping' },
+  { id: 'invoiced_vs_remaining', name: 'Invoiced vs Remaining', category: 'pm', icon: DollarSign, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Billing status by project', route: '/accounting' },
+  { id: 'project_health_summary', name: 'Active Project Health Summary', category: 'pm', icon: Activity, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Project ID, status, and tonnage health', route: '/projects' },
+  { id: 'change_order_pipeline', name: 'Change Order Pipeline', category: 'pm', icon: FileEdit, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'COs grouped by workflow status', route: '/projects' },
+  { id: 'shipments_calendar_widget', name: 'Logistics & Shipments Calendar', category: 'pm', icon: Truck, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 3, description: 'Upcoming trailer dispatch dates', route: '/shipping' },
+  { id: 'buyout_variance_widget', name: 'Buyout Financial Variance', category: 'pm', icon: DollarSign, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Budgeted vs actual procurement spend', route: '/purchasing/module' },
+  { id: 'pending_requisition_approvals_widget', name: 'Pending Requisition Approvals', category: 'pm', icon: Activity, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Requisitions awaiting executive approval', route: '/purchasing/module' },
+  { id: 'material_received_tracker_widget', name: 'Material Received Tracker', category: 'pm', icon: PackageCheck, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Recent receiving log status by PO', route: '/purchasing/receiving-kiosk' },
 ];
 
 export const BUILTIN_ROLES = [

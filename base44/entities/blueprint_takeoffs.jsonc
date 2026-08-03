@@ -17,7 +17,7 @@
     "file_name": {
       "type": "string"
     },
-    "page_number": {
+    "sheet_count": {
       "type": "number",
       "default": 1
     },
@@ -29,6 +29,10 @@
       "items": {
         "type": "object",
         "properties": {
+          "page_number": {
+            "type": "number",
+            "default": 1
+          },
           "shape_type": {
             "type": "string"
           },
@@ -63,7 +67,6 @@
     }
   },
   "required": [
-    "file_url",
-    "page_number"
+    "file_url"
   ]
 }
