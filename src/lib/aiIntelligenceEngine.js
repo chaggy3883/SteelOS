@@ -1,5 +1,24 @@
 import { base44 } from '@/api/base44Client';
-import { callTenantScopedLocalAI, detectBlueprintShapesBatch, getCompanyName } from '@/lib/localAiClient';
+import { callTenantScopedLocalAI, detectBlueprintShapesBatch, getCompanyAiConfig, getCompanyName } from '@/lib/localAiClient';
+
+// MULTI-TENANT PROVIDER ROUTING — SECURITY BOUNDARY DISCLOSURE, READ FIRST.
+// Company.ai_provider ('local' | 'claude' | 'openai') is real, tenant-set
+// configuration and is honored below. What this deliberately does NOT do is
+// store or read a raw Anthropic/OpenAI API key anywhere in this file, in
+// Company.jsonc, or in any entity reachable through base44.entities.* —
+// this whole app is a browser-side SPA (see src/api/localData.js), so any
+// field on any entity is something a user's own browser can read back in
+// full. A real secret stored there, then used in a client-side fetch() to
+// api.anthropic.com, would ship that tenant's paid API key to every browser
+// tab running this app — a plaintext-credential-exposure vulnerability, not
+// a feature. The existing ApiTokenVault entity (see UserManagement/Admin)
+// already models the correct shape for a credential in this codebase: a
+// masked `partial_key_string` for display, never a round-trippable secret.
+// For 'claude'/'openai', this routes through base44.integrations.Core.
+// InvokeLLM instead — the same integration point AIReviewSkill/BidReviewReport
+// already use, which in a real Base44 deployment is backend-proxied (the key
+// lives server-side, never in this bundle). Locally it's a mock echo, same as
+// everywhere else in this file — see the STUB DISCLOSURE below.
 
 // STUB DISCLOSURE — read before touching this file.
 // There is no real Claude/LLM call anywhere in this app; the only AI
@@ -21,8 +40,7 @@ const FINDINGS_JSON_INSTRUCTIONS = `Analyze the contract text the user provides 
 {"category": string, "severity": "Red"|"Yellow"|"Green", "title": string, "detail": string, "matched_text": string}
 Cover at minimum: Liquidated_Damages, Retainage, Scope_Gap, Payment_Milestone categories if relevant text is present.`;
 
-async function tryLocalAiFindings(companyId, companyName, rawText) {
-  const reply = await callTenantScopedLocalAI(companyId, companyName, `${FINDINGS_JSON_INSTRUCTIONS}\n\nContract text:\n${rawText}`);
+function parseFindingsReply(reply) {
   if (!reply) return null;
   try {
     const parsed = JSON.parse(reply);
@@ -33,6 +51,27 @@ async function tryLocalAiFindings(companyId, companyName, rawText) {
   } catch (e) {
     return null;
   }
+}
+
+async function tryLocalAiFindings(companyId, companyName, rawText, baseUrl) {
+  const reply = await callTenantScopedLocalAI(companyId, companyName, `${FINDINGS_JSON_INSTRUCTIONS}\n\nContract text:\n${rawText}`, { baseUrl });
+  return parseFindingsReply(reply);
+}
+
+// 'claude'/'openai' tenants route here instead of the local VLM/LLM client —
+// no key handling, no direct third-party fetch (see the disclosure above).
+async function tryPremiumProviderFindings(rawText) {
+  const result = await base44.integrations.Core.InvokeLLM({ prompt: `${FINDINGS_JSON_INSTRUCTIONS}\n\nContract text:\n${rawText}` });
+  return parseFindingsReply(result?.content);
+}
+
+async function tryAiFindings(companyId, rawText) {
+  const { provider, localUrl } = await getCompanyAiConfig(companyId);
+  if (provider === 'claude' || provider === 'openai') {
+    return { findings: await tryPremiumProviderFindings(rawText), source: provider };
+  }
+  const companyName = await getCompanyName(companyId);
+  return { findings: await tryLocalAiFindings(companyId, companyName, rawText, localUrl), source: 'local_ai' };
 }
 
 const snippet = (text, index, length, radius = 60) => {
@@ -188,9 +227,8 @@ export function extractContractRisks(rawText) {
 }
 
 export async function runContractRiskAudit(bid, rawText) {
-  const companyName = await getCompanyName(bid.company_id);
-  const localFindings = await tryLocalAiFindings(bid.company_id, companyName, rawText);
-  const findings = localFindings || extractContractRisks(rawText);
+  const { findings: aiFindings, source } = await tryAiFindings(bid.company_id, rawText);
+  const findings = aiFindings || extractContractRisks(rawText);
   return base44.entities.ai_contract_reviews.create({
     company_id: bid.company_id,
     bid_id: bid.id,
@@ -198,7 +236,7 @@ export async function runContractRiskAudit(bid, rawText) {
     raw_extracted_text: rawText,
     review_summary_json: findings,
     analyzed_at: new Date().toISOString(),
-    analysis_source: localFindings ? 'local_ai' : 'deterministic',
+    analysis_source: aiFindings ? source : 'deterministic',
   });
 }
 
@@ -258,6 +296,16 @@ function seedMillSourceLine(text, filename) {
 // throws) if no local VLM is reachable, so BlueprintTakeoff.jsx can fall back
 // to manual entry instead of the batch grid.
 export async function simulateAiBatchTakeoff(companyId, fileUrl, fileName, scaleReference) {
+  const { provider } = await getCompanyAiConfig(companyId);
+  if (provider === 'claude' || provider === 'openai') {
+    // No vision-capable direct third-party call from the browser (same key-
+    // exposure boundary as tryPremiumProviderFindings above) — a real
+    // deployment would proxy this through base44.integrations.Core on the
+    // backend. There's no image-capable equivalent of InvokeLLM mocked in
+    // this app today, so a premium-provider tenant gets a clear "not wired
+    // up yet" signal instead of a silent, wrong result.
+    return null;
+  }
   const companyName = await getCompanyName(companyId);
   return detectBlueprintShapesBatch(companyId, companyName, fileUrl, fileName, scaleReference);
 }

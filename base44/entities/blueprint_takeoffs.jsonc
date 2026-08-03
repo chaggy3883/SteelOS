@@ -50,9 +50,21 @@
             "type": "number",
             "default": 1
           },
+          "unit_weight_lbs_per_ft": {
+            "type": "number",
+            "default": 0
+          },
+          "length_ft": {
+            "type": "number",
+            "default": 0
+          },
           "unit_cost_cents": {
             "type": "number",
             "default": 0
+          },
+          "is_accepted": {
+            "type": "boolean",
+            "default": true
           }
         }
       }

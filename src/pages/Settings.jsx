@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet } from 'lucide-react';
 import TemplateVaultPanel from '@/components/settings/TemplateVaultPanel';
+import AiPlatformConfigPanel from '@/components/settings/AiPlatformConfigPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -165,6 +166,10 @@ export default function Settings() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="mt-4">
+            <AiPlatformConfigPanel />
           </div>
         </TabsContent>
 

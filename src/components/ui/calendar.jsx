@@ -5,6 +5,19 @@ import { DayPicker } from "react-day-picker"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
+// Absolute hardcoded contrast override — bypasses the theme's Tailwind
+// CSS-variable colors entirely. This calendar always renders as a solid
+// white card with literal hex text/background colors, regardless of
+// light/dark app theme, so it can never end up low-contrast again.
+const CALENDAR_STYLES = {
+  caption_label: { color: "#000000" },
+  head_cell: { color: "#000000" },
+  day: { color: "#000000" },
+  day_selected: { backgroundColor: "#2563eb", color: "#ffffff" },
+  day_outside: { color: "#94a3b8" },
+  day_disabled: { color: "#94a3b8" },
+}
+
 function Calendar({
   className,
   classNames,
@@ -14,12 +27,14 @@ function Calendar({
   return (
     (<DayPicker
       showOutsideDays={showOutsideDays}
-      className={cn("theme-invert-surface p-3", className)}
+      className={cn("p-3", className)}
+      style={{ backgroundColor: "#ffffff", color: "#000000", padding: "12px", borderRadius: "8px" }}
+      styles={CALENDAR_STYLES}
       classNames={{
         months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
         month: "space-y-4",
         caption: "flex justify-center pt-1 relative items-center",
-        caption_label: "text-sm font-medium text-neutral-900",
+        caption_label: "text-sm font-medium",
         nav: "space-x-1 flex items-center",
         nav_button: cn(
           buttonVariants({ variant: "outline" }),
@@ -29,8 +44,7 @@ function Calendar({
         nav_button_next: "absolute right-1",
         table: "w-full border-collapse space-y-1",
         head_row: "flex",
-        head_cell:
-          "text-neutral-700 rounded-md w-8 font-normal text-[0.8rem]",
+        head_cell: "rounded-md w-8 font-normal text-[0.8rem]",
         row: "flex w-full mt-2",
         cell: cn(
           "relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected].day-range-end)]:rounded-r-md",
@@ -40,31 +54,19 @@ function Calendar({
         ),
         day: cn(
           buttonVariants({ variant: "ghost" }),
-          "h-8 w-8 p-0 font-normal aria-selected:opacity-100 text-neutral-900"
+          "h-8 w-8 p-0 font-normal aria-selected:opacity-100"
         ),
         day_range_start: "day-range-start",
         day_range_end: "day-range-end",
-        day_selected:
-          "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
-        // `!` (important) here and on day_outside/day_disabled below guards
-        // these already-correct, contrast-appropriate colors from the plain
-        // `text-neutral-900` just added to the shared `day` class above —
-        // without it, Tailwind's utility generation order (not source order
-        // in this file) decides the tie, which isn't reliable to reason about.
-        //
-        // day_outside/day_disabled intentionally use a literal neutral-600
-        // instead of the theme's --muted-foreground token: this component's
-        // surface is force-flipped to solid white in dark mode (see
-        // `.theme-invert-surface` in src/index.css), but --muted-foreground
-        // is ~55% lightness (tuned to sit on a dark surface) — on the forced
-        // white surface that reads as low-contrast, near-invisible gray.
-        // neutral-600 keeps the "muted/disabled" look distinguishable from a
-        // regular day while staying legible against a white surface in both
-        // themes.
+        // Colors for caption_label/head_cell/day/day_selected/day_outside/
+        // day_disabled all come from the `styles` prop above (literal hex,
+        // not Tailwind text-*/bg-* utilities) — see CALENDAR_STYLES. These
+        // classNames now only carry layout/behavior, never color, so there's
+        // no second color source left to conflict with the hardcoded one.
+        day_selected: "hover:opacity-90 focus:opacity-90",
         day_today: "bg-accent !text-accent-foreground",
-        day_outside:
-          "day-outside !text-neutral-600 aria-selected:bg-accent/50 aria-selected:text-neutral-600",
-        day_disabled: "!text-neutral-600 opacity-50",
+        day_outside: "day-outside aria-selected:bg-accent/50",
+        day_disabled: "opacity-50",
         day_range_middle:
           "aria-selected:bg-accent aria-selected:text-accent-foreground",
         day_hidden: "invisible",

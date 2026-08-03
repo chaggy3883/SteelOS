@@ -5,115 +5,166 @@ import { simulateAiBatchTakeoff } from '@/lib/aiIntelligenceEngine';
 import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Upload, ScanLine, Check, X, Plus, Ruler, Layers } from 'lucide-react';
+import { Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack } from 'lucide-react';
 
-const BOX_COLOR = 'border-primary bg-primary/10';
+const emptyRow = (overrides = {}) => ({
+  _key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  page_number: 1,
+  shape_type: '',
+  size_designation: '',
+  confidence: null,
+  quantity: 1,
+  unit_weight_lbs_per_ft: 0,
+  length_ft: 0,
+  unit_cost_cents: 0,
+  is_accepted: true,
+  ...overrides,
+});
 
 export default function BlueprintTakeoff() {
   const { user } = useOutletContext() || {};
   const [fileUrl, setFileUrl] = useState(null);
   const [fileName, setFileName] = useState('');
-  const [isPdf, setIsPdf] = useState(false);
-  const [sheetCount, setSheetCount] = useState(1);
+  const [sheetCount, setSheetCount] = useState(null);
   const [scaleReference, setScaleReference] = useState('');
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
-  const [pendingDetections, setPendingDetections] = useState([]);
-  const [acceptedItems, setAcceptedItems] = useState([]);
+  const [rows, setRows] = useState([]);
   const [takeoffId, setTakeoffId] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Document drop = the whole package goes in at once. No page picker, no
-  // carousel, no "which sheet am I on" step — upload immediately kicks off
-  // the single unified batch scan across every sheet in the file.
-  const handleFileChange = async (e) => {
-    const file = e.target.files?.[0];
+  const stageFile = async (file) => {
     if (!file) return;
     const { file_url } = await base44.integrations.Core.UploadFile({ file });
     setFileUrl(file_url);
     setFileName(file.name);
-    setIsPdf(file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
-    setPendingDetections([]);
-    setAcceptedItems([]);
+    setSheetCount(null);
+    setRows([]);
     setTakeoffId(null);
     setScanError(null);
-    await runBatchScan(file_url, file.name);
   };
 
-  const runBatchScan = async (urlOverride, nameOverride) => {
-    const url = urlOverride || fileUrl;
-    if (!url) return;
+  const handleBrowseSelect = async (e) => {
+    const file = e.target.files?.[0];
+    await stageFile(file);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    await stageFile(file);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => setIsDragOver(false);
+
+  // Single-action batch trigger — one click scans every sheet in the
+  // uploaded document at once and drops the whole result into one unified,
+  // simultaneously-reviewable grid. No page picker, no per-sheet buttons.
+  const handleProcessFullDocument = async () => {
+    if (!fileUrl) return;
     setScanning(true);
     setScanError(null);
     try {
-      const result = await simulateAiBatchTakeoff(user?.company_id, url, nameOverride || fileName, scaleReference);
+      const result = await simulateAiBatchTakeoff(user?.company_id, fileUrl, fileName, scaleReference);
       if (!result) {
-        setScanError('No local vision model reachable — connect a local VLM proxy (VITE_LOCAL_VLM_URL) to enable automatic detection, or add takeoff items manually below.');
-        setPendingDetections([]);
+        setScanError('No local vision model reachable — connect a local VLM proxy (VITE_LOCAL_VLM_URL) to enable automatic detection, or add takeoff rows manually below.');
+        setRows([]);
       } else {
         setSheetCount(result.sheetCount || 1);
-        setPendingDetections(result.detections.map((d, i) => ({ ...d, _key: `${Date.now()}-${i}` })));
+        setRows(result.detections.map((d) => emptyRow({ ...d, is_accepted: true })));
       }
     } finally {
       setScanning(false);
     }
   };
 
-  const persistAccepted = async (newItems) => {
-    const totalCostCents = newItems.reduce((sum, it) => sum + (it.unit_cost_cents || 0) * (it.quantity || 1), 0);
+  const persist = async (newRows) => {
+    const accepted = newRows.filter((r) => r.is_accepted);
+    const totalCostCents = accepted.reduce((sum, it) => sum + (it.unit_cost_cents || 0) * (it.quantity || 1), 0);
+    const payload = {
+      company_id: user?.company_id,
+      file_url: fileUrl,
+      file_name: fileName,
+      sheet_count: sheetCount || 1,
+      scale_reference: scaleReference,
+      accepted_items: newRows.map(({ _key, ...rest }) => rest),
+      total_cost_cents: totalCostCents,
+    };
     if (takeoffId) {
-      await base44.entities.blueprint_takeoffs.update(takeoffId, { accepted_items: newItems, total_cost_cents: totalCostCents });
+      await base44.entities.blueprint_takeoffs.update(takeoffId, payload);
     } else {
-      const created = await base44.entities.blueprint_takeoffs.create({
-        company_id: user?.company_id,
-        file_url: fileUrl,
-        file_name: fileName,
-        sheet_count: sheetCount,
-        scale_reference: scaleReference,
-        accepted_items: newItems,
-        total_cost_cents: totalCostCents,
-      });
+      const created = await base44.entities.blueprint_takeoffs.create(payload);
       setTakeoffId(created.id);
     }
   };
 
-  const acceptDetection = (key) => {
-    const detection = pendingDetections.find((d) => d._key === key);
-    if (!detection) return;
-    const newItems = [...acceptedItems, { ...detection, quantity: 1, unit_cost_cents: 0 }];
-    setAcceptedItems(newItems);
-    setPendingDetections((prev) => prev.filter((d) => d._key !== key));
-    persistAccepted(newItems);
+  const updateRow = (key, field, value) => {
+    const newRows = rows.map((r) => r._key === key ? { ...r, [field]: value } : r);
+    setRows(newRows);
+    persist(newRows);
   };
 
-  const acceptAllDetections = () => {
-    if (pendingDetections.length === 0) return;
-    const newItems = [...acceptedItems, ...pendingDetections.map((d) => ({ ...d, quantity: 1, unit_cost_cents: 0 }))];
-    setAcceptedItems(newItems);
-    setPendingDetections([]);
-    persistAccepted(newItems);
+  const removeRow = (key) => {
+    const newRows = rows.filter((r) => r._key !== key);
+    setRows(newRows);
+    persist(newRows);
   };
 
-  const rejectDetection = (key) => {
-    setPendingDetections((prev) => prev.filter((d) => d._key !== key));
+  const addManualRow = () => {
+    setRows((prev) => [...prev, emptyRow()]);
   };
 
-  const updateAcceptedItem = (index, field, value) => {
-    const newItems = acceptedItems.map((it, i) => i === index ? { ...it, [field]: value } : it);
-    setAcceptedItems(newItems);
-    persistAccepted(newItems);
-  };
-
-  const addManualItem = () => {
-    const newItems = [...acceptedItems, { page_number: 1, shape_type: '', size_designation: '', bbox: null, confidence: null, quantity: 1, unit_cost_cents: 0 }];
-    setAcceptedItems(newItems);
-  };
-
-  const totalCost = acceptedItems.reduce((sum, it) => sum + (it.unit_cost_cents || 0) * (it.quantity || 1), 0) / 100;
+  const acceptedRows = rows.filter((r) => r.is_accepted);
+  const totalWeight = acceptedRows.reduce((sum, r) => sum + (r.quantity || 0) * (r.unit_weight_lbs_per_ft || 0) * (r.length_ft || 0), 0);
+  const totalCost = acceptedRows.reduce((sum, r) => sum + (r.quantity || 0) * (r.unit_cost_cents || 0), 0) / 100;
 
   return (
     <div className="p-6 w-full max-w-none space-y-4 animate-fade-in">
-      <PageHeader title="Blueprint Takeoff" subtitle="Drop the entire blueprint package — every sheet is scanned in one batch and vetted before it hits the cost total." icon={ScanLine} />
+      <PageHeader title="Blueprint Takeoff" subtitle="Drop the entire blueprint package, process it in one shot, review the whole job's quantity takeoff at once." icon={ScanLine} />
+
+      {/* Dual-input dropzone: native HTML5 drag-and-drop, or click to browse */}
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        className={`rounded-lg border-2 border-dashed p-8 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border bg-muted/20 hover:bg-muted/30'}`}
+      >
+        <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleBrowseSelect} />
+        <UploadCloud className="w-10 h-10 text-primary" />
+        {fileUrl ? (
+          <>
+            <p className="font-semibold">{fileName}</p>
+            <p className="text-xs text-muted-foreground">Drop a different file, or click to browse, to replace the loaded document.</p>
+          </>
+        ) : (
+          <>
+            <p className="font-semibold">Drag & drop the entire blueprint package here</p>
+            <p className="text-xs text-muted-foreground">or click to browse your file system — multi-page PDFs and drawing sets accepted</p>
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Input placeholder="Drawing scale (e.g. 1/4in = 1ft)" value={scaleReference} onChange={(e) => setScaleReference(e.target.value)} className="w-64" onClick={(e) => e.stopPropagation()} />
+      </div>
+
+      {/* Single-action batch trigger */}
+      <Button
+        onClick={handleProcessFullDocument}
+        disabled={!fileUrl || scanning}
+        className="w-full h-16 text-lg font-extrabold uppercase tracking-wide steel-gradient text-white border-0"
+      >
+        {scanning ? <Loader2 className="w-6 h-6 mr-3 animate-spin" /> : <ScanLine className="w-6 h-6 mr-3" />}
+        PROCESS FULL DOCUMENT TAKEOFF
+      </Button>
 
       {scanning && (
         <div className="w-full rounded-lg border-2 border-primary bg-primary text-primary-foreground px-4 py-3 flex items-center gap-3 animate-pulse">
@@ -123,107 +174,74 @@ export default function BlueprintTakeoff() {
           </p>
         </div>
       )}
+      {scanError && <p className="text-sm text-amber-600">{scanError}</p>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={scanning}>
-              <Upload className="w-4 h-4 mr-2" />Upload Blueprint Package
-            </Button>
-            <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleFileChange} />
-            <div className="flex items-center gap-1.5">
-              <Ruler className="w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Scale (e.g. 1/4in = 1ft)" value={scaleReference} onChange={(e) => setScaleReference(e.target.value)} className="w-48" />
-            </div>
-            {fileUrl && (
-              <Button variant="outline" onClick={() => runBatchScan()} disabled={scanning}>
-                {scanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ScanLine className="w-4 h-4 mr-2" />}
-                Re-scan Entire Package
-              </Button>
-            )}
-            {fileUrl && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground ml-auto">
-                <Layers className="w-3.5 h-3.5" />{sheetCount} sheet{sheetCount === 1 ? '' : 's'} detected
-              </span>
-            )}
+      {rows.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-sm flex items-center gap-2">
+              <FileStack className="w-4 h-4 text-primary" />
+              Unified Quantity Takeoff — {sheetCount || 1} sheet{(sheetCount || 1) === 1 ? '' : 's'}, {rows.length} item{rows.length === 1 ? '' : 's'}
+            </h3>
+            <Button size="sm" variant="outline" onClick={addManualRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Row</Button>
           </div>
-
-          <div className="relative border rounded-lg bg-muted/20 min-h-[420px] overflow-hidden flex items-center justify-center">
-            {!fileUrl && <p className="text-muted-foreground text-sm">No blueprint package uploaded yet.</p>}
-            {fileUrl && isPdf && (
-              <embed src={fileUrl} type="application/pdf" className="w-full h-[600px]" />
-            )}
-            {fileUrl && !isPdf && (
-              <img src={fileUrl} alt={fileName} className="max-w-full max-h-[600px]" />
-            )}
-            {fileUrl && pendingDetections.filter((d) => (d.page_number || 1) === 1).map((d) => (
-              Array.isArray(d.bbox) && d.bbox.length === 4 && (
-                <div
-                  key={d._key}
-                  className={`absolute border-2 ${BOX_COLOR} pointer-events-none`}
-                  style={{
-                    left: `${d.bbox[0] * 100}%`,
-                    top: `${d.bbox[1] * 100}%`,
-                    width: `${d.bbox[2] * 100}%`,
-                    height: `${d.bbox[3] * 100}%`,
-                  }}
-                  title={`${d.shape_type} ${d.size_designation}`}
-                />
-              )
-            ))}
-          </div>
-          {fileUrl && sheetCount > 1 && (
-            <p className="text-xs text-muted-foreground">Bounding-box overlays above are shown for sheet 1 only — the review grid on the right covers detections across all {sheetCount} sheets.</p>
-          )}
-          {scanError && <p className="text-sm text-amber-600">{scanError}</p>}
-        </div>
-
-        <div className="space-y-4">
-          <div className="border rounded-lg p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-sm">Uncommitted Detections — All Sheets</h3>
-              {pendingDetections.length > 0 && (
-                <Button size="sm" variant="outline" onClick={acceptAllDetections}>Accept All</Button>
-              )}
-            </div>
-            {pendingDetections.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Upload a blueprint package to populate this review queue — every sheet is scanned in one batch, no manual page selection required.</p>
-            ) : pendingDetections.map((d) => (
-              <div key={d._key} className="flex items-center justify-between gap-2 border rounded p-2 text-sm">
-                <div>
-                  <p className="font-medium">{d.shape_type} — {d.size_designation}</p>
-                  <p className="text-xs text-muted-foreground">Sheet {d.page_number || 1} · Confidence: {d.confidence != null ? `${Math.round(d.confidence * 100)}%` : '—'}</p>
-                </div>
-                <div className="flex gap-1">
-                  <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-600" onClick={() => acceptDetection(d._key)}><Check className="w-4 h-4" /></Button>
-                  <Button size="icon" variant="ghost" className="h-7 w-7 text-red-600" onClick={() => rejectDetection(d._key)}><X className="w-4 h-4" /></Button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="border rounded-lg p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-sm">Accepted Takeoff Package</h3>
-              <Button size="sm" variant="outline" onClick={addManualItem}><Plus className="w-3.5 h-3.5 mr-1" />Manual</Button>
-            </div>
-            {acceptedItems.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No items accepted yet.</p>
-            ) : acceptedItems.map((it, i) => (
-              <div key={i} className="grid grid-cols-5 gap-1.5 items-center text-sm">
-                <span className="text-[10px] text-muted-foreground text-center">Sh.{it.page_number || 1}</span>
-                <Input placeholder="Shape" value={it.shape_type} onChange={(e) => updateAcceptedItem(i, 'shape_type', e.target.value)} className="col-span-2 h-8" />
-                <Input type="number" min={1} value={it.quantity} onChange={(e) => updateAcceptedItem(i, 'quantity', Number(e.target.value) || 1)} className="h-8" />
-                <Input type="number" min={0} placeholder="$/ea" value={it.unit_cost_cents ? (it.unit_cost_cents / 100) : ''} onChange={(e) => updateAcceptedItem(i, 'unit_cost_cents', Math.round((Number(e.target.value) || 0) * 100))} className="h-8" />
-              </div>
-            ))}
-            <div className="flex items-center justify-between pt-2 border-t font-semibold text-sm">
-              <span>Live Total — Entire Job</span>
-              <span>${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            </div>
+          <div className="border rounded-lg overflow-x-auto">
+            <table className="w-full text-sm min-w-[1100px]">
+              <thead className="bg-muted/40 text-left">
+                <tr>
+                  <th className="p-2 font-medium w-10">✓</th>
+                  <th className="p-2 font-medium w-16">Sheet</th>
+                  <th className="p-2 font-medium">Shape Type</th>
+                  <th className="p-2 font-medium">Size Designation</th>
+                  <th className="p-2 font-medium w-20">Conf.</th>
+                  <th className="p-2 font-medium w-20">Qty</th>
+                  <th className="p-2 font-medium w-24">Wt (lb/ft)</th>
+                  <th className="p-2 font-medium w-20">Length (ft)</th>
+                  <th className="p-2 font-medium w-24">Total Wt (lb)</th>
+                  <th className="p-2 font-medium w-24">Unit Cost ($)</th>
+                  <th className="p-2 font-medium w-28">Ext. Cost ($)</th>
+                  <th className="p-2 font-medium w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const rowWeight = (r.quantity || 0) * (r.unit_weight_lbs_per_ft || 0) * (r.length_ft || 0);
+                  const rowCost = (r.quantity || 0) * (r.unit_cost_cents || 0) / 100;
+                  return (
+                    <tr key={r._key} className={`border-t ${r.is_accepted ? '' : 'opacity-50'}`}>
+                      <td className="p-2">
+                        <input type="checkbox" checked={r.is_accepted} onChange={(e) => updateRow(r._key, 'is_accepted', e.target.checked)} />
+                      </td>
+                      <td className="p-2 text-xs text-muted-foreground">{r.page_number || 1}</td>
+                      <td className="p-2"><Input value={r.shape_type} onChange={(e) => updateRow(r._key, 'shape_type', e.target.value)} className="h-8" /></td>
+                      <td className="p-2"><Input value={r.size_designation} onChange={(e) => updateRow(r._key, 'size_designation', e.target.value)} className="h-8" /></td>
+                      <td className="p-2 text-xs text-muted-foreground">{r.confidence != null ? `${Math.round(r.confidence * 100)}%` : '—'}</td>
+                      <td className="p-2"><Input type="number" min={0} value={r.quantity} onChange={(e) => updateRow(r._key, 'quantity', Number(e.target.value) || 0)} className="h-8" /></td>
+                      <td className="p-2"><Input type="number" min={0} value={r.unit_weight_lbs_per_ft} onChange={(e) => updateRow(r._key, 'unit_weight_lbs_per_ft', Number(e.target.value) || 0)} className="h-8" /></td>
+                      <td className="p-2"><Input type="number" min={0} value={r.length_ft} onChange={(e) => updateRow(r._key, 'length_ft', Number(e.target.value) || 0)} className="h-8" /></td>
+                      <td className="p-2 text-xs font-medium">{rowWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                      <td className="p-2"><Input type="number" min={0} value={r.unit_cost_cents ? r.unit_cost_cents / 100 : ''} onChange={(e) => updateRow(r._key, 'unit_cost_cents', Math.round((Number(e.target.value) || 0) * 100))} className="h-8" /></td>
+                      <td className="p-2 text-xs font-medium">${rowCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="p-2">
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeRow(r._key)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t bg-muted/30 font-semibold">
+                  <td colSpan={8} className="p-2 text-right">Job Totals ({acceptedRows.length} accepted)</td>
+                  <td className="p-2 text-xs">{totalWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })} lb</td>
+                  <td></td>
+                  <td className="p-2">${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

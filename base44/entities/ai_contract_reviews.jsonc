@@ -54,7 +54,7 @@
     },
     "analysis_source": {
       "type": "string",
-      "enum": ["local_ai", "deterministic"],
+      "enum": ["local_ai", "claude", "openai", "deterministic"],
       "default": "deterministic"
     }
   },

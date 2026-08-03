@@ -135,3 +135,21 @@ export async function getCompanyName(companyId) {
     return '';
   }
 }
+
+// Per-tenant AI provider preference: 'local' | 'claude' | 'openai', plus the
+// tenant's own local hardware endpoint when they run their own server rather
+// than the single global VITE_LOCAL_AI_URL default. This only ever reads
+// non-secret configuration (a provider name, a URL) — no API key lives here.
+// See the "why no key" note in aiIntelligenceEngine.js for the deliberate gap.
+export async function getCompanyAiConfig(companyId) {
+  if (!companyId) return { provider: 'local', localUrl: getLocalAiBaseUrl() };
+  try {
+    const company = await base44.entities.Company.get(companyId);
+    return {
+      provider: company?.ai_provider || 'local',
+      localUrl: company?.tenant_local_url || getLocalAiBaseUrl(),
+    };
+  } catch (e) {
+    return { provider: 'local', localUrl: getLocalAiBaseUrl() };
+  }
+}
