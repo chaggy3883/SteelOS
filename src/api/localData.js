@@ -1,7 +1,7 @@
 import { stubSignatureHash, verifyPin } from '@/lib/hrSecurity';
 import { encodeFormulaPin } from '@/lib/pinFormula';
 
-const STORAGE_KEY = 'steelos_local_db_v1';
+export const STORAGE_KEY = 'steelos_local_db_v1';
 const AUTH_STORAGE_KEY = 'steelos_auth_state';
 const fallbackStorage = (() => {
   const store = new Map();
@@ -1354,9 +1354,29 @@ const loadStore = () => {
   }
 };
 
+// Best-effort mirror of every save out to db.json on disk, via the dev-server
+// middleware in vite.config.js (see the comment there for why this can't be
+// a direct filesystem write from here — this file runs in the browser).
+// Fire-and-forget and silently swallowed on failure: this only exists under
+// `npm run dev`, so it must be a strict no-op everywhere else (production
+// build, tests, SSR) rather than something callers have to guard against.
+const syncStoreToFile = (store) => {
+  if (typeof fetch !== 'function') return;
+  try {
+    fetch('/__db-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(store),
+    }).catch(() => {});
+  } catch (e) {
+    // no-op
+  }
+};
+
 const saveStore = (store) => {
   const storage = getStorage();
   storage.setItem(STORAGE_KEY, JSON.stringify(store));
+  syncStoreToFile(store);
 };
 
 const ensureCollection = (store, entityName) => {

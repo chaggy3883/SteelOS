@@ -30,3 +30,8 @@ dist-ssr
 .env
 .vite
 base44/.app.jsonc
+
+# Local flash-drive-portable data mirror (src/api/localData.js /
+# vite.config.js /__db-sync) — this is a live local DB snapshot, not source;
+# it travels with the project folder itself (e.g. on a USB drive), not git.
+db.json
