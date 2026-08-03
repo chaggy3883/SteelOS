@@ -23,6 +23,13 @@ import {
   Timer, Square,
 } from 'lucide-react';
 
+// SANDBOX LOCK — intentional, read before adding anything here.
+// This page never renders DashboardWidget/WIDGET_LIBRARY and never reads or
+// writes page_layouts_json['employee_center'] on User or employees (see
+// src/pages/Dashboard.jsx for the one page that does have that system). This
+// workspace must stay identical across every worker session — do not wire in
+// per-user widget customization, deletion, or resizing here.
+
 // Phase B tab-level enforcement (permissionCatalog.js) — these are the only
 // tab keys actually checked anywhere in the app right now. Employee Center's
 // own module can never be disabled (see LOCKED_MODULE_KEY), but individual

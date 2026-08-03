@@ -20,10 +20,17 @@ const SIZE_CLASSES = {
 };
 const SIZE_OPTIONS = ['1x1', '2x2', '3x2'];
 
+// This page's key inside the account's page_layouts_json dictionary (User or
+// employees — see initDashboard). Only pages with an actual customizable
+// widget grid ever get a key here; today that's just this one.
+const PAGE_KEY = 'dashboard';
+
 export default function Dashboard() {
   const { user } = useOutletContext() || {};
   const [layout, setLayout] = useState([]);
-  const [configId, setConfigId] = useState(null);
+  const [pageLayouts, setPageLayouts] = useState({});
+  const [targetEntity, setTargetEntity] = useState('User');
+  const [targetId, setTargetId] = useState(null);
   const [customizing, setCustomizing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showDrawer, setShowDrawer] = useState(false);
@@ -35,37 +42,48 @@ export default function Dashboard() {
     try {
       const perms = await getUserPermissions(user.roles || ['user']);
       setAllowedWidgets(perms.widgets);
-      const existing = await base44.entities.UserDashboardConfig.filter({ user_id: user.id }, '-created_date', 1);
-      if (existing.length > 0 && (existing[0].is_customized || existing[0].layout?.length > 0)) {
-        setLayout(existing[0].layout || []);
-        setConfigId(existing[0].id);
+
+      // Kiosk/employee-linked sessions personalize against their own
+      // `employees` row instead of the office `User` row — the same
+      // distinction NavBar.jsx already makes for permission overrides, so a
+      // shared device logging in as different workers doesn't mix up whose
+      // layout is whose.
+      const entity = user?.employee_id ? 'employees' : 'User';
+      const id = user?.employee_id || user?.id;
+      setTargetEntity(entity);
+      setTargetId(id);
+
+      const record = user?.employee_id ? await base44.entities.employees.get(user.employee_id) : user;
+      const existingLayouts = record?.page_layouts_json || {};
+
+      if (Array.isArray(existingLayouts[PAGE_KEY]) && existingLayouts[PAGE_KEY].length > 0) {
+        setPageLayouts(existingLayouts);
+        setLayout(existingLayouts[PAGE_KEY]);
       } else {
         const widgetIds = perms.widgets.includes('*') ? WIDGET_LIBRARY.map(w => w.id) : perms.widgets;
         const defaultLayout = getDefaultLayout(widgetIds);
+        const seededLayouts = { ...existingLayouts, [PAGE_KEY]: defaultLayout };
         setLayout(defaultLayout);
-        if (existing.length > 0) {
-          setConfigId(existing[0].id);
-          await base44.entities.UserDashboardConfig.update(existing[0].id, { layout: defaultLayout });
-        } else {
-          const created = await base44.entities.UserDashboardConfig.create({ user_id: user.id, layout: defaultLayout, is_customized: false });
-          setConfigId(created.id);
-        }
+        setPageLayouts(seededLayouts);
+        await base44.entities[entity].update(id, { page_layouts_json: seededLayouts });
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
 
   // Every mutation here is a single deliberate click (delete / size-snap /
-  // add) — not a continuous drag gesture — so there's no debounce needed
-  // anymore: persist immediately, every time, straight through
-  // base44.entities.UserDashboardConfig.update → localData.js's saveStore →
-  // the /__db-sync file mirror, so a size change or deletion is on disk
-  // before a refresh could ever race it.
+  // add), so it persists immediately every time — no debounce. This only
+  // ever touches this account's own PAGE_KEY block inside page_layouts_json
+  // (spread-merged, so any other page's saved layout is untouched), straight
+  // through base44.entities[User|employees].update → localData.js's
+  // saveStore → the /__db-sync file mirror onto db.json.
   const persistLayout = async (newLayout) => {
     setLayout(newLayout);
-    if (!configId) return;
+    const newPageLayouts = { ...pageLayouts, [PAGE_KEY]: newLayout };
+    setPageLayouts(newPageLayouts);
+    if (!targetId) return;
     try {
-      await base44.entities.UserDashboardConfig.update(configId, { layout: newLayout, is_customized: true });
+      await base44.entities[targetEntity].update(targetId, { page_layouts_json: newPageLayouts });
     } catch (e) { console.error(e); }
   };
 
@@ -116,7 +134,7 @@ export default function Dashboard() {
       {customizing && (
         <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary flex items-center gap-2">
           <Settings2 className="w-4 h-4" />
-          <span>Click the red button to remove a widget • Pick 1x1/2x2/3x2 to resize • Changes save immediately</span>
+          <span>Click the red button to remove a widget • Pick 1x1/2x2/3x2 to resize • Changes save immediately, to your account only</span>
         </div>
       )}
 

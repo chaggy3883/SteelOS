@@ -73,6 +73,10 @@
     "platform_role": {
       "type": "string",
       "default": ""
+    },
+    "page_layouts_json": {
+      "type": "object",
+      "description": "Same per-page widget layout dictionary as User.page_layouts_json, for kiosk/employee-linked sessions. Deliberately never populated for 'employee_center' — that workspace is a locked, standard layout for every worker, not personalizable."
     }
   },
   "required": [

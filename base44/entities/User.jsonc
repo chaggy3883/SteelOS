@@ -36,6 +36,10 @@
         "type": "string"
       },
       "default": []
+    },
+    "page_layouts_json": {
+      "type": "object",
+      "description": "Per-user, per-page widget layout dictionary — keys are page paths (e.g. 'dashboard'), values are that page's saved widget array. Only pages with a customizable widget grid ever populate a key here."
     }
   },
   "required": [
