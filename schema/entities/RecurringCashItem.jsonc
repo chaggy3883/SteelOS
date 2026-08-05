@@ -1,0 +1,39 @@
+{
+  "name": "RecurringCashItem",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "number"
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["Inflow", "Outflow"]
+    },
+    "frequency": {
+      "type": "string",
+      "enum": ["Weekly", "Biweekly", "Monthly"]
+    },
+    "next_occurrence_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "company_id",
+    "label",
+    "amount",
+    "direction",
+    "frequency",
+    "next_occurrence_date"
+  ]
+}

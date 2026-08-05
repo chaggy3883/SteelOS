@@ -6,10 +6,89 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Plus, Landmark, Scale } from 'lucide-react';
+import { Loader2, Plus, Landmark, Scale, UploadCloud } from 'lucide-react';
+import { computeAccountBalance } from '@/lib/cashBalance';
 
 const ACCOUNT_TYPES = ['Checking', 'Savings', 'Line of Credit'];
 const TRANSACTION_TYPES = ['Deposit', 'Withdrawal', 'Transfer', 'Fee', 'Interest'];
+
+// Splits one CSV line on commas while respecting double-quoted fields (so a
+// quoted description like "Payment, ACH" doesn't get split into two cells)
+// — real bank exports do this for descriptions/memos.
+function splitCsvLine(line) {
+  const cells = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      cells.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current);
+  return cells.map((c) => c.trim());
+}
+
+// Bank exports use every date format imaginable (MM/DD/YYYY, "Jan 5, 2026",
+// already-ISO, etc.) — rather than requiring one, this normalizes to the
+// same 'YYYY-MM-DD' shape the date input/manual entries already use, so
+// sorting and the duplicate check below compare like with like.
+function normalizeCsvDate(raw) {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+// Strips currency formatting ($, commas) and treats parenthesized amounts
+// as negative — the convention several bank/card exports use instead of a
+// leading minus sign for withdrawals.
+function normalizeCsvAmount(raw) {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return null;
+  const isParenNegative = /^\(.*\)$/.test(trimmed);
+  const cleaned = trimmed.replace(/[()$,]/g, '');
+  const n = parseFloat(cleaned);
+  if (Number.isNaN(n)) return null;
+  return isParenNegative ? -Math.abs(n) : n;
+}
+
+// Header names vary by bank ("Transaction Date" vs "Post Date" vs "Date"),
+// so this matches by partial keyword rather than requiring an exact column
+// name. Returns [] (not a throw) for anything that doesn't look like a
+// transaction export — the caller turns that into a toast, not a crash.
+function parseBankCsv(text) {
+  const lines = String(text || '').split(/\r\n|\n|\r/).filter((l) => l.trim() !== '');
+  if (lines.length < 2) return [];
+
+  const headers = splitCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const dateIdx = headers.findIndex((h) => /date/i.test(h));
+  const descIdx = headers.findIndex((h) => /desc/i.test(h));
+  const amountIdx = headers.findIndex((h) => /amount/i.test(h));
+  if (dateIdx === -1 || descIdx === -1 || amountIdx === -1) return [];
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitCsvLine(lines[i]);
+    const date = normalizeCsvDate(cells[dateIdx]);
+    const amount = normalizeCsvAmount(cells[amountIdx]);
+    if (date == null || amount == null) continue;
+    rows.push({ date, description: (cells[descIdx] || '').trim(), amount });
+  }
+  return rows;
+}
 
 const emptyAccountForm = () => ({
   account_name: '',
@@ -48,10 +127,14 @@ export default function CashManagementPanel() {
 
   const [statementBalanceInput, setStatementBalanceInput] = useState('');
 
+  const [csvPreviewRows, setCsvPreviewRows] = useState([]);
+  const [csvImporting, setCsvImporting] = useState(false);
+
   useEffect(() => { loadAccounts(); }, []);
 
   useEffect(() => {
     setStatementBalanceInput('');
+    setCsvPreviewRows([]);
     if (selectedAccountId) {
       loadTransactions(selectedAccountId);
     } else {
@@ -102,7 +185,7 @@ export default function CashManagementPanel() {
     return balances;
   }, [transactions, selectedAccount]);
 
-  const currentBalance = (selectedAccount?.opening_balance || 0) + transactions.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  const currentBalance = computeAccountBalance(selectedAccount, transactions);
   const reconciledBalance = (selectedAccount?.opening_balance || 0) +
     transactions.filter((t) => t.reconciled).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   const statementBalance = statementBalanceInput === '' ? null : Number(statementBalanceInput) || 0;
@@ -176,11 +259,65 @@ export default function CashManagementPanel() {
     try {
       await db.entities.BankTransaction.update(txn.id, {
         reconciled: nextReconciled,
-        reconciled_date: nextReconciled ? new Date().toISOString() : null,
+        reconciled_date: nextReconciled ? new Date().toISOString().slice(0, 10) : null,
       });
       loadTransactions(selectedAccountId);
     } catch (e) {
       toast({ title: 'Unable to update reconciliation status', variant: 'destructive' });
+    }
+  };
+
+  const handleCsvFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file after a cancel/retry
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = parseBankCsv(text);
+      if (parsed.length === 0) {
+        toast({
+          title: 'No transactions found in that file',
+          description: 'Expected columns with Date, Description, and Amount in the header row.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const withDuplicateFlag = parsed.map((row) => ({
+        ...row,
+        isDuplicate: transactions.some((t) =>
+          t.transaction_date === row.date &&
+          Math.abs((Number(t.amount) || 0) - row.amount) < 0.005 &&
+          String(t.description || '').trim().toLowerCase() === row.description.trim().toLowerCase()
+        ),
+      }));
+      setCsvPreviewRows(withDuplicateFlag);
+    } catch (err) {
+      toast({ title: 'Could not read that CSV file', variant: 'destructive' });
+    }
+  };
+
+  const csvDuplicateCount = csvPreviewRows.filter((r) => r.isDuplicate).length;
+  const csvImportableRows = csvPreviewRows.filter((r) => !r.isDuplicate);
+
+  const handleConfirmCsvImport = async () => {
+    if (!selectedAccountId || csvImportableRows.length === 0) return;
+    setCsvImporting(true);
+    try {
+      await db.entities.BankTransaction.bulkCreate(csvImportableRows.map((r) => ({
+        bank_account_id: selectedAccountId,
+        transaction_date: r.date,
+        description: r.description,
+        amount: r.amount,
+        transaction_type: r.amount < 0 ? 'Withdrawal' : 'Deposit',
+        source: 'import',
+      })));
+      toast({ title: `Imported ${csvImportableRows.length} transaction(s)` });
+      setCsvPreviewRows([]);
+      loadTransactions(selectedAccountId);
+    } catch (e) {
+      toast({ title: 'Import failed', variant: 'destructive' });
+    } finally {
+      setCsvImporting(false);
     }
   };
 
@@ -349,6 +486,54 @@ export default function CashManagementPanel() {
               </div>
             </div>
             <p className="text-[10px] text-muted-foreground mt-2">Amount: positive for deposits, negative for withdrawals/payments.</p>
+          </div>
+
+          <div className="steel-card p-6">
+            <h3 className="font-semibold mb-1 flex items-center gap-2"><UploadCloud className="w-4 h-4 text-primary" />Import Bank Statement (CSV)</h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Column headers just need to contain "date", "description", and "amount" somewhere in them — exact bank export naming doesn't matter.
+            </p>
+            <input type="file" accept=".csv" onChange={handleCsvFileSelected} className="text-sm" />
+
+            {csvPreviewRows.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                  <p className="text-sm font-medium">
+                    {csvPreviewRows.length} row{csvPreviewRows.length === 1 ? '' : 's'} found
+                    {csvDuplicateCount > 0 && ` — ${csvDuplicateCount} duplicate${csvDuplicateCount === 1 ? '' : 's'} will be skipped`}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setCsvPreviewRows([])}>Cancel</Button>
+                    <Button size="sm" onClick={handleConfirmCsvImport} disabled={csvImporting || csvImportableRows.length === 0} className="steel-gradient text-white border-0">
+                      {csvImporting && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />}
+                      Import {csvImportableRows.length} Transaction{csvImportableRows.length === 1 ? '' : 's'}
+                    </Button>
+                  </div>
+                </div>
+                <div className="max-h-64 overflow-y-auto border border-border rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50 sticky top-0">
+                      <tr>
+                        <th className="text-left py-2 px-3">Date</th>
+                        <th className="text-left py-2 px-3">Description</th>
+                        <th className="text-right py-2 px-3">Amount</th>
+                        <th className="text-center py-2 px-3">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvPreviewRows.map((row, i) => (
+                        <tr key={i} className={`border-t border-border/50 ${row.isDuplicate ? 'opacity-50' : ''}`}>
+                          <td className="py-1.5 px-3">{row.date}</td>
+                          <td className="py-1.5 px-3">{row.description || '—'}</td>
+                          <td className={`py-1.5 px-3 text-right font-mono ${row.amount < 0 ? 'text-red-500' : 'text-green-500'}`}>{fmtMoney(row.amount)}</td>
+                          <td className="py-1.5 px-3 text-center text-[10px] uppercase tracking-wide text-muted-foreground">{row.isDuplicate ? 'Duplicate' : 'New'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="steel-card overflow-hidden">

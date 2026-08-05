@@ -17,6 +17,7 @@ import { calculateWIPSchedule } from '@/lib/wipCalculations';
 import { handleProcorePayWebhook, handleTexturaWebhook } from '@/lib/webhookHandlers';
 import { exportToQuickBooksCSV, exportToSage100CSV } from '@/lib/glExport';
 import CashManagementPanel from '@/components/accounting/CashManagementPanel';
+import CashForecastPanel from '@/components/accounting/CashForecastPanel';
 
 const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
 const LEDGER_COST_CLASSES = ['MAT', 'SUB', 'EQP', 'LAB'];
@@ -46,7 +47,7 @@ function emptyVendorForm() {
 }
 
 function emptyBillForm() {
-  return { vendor_id: '', po_id: '', invoice_number: '', invoice_date: '', gross_amount: 0, conditional_waiver_signed: false, unconditional_waiver_received: false };
+  return { vendor_id: '', po_id: '', invoice_number: '', invoice_date: '', due_date: '', gross_amount: 0, conditional_waiver_signed: false, unconditional_waiver_received: false };
 }
 
 function emptySovForm() {
@@ -54,7 +55,7 @@ function emptySovForm() {
 }
 
 function emptyInvoiceForm() {
-  return { billing_period: '', gross_amount: 0, retainage_held: 0, payment_status: 'Draft' };
+  return { billing_period: '', expected_payment_date: '', gross_amount: 0, retainage_held: 0, payment_status: 'Draft' };
 }
 
 function emptyLedgerForm() {
@@ -240,7 +241,7 @@ export default function Accounting() {
     setEditingBill(bill);
     setBillForm({
       vendor_id: bill.vendor_id || '', po_id: bill.po_id || '', invoice_number: bill.invoice_number || '',
-      invoice_date: bill.invoice_date || '', gross_amount: bill.gross_amount || 0,
+      invoice_date: bill.invoice_date || '', due_date: bill.due_date || '', gross_amount: bill.gross_amount || 0,
       conditional_waiver_signed: !!bill.conditional_waiver_signed, unconditional_waiver_received: !!bill.unconditional_waiver_received,
     });
   };
@@ -311,7 +312,7 @@ export default function Accounting() {
   const startEditInvoice = (inv) => {
     setEditingInvoice(inv);
     setInvoiceForm({
-      billing_period: inv.billing_period || '', gross_amount: inv.gross_amount || 0,
+      billing_period: inv.billing_period || '', expected_payment_date: inv.expected_payment_date || '', gross_amount: inv.gross_amount || 0,
       retainage_held: inv.retainage_held || 0, payment_status: inv.payment_status || 'Draft',
     });
   };
@@ -601,7 +602,18 @@ export default function Accounting() {
         </TabsContent>
 
         <TabsContent value="cash">
-          <CashManagementPanel />
+          <Tabs defaultValue="accounts">
+            <TabsList className="mb-4">
+              <TabsTrigger value="accounts">Accounts &amp; Reconciliation</TabsTrigger>
+              <TabsTrigger value="forecast"><TrendingUp className="w-3.5 h-3.5 mr-1.5" />90-Day Forecast</TabsTrigger>
+            </TabsList>
+            <TabsContent value="accounts">
+              <CashManagementPanel />
+            </TabsContent>
+            <TabsContent value="forecast">
+              <CashForecastPanel />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="arbilling">
@@ -955,6 +967,10 @@ export default function Accounting() {
               <Input type="date" value={billForm.invoice_date} onChange={(e) => setBillForm(f => ({ ...f, invoice_date: e.target.value }))} className="mt-1" />
             </div>
             <div>
+              <Label>Due Date</Label>
+              <Input type="date" value={billForm.due_date} onChange={(e) => setBillForm(f => ({ ...f, due_date: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
               <Label>Gross Amount ($)</Label>
               <Input type="number" value={billForm.gross_amount} onChange={(e) => setBillForm(f => ({ ...f, gross_amount: parseFloat(e.target.value) || 0 }))} className="mt-1" />
             </div>
@@ -1019,6 +1035,10 @@ export default function Accounting() {
             <div className="col-span-2">
               <Label>Billing Period</Label>
               <Input value={invoiceForm.billing_period} onChange={(e) => setInvoiceForm(f => ({ ...f, billing_period: e.target.value }))} className="mt-1" placeholder="e.g. 2026-07" />
+            </div>
+            <div className="col-span-2">
+              <Label>Expected Payment Date</Label>
+              <Input type="date" value={invoiceForm.expected_payment_date} onChange={(e) => setInvoiceForm(f => ({ ...f, expected_payment_date: e.target.value }))} className="mt-1" />
             </div>
             <div>
               <Label>Gross Amount ($)</Label>

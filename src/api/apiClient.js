@@ -26,6 +26,7 @@ const createLocalApi = () => ({
     BidReviewReport: createEntityApi('BidReviewReport'),
     BankAccount: createEntityApi('BankAccount'),
     BankTransaction: createEntityApi('BankTransaction'),
+    RecurringCashItem: createEntityApi('RecurringCashItem'),
     attendance_punches: createEntityApi('attendance_punches'),
     credit_card_expenses: createEntityApi('credit_card_expenses'),
     demo_requests: createEntityApi('demo_requests'),

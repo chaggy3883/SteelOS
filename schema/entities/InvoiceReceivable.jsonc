@@ -11,6 +11,10 @@
     "billing_period": {
       "type": "string"
     },
+    "expected_payment_date": {
+      "type": "string",
+      "format": "date"
+    },
     "gross_amount": {
       "type": "number",
       "default": 0
