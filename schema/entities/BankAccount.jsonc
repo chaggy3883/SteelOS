@@ -1,0 +1,37 @@
+{
+  "name": "BankAccount",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "account_name": {
+      "type": "string"
+    },
+    "bank_name": {
+      "type": "string"
+    },
+    "account_type": {
+      "type": "string",
+      "enum": ["Checking", "Savings", "Line of Credit"]
+    },
+    "account_number_last4": {
+      "type": "string"
+    },
+    "routing_number_last4": {
+      "type": "string"
+    },
+    "opening_balance": {
+      "type": "number",
+      "default": 0
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "company_id",
+    "account_name"
+  ]
+}

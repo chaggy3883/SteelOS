@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -16,6 +16,7 @@ import { runThreeWayMatch } from '@/lib/threeWayMatch';
 import { calculateWIPSchedule } from '@/lib/wipCalculations';
 import { handleProcorePayWebhook, handleTexturaWebhook } from '@/lib/webhookHandlers';
 import { exportToQuickBooksCSV, exportToSage100CSV } from '@/lib/glExport';
+import CashManagementPanel from '@/components/accounting/CashManagementPanel';
 
 const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
 const LEDGER_COST_CLASSES = ['MAT', 'SUB', 'EQP', 'LAB'];
@@ -405,6 +406,7 @@ export default function Accounting() {
           <TabsTrigger value="jobs">Job Costing Summary</TabsTrigger>
           <TabsTrigger value="jobcostdetail"><BarChart3 className="w-3.5 h-3.5 mr-1.5" />Job Cost Detail</TabsTrigger>
           <TabsTrigger value="vendorbills"><Receipt className="w-3.5 h-3.5 mr-1.5" />Vendor Bills (AP)</TabsTrigger>
+          <TabsTrigger value="cash"><Landmark className="w-3.5 h-3.5 mr-1.5" />Bank &amp; Cash</TabsTrigger>
           <TabsTrigger value="arbilling"><FileText className="w-3.5 h-3.5 mr-1.5" />AR &amp; Billings</TabsTrigger>
           <TabsTrigger value="wip"><Gauge className="w-3.5 h-3.5 mr-1.5" />WIP Report</TabsTrigger>
           <TabsTrigger value="ai">AI Financial Flags ({findings.length})</TabsTrigger>
@@ -596,6 +598,10 @@ export default function Accounting() {
               </table>
             </div>
           </div>
+        </TabsContent>
+
+        <TabsContent value="cash">
+          <CashManagementPanel />
         </TabsContent>
 
         <TabsContent value="arbilling">

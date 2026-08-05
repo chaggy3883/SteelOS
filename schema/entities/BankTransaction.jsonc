@@ -1,0 +1,56 @@
+{
+  "name": "BankTransaction",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bank_account_id": {
+      "type": "string"
+    },
+    "transaction_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "description": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "number"
+    },
+    "transaction_type": {
+      "type": "string",
+      "enum": ["Deposit", "Withdrawal", "Transfer", "Fee", "Interest"]
+    },
+    "memo": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["manual", "import"],
+      "default": "manual"
+    },
+    "reconciled": {
+      "type": "boolean",
+      "default": false
+    },
+    "reconciled_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "linked_entity_type": {
+      "type": "string",
+      "enum": ["VendorBill", "InvoiceReceivable", ""],
+      "default": ""
+    },
+    "linked_entity_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "company_id",
+    "bank_account_id",
+    "transaction_date",
+    "amount"
+  ]
+}
