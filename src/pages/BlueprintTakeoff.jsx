@@ -11,6 +11,7 @@ import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 import { writeBidRecapCells, downloadWorkbook } from '@/lib/bidRecapXlsxExport';
 import { buildBidRecapWrites } from '@/lib/bidRecapMapping';
+import BlueprintCanvas from '@/components/estimating/BlueprintCanvas';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
@@ -313,6 +314,11 @@ export default function BlueprintTakeoff() {
       <div className="flex flex-wrap items-center gap-2">
         <Input placeholder="Drawing scale (e.g. 1/4in = 1ft)" value={scaleReference} onChange={(e) => setScaleReference(e.target.value)} className="w-64" onClick={(e) => e.stopPropagation()} />
       </div>
+
+      {/* Visual PDF viewer only — no measurement tools yet (phase 2). Only
+          rendered for actual PDF uploads; image uploads have nothing for
+          pdfjs to open. */}
+      {fileUrl && /\.pdf$/i.test(fileName || '') && <BlueprintCanvas source={fileUrl} />}
 
       {/* Single-action batch trigger */}
       <Button
