@@ -36,10 +36,13 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRoles, setInviteRoles] = useState(['estimator']);
-  const [inviting, setInviting] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [formFullName, setFormFullName] = useState('');
+  const [formEmail, setFormEmail] = useState('');
+  const [formPassword, setFormPassword] = useState('');
+  const [formPin, setFormPin] = useState('');
+  const [createRoles, setCreateRoles] = useState(['estimator']);
+  const [creating, setCreating] = useState(false);
   const [newUserId, setNewUserId] = useState(null);
   const [viewerIsSuperAdmin, setViewerIsSuperAdmin] = useState(false);
   const [permissionsUser, setPermissionsUser] = useState(null);
@@ -58,35 +61,46 @@ export default function Users() {
     } catch (e) {} finally { setLoading(false); }
   };
 
-  const toggleInviteRole = (role) => {
-    setInviteRoles((prev) => prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]);
+  const toggleCreateRole = (role) => {
+    setCreateRoles((prev) => prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]);
   };
 
-  const handleInvite = async () => {
-    if (!inviteEmail) return;
+  const resetCreateForm = () => {
+    setFormFullName('');
+    setFormEmail('');
+    setFormPassword('');
+    setFormPin('');
+    setCreateRoles(['estimator']);
+  };
+
+  const handleCreateUser = async () => {
+    if (!formFullName.trim() || !formEmail.trim() || !formPassword || !/^\d{5}$/.test(formPin)) {
+      toast({ title: 'Full name, email, password, and a 5-digit security PIN are all required', variant: 'destructive' });
+      return;
+    }
     // Write through base44.entities.User (the same entity API this page reads
     // from via loadUsers/list) rather than base44.users.inviteUser, which holds
     // its own independent in-memory copy — a write there is invisible to a
     // .list() call through this page's separate User entity instance.
-    const existing = users.find((u) => u.email?.toLowerCase() === inviteEmail.toLowerCase());
+    const existing = users.find((u) => u.email?.toLowerCase() === formEmail.toLowerCase());
     if (existing) {
       toast({ title: 'A user with this email already exists', variant: 'destructive' });
       return;
     }
-    setInviting(true);
+    setCreating(true);
     try {
-      const mappedRoles = inviteRoles.map((r) => (r === 'system_administrator' ? 'admin' : r));
+      const mappedRoles = createRoles.map((r) => (r === 'system_administrator' ? 'admin' : r));
       const created = await base44.entities.User.create({
-        email: inviteEmail,
+        email: formEmail,
+        full_name: formFullName,
+        password: formPassword,
+        security_pin: formPin,
         roles: mappedRoles.length > 0 ? mappedRoles : ['user'],
-        password: 'changeme123',
-        full_name: inviteEmail,
         is_active: true,
       });
-      toast({ title: 'Invitation sent!', description: `${inviteEmail} has been invited to SteelOS.` });
-      setInviteOpen(false);
-      setInviteEmail('');
-      setInviteRoles(['estimator']);
+      toast({ title: 'User created', description: `${formFullName} can log in immediately.` });
+      setCreateOpen(false);
+      resetCreateForm();
       await loadUsers();
       setNewUserId(created.id);
       requestAnimationFrame(() => {
@@ -94,8 +108,8 @@ export default function Users() {
       });
       setTimeout(() => setNewUserId((id) => (id === created.id ? null : id)), 3000);
     } catch (e) {
-      toast({ title: 'Failed to invite', description: 'Please try again.', variant: 'destructive' });
-    } finally { setInviting(false); }
+      toast({ title: 'Failed to create user', description: 'Please try again.', variant: 'destructive' });
+    } finally { setCreating(false); }
   };
 
   // Super-Admin Role Firewall: a plain tenant admin never sees a
@@ -113,24 +127,54 @@ export default function Users() {
         title="Users & Roles"
         subtitle={`${users.length} users in your organization`}
         actions={
-          <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+          <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) resetCreateForm(); }}>
             <DialogTrigger asChild>
               <Button className="steel-gradient text-white border-0">
-                <Plus className="w-4 h-4 mr-2" /> Invite User
+                <Plus className="w-4 h-4 mr-2" /> Create User
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="fixed top-10 left-1/2 -translate-x-1/2 translate-y-0 max-h-[85vh] w-full max-w-md bg-slate-900 border border-slate-800 rounded-lg shadow-2xl flex flex-col p-6 overflow-y-auto scrollbar-thin">
               <DialogHeader>
-                <DialogTitle>Invite Team Member</DialogTitle>
+                <DialogTitle>Create New User</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-2">
                 <div>
-                  <Label>Email Address</Label>
+                  <Label>Full Name</Label>
+                  <Input
+                    placeholder="Jordan Lee"
+                    value={formFullName}
+                    onChange={e => setFormFullName(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>Username / Email</Label>
                   <Input
                     type="email"
                     placeholder="colleague@yourcompany.com"
-                    value={inviteEmail}
-                    onChange={e => setInviteEmail(e.target.value)}
+                    value={formEmail}
+                    onChange={e => setFormEmail(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>Password</Label>
+                  <Input
+                    type="password"
+                    placeholder="Set an initial password"
+                    value={formPassword}
+                    onChange={e => setFormPassword(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>5-Digit Security PIN</Label>
+                  <Input
+                    inputMode="numeric"
+                    maxLength={5}
+                    placeholder="12345"
+                    value={formPin}
+                    onChange={e => setFormPin(e.target.value.replace(/\D/g, '').slice(0, 5))}
                     className="mt-1"
                   />
                 </div>
@@ -139,14 +183,18 @@ export default function Users() {
                   <div className="mt-1 max-h-56 overflow-y-auto border border-border rounded-lg p-2 space-y-1">
                     {ROLES.map(r => (
                       <label key={r} className="flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-muted cursor-pointer">
-                        <input type="checkbox" checked={inviteRoles.includes(r)} onChange={() => toggleInviteRole(r)} />
+                        <input type="checkbox" checked={createRoles.includes(r)} onChange={() => toggleCreateRole(r)} />
                         {r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                       </label>
                     ))}
                   </div>
                 </div>
-                <Button onClick={handleInvite} disabled={inviting || !inviteEmail} className="w-full steel-gradient text-white border-0">
-                  {inviting ? 'Sending Invitation...' : 'Send Invitation'}
+                <Button
+                  onClick={handleCreateUser}
+                  disabled={creating || !formFullName.trim() || !formEmail.trim() || !formPassword || !/^\d{5}$/.test(formPin)}
+                  className="w-full steel-gradient text-white border-0"
+                >
+                  {creating ? 'Creating Account...' : 'Create Account'}
                 </Button>
               </div>
             </DialogContent>
@@ -160,7 +208,7 @@ export default function Users() {
           { label: 'Administrators', count: visibleUsers.filter(u => u.roles?.includes('admin')).length, color: 'text-red-500' },
           { label: 'Office Users', count: visibleUsers.filter(u => u.roles?.includes('user')).length, color: 'text-blue-500' },
           { label: 'Total Active', count: visibleUsers.length, color: 'text-green-500' },
-          { label: 'Pending Invite', count: 0, color: 'text-orange-500' },
+          { label: 'Security PIN Set', count: visibleUsers.filter(u => /^\d{5}$/.test(u.security_pin || '')).length, color: 'text-orange-500' },
         ].map(({ label, count, color }) => (
           <div key={label} className="steel-card p-4">
             <p className="text-xs text-muted-foreground mb-1">{label}</p>

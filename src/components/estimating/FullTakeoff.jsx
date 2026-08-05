@@ -1,69 +1,79 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Calculator, Gauge, Clock3, Save, Plus, Trash2, Minus } from 'lucide-react';
+import { Calculator, Gauge, Clock3, Save, Plus, Trash2, Minus, Download, FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { cn } from '@/lib/utils';
-import { MATERIAL_TYPES, SHAPE_CATALOG, firstSizeValue } from '@/data/steelShapes';
-import { parseStructuralLength } from '@/lib/structuralLength';
+import { SHAPE_CLASSES, getShapeClass, estimateWeightPerFt } from '@/data/steelShapeSelector';
+import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
+import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
+
+const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
 function emptyRow() {
   return {
     id: null,
-    material_type: 'beams',
-    material_size: firstSizeValue('beams'),
-    custom_name: '',
-    custom_weight_per_ft: '',
+    shape_class: 'W-Beam',
+    material_size: getShapeClass('W-Beam').sizes[0],
     grade: '',
-    length_raw: '',
+    length_ft: '',
     quantity: '',
+    coating_type: 'No Coating',
   };
 }
 
-function rowWeightPerFt(row) {
-  if (row.material_type === 'custom') return Number(row.custom_weight_per_ft) || 0;
-  const catalog = SHAPE_CATALOG[row.material_type];
-  const size = catalog?.sizes.find((s) => s.value === row.material_size);
-  return size?.weightPerFt || 0;
-}
-
-function rowCalc(row) {
-  const lengthFt = parseStructuralLength(row.length_raw);
-  const weightPerFt = rowWeightPerFt(row);
+function rowCalc(row, catalogRows) {
+  const lengthFt = Number(row.length_ft) || 0;
+  const weightPerFt = estimateWeightPerFt(row.shape_class, row.material_size);
   const qty = Number(row.quantity) || 0;
   const tonsPerPiece = lengthFt && weightPerFt ? (lengthFt * weightPerFt) / 2000 : 0;
   const totalTons = tonsPerPiece * qty;
-  return { lengthFt, weightPerFt, tonsPerPiece, totalTons };
+  const paintAreaSqIn = row.coating_type === 'Paint' ? calculateSteelSurfaceArea(row.material_size, lengthFt, qty, catalogRows) : 0;
+  return { lengthFt, weightPerFt, tonsPerPiece, totalTons, paintAreaSqIn };
 }
 
 const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   const { toast } = useToast();
   const [rows, setRows] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [shopEfficiencyPct, setShopEfficiencyPct] = useState(bid?.shop_efficiency_pct ?? 100);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => { loadRows(); }, [bid?.id]);
+  useEffect(() => {
+    base44.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
+  }, []);
+
+  // Live catalog lookup — the "Available Size" dropdown no longer reads the
+  // hardcoded SHAPE_CLASSES.sizes array, it reads whatever sizes are
+  // currently in steel_catalog for this class (built-ins + anything an
+  // admin added via the Steel Inventory Catalog panel).
+  const sizesForClass = (shapeClass) => {
+    const fromCatalog = catalog.filter((c) => c.shape_class === shapeClass).map((c) => c.size_designation);
+    return fromCatalog.length > 0 ? fromCatalog : getShapeClass(shapeClass).sizes;
+  };
 
   const loadRows = async () => {
     if (!bid?.id) return;
     setLoading(true);
     try {
       const existing = await base44.entities.MaterialTakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200);
-      setRows(existing.length ? existing.map((r) => ({
-        id: r.id,
-        material_type: r.material_type || 'beams',
-        material_size: r.material_type === 'custom' ? '' : (r.material_size || firstSizeValue(r.material_type || 'beams')),
-        custom_name: r.custom_name || '',
-        custom_weight_per_ft: r.material_type === 'custom' ? (r.weight_per_ft || '') : '',
-        grade: r.grade || '',
-        length_raw: r.length_raw || '',
-        quantity: r.quantity ?? '',
-      })) : [emptyRow()]);
+      setRows(existing.length ? existing.map((r) => {
+        const shapeClass = r.shape_class || 'W-Beam';
+        return {
+          id: r.id,
+          shape_class: shapeClass,
+          material_size: r.material_size || getShapeClass(shapeClass).sizes[0],
+          grade: r.grade || '',
+          length_ft: r.length_ft ?? r.length_decimal_ft ?? '',
+          quantity: r.quantity ?? '',
+          coating_type: r.coating_type || 'No Coating',
+        };
+      }) : [emptyRow()]);
     } catch (e) {
       setRows([emptyRow()]);
     } finally {
@@ -79,9 +89,8 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     setRows((prev) => prev.map((r, i) => {
       if (i !== idx) return r;
       const updated = { ...r, [field]: value };
-      if (field === 'material_type') {
-        updated.material_size = value === 'custom' ? '' : firstSizeValue(value);
-        updated.custom_weight_per_ft = '';
+      if (field === 'shape_class') {
+        updated.material_size = sizesForClass(value)[0] || '';
       }
       return updated;
     }));
@@ -93,10 +102,10 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     setDirty(true);
   };
 
-  const calcs = useMemo(() => rows.map(rowCalc), [rows]);
+  const calcs = useMemo(() => rows.map((row) => rowCalc(row, catalog)), [rows, catalog]);
   const totalTons = calcs.reduce((sum, c) => sum + c.totalTons, 0);
   const baselineManHours = rows.reduce((sum, row, i) => {
-    const hoursPerTon = SHAPE_CATALOG[row.material_type]?.hoursPerTon || 0;
+    const hoursPerTon = getShapeClass(row.shape_class).hoursPerTon || 0;
     return sum + calcs[i].totalTons * hoursPerTon;
   }, 0);
   const efficiencyFactor = (Number(shopEfficiencyPct) || 0) / 100;
@@ -107,19 +116,20 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     setSaving(true);
     try {
       const ops = rows.map((row, i) => {
-        const { lengthFt, weightPerFt, tonsPerPiece, totalTons: rowTotalTons } = calcs[i];
+        const { lengthFt, weightPerFt, tonsPerPiece, totalTons: rowTotalTons, paintAreaSqIn } = calcs[i];
         const payload = {
           bid_id: bid.id,
-          material_type: row.material_type,
-          material_size: row.material_type === 'custom' ? '' : row.material_size,
-          custom_name: row.material_type === 'custom' ? row.custom_name : '',
+          shape_class: row.shape_class,
+          material_type: getShapeClass(row.shape_class).label,
+          material_size: row.material_size,
           grade: row.grade || '',
-          length_raw: row.length_raw || '',
-          length_decimal_ft: lengthFt || 0,
+          length_ft: lengthFt || 0,
           quantity: Number(row.quantity) || 0,
           weight_per_ft: weightPerFt || 0,
           tons_per_piece: tonsPerPiece || 0,
           total_tons: rowTotalTons || 0,
+          coating_type: row.coating_type || 'No Coating',
+          paint_area_sq_in: paintAreaSqIn || 0,
         };
         if (row.id) return base44.entities.MaterialTakeoffLine.update(row.id, payload);
         return base44.entities.MaterialTakeoffLine.create(payload);
@@ -146,6 +156,49 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     isDirty: () => dirty,
   }));
 
+  // "Unpriced" on purpose — this goes to suppliers for a quote, so cost/margin
+  // columns are deliberately left out. The computed paint area rides along
+  // as its own column, same as every other quantity/spec field.
+  const handleExportUnpricedCsv = () => {
+    const header = ['Material Type', 'Size', 'Grade', 'Length', 'Quantity', 'Coating', 'Paint Area (Sq In)'];
+    const csvRows = [header, ...rows.map((row, i) => [
+      getShapeClass(row.shape_class).label,
+      row.material_size,
+      row.grade || '',
+      row.length_ft || 0,
+      row.quantity || 0,
+      row.coating_type || 'No Coating',
+      calcs[i].paintAreaSqIn ? calcs[i].paintAreaSqIn.toFixed(0) : '0',
+    ])];
+    const csvText = csvRows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csvText], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${bid?.bid_number || 'takeoff'}-unpriced-supplier.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportRequisitionPdf = () => {
+    exportRequisitionToPdf({
+      title: 'Material Takeoff Requisition',
+      subtitle: `${bid?.bid_number || 'Bid TBD'} — ${bid?.job_name || ''} — unpriced, for supplier quoting`,
+      columns: ['Shape Type', 'Selected Size', 'Length (ft)', 'Weight (lb/ft)', 'Qty', 'Coating', 'Calculated Metrics'],
+      rows: rows.map((row, i) => [
+        getShapeClass(row.shape_class).label,
+        row.material_size,
+        row.length_ft || 0,
+        calcs[i].weightPerFt ? calcs[i].weightPerFt.toFixed(1) : '0',
+        row.quantity || 0,
+        row.coating_type || 'No Coating',
+        row.coating_type === 'Paint' ? `${calcs[i].paintAreaSqIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In`
+          : row.coating_type === 'Galvanized' ? `${calcs[i].totalTons.toFixed(3)} Tons`
+          : '—',
+      ]),
+    });
+  };
+
   if (loading) return <div className="h-64 bg-muted rounded-xl animate-pulse" />;
 
   return (
@@ -156,50 +209,43 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
             <Calculator className="w-5 h-5 text-primary" />
             <h4 className="font-semibold">Material Takeoff</h4>
           </div>
-          <Button variant="outline" size="sm" onClick={addRow}>
-            <Plus className="w-3.5 h-3.5 mr-1" />Add Material Line
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleExportRequisitionPdf}>
+              <FileDown className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportUnpricedCsv}>
+              <Download className="w-3.5 h-3.5 mr-1" />Export Unpriced Supplier CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={addRow}>
+              <Plus className="w-3.5 h-3.5 mr-1" />Add Material Line
+            </Button>
+          </div>
         </div>
 
         <div className="space-y-2">
           {rows.map((row, idx) => {
-            const catalog = SHAPE_CATALOG[row.material_type];
             const calc = calcs[idx];
-            const lengthInvalid = !!row.length_raw && calc.lengthFt === null;
             return (
               <div key={idx} className="grid grid-cols-12 gap-2 items-end rounded-lg border border-border p-2">
-                <div className="col-span-6 sm:col-span-2">
-                  <Label className="text-xs">Type</Label>
-                  <Select value={row.material_type} onValueChange={(v) => updateRow(idx, 'material_type', v)}>
+                <div className="col-span-6 sm:col-span-3">
+                  <Label className="text-xs">Shape Classification Type</Label>
+                  <Select value={row.shape_class} onValueChange={(v) => updateRow(idx, 'shape_class', v)}>
                     <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {MATERIAL_TYPES.map((t) => <SelectItem key={t} value={t}>{SHAPE_CATALOG[t].label}</SelectItem>)}
+                      {SHAPE_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
 
-                {row.material_type === 'custom' ? (
-                  <>
-                    <div className="col-span-6 sm:col-span-2">
-                      <Label className="text-xs">Name</Label>
-                      <Input value={row.custom_name} onChange={(e) => updateRow(idx, 'custom_name', e.target.value)} className="mt-1 h-8 text-sm" placeholder="Custom item" />
-                    </div>
-                    <div className="col-span-6 sm:col-span-1">
-                      <Label className="text-xs">Wt/FT (lb)</Label>
-                      <Input type="number" value={row.custom_weight_per_ft} onChange={(e) => updateRow(idx, 'custom_weight_per_ft', e.target.value)} className="mt-1 h-8 text-sm" placeholder="0.0" />
-                    </div>
-                  </>
-                ) : (
-                  <div className="col-span-12 sm:col-span-3">
-                    <Label className="text-xs">Size</Label>
-                    <Select value={row.material_size} onValueChange={(v) => updateRow(idx, 'material_size', v)}>
-                      <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select size" /></SelectTrigger>
-                      <SelectContent>
-                        {catalog.sizes.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                <div className="col-span-6 sm:col-span-2">
+                  <Label className="text-xs">Available Size</Label>
+                  <Select value={row.material_size} onValueChange={(v) => updateRow(idx, 'material_size', v)}>
+                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select size" /></SelectTrigger>
+                    <SelectContent>
+                      {sizesForClass(row.shape_class).map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 <div className="col-span-6 sm:col-span-1">
                   <Label className="text-xs">Grade</Label>
@@ -207,12 +253,14 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                 </div>
 
                 <div className="col-span-6 sm:col-span-2">
-                  <Label className="text-xs">Length</Label>
+                  <Label className="text-xs">Length (decimal ft)</Label>
                   <Input
-                    value={row.length_raw}
-                    onChange={(e) => updateRow(idx, 'length_raw', e.target.value)}
-                    className={cn('mt-1 h-8 text-sm', lengthInvalid && 'border-red-500 focus-visible:ring-red-500')}
-                    placeholder={`20' 6-1/2"`}
+                    type="number"
+                    min={0}
+                    value={row.length_ft}
+                    onChange={(e) => updateRow(idx, 'length_ft', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
+                    className="mt-1 h-8 text-sm"
+                    placeholder="20.5"
                   />
                 </div>
 
@@ -227,6 +275,22 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                       <Plus className="w-3.5 h-3.5" />
                     </Button>
                   </div>
+                </div>
+
+                <div className="col-span-12 flex items-center gap-3 border-t border-border/60 pt-2 mt-1">
+                  <div className="flex items-center gap-1.5">
+                    <Label className="text-xs whitespace-nowrap">Coating</Label>
+                    <select
+                      value={row.coating_type || 'No Coating'}
+                      onChange={(e) => updateRow(idx, 'coating_type', e.target.value)}
+                      className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+                    >
+                      {COATING_TYPES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Calculated Metrics: {calc.paintAreaSqIn ? `${calc.paintAreaSqIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In` : '—'}
+                  </p>
                 </div>
 
                 <div className="col-span-3 sm:col-span-1 text-right">

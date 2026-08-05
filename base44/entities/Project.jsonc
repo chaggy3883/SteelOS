@@ -155,6 +155,10 @@
       "items": {
         "type": "string"
       }
+    },
+    "local_server_path": {
+      "type": "string",
+      "default": ""
     }
   },
   "required": [

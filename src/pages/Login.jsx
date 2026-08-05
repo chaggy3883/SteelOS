@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { LogIn, Mail, Lock, Loader2, Building2 } from "lucide-react";
+import { LogIn, Mail, Lock, Loader2, Building2, Eye, EyeOff } from "lucide-react";
 import KioskKeypadLogin from "@/components/auth/KioskKeypadLogin";
 import LoginVaultBackdrop from "@/components/auth/LoginVaultBackdrop";
 import { isKioskModeEnabled, getKioskMode } from "@/lib/kioskMode";
@@ -17,6 +17,7 @@ export default function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -119,14 +120,22 @@ export default function Login() {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" aria-hidden="true" />
                 <Input
                   id="password"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="bg-black/80 border-2 border-slate-400 focus:border-blue-500 placeholder-slate-400 text-white font-medium h-11 px-4 pl-10"
+                  className="bg-black/80 border-2 border-slate-400 focus:border-blue-500 placeholder-slate-400 text-white font-medium h-11 px-4 pl-10 pr-10"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 z-10 text-slate-400 hover:text-white"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+                </button>
               </div>
             </div>
             <Button

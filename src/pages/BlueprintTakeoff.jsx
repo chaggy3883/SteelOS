@@ -1,27 +1,51 @@
-import React, { useState, useRef } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useState, useRef, useEffect } from 'react';
+import { useOutletContext, useParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { simulateAiBatchTakeoff } from '@/lib/aiIntelligenceEngine';
 import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical } from 'lucide-react';
+import { Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical, FileDown } from 'lucide-react';
+import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
+import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
+import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
+import { writeBidRecapCells, downloadWorkbook } from '@/lib/bidRecapXlsxExport';
+import { buildBidRecapWrites } from '@/lib/bidRecapMapping';
+
+const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
 const emptyRow = (overrides = {}) => ({
   _key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   page_number: 1,
   shape_type: '',
-  size_designation: '',
+  shape_class: 'W-Beam',
+  size_designation: getShapeClass('W-Beam').sizes[0],
   confidence: null,
   quantity: 1,
   unit_weight_lbs_per_ft: 0,
   length_ft: 0,
-  unit_cost_cents: 0,
   is_accepted: true,
   notes: '',
   is_demo: false,
+  coating_type: 'No Coating',
   ...overrides,
 });
+
+// Fully automated from the row's own size designation (e.g. 'W14x90') — no
+// manual depth/flange-width entry required. See steelShapeMath.js for the
+// shape-family lookup this reads from. catalogRows lets HSS sizes imported
+// with exact dimensions (Steel Inventory Catalog's HSS Tubing importer)
+// use their true dimension1/dimension2 instead of a regex guess.
+const rowPaintAreaSqIn = (r, catalogRows) => {
+  if (r.coating_type !== 'Paint') return 0;
+  return calculateSteelSurfaceArea(r.size_designation, r.length_ft, r.quantity, catalogRows);
+};
+
+const rowGalvanizedTons = (r) => {
+  if (r.coating_type !== 'Galvanized') return 0;
+  const totalLbs = (r.quantity || 0) * (r.unit_weight_lbs_per_ft || 0) * (r.length_ft || 0);
+  return totalLbs / 2000;
+};
 
 // Explicit, clearly-labeled sample rows for checking the spreadsheet layout
 // without a local VLM connected — NOT a substitute for the honest "no model
@@ -31,13 +55,16 @@ const emptyRow = (overrides = {}) => ({
 // feeds real job-cost totals in production, so a fabricated-but-unlabeled
 // row here would be a real estimating-accuracy hazard, not just a UI nit).
 const DEMO_ROWS = [
-  { page_number: 1, shape_type: 'Column', size_designation: 'W14x90', quantity: 8, unit_cost_cents: 56250, notes: 'NDT Testing required', confidence: 0.92 },
-  { page_number: 3, shape_type: 'Roof Beam', size_designation: 'W18x35', quantity: 14, unit_cost_cents: 0, notes: 'Standard Mill Source', confidence: 0.88 },
-  { page_number: 4, shape_type: 'Gusset Connection Plate', size_designation: '', quantity: 42, unit_cost_cents: 2857, notes: 'Liquidated damage risk dates attached', confidence: 0.81 },
+  { page_number: 1, shape_type: 'Column', shape_class: 'W-Beam', size_designation: 'W14X90', quantity: 8, notes: 'NDT Testing required', confidence: 0.92 },
+  { page_number: 3, shape_type: 'Roof Beam', shape_class: 'W-Beam', size_designation: 'W18X35', quantity: 14, notes: 'Standard Mill Source', confidence: 0.88 },
+  { page_number: 4, shape_type: 'Gusset Connection Plate', shape_class: 'PL-Plate', size_designation: 'PL1/2X12', quantity: 42, notes: 'Liquidated damage risk dates attached', confidence: 0.81 },
 ];
 
 export default function BlueprintTakeoff() {
   const { user } = useOutletContext() || {};
+  const { id: bidId } = useParams();
+  const [bid, setBid] = useState(null);
+  const [estimatorFullName, setEstimatorFullName] = useState('');
   const [fileUrl, setFileUrl] = useState(null);
   const [fileName, setFileName] = useState('');
   const [sheetCount, setSheetCount] = useState(null);
@@ -45,9 +72,44 @@ export default function BlueprintTakeoff() {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
   const [rows, setRows] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [takeoffId, setTakeoffId] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [excelExportError, setExcelExportError] = useState(null);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    base44.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
+  }, []);
+
+  // Only present when this page is reached as /estimating/blueprint-takeoff/:id
+  // (linked from a specific Bid) — the Excel export uses it to pull
+  // customer/project/tax/insurance/bond/LEED/estimator fields into the bid
+  // template. Opened standalone (no bidId), those cells are simply skipped.
+  useEffect(() => {
+    if (!bidId) return;
+    base44.entities.Bid.get(bidId).then(setBid).catch(() => setBid(null));
+  }, [bidId]);
+
+  useEffect(() => {
+    if (!bid?.estimator_id) {
+      setEstimatorFullName('');
+      return;
+    }
+    base44.entities.employees.get(bid.estimator_id)
+      .then((emp) => setEstimatorFullName(emp?.full_name || ''))
+      .catch(() => setEstimatorFullName(''));
+  }, [bid?.estimator_id]);
+
+  // Live catalog lookup — the "Available Size" dropdown no longer reads the
+  // hardcoded SHAPE_CLASSES.sizes array, it reads whatever sizes are
+  // currently in steel_catalog for this class (built-ins + anything an
+  // admin added via the Steel Inventory Catalog panel).
+  const sizesForClass = (shapeClass) => {
+    const fromCatalog = catalog.filter((c) => c.shape_class === shapeClass).map((c) => c.size_designation);
+    return fromCatalog.length > 0 ? fromCatalog : getShapeClass(shapeClass).sizes;
+  };
 
   const stageFile = async (file) => {
     if (!file) return;
@@ -101,16 +163,14 @@ export default function BlueprintTakeoff() {
   };
 
   const persist = async (newRows) => {
-    const accepted = newRows.filter((r) => r.is_accepted);
-    const totalCostCents = accepted.reduce((sum, it) => sum + (it.unit_cost_cents || 0) * (it.quantity || 1), 0);
     const payload = {
       company_id: user?.company_id,
+      bid_id: bidId || undefined,
       file_url: fileUrl,
       file_name: fileName,
       sheet_count: sheetCount || 1,
       scale_reference: scaleReference,
       accepted_items: newRows.map(({ _key, ...rest }) => rest),
-      total_cost_cents: totalCostCents,
     };
     if (takeoffId) {
       await base44.entities.blueprint_takeoffs.update(takeoffId, payload);
@@ -121,9 +181,83 @@ export default function BlueprintTakeoff() {
   };
 
   const updateRow = (key, field, value) => {
-    const newRows = rows.map((r) => r._key === key ? { ...r, [field]: value } : r);
+    const newRows = rows.map((r) => {
+      if (r._key !== key) return r;
+      const updated = { ...r, [field]: value };
+      if (field === 'shape_class') {
+        updated.size_designation = sizesForClass(value)[0] || '';
+      }
+      return updated;
+    });
     setRows(newRows);
     persist(newRows);
+  };
+
+  const handleExportRequisitionPdf = () => {
+    exportRequisitionToPdf({
+      title: 'Blueprint Takeoff Requisition',
+      subtitle: `${fileName || 'Untitled document'} — unpriced, for supplier quoting`,
+      columns: ['Shape Type', 'Selected Size', 'Length (ft)', 'Weight (lb/ft)', 'Qty', 'Coating', 'Calculated Metrics'],
+      rows: acceptedRows.map((r) => [
+        r.shape_type || '—',
+        r.size_designation,
+        r.length_ft,
+        r.unit_weight_lbs_per_ft,
+        r.quantity,
+        r.coating_type,
+        r.coating_type === 'Paint' ? `${rowPaintAreaSqIn(r, catalog).toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In`
+          : r.coating_type === 'Galvanized' ? `${rowGalvanizedTons(r).toFixed(3)} Tons`
+          : '—',
+      ]),
+    });
+  };
+
+  // Fills the company's uploaded Bid Proposal template (company_templates,
+  // category "Spreadsheet") rather than a template baked into this repo —
+  // that's the existing mechanism every other file-backed feature in this
+  // app already uses (see TemplateVaultPanel), and it's what lets this work
+  // the same way in local dev and in a hosted deployment. This is a
+  // category-rollup estimate with no piece-level tab, so nothing new is
+  // created — buildBidRecapWrites only targets verified input cells across
+  // Structural/RECAP/Addtn'l (AKP), and writeBidRecapCells refuses to
+  // overwrite any cell that turns out to hold a formula. Everything else in
+  // the workbook (other tabs, form controls, images, external-link
+  // formulas, and every manual-entry cell this app has no source for —
+  // Bolts/Fasteners, Anchor Bolts, Labor hours, Outsourced $, J&D, Allowance)
+  // is left untouched. The filled workbook downloads as a new file — the
+  // uploaded template itself is never modified.
+  const handleExportExcelTemplate = async () => {
+    setExportingExcel(true);
+    setExcelExportError(null);
+    try {
+      const templates = await base44.entities.company_templates.filter({ is_active: true }, '-created_date', 100);
+      const bidTemplate = templates.find(
+        (t) => t.category === 'Spreadsheet' && /bid[\s_-]*proposal/i.test(`${t.template_name || ''} ${t.file_name || ''}`)
+      );
+      if (!bidTemplate) {
+        setExcelExportError('No active Bid Proposal template found — upload "Bid_Proposal_Template.xlsx" as a Spreadsheet template in Settings > Template Vault.');
+        return;
+      }
+
+      const res = await fetch(bidTemplate.file_url);
+      if (!res.ok) throw new Error(`Template fetch failed: ${res.status}`);
+      const templateBuffer = await res.arrayBuffer();
+
+      const sheetWrites = buildBidRecapWrites({ bid, estimatorFullName, acceptedRows, catalog, rowPaintAreaSqIn });
+      const { bytes, skipped } = await writeBidRecapCells(templateBuffer, sheetWrites);
+      if (skipped.length) {
+        console.warn('Bid recap export: cells skipped because they already held a formula', skipped);
+        setExcelExportError(`${skipped.length} cell(s) were left untouched because the template already had a formula there — see console for details.`);
+      }
+
+      const baseName = bid?.bid_number || fileName?.replace(/\.[^.]+$/, '') || 'Blueprint_Takeoff';
+      downloadWorkbook(bytes, `${baseName}_Bid_Proposal.xlsx`);
+    } catch (e) {
+      console.error(e);
+      setExcelExportError('Excel export failed — see console for details.');
+    } finally {
+      setExportingExcel(false);
+    }
   };
 
   const removeRow = (key) => {
@@ -146,7 +280,8 @@ export default function BlueprintTakeoff() {
 
   const acceptedRows = rows.filter((r) => r.is_accepted);
   const totalWeight = acceptedRows.reduce((sum, r) => sum + (r.quantity || 0) * (r.unit_weight_lbs_per_ft || 0) * (r.length_ft || 0), 0);
-  const totalCost = acceptedRows.reduce((sum, r) => sum + (r.quantity || 0) * (r.unit_cost_cents || 0), 0) / 100;
+  const totalPaintAreaSqIn = acceptedRows.reduce((sum, r) => sum + rowPaintAreaSqIn(r, catalog), 0);
+  const totalGalvanizedTons = acceptedRows.reduce((sum, r) => sum + rowGalvanizedTons(r), 0);
 
   return (
     <div className="p-6 w-full max-w-none space-y-4 animate-fade-in">
@@ -206,6 +341,7 @@ export default function BlueprintTakeoff() {
         </div>
       )}
       {scanError && <p className="text-sm text-amber-600">{scanError}</p>}
+      {excelExportError && <p className="text-sm text-amber-600">{excelExportError}</p>}
 
       {rows.length > 0 && (
         <div className="space-y-2">
@@ -214,7 +350,14 @@ export default function BlueprintTakeoff() {
               <FileStack className="w-4 h-4 text-primary" />
               Unified Quantity Takeoff — {sheetCount || 1} sheet{(sheetCount || 1) === 1 ? '' : 's'}, {rows.length} item{rows.length === 1 ? '' : 's'}
             </h3>
-            <Button size="sm" variant="outline" onClick={addManualRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Row</Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={handleExportRequisitionPdf}><FileDown className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO PDF</Button>
+              <Button size="sm" variant="outline" onClick={handleExportExcelTemplate} disabled={exportingExcel}>
+                {exportingExcel ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <FileDown className="w-3.5 h-3.5 mr-1" />}
+                EXPORT TO EXCEL TEMPLATE
+              </Button>
+              <Button size="sm" variant="outline" onClick={addManualRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Row</Button>
+            </div>
           </div>
           {rows.some((r) => r.is_demo) && (
             <p className="text-xs font-medium text-amber-600 flex items-center gap-1.5">
@@ -222,27 +365,27 @@ export default function BlueprintTakeoff() {
             </p>
           )}
           <div className="border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm min-w-[1100px]">
+            <table className="w-full text-sm min-w-[1400px]">
               <thead className="bg-muted/40 text-left">
                 <tr>
                   <th className="p-2 font-medium w-10">✓</th>
                   <th className="p-2 font-medium w-16">Sheet</th>
                   <th className="p-2 font-medium">Shape Type</th>
-                  <th className="p-2 font-medium">Size Designation</th>
+                  <th className="p-2 font-medium w-40">Shape Class</th>
+                  <th className="p-2 font-medium w-32">Size</th>
+                  <th className="p-2 font-medium w-32">Coating</th>
+                  <th className="p-2 font-medium w-32">Calculated Metrics</th>
                   <th className="p-2 font-medium w-20">Conf.</th>
                   <th className="p-2 font-medium w-20">Qty</th>
                   <th className="p-2 font-medium w-24">Wt (lb/ft)</th>
                   <th className="p-2 font-medium w-20">Length (ft)</th>
                   <th className="p-2 font-medium w-24">Total Wt (lb)</th>
-                  <th className="p-2 font-medium w-24">Unit Cost ($)</th>
-                  <th className="p-2 font-medium w-28">Ext. Cost ($)</th>
                   <th className="p-2 font-medium w-10"></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => {
                   const rowWeight = (r.quantity || 0) * (r.unit_weight_lbs_per_ft || 0) * (r.length_ft || 0);
-                  const rowCost = (r.quantity || 0) * (r.unit_cost_cents || 0) / 100;
                   return (
                     <tr key={r._key} className={`border-t ${r.is_accepted ? '' : 'opacity-50'}`}>
                       <td className="p-2">
@@ -258,14 +401,43 @@ export default function BlueprintTakeoff() {
                           </p>
                         )}
                       </td>
-                      <td className="p-2"><Input value={r.size_designation} onChange={(e) => updateRow(r._key, 'size_designation', e.target.value)} className="h-8" /></td>
+                      <td className="p-2">
+                        <select
+                          value={r.shape_class || 'W'}
+                          onChange={(e) => updateRow(r._key, 'shape_class', e.target.value)}
+                          className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          {SHAPE_CLASSES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                        </select>
+                      </td>
+                      <td className="p-2">
+                        <select
+                          value={r.size_designation}
+                          onChange={(e) => updateRow(r._key, 'size_designation', e.target.value)}
+                          className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          {sizesForClass(r.shape_class || 'W-Beam').map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td className="p-2">
+                        <select
+                          value={r.coating_type || 'No Coating'}
+                          onChange={(e) => updateRow(r._key, 'coating_type', e.target.value)}
+                          className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          {COATING_TYPES.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </td>
+                      <td className="p-2 text-xs font-medium">
+                        {r.coating_type === 'Paint' && `${rowPaintAreaSqIn(r, catalog).toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In`}
+                        {r.coating_type === 'Galvanized' && `${rowGalvanizedTons(r).toFixed(3)} Tons`}
+                        {r.coating_type === 'No Coating' && '—'}
+                      </td>
                       <td className="p-2 text-xs text-muted-foreground">{r.confidence != null ? `${Math.round(r.confidence * 100)}%` : '—'}</td>
                       <td className="p-2"><Input type="number" min={0} value={r.quantity} onChange={(e) => updateRow(r._key, 'quantity', Number(e.target.value) || 0)} className="h-8" /></td>
                       <td className="p-2"><Input type="number" min={0} value={r.unit_weight_lbs_per_ft} onChange={(e) => updateRow(r._key, 'unit_weight_lbs_per_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                       <td className="p-2"><Input type="number" min={0} value={r.length_ft} onChange={(e) => updateRow(r._key, 'length_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                       <td className="p-2 text-xs font-medium">{rowWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                      <td className="p-2"><Input type="number" min={0} value={r.unit_cost_cents ? r.unit_cost_cents / 100 : ''} onChange={(e) => updateRow(r._key, 'unit_cost_cents', Math.round((Number(e.target.value) || 0) * 100))} className="h-8" /></td>
-                      <td className="p-2 text-xs font-medium">${rowCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       <td className="p-2">
                         <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeRow(r._key)}><Trash2 className="w-3.5 h-3.5" /></Button>
                       </td>
@@ -275,14 +447,21 @@ export default function BlueprintTakeoff() {
               </tbody>
               <tfoot>
                 <tr className="border-t bg-muted/30 font-semibold">
-                  <td colSpan={8} className="p-2 text-right">Job Totals ({acceptedRows.length} accepted)</td>
+                  <td colSpan={11} className="p-2 text-right">Job Totals ({acceptedRows.length} accepted)</td>
                   <td className="p-2 text-xs">{totalWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })} lb</td>
-                  <td></td>
-                  <td className="p-2">${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                   <td></td>
                 </tr>
               </tfoot>
             </table>
+          </div>
+
+          <div className="sticky bottom-0 z-10 rounded-lg border-2 border-primary bg-slate-900 text-white px-4 py-3 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+            <p className="text-sm font-bold">
+              🎨 Total Paint Area: {totalPaintAreaSqIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In
+            </p>
+            <p className="text-sm font-bold">
+              🪙 Total Galvanized Mass: {totalGalvanizedTons.toLocaleString(undefined, { maximumFractionDigits: 2 })} Tons
+            </p>
           </div>
         </div>
       )}

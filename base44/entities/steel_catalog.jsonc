@@ -1,0 +1,45 @@
+{
+  "name": "steel_catalog",
+  "type": "object",
+  "properties": {
+    "item_id": {
+      "type": "string"
+    },
+    "company_id": {
+      "type": "string"
+    },
+    "shape_class": {
+      "type": "string",
+      "enum": [
+        "W-Beam",
+        "HSS Tube",
+        "C-Channel",
+        "L-Angle",
+        "PL-Plate"
+      ]
+    },
+    "size_designation": {
+      "type": "string"
+    },
+    "is_custom": {
+      "type": "boolean",
+      "default": false
+    },
+    "dimension1": {
+      "type": "number"
+    },
+    "dimension2": {
+      "type": "number"
+    },
+    "wall_thickness_in": {
+      "type": "number"
+    },
+    "weight_per_ft": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "shape_class",
+    "size_designation"
+  ]
+}

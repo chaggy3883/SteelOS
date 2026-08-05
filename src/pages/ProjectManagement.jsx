@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
+import { openLocalServerPath } from '@/lib/localServerPath';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,14 +11,14 @@ import {
   ArrowLeft,
   FileText,
   Factory,
-  Package,
   Plus,
   Truck,
   Upload,
   Wrench,
   ClipboardCheck,
   TrendingUp,
-  CalendarRange
+  CalendarRange,
+  FolderOpen
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 
@@ -265,6 +266,21 @@ export default function ProjectManagement() {
                 className="mt-2"
               />
             </div>
+          </div>
+          <div className="rounded-xl border border-border p-3">
+            <Label className="text-xs uppercase tracking-wide">Local Server Network Path</Label>
+            <div className="flex items-center gap-2 mt-2">
+              <Input
+                value={project.local_server_path || ''}
+                onChange={(event) => saveProjectField('local_server_path', event.target.value)}
+                placeholder="//Server/Estimating/Job123"
+                className="flex-1"
+              />
+              <Button type="button" variant="outline" onClick={() => openLocalServerPath(project.local_server_path)} disabled={!project.local_server_path}>
+                <FolderOpen className="w-4 h-4 mr-1.5" />OPEN LOCAL SERVER DIRECTORY
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Best-effort local-network launch — most browsers sandbox file:// links, so this may not open Explorer on every machine.</p>
           </div>
           <div className="rounded-xl border border-border p-4">
             <div className="flex items-center justify-between">

@@ -1,5 +1,6 @@
 import { stubSignatureHash, verifyPin } from '@/lib/hrSecurity';
 import { encodeFormulaPin } from '@/lib/pinFormula';
+import { SHAPE_CLASSES } from '@/data/steelShapeSelector';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
 const AUTH_STORAGE_KEY = 'steelos_auth_state';
@@ -100,6 +101,61 @@ const buildSeedData = () => {
         password: 'password123',
         roles: ['super_admin'],
         full_name: 'Platform Super Admin',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'user-hancock-controller',
+        email: 'controller@hancocksteel.com',
+        password: 'password123',
+        roles: ['finance_department'],
+        full_name: 'Hancock Controller',
+        company_id: 'company-hancock',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'user-hancock-estimator',
+        email: 'estimator@hancocksteel.com',
+        password: 'password123',
+        roles: ['estimator'],
+        full_name: 'Hancock Estimator',
+        company_id: 'company-hancock',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'user-hancock-pm',
+        email: 'pm@hancocksteel.com',
+        password: 'password123',
+        roles: ['project_manager'],
+        full_name: 'Hancock PM',
+        company_id: 'company-hancock',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'user-hancock-hr',
+        email: 'hr@hancocksteel.com',
+        password: 'password123',
+        roles: ['hr_admin'],
+        full_name: 'Hancock HR Director',
+        company_id: 'company-hancock',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'user-hancock-shop',
+        email: 'shop@hancocksteel.com',
+        password: 'password123',
+        roles: ['shop_foreman'],
+        full_name: 'Hancock Shop Manager',
+        company_id: 'company-hancock',
         is_active: true,
         created_date: now,
         updated_date: now
@@ -479,6 +535,18 @@ const buildSeedData = () => {
       }
     ],
     ApiCredential: [],
+    steel_catalog: SHAPE_CLASSES.flatMap((cls) =>
+      cls.sizes.map((size) => ({
+        id: `steel-catalog-${cls.value}-${size}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-'),
+        item_id: `STL-${cls.value.replace(/\s+/g, '').toUpperCase()}-${size.replace(/[^A-Z0-9]/gi, '')}`,
+        company_id: 'company-hancock',
+        shape_class: cls.value,
+        size_designation: size,
+        is_custom: false,
+        created_date: now,
+        updated_date: now
+      }))
+    ),
     erection_fleet_assets: [
       {
         id: 'fleet-asset-1',
@@ -1462,7 +1530,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'company_templates'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'company_templates', 'steel_catalog'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();

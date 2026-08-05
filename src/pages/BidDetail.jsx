@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Factory, Award, BarChart3, Printer, ScanSearch } from 'lucide-react';
+import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Factory, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen } from 'lucide-react';
+import { openLocalServerPath } from '@/lib/localServerPath';
 import BidProposalPrintView from '@/components/estimating/BidProposalPrintView';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,7 +45,7 @@ export default function BidDetail() {
   const [showDnbModal, setShowDnbModal] = useState(false);
   const [lossForm, setLossForm] = useState({ reason: '', notes: '', competitor: '' });
   const [savingLoss, setSavingLoss] = useState(false);
-  const [baseInfo, setBaseInfo] = useState({ street: '', city: '', state: '', zip: '', tax_enabled: false, tax_rate: 0, joist_deck_tax_rate: HANCOCK_COUNTY_TAX_RATE });
+  const [baseInfo, setBaseInfo] = useState({ street: '', city: '', state: '', zip: '', tax_enabled: false, tax_rate: 0, joist_deck_tax_rate: HANCOCK_COUNTY_TAX_RATE, local_server_path: '' });
   const [taxRateText, setTaxRateText] = useState('');
   const [joistDeckTaxRateText, setJoistDeckTaxRateText] = useState(formatTaxRatePercent(HANCOCK_COUNTY_TAX_RATE));
   const [savingBaseInfo, setSavingBaseInfo] = useState(false);
@@ -65,6 +66,7 @@ export default function BidDetail() {
         tax_enabled: bid.tax_enabled ?? false,
         tax_rate: bid.tax_rate ?? 0,
         joist_deck_tax_rate: bid.joist_deck_tax_rate ?? HANCOCK_COUNTY_TAX_RATE,
+        local_server_path: bid.local_server_path || '',
       });
       setTaxRateText(formatTaxRatePercent(bid.tax_rate));
       setJoistDeckTaxRateText(formatTaxRatePercent(bid.joist_deck_tax_rate ?? HANCOCK_COUNTY_TAX_RATE));
@@ -219,6 +221,7 @@ export default function BidDetail() {
         joist_deck_tax_rate: Number(baseInfo.joist_deck_tax_rate ?? HANCOCK_COUNTY_TAX_RATE),
         job_city: baseInfo.city,
         job_state: baseInfo.state,
+        local_server_path: baseInfo.local_server_path,
       });
       toast({ title: 'Bid information saved' });
       setBaseInfoDirty(false);
@@ -316,6 +319,9 @@ export default function BidDetail() {
             <Button size="sm" variant="outline" onClick={() => window.print()}>
               <Printer className="w-3.5 h-3.5 mr-1" />Export Proposal PDF
             </Button>
+            <Button size="sm" variant="outline" onClick={() => navigate(`/estimating/blueprint-takeoff/${bid.id}`)}>
+              <ScanLine className="w-3.5 h-3.5 mr-1" />Blueprint Takeoff
+            </Button>
             {bid.status !== 'won' && bid.status !== 'lost' && bid.status !== 'cancelled' && bid.status !== 'Did_Not_Bid' && (
               <>
                 <Button size="sm" variant="outline" className="text-green-600 border-green-500/30 hover:bg-green-500/10" onClick={() => updateBidStatus('won')}>
@@ -396,6 +402,21 @@ export default function BidDetail() {
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">Independent tax rate applied only to Joist &amp; Deck line items, routed by physical job site location. Enter as a percentage (e.g. 7.75 for 7.75%).</p>
+          </div>
+          <div className="md:col-span-2">
+            <Label>Local Server Network Path</Label>
+            <div className="flex items-center gap-2 mt-1">
+              <Input
+                value={baseInfo.local_server_path}
+                onChange={(e) => updateBaseInfo('local_server_path', e.target.value)}
+                placeholder="//Server/Estimating/Job123"
+                className="flex-1"
+              />
+              <Button type="button" variant="outline" onClick={() => openLocalServerPath(baseInfo.local_server_path)} disabled={!baseInfo.local_server_path}>
+                <FolderOpen className="w-4 h-4 mr-1.5" />OPEN LOCAL SERVER DIRECTORY
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Best-effort local-network launch — most browsers sandbox file:// links, so this may not open Explorer on every machine.</p>
           </div>
         </div>
       </div>

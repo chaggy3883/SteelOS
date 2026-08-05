@@ -79,6 +79,7 @@ const createLocalApi = () => ({
     StatutoryNotice: createEntityApi('StatutoryNotice'),
     Submittal: createEntityApi('Submittal'),
     SystemSetting: createEntityApi('SystemSetting'),
+    steel_catalog: createEntityApi('steel_catalog'),
     TakeoffLine: createEntityApi('TakeoffLine'),
     TaxRate: createEntityApi('TaxRate'),
     User: createEntityApi('User'),

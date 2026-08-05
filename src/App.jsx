@@ -128,6 +128,7 @@ const AuthenticatedApp = () => {
           <Route path="/crm" element={<CRM />} />
           <Route path="/crm/directory" element={<CrmDirectories />} />
           <Route path="/estimating/blueprint-takeoff" element={<BlueprintTakeoff />} />
+          <Route path="/estimating/blueprint-takeoff/:id" element={<BlueprintTakeoff />} />
           <Route path="/shop-efficiency" element={<ShopEfficiency />} />
           <Route path="/purchasing" element={<Purchasing />} />
           <Route path="/purchasing/module" element={<ProcurementModule />} />
