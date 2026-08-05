@@ -21,6 +21,18 @@ import {
 
 const navGroups = [
   {
+    label: 'Core',
+    items: [
+      { icon: ShieldCheck, label: 'Admin Panel', path: '/admin' },
+      { icon: Users, label: 'Users', path: '/users' },
+      { icon: UserCog, label: 'Human Resources', path: '/human-resources' },
+      { icon: KeyRound, label: 'Employee Center', path: '/employee-center' },
+      { icon: Settings, label: 'Settings', path: '/settings' },
+      { icon: ShieldAlert, label: 'Super Admin', path: '/super-admin/dashboard' },
+      { icon: Zap, label: 'System Integrations', path: '/system-integrations' },
+    ]
+  },
+  {
     label: 'Estimating',
     items: [
       { icon: Calculator, label: 'Estimating', path: '/estimating' },
@@ -31,18 +43,6 @@ const navGroups = [
       { icon: Users, label: 'Relationship Manager', path: '/crm/directory' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
       { icon: MessageSquare, label: 'RFIs', path: '/rfis' },
-    ]
-  },
-  {
-    label: 'Core',
-    items: [
-      { icon: ShieldCheck, label: 'Admin Panel', path: '/admin' },
-      { icon: Users, label: 'Users', path: '/users' },
-      { icon: UserCog, label: 'Human Resources', path: '/human-resources' },
-      { icon: KeyRound, label: 'Employee Center', path: '/employee-center' },
-      { icon: Settings, label: 'Settings', path: '/settings' },
-      { icon: ShieldAlert, label: 'Super Admin', path: '/super-admin/dashboard' },
-      { icon: Zap, label: 'System Integrations', path: '/system-integrations' },
     ]
   },
   {
