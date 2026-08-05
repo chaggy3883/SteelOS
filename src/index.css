@@ -65,7 +65,7 @@
     --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 100%;
     --border: 220 20% 20%;
-    --input: 220 20% 18%;
+    --input: 220 20% 26%;
     --ring: 213 94% 55%;
 
     --sidebar-bg: 220 28% 10%;
@@ -93,13 +93,6 @@
     color: hsl(var(--foreground));
   }
 
-  .dark input[type='date']::-webkit-calendar-picker-indicator,
-  .dark input[type='datetime-local']::-webkit-calendar-picker-indicator,
-  .dark input[type='time']::-webkit-calendar-picker-indicator,
-  .dark input[type='month']::-webkit-calendar-picker-indicator,
-  .dark input[type='week']::-webkit-calendar-picker-indicator {
-    filter: invert(1) brightness(1.5);
-  }
 }
 
 /* Inverse-Contrast Theme Injectors — calendar popups, dropdown/select
