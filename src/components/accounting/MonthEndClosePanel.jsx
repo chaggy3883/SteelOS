@@ -32,8 +32,9 @@ const STANDARD_TASKS = [
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
 
 const formatPeriodLabel = (period) => {
-  const parsed = new Date(`${period}-01`);
-  if (Number.isNaN(parsed.getTime())) return period;
+  const [y, m] = String(period || '').split('-').map(Number);
+  if (!y || !m) return period;
+  const parsed = new Date(y, m - 1, 1); // local-time constructor, not UTC string parsing
   return parsed.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 };
 
