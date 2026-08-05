@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
-import { Cpu, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
+import { Cpu, KeyRound, Loader2, ShieldCheck, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,6 +34,7 @@ export default function AiPlatformConfigPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
+  const [removingKey, setRemovingKey] = useState(false);
 
   useEffect(() => { loadConfig(); }, []);
 
@@ -56,7 +57,7 @@ export default function AiPlatformConfigPanel() {
       setExistingKeyToken(null);
       return;
     }
-    const rows = await db.entities.ApiTokenVault.filter({ company_id: id, token_name: vaultTokenName(activeProvider) }, '-created_at', 1);
+    const rows = await db.entities.ApiTokenVault.filter({ company_id: id, token_name: vaultTokenName(activeProvider), status: 'Active' }, '-created_at', 1);
     setExistingKeyToken(rows[0] || null);
   };
 
@@ -98,9 +99,29 @@ export default function AiPlatformConfigPanel() {
         : await db.entities.ApiTokenVault.create(payload);
       setExistingKeyToken(created);
       setApiKeyInput('');
-      toast({ title: `${PROVIDERS.find((p) => p.value === provider)?.label} key saved`, description: 'Only a masked reference is kept — the key itself is never re-displayed or sent to the browser again.' });
+      // Saving a key IS the activation step — there's no separate "turn it
+      // on" action a user has to remember to also click.
+      await db.entities.Company.update(companyId, { ai_provider: provider });
+      toast({ title: `${PROVIDERS.find((p) => p.value === provider)?.label} key saved and activated`, description: 'Only a masked reference is kept — the key itself is never re-displayed or sent to the browser again.' });
     } finally {
       setSavingKey(false);
+    }
+  };
+
+  const handleRemoveKey = async () => {
+    if (!existingKeyToken || !companyId) return;
+    setRemovingKey(true);
+    try {
+      await db.entities.ApiTokenVault.update(existingKeyToken.id, { status: 'Revoked' });
+      // The company shouldn't stay configured for a provider it no longer
+      // has an active key for — fall back to local same as a fresh setup.
+      await db.entities.Company.update(companyId, { ai_provider: 'local' });
+      setExistingKeyToken(null);
+      setProvider('local');
+      setApiKeyInput('');
+      toast({ title: 'Key removed', description: 'Provider reset to Local / On-Premise VLM.' });
+    } finally {
+      setRemovingKey(false);
     }
   };
 
@@ -113,6 +134,13 @@ export default function AiPlatformConfigPanel() {
       <div>
         <h3 className="font-semibold flex items-center gap-2"><Cpu className="w-4 h-4 text-primary" />Corporate AI Platform Configuration</h3>
         <p className="text-sm text-muted-foreground mt-0.5">Choose which AI provider powers contract review and blueprint takeoff for this company.</p>
+      </div>
+
+      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+        <p className="text-sm text-amber-600">
+          Saving a key here does not yet activate real AI calls in this build — contract review and other AI features still run on placeholder logic until a server-side integration is completed.
+        </p>
       </div>
 
       <div>
@@ -154,6 +182,18 @@ export default function AiPlatformConfigPanel() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">Only a masked reference is stored — the full key is never re-displayed, and this browser-only app never sends it directly to {PROVIDERS.find((p) => p.value === provider)?.label} itself (see the security note in aiIntelligenceEngine.js for why).</p>
+          {existingKeyToken && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRemoveKey}
+              disabled={removingKey}
+              className="text-red-500 border-red-500/30 hover:bg-red-500/10"
+            >
+              {removingKey ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 mr-1" />}
+              Remove Key
+            </Button>
+          )}
         </div>
       )}
 
