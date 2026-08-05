@@ -7,10 +7,14 @@ export const SYSTEM_ROLES = [
   { value: 'inspector', label: 'Inspector', color: 'bg-cyan-500/10 text-cyan-500' },
   { value: 'warehouse_clerk', label: 'Warehouse Clerk', color: 'bg-amber-500/10 text-amber-500' },
   { value: 'hr_admin', label: 'HR Admin', color: 'bg-pink-500/10 text-pink-500' },
+  { value: 'payroll_admin', label: 'Payroll Admin', color: 'bg-yellow-500/10 text-yellow-500' },
   { value: 'president', label: 'President', color: 'bg-indigo-500/10 text-indigo-500' },
   { value: 'ceo', label: 'CEO', color: 'bg-violet-500/10 text-violet-500' },
   { value: 'finance_department', label: 'Finance Department', color: 'bg-teal-500/10 text-teal-500' },
+  { value: 'controller', label: 'Controller', color: 'bg-emerald-500/10 text-emerald-500' },
   { value: 'user', label: 'General User', color: 'bg-gray-500/10 text-gray-500' },
+  { value: 'super_admin', label: 'Super Admin', color: 'bg-rose-500/10 text-rose-500' },
+  { value: 'Maintenance_Manager', label: 'Maintenance Manager', color: 'bg-sky-500/10 text-sky-500' },
   { value: 'suspended', label: 'Suspended', color: 'bg-red-500/10 text-red-500' },
 ];
 
