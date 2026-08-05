@@ -1,16 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import TopBar from './TopBar';
 import NavBar from './NavBar';
 import SubscriptionGate from './SubscriptionGate';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { getStoredSessionLogId, startUserSession, sendHeartbeat } from '@/lib/userSessionTracking';
+
+const HEARTBEAT_INTERVAL_MS = 60 * 1000;
 
 export default function AppLayout() {
   const location = useLocation();
   const [darkMode, setDarkMode] = useState(true);
   const [user, setUser] = useState(null);
   const [effectiveCompany, setEffectiveCompany] = useState(null);
+  const sessionEnsuredRef = useRef(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('steelos-dark');
@@ -18,6 +22,15 @@ export default function AppLayout() {
     else setDarkMode(true);
     loadUser();
   }, [location.pathname]);
+
+  // Runs once for this tab's lifetime, independent of the loadUser effect
+  // above (which re-fires on every route change) — sendHeartbeat() itself
+  // is a no-op until a session row actually exists, so it's safe to start
+  // this before loadUser's first pass has resolved.
+  useEffect(() => {
+    const interval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (darkMode) {
@@ -34,6 +47,17 @@ export default function AppLayout() {
       setUser(me);
       const company = await getEffectiveCompany();
       setEffectiveCompany(company);
+
+      // Covers landing here already-authenticated without going through
+      // Login.jsx's own startUserSession call (a direct URL, or a second
+      // tab on a browser that's already logged in via shared localStorage
+      // auth state) — guarded so it only ever attempts once per tab.
+      if (!sessionEnsuredRef.current) {
+        sessionEnsuredRef.current = true;
+        if (!getStoredSessionLogId()) {
+          await startUserSession(me);
+        }
+      }
     } catch (e) {}
   };
 

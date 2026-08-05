@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
 import GlobalSearchPalette from '@/components/search/GlobalSearchPalette';
 import { isImpersonating, stopImpersonation } from '@/lib/tenantContext';
+import { endUserSession } from '@/lib/userSessionTracking';
 
 export default function TopBar({ darkMode, setDarkMode, user, company, onImpersonationChange }) {
   const [notifications, setNotifications] = useState([]);
@@ -46,7 +47,11 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
     } catch (e) {}
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Must happen before logout() clears the auth token — db.auth.logout
+    // navigates away synchronously right after, so this has to be awaited
+    // here rather than left to race the redirect.
+    await endUserSession();
     db.auth.logout('/login');
   };
 

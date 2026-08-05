@@ -30,6 +30,7 @@ const createLocalApi = () => ({
     MonthEndClose: createEntityApi('MonthEndClose'),
     CloseChecklistItem: createEntityApi('CloseChecklistItem'),
     BudgetLine: createEntityApi('BudgetLine'),
+    UserSessionLog: createEntityApi('UserSessionLog'),
     attendance_punches: createEntityApi('attendance_punches'),
     credit_card_expenses: createEntityApi('credit_card_expenses'),
     demo_requests: createEntityApi('demo_requests'),

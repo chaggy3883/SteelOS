@@ -10,6 +10,7 @@ import KioskKeypadLogin from "@/components/auth/KioskKeypadLogin";
 import LoginVaultBackdrop from "@/components/auth/LoginVaultBackdrop";
 import { isKioskModeEnabled, getKioskMode } from "@/lib/kioskMode";
 import { isSuperAdmin } from "@/lib/tenantContext";
+import { startUserSession } from "@/lib/userSessionTracking";
 
 export default function Login() {
   const { toast } = useToast();
@@ -47,6 +48,10 @@ export default function Login() {
     setLoading(true);
     try {
       const { user } = await db.auth.loginViaEmailPassword(email, password);
+      // Awaited before the redirect below, since window.location.href tears
+      // down this whole page — anything not awaited here would race the
+      // navigation and could be lost.
+      await startUserSession(user);
       // Tenant resolution, company branding, and office-vs-field destination
       // all happen behind the scenes from the authenticated user record —
       // nothing about it is decided on this screen.
