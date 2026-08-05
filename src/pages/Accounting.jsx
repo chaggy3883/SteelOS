@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,6 +19,7 @@ import { exportToQuickBooksCSV, exportToSage100CSV } from '@/lib/glExport';
 import CashManagementPanel from '@/components/accounting/CashManagementPanel';
 import CashForecastPanel from '@/components/accounting/CashForecastPanel';
 import MonthEndClosePanel from '@/components/accounting/MonthEndClosePanel';
+import BudgetPanel from '@/components/accounting/BudgetPanel';
 
 const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
 const LEDGER_COST_CLASSES = ['MAT', 'SUB', 'EQP', 'LAB'];
@@ -410,6 +411,7 @@ export default function Accounting() {
           <TabsTrigger value="vendorbills"><Receipt className="w-3.5 h-3.5 mr-1.5" />Vendor Bills (AP)</TabsTrigger>
           <TabsTrigger value="cash"><Landmark className="w-3.5 h-3.5 mr-1.5" />Bank &amp; Cash</TabsTrigger>
           <TabsTrigger value="close"><ListChecks className="w-3.5 h-3.5 mr-1.5" />Month-End Close</TabsTrigger>
+          <TabsTrigger value="budget"><ClipboardList className="w-3.5 h-3.5 mr-1.5" />Budget</TabsTrigger>
           <TabsTrigger value="arbilling"><FileText className="w-3.5 h-3.5 mr-1.5" />AR &amp; Billings</TabsTrigger>
           <TabsTrigger value="wip"><Gauge className="w-3.5 h-3.5 mr-1.5" />WIP Report</TabsTrigger>
           <TabsTrigger value="ai">AI Financial Flags ({findings.length})</TabsTrigger>
@@ -620,6 +622,10 @@ export default function Accounting() {
 
         <TabsContent value="close">
           <MonthEndClosePanel />
+        </TabsContent>
+
+        <TabsContent value="budget">
+          <BudgetPanel />
         </TabsContent>
 
         <TabsContent value="arbilling">

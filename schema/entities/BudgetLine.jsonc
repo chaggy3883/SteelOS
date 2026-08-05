@@ -1,0 +1,32 @@
+{
+  "name": "BudgetLine",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "fiscal_year": {
+      "type": "string"
+    },
+    "period": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["Revenue", "LAB", "MAT", "SUB", "EQP"]
+    },
+    "budgeted_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "company_id",
+    "fiscal_year",
+    "period",
+    "category"
+  ]
+}
