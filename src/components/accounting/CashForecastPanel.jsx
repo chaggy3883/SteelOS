@@ -20,6 +20,7 @@ function addDaysIso(baseIso, days) {
 // forecast is normally read ("balance as of the end of week N").
 function bucketIndexForDate(dateIso, todayIso) {
   if (!dateIso) return -1;
+  if (dateIso <= todayIso) return 0;
   for (let i = 0; i < BUCKET_COUNT; i++) {
     const start = addDaysIso(todayIso, i * 7);
     const end = addDaysIso(todayIso, (i + 1) * 7);
