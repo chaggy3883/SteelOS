@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { saveNewTemplateVersion, incrementVersion } from '@/lib/reportTemplates';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +39,7 @@ export default function ReportTemplateBuilder() {
   const loadVersions = async (key) => {
     setLoading(true);
     try {
-      const rows = await base44.entities.report_templates.filter({ document_type_key: key }, '-created_date', 50);
+      const rows = await db.entities.report_templates.filter({ document_type_key: key }, '-created_date', 50);
       setVersions(rows);
       const active = rows.find((v) => v.is_active);
       setFlags(active?.column_visibility_flags_json || COLUMN_FLAGS.reduce((acc, f) => ({ ...acc, [f.key]: true }), {}));

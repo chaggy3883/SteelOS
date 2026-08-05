@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { ArrowLeft, FolderKanban, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,7 +41,7 @@ export default function ProjectNew() {
     }
     setSaving(true);
     try {
-      const project = await base44.entities.Project.create({
+      const project = await db.entities.Project.create({
         ...form,
         contract_value: form.contract_value ? parseFloat(form.contract_value) : null,
         estimated_tons: form.estimated_tons ? parseFloat(form.estimated_tons) : null,

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Plus, GripVertical, AlertTriangle, Trash2, PackageCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -56,7 +56,7 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
     }
     setCreatingLoad(true);
     try {
-      const created = await base44.entities.loads.create({
+      const created = await db.entities.loads.create({
         project_id: newLoadForm.project_id,
         load_number_id: nextLoadNumber(loads),
         status: 'Draft',
@@ -87,13 +87,13 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
 
     const nextSeq = selectedLoadItems.reduce((max, li) => Math.max(max, li.sequence_number || 0), 0) + 1;
     try {
-      await base44.entities.load_items.create({
+      await db.entities.load_items.create({
         load_id: selectedLoad.id,
         piece_id: piece.id,
         sequence_number: nextSeq,
         status: 'Staged',
       });
-      await base44.entities.loads.update(selectedLoad.id, {
+      await db.entities.loads.update(selectedLoad.id, {
         total_weight_lbs: currentLoadWeight + (piece.weight || 0),
         status: selectedLoad.status === 'Draft' ? 'Staged' : selectedLoad.status,
       });
@@ -110,8 +110,8 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
       return;
     }
     try {
-      await base44.entities.load_items.delete(item.id);
-      await base44.entities.loads.update(selectedLoad.id, {
+      await db.entities.load_items.delete(item.id);
+      await db.entities.loads.update(selectedLoad.id, {
         total_weight_lbs: Math.max(0, currentLoadWeight - (item.piece?.weight || 0)),
       });
       await onReload();
@@ -128,12 +128,12 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
       setSequenceWarning(`Sequence #${newSeq} is out of order — it conflicts with another item already on ${selectedLoad.load_number_id}.`);
       setTimeout(() => setSequenceWarning(''), 6000);
     }
-    await base44.entities.load_items.update(item.id, { sequence_number: newSeq });
+    await db.entities.load_items.update(item.id, { sequence_number: newSeq });
     await onReload();
   };
 
   const toggleOverweightAuth = async (checked) => {
-    await base44.entities.loads.update(selectedLoad.id, { is_overweight_permit_authorized: checked });
+    await db.entities.loads.update(selectedLoad.id, { is_overweight_permit_authorized: checked });
     await onReload();
   };
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
 import { FileEdit, Loader2, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -34,7 +34,7 @@ export default function ChangeOrders() {
   const loadProjects = async () => {
     setLoadingProjects(true);
     try {
-      const rows = await base44.entities.projects.filter({ is_archived: false }, 'name', 100);
+      const rows = await db.entities.projects.filter({ is_archived: false }, 'name', 100);
       setProjects(rows);
     } catch (e) { setProjects([]); }
     finally { setLoadingProjects(false); }
@@ -44,8 +44,8 @@ export default function ChangeOrders() {
     setLoadingOrders(true);
     try {
       const [projectRecord, orders] = await Promise.all([
-        base44.entities.projects.get(projectId),
-        base44.entities.change_orders.filter({ project_id: projectId }, '-created_date', 100),
+        db.entities.projects.get(projectId),
+        db.entities.change_orders.filter({ project_id: projectId }, '-created_date', 100),
       ]);
       setSelectedProject(projectRecord || null);
       setChangeOrders(orders || []);
@@ -74,7 +74,7 @@ export default function ChangeOrders() {
         added_labor_hours: Number(form.hours || 0),
         date_submitted: new Date().toISOString().slice(0, 10),
       };
-      const created = await base44.entities.change_orders.create(nextOrder);
+      const created = await db.entities.change_orders.create(nextOrder);
       const nextList = [created, ...changeOrders];
       setChangeOrders(nextList);
       const updatedProject = await syncProjectChangeOrderMetrics(selectedProject, nextList);

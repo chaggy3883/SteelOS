@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Layers, ShieldAlert } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -38,7 +38,7 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
 
   const loadNotifications = async () => {
     try {
-      const items = await base44.entities.Notification.filter(
+      const items = await db.entities.Notification.filter(
         { user_id: user?.id, is_read: false }, '-created_date', 10
       );
       setNotifications(items);
@@ -47,7 +47,7 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
   };
 
   const handleLogout = () => {
-    base44.auth.logout('/login');
+    db.auth.logout('/login');
   };
 
   // Dynamic Brand Scale Injection — the saved logo_scale_pct drives the

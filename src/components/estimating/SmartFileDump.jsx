@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { UploadCloud, FileText, FileSpreadsheet, File, Brain, CheckCircle2, AlertCircle, X, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -49,7 +49,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    base44.entities.Project.list('-created_date', 100).then(setProjects).catch(() => setProjects([]));
+    db.entities.Project.list('-created_date', 100).then(setProjects).catch(() => setProjects([]));
   }, []);
 
   const handleFiles = (fileList) => {
@@ -81,10 +81,10 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
       // Upload files
       for (let i = 0; i < files.length; i++) {
         setParseProgress(Math.round((i / files.length) * 50));
-        const { file_url } = await base44.integrations.Core.UploadFile({ file: files[i].file });
+        const { file_url } = await db.integrations.Core.UploadFile({ file: files[i].file });
         files[i].file_url = file_url;
         files[i].status = 'uploaded';
-        await base44.entities.Document.create({
+        await db.entities.Document.create({
           bid_id: bidId,
           project_id: resolveProjectId(null, bid, projectOverride),
           name: files[i].file.name,
@@ -102,7 +102,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
 
       // AI parse against cost breakdown structure
       const fileUrls = files.map(f => f.file_url).filter(Boolean);
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await db.integrations.Core.InvokeLLM({
         prompt: `You are a structural steel estimating assistant. Parse the uploaded bid documents (PDFs, Excel takeoff sheets, Word docs) and extract a cost breakdown. Return a JSON object with suggested takeoff values based on the following cost categories: detailing, engineering, bim, structural_material (tons), bolts_fasteners, outsourced_fabrication, structural_fabrication, galvanizing, steel_rolling, joist_deck, anchor_bolts, shop_priming, primer_paint, grating, outsourced_paint, outsourced_shot_blasting, jobsite_freight, misc_fab_structural, misc_fab_processing, misc_material, steel_erection, subcontractor_other, allowances, hss_contingency, additional_cost_insurance, additional_cost_leed_govt. For each, suggest a quantity, unit_cost, and confidence (0-1). Also extract: estimated_tons, estimated_man_hours, tax_rate, job_city, job_state, inclusions, exclusions, scope_summary, and a short risk review. Set any unknown numeric field to 0 and confidence to 0.`,
         file_urls: fileUrls,
         response_json_schema: {
@@ -159,9 +159,9 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
         source: 'ai_parse',
         notes: `AI confidence: ${((li.confidence || 0) * 100).toFixed(0)}%`,
       }));
-      if (lines.length > 0) await base44.entities.TakeoffLine.bulkCreate(lines);
+      if (lines.length > 0) await db.entities.TakeoffLine.bulkCreate(lines);
       // Update bid header
-      await base44.entities.Bid.update(bidId, {
+      await db.entities.Bid.update(bidId, {
         estimated_tons: Number(aiResult.estimated_tons || 0),
         estimated_man_hours: Number(aiResult.estimated_man_hours || 0),
         tax_rate: Number.isFinite(numericTaxRate) ? numericTaxRate : 0,

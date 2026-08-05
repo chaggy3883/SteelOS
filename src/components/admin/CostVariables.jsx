@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,11 +29,11 @@ export default function CostVariables() {
   const loadSettings = async () => {
     setLoading(true);
     try {
-      const list = await base44.entities.SystemSetting.filter({ setting_group: 'cost_variables' }, '-created_date', 1);
+      const list = await db.entities.SystemSetting.filter({ setting_group: 'cost_variables' }, '-created_date', 1);
       if (list.length > 0) {
         setSettings(list[0]);
       } else {
-        const created = await base44.entities.SystemSetting.create({ setting_group: 'cost_variables' });
+        const created = await db.entities.SystemSetting.create({ setting_group: 'cost_variables' });
         setSettings(created);
       }
     } catch (e) {
@@ -46,7 +46,7 @@ export default function CostVariables() {
     try {
       const updates = {};
       FIELDS.forEach(f => { updates[f.key] = parseFloat(settings[f.key]) || 0; });
-      const updated = await base44.entities.SystemSetting.update(settings.id, updates);
+      const updated = await db.entities.SystemSetting.update(settings.id, updates);
       setSettings(updated);
       toast({ title: 'Cost variables saved successfully' });
     } catch (e) {

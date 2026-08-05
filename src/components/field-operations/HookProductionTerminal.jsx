@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { AlertTriangle, ArrowUpFromLine, CheckCircle2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -37,7 +37,7 @@ export default function HookProductionTerminal({ cranes, pieces, projects, inspe
       return;
     }
     const piece = pieces.find((p) => p.id === pieceId);
-    await base44.entities.field_hook_logs.create({
+    await db.entities.field_hook_logs.create({
       project_id: piece?.project_id || '',
       crane_asset_id: craneId,
       piece_mark_id: pieceId,
@@ -53,7 +53,7 @@ export default function HookProductionTerminal({ cranes, pieces, projects, inspe
     try {
       const boltedAt = new Date();
       const elapsedMinutes = Math.max(0, Math.round((boltedAt.getTime() - new Date(hook.hooked_at).getTime()) / 60000));
-      await base44.entities.field_hook_logs.update(hook.id, {
+      await db.entities.field_hook_logs.update(hook.id, {
         bolted_complete_at: boltedAt.toISOString(),
         elapsed_minutes: elapsedMinutes,
       });

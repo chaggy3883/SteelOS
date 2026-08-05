@@ -1,5 +1,5 @@
 import { ListChecks, Calculator, TrendingUp, History, Plus, FolderKanban, FileEdit, Factory, Truck, DollarSign, Activity, PackageCheck } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 export const ALL_MODULES = [
   { path: '/', label: 'Dashboard' },
@@ -152,7 +152,7 @@ export async function getUserPermissions(roleNames) {
       continue;
     }
     try {
-      const custom = await base44.entities.CustomRole.filter({ role_name: normalizedRole }, '-created_date', 1);
+      const custom = await db.entities.CustomRole.filter({ role_name: normalizedRole }, '-created_date', 1);
       if (custom.length > 0) {
         (custom[0].allowed_modules || ['/']).forEach(m => modules.add(m));
         (custom[0].allowed_widgets || []).forEach(w => widgets.add(w));
@@ -167,7 +167,7 @@ export async function getUserPermissions(roleNames) {
 export async function getAllRoles() {
   const builtin = BUILTIN_ROLES.map(r => ({ value: r.name, label: r.label, color: 'bg-blue-500/10 text-blue-500' }));
   try {
-    const custom = await base44.entities.CustomRole.filter({ is_active: true }, '-created_date', 50);
+    const custom = await db.entities.CustomRole.filter({ is_active: true }, '-created_date', 50);
     const customRoles = custom.map(r => ({ value: r.role_name, label: r.label, color: 'bg-indigo-500/10 text-indigo-500' }));
     return [...builtin, ...customRoles];
   } catch (e) {

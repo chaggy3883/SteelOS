@@ -1,11 +1,11 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { callTenantScopedLocalAI, detectBlueprintShapesBatch, getCompanyAiConfig, getCompanyName } from '@/lib/localAiClient';
 
 // MULTI-TENANT PROVIDER ROUTING — SECURITY BOUNDARY DISCLOSURE, READ FIRST.
 // Company.ai_provider ('local' | 'claude' | 'openai') is real, tenant-set
 // configuration and is honored below. What this deliberately does NOT do is
 // store or read a raw Anthropic/OpenAI API key anywhere in this file, in
-// Company.jsonc, or in any entity reachable through base44.entities.* —
+// Company.jsonc, or in any entity reachable through db.entities.* —
 // this whole app is a browser-side SPA (see src/api/localData.js), so any
 // field on any entity is something a user's own browser can read back in
 // full. A real secret stored there, then used in a client-side fetch() to
@@ -14,15 +14,15 @@ import { callTenantScopedLocalAI, detectBlueprintShapesBatch, getCompanyAiConfig
 // a feature. The existing ApiTokenVault entity (see UserManagement/Admin)
 // already models the correct shape for a credential in this codebase: a
 // masked `partial_key_string` for display, never a round-trippable secret.
-// For 'claude'/'openai', this routes through base44.integrations.Core.
+// For 'claude'/'openai', this routes through db.integrations.Core.
 // InvokeLLM instead — the same integration point AIReviewSkill/BidReviewReport
-// already use, which in a real Base44 deployment is backend-proxied (the key
+// already use, which in a real deployment sits behind a server-side proxy (the key
 // lives server-side, never in this bundle). Locally it's a mock echo, same as
 // everywhere else in this file — see the STUB DISCLOSURE below.
 
 // STUB DISCLOSURE — read before touching this file.
 // There is no real Claude/LLM call anywhere in this app; the only AI
-// integration mock (base44.integrations.Core.InvokeLLM, used by the existing
+// integration mock (db.integrations.Core.InvokeLLM, used by the existing
 // AIReviewSkill/BidReviewReport system) just echoes the prompt text back, so
 // routing through it would add nothing real. This engine is instead an
 // honest, deterministic keyword/regex text analyzer that actually reads the
@@ -61,7 +61,7 @@ async function tryLocalAiFindings(companyId, companyName, rawText, baseUrl) {
 // 'claude'/'openai' tenants route here instead of the local VLM/LLM client —
 // no key handling, no direct third-party fetch (see the disclosure above).
 async function tryPremiumProviderFindings(rawText) {
-  const result = await base44.integrations.Core.InvokeLLM({ prompt: `${FINDINGS_JSON_INSTRUCTIONS}\n\nContract text:\n${rawText}` });
+  const result = await db.integrations.Core.InvokeLLM({ prompt: `${FINDINGS_JSON_INSTRUCTIONS}\n\nContract text:\n${rawText}` });
   return parseFindingsReply(result?.content);
 }
 
@@ -229,7 +229,7 @@ export function extractContractRisks(rawText) {
 export async function runContractRiskAudit(bid, rawText) {
   const { findings: aiFindings, source } = await tryAiFindings(bid.company_id, rawText);
   const findings = aiFindings || extractContractRisks(rawText);
-  return base44.entities.ai_contract_reviews.create({
+  return db.entities.ai_contract_reviews.create({
     company_id: bid.company_id,
     bid_id: bid.id,
     project_id: bid.project_id || bid.won_project_id || '',
@@ -300,7 +300,7 @@ export async function simulateAiBatchTakeoff(companyId, fileUrl, fileName, scale
   if (provider === 'claude' || provider === 'openai') {
     // No vision-capable direct third-party call from the browser (same key-
     // exposure boundary as tryPremiumProviderFindings above) — a real
-    // deployment would proxy this through base44.integrations.Core on the
+    // deployment would proxy this through db.integrations.Core on the
     // backend. There's no image-capable equivalent of InvokeLLM mocked in
     // this app today, so a premium-provider tenant gets a clear "not wired
     // up yet" signal instead of a silent, wrong result.
@@ -314,7 +314,7 @@ export async function simulateAiReview(bid, rawText, filename) {
   const text = String(rawText || '');
   const seeds = [seedNdtLine(text, filename), seedLiquidatedDamagesLine(text, filename), seedMillSourceLine(text, filename)];
 
-  const review = await base44.entities.frontend_contract_reviews.create({
+  const review = await db.entities.frontend_contract_reviews.create({
     bid_id: bid.id,
     project_id: bid.project_id || bid.won_project_id || '',
     document_source_key: filename,
@@ -323,7 +323,7 @@ export async function simulateAiReview(bid, rawText, filename) {
     status: 'reviewed',
   });
 
-  const lines = await Promise.all(seeds.map((seed) => base44.entities.contract_exception_lines.create({
+  const lines = await Promise.all(seeds.map((seed) => db.entities.contract_exception_lines.create({
     review_id: review.id,
     bid_id: bid.id,
     prior_bid_ask: false,

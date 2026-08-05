@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -290,7 +290,7 @@ export default function SteelCatalogPanel() {
   const loadCatalog = async () => {
     setLoading(true);
     try {
-      const rows = await base44.entities.steel_catalog.list('shape_class', 1000);
+      const rows = await db.entities.steel_catalog.list('shape_class', 1000);
       setCatalog(rows);
     } catch (e) {
       toast({ title: 'Failed to load steel catalog', variant: 'destructive' });
@@ -322,7 +322,7 @@ export default function SteelCatalogPanel() {
     }
     setImporting(true);
     try {
-      await base44.entities.steel_catalog.bulkCreate(parsedRows.map((r) => ({
+      await db.entities.steel_catalog.bulkCreate(parsedRows.map((r) => ({
         item_id: `STL-${r.shape_class.replace(/\s+/g, '').toUpperCase()}-${r.size_designation.replace(/[^A-Z0-9]/gi, '')}`,
         shape_class: r.shape_class,
         size_designation: r.size_designation,
@@ -346,7 +346,7 @@ export default function SteelCatalogPanel() {
     }
     setSavingSize(true);
     try {
-      await base44.entities.steel_catalog.create({
+      await db.entities.steel_catalog.create({
         item_id: `STL-${newClass.replace(/\s+/g, '').toUpperCase()}-${newSizeId.trim().replace(/[^A-Z0-9]/gi, '')}`,
         shape_class: newClass,
         size_designation: newSizeId.trim(),
@@ -365,7 +365,7 @@ export default function SteelCatalogPanel() {
   const handleDelete = async (row) => {
     if (!confirm(`Remove ${row.size_designation} from the catalog?`)) return;
     try {
-      await base44.entities.steel_catalog.delete(row.id);
+      await db.entities.steel_catalog.delete(row.id);
       setCatalog((prev) => prev.filter((r) => r.id !== row.id));
     } catch (e) {
       toast({ title: 'Failed to remove size', variant: 'destructive' });

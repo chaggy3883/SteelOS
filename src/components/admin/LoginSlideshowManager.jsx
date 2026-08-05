@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { useToast } from '@/components/ui/use-toast';
 import FileDropzone from '@/components/ui/FileDropzone';
 import { Image as ImageIcon, Trash2, GalleryHorizontal } from 'lucide-react';
@@ -14,7 +14,7 @@ export default function LoginSlideshowManager() {
 
   const loadImages = async () => {
     try {
-      const rows = await base44.entities.login_slideshow_images.list('display_order', 20);
+      const rows = await db.entities.login_slideshow_images.list('display_order', 20);
       setImages(rows);
     } finally {
       setLoading(false);
@@ -29,7 +29,7 @@ export default function LoginSlideshowManager() {
     reader.onload = async () => {
       try {
         const nextOrder = images.reduce((max, img) => Math.max(max, img.display_order || 0), 0) + 1;
-        const created = await base44.entities.login_slideshow_images.create({
+        const created = await db.entities.login_slideshow_images.create({
           image_data_uri: reader.result,
           display_order: nextOrder,
         });
@@ -43,7 +43,7 @@ export default function LoginSlideshowManager() {
   };
 
   const handleDelete = async (image) => {
-    await base44.entities.login_slideshow_images.delete(image.id);
+    await db.entities.login_slideshow_images.delete(image.id);
     setImages((prev) => prev.filter((i) => i.id !== image.id));
     toast({ title: 'Slideshow image removed' });
   };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageHeader from '@/components/ui/PageHeader';
@@ -35,7 +35,7 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    base44.auth.me().then(u => { setCurrentUser(u); setLoading(false); }).catch(() => setLoading(false));
+    db.auth.me().then(u => { setCurrentUser(u); setLoading(false); }).catch(() => setLoading(false));
   }, []);
 
   if (loading) return (

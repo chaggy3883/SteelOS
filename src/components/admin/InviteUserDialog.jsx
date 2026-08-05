@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,7 +19,7 @@ export default function InviteUserDialog({ onClose, onInvited, availableRoles })
     if (!email) return;
     setSaving(true);
     try {
-      await base44.users.inviteUser(email, role);
+      await db.users.inviteUser(email, role);
       toast({ title: `Invitation sent to ${email}` });
       onInvited();
       onClose();

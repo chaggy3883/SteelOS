@@ -9,18 +9,16 @@
       "type": "string"
     },
     "material_type": {
+      "type": "string"
+    },
+    "shape_class": {
       "type": "string",
       "enum": [
-        "beams",
-        "columns",
-        "angle",
-        "hss",
-        "channel",
-        "plates",
-        "bent_plates",
-        "round_pipe",
-        "square_pipe",
-        "custom"
+        "W-Beam",
+        "HSS Tube",
+        "C-Channel",
+        "L-Angle",
+        "PL-Plate"
       ]
     },
     "material_size": {
@@ -35,7 +33,25 @@
     "length_raw": {
       "type": "string"
     },
+    "length_ft": {
+      "type": "number",
+      "default": 0
+    },
     "length_decimal_ft": {
+      "type": "number",
+      "default": 0,
+      "description": "Deprecated — superseded by length_ft. Kept because FullTakeoff.jsx still reads it as a fallback for old rows."
+    },
+    "coating_type": {
+      "type": "string",
+      "enum": [
+        "No Coating",
+        "Paint",
+        "Galvanized"
+      ],
+      "default": "No Coating"
+    },
+    "paint_area_sq_in": {
       "type": "number",
       "default": 0
     },

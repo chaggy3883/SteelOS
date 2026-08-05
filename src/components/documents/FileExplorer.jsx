@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Folder, FileText, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +24,7 @@ export default function FileExplorer({ projectId, onUpload, documentTypeFilter }
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    base44.entities.Document.filter({ project_id: projectId }, '-created_date', limit)
+    db.entities.Document.filter({ project_id: projectId }, '-created_date', limit)
       .then((docs) => {
         if (cancelled) return;
         const types = documentTypeFilter ? (Array.isArray(documentTypeFilter) ? documentTypeFilter : [documentTypeFilter]) : null;

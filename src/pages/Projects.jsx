@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import {
-  Plus, Search, Filter, Building2, Calendar, DollarSign,
-  MoreVertical, Star, StarOff, Archive, Eye, ChevronDown, Package
+  Plus, Search, Building2,
+  MoreVertical, Star, StarOff, Archive, Eye, Package
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,18 +27,18 @@ export default function Projects() {
   const loadProjects = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.Project.filter({ is_archived: false }, '-created_date', 100);
+      const data = await db.entities.Project.filter({ is_archived: false }, '-created_date', 100);
       setProjects(data);
     } catch (e) {} finally { setLoading(false); }
   };
 
   const togglePin = async (project) => {
-    await base44.entities.Project.update(project.id, { is_pinned: !project.is_pinned });
+    await db.entities.Project.update(project.id, { is_pinned: !project.is_pinned });
     loadProjects();
   };
 
   const archiveProject = async (project) => {
-    await base44.entities.Project.update(project.id, { is_archived: true });
+    await db.entities.Project.update(project.id, { is_archived: true });
     loadProjects();
   };
 

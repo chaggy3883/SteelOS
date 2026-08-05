@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { isSuperAdmin, getImpersonatingCompanyId, startImpersonation, stopImpersonation } from '@/lib/tenantContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,7 +36,7 @@ export default function SuperAdminDashboard() {
 
   const init = async () => {
     try {
-      const me = await base44.auth.me();
+      const me = await db.auth.me();
       setCurrentUser(me);
       if (isSuperAdmin(me)) await loadTenants();
     } catch (e) {} finally {
@@ -45,7 +45,7 @@ export default function SuperAdminDashboard() {
   };
 
   const loadTenants = async () => {
-    const rows = await base44.entities.Company.list('-created_date', 200);
+    const rows = await db.entities.Company.list('-created_date', 200);
     setTenants(rows);
   };
 
@@ -72,13 +72,13 @@ export default function SuperAdminDashboard() {
   // same flag a real webhook handler would, so the Subscription Guard Rail
   // is demonstrable end-to-end.
   const simulateSubscriptionChange = async (company, status) => {
-    const updated = await base44.entities.Company.update(company.id, { subscription_status: status });
+    const updated = await db.entities.Company.update(company.id, { subscription_status: status });
     setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     toast({ title: `${updated.name} subscription set to ${status.replace('_', ' ')}`, description: 'Simulated webhook — no real Stripe integration exists.' });
   };
 
   const handlePlanChange = async (company, plan) => {
-    const updated = await base44.entities.Company.update(company.id, { subscription_plan: plan });
+    const updated = await db.entities.Company.update(company.id, { subscription_plan: plan });
     setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     await loadTenants();
     toast({ title: `${updated.name} plan set to ${plan.replace(/_/g, ' ')}` });
@@ -88,7 +88,7 @@ export default function SuperAdminDashboard() {
   // super_admin-gated (see the clearance check below), so no extra role
   // check is needed here: a standard tenant admin can never reach this row.
   const handleLogoChange = async (company, logoUrl, scalePct) => {
-    const updated = await base44.entities.Company.update(company.id, { logo_url: logoUrl, logo_scale_pct: scalePct });
+    const updated = await db.entities.Company.update(company.id, { logo_url: logoUrl, logo_scale_pct: scalePct });
     setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     toast({ title: `${updated.name} logo asset URL updated` });
   };
@@ -100,7 +100,7 @@ export default function SuperAdminDashboard() {
     }
     setCreatingTenant(true);
     try {
-      const created = await base44.entities.Company.create({
+      const created = await db.entities.Company.create({
         ...tenantForm,
         subscription_plan: 'starter',
         subscription_status: 'Active',

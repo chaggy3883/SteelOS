@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { runContractRiskAudit } from '@/lib/aiIntelligenceEngine';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,7 +35,7 @@ export default function AIContractReviewPanel({ bid }) {
     if (!bid?.id) return;
     setLoading(true);
     try {
-      const rows = await base44.entities.ai_contract_reviews.filter({ bid_id: bid.id }, '-created_date', 50);
+      const rows = await db.entities.ai_contract_reviews.filter({ bid_id: bid.id }, '-created_date', 50);
       setReviews(rows);
       setSelectedReview(rows[0] || null);
     } catch (e) {

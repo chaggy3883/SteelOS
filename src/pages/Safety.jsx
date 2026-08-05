@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { ShieldCheck, AlertTriangle, HardHat, FileWarning, CheckCircle2 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -21,7 +21,7 @@ export default function Safety() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.AIFinding.filter({ review_package: 'safety' }, '-created_date', 100);
+      const data = await db.entities.AIFinding.filter({ review_package: 'safety' }, '-created_date', 100);
       setFindings(data);
     } catch (e) {} finally { setLoading(false); }
   };

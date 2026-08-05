@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import {
   buildWeekColumns, buildCapacityMatrix, getStationBottlenecks, getStalePieces,
   getEmployeeScorecards, getMaterialShortages,
@@ -58,19 +58,19 @@ export default function ShopOperations() {
     setLoading(true);
     try {
       const [projectData, pieceData, logsData, qaData, scheduleData, remnantData, overrideData, settingsRows, poData, receivingData, leaveData, manifestData, printJobData] = await Promise.all([
-        base44.entities.Project.filter({ is_archived: false }, 'name', 50),
-        base44.entities.pieces.list('-created_date', 500),
-        base44.entities.station_logs.list('-created_date', 500),
-        base44.entities.qa_inspections.list('-created_date', 500),
-        base44.entities.shop_schedules.list('-created_date', 200),
-        base44.entities.remnant_inventory.list('-created_date', 200),
-        base44.entities.manager_overrides.list('-created_date', 200),
-        base44.entities.SystemSetting.filter({ setting_group: 'production' }, '-created_date', 1),
-        base44.entities.purchase_orders.list('-created_date', 200),
-        base44.entities.receiving_logs.list('-created_date', 200),
-        base44.entities.time_off_requests.filter({ status: 'Approved' }, '-created_date', 200),
-        base44.entities.shipping_manifests.list('-created_date', 200),
-        base44.entities.print_label_jobs.list('-created_date', 500),
+        db.entities.Project.filter({ is_archived: false }, 'name', 50),
+        db.entities.pieces.list('-created_date', 500),
+        db.entities.station_logs.list('-created_date', 500),
+        db.entities.qa_inspections.list('-created_date', 500),
+        db.entities.shop_schedules.list('-created_date', 200),
+        db.entities.remnant_inventory.list('-created_date', 200),
+        db.entities.manager_overrides.list('-created_date', 200),
+        db.entities.SystemSetting.filter({ setting_group: 'production' }, '-created_date', 1),
+        db.entities.purchase_orders.list('-created_date', 200),
+        db.entities.receiving_logs.list('-created_date', 200),
+        db.entities.time_off_requests.filter({ status: 'Approved' }, '-created_date', 200),
+        db.entities.shipping_manifests.list('-created_date', 200),
+        db.entities.print_label_jobs.list('-created_date', 500),
       ]);
       setProjects(projectData);
       setPieces(pieceData);
@@ -86,7 +86,7 @@ export default function ShopOperations() {
       setPrintJobs(printJobData);
       let settingsRow = settingsRows[0];
       if (!settingsRow) {
-        settingsRow = await base44.entities.SystemSetting.create({ setting_group: 'production' });
+        settingsRow = await db.entities.SystemSetting.create({ setting_group: 'production' });
       }
       setSettings(settingsRow);
       if (!selectedProjectId && projectData[0]) setSelectedProjectId(projectData[0].id);
@@ -102,7 +102,7 @@ export default function ShopOperations() {
   // the active tab and any open print preview).
   const refreshPrintJobs = async () => {
     try {
-      const rows = await base44.entities.print_label_jobs.list('-created_date', 500);
+      const rows = await db.entities.print_label_jobs.list('-created_date', 500);
       setPrintJobs(rows);
     } catch (e) {}
   };
@@ -111,9 +111,9 @@ export default function ShopOperations() {
     if (!selectedProjectId) { setMaterialLines([]); return; }
     (async () => {
       try {
-        const bids = await base44.entities.Bid.filter({ won_project_id: selectedProjectId }, '-created_date', 1);
+        const bids = await db.entities.Bid.filter({ won_project_id: selectedProjectId }, '-created_date', 1);
         if (bids[0]) {
-          const lines = await base44.entities.MaterialTakeoffLine.filter({ bid_id: bids[0].id }, '-created_date', 200);
+          const lines = await db.entities.MaterialTakeoffLine.filter({ bid_id: bids[0].id }, '-created_date', 200);
           setMaterialLines(lines);
         } else {
           setMaterialLines([]);
@@ -147,7 +147,7 @@ export default function ShopOperations() {
 
   const updatePriorityWeight = async (schedule, value) => {
     const priority_weight = parseInt(value, 10) || 0;
-    const updated = await base44.entities.shop_schedules.update(schedule.id, { priority_weight });
+    const updated = await db.entities.shop_schedules.update(schedule.id, { priority_weight });
     setSchedules((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
   };
 
@@ -158,7 +158,7 @@ export default function ShopOperations() {
     }
     setSavingOverride(true);
     try {
-      const created = await base44.entities.manager_overrides.create({
+      const created = await db.entities.manager_overrides.create({
         ...overrideForm,
         authorized_by_mgr_id: overrideForm.authorized_by_mgr_id.trim(),
         executed_at: new Date().toISOString(),

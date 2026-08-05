@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2, FileWarning } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,10 +32,10 @@ export default function RFIs() {
     setLoading(true);
     try {
       const [rfiData, projData, contractData, bidData] = await Promise.all([
-        base44.entities.RFI.list('-created_date', 100),
-        base44.entities.Project.filter({ is_archived: false }, 'name', 50),
-        base44.entities.Contract.list('-created_date', 100),
-        base44.entities.Bid.list('-created_date', 200),
+        db.entities.RFI.list('-created_date', 100),
+        db.entities.Project.filter({ is_archived: false }, 'name', 50),
+        db.entities.Contract.list('-created_date', 100),
+        db.entities.Bid.list('-created_date', 200),
       ]);
       setRfis(rfiData);
       setProjects(projData);
@@ -65,9 +65,9 @@ export default function RFIs() {
       const project = projects.find(p => p.id === rfi.project_id);
       const { blob, filename } = generateDelayImpactNoticePDF({ rfi, contract, daysDelayed, project });
       const file = new File([blob], filename, { type: 'application/pdf' });
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      const { file_url } = await db.integrations.Core.UploadFile({ file });
 
-      await base44.entities.Document.create({
+      await db.entities.Document.create({
         project_id: rfi.project_id,
         name: filename,
         file_url,
@@ -78,7 +78,7 @@ export default function RFIs() {
         status: 'uploaded',
       });
 
-      await base44.entities.change_orders.create({
+      await db.entities.change_orders.create({
         project_id: rfi.project_id,
         change_order_id: `CO-DELAY-${rfi.rfi_number}`,
         description: `Schedule impact from unanswered ${rfi.rfi_number} (${rfi.subject}) — ${daysDelayed} day(s) beyond the contractual RFI response window. Delay Impact Notice attached as supporting legal evidence.`,
@@ -88,7 +88,7 @@ export default function RFIs() {
         attachment_path: file_url,
       });
 
-      await base44.entities.LegalAuditEvent.create({
+      await db.entities.LegalAuditEvent.create({
         project_id: rfi.project_id,
         event_type: 'delay_impact_notice_generated',
         related_entity_type: 'RFI',
@@ -110,7 +110,7 @@ export default function RFIs() {
     setSaving(true);
     try {
       const rfiCount = rfis.filter(r => r.project_id === form.project_id).length + 1;
-      await base44.entities.RFI.create({ ...form, rfi_number: `RFI-${String(rfiCount).padStart(3,'0')}`, status: 'draft', date_submitted: new Date().toISOString().split('T')[0] });
+      await db.entities.RFI.create({ ...form, rfi_number: `RFI-${String(rfiCount).padStart(3,'0')}`, status: 'draft', date_submitted: new Date().toISOString().split('T')[0] });
       toast({ title: 'RFI created!' });
       setOpen(false);
       setForm({ project_id: '', bid_id: '', subject: '', description: '', priority: 'medium' });

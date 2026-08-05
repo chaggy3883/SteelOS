@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Plus, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +31,7 @@ export default function RepairLedger({ assets, repairLogs, canManageFleet, onRel
     }
     setSaving(true);
     try {
-      await base44.entities.fleet_repair_logs.create({
+      await db.entities.fleet_repair_logs.create({
         asset_id: form.asset_id,
         repair_category: form.repair_category,
         runtime_hours_at_repair: Number(form.runtime_hours_at_repair) || 0,

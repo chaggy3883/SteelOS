@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { BarChart3, TrendingUp, DollarSign, Package, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/ui/PageHeader';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308'];
 
@@ -18,8 +18,8 @@ export default function Reports() {
     setLoading(true);
     try {
       const [projData, pieceData] = await Promise.all([
-        base44.entities.Project.filter({ is_archived: false }, '-created_date', 100),
-        base44.entities.PieceMark.list('-created_date', 500),
+        db.entities.Project.filter({ is_archived: false }, '-created_date', 100),
+        db.entities.PieceMark.list('-created_date', 500),
       ]);
       setProjects(projData);
       setPieces(pieceData);

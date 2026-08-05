@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Users as UsersIcon, Plus, Search, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,13 +50,13 @@ export default function Users() {
 
   useEffect(() => {
     loadUsers();
-    base44.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
+    db.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
   }, []);
 
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.User.list('-created_date', 100);
+      const data = await db.entities.User.list('-created_date', 100);
       setUsers(data);
     } catch (e) {} finally { setLoading(false); }
   };
@@ -78,8 +78,8 @@ export default function Users() {
       toast({ title: 'Full name, email, password, and a 5-digit security PIN are all required', variant: 'destructive' });
       return;
     }
-    // Write through base44.entities.User (the same entity API this page reads
-    // from via loadUsers/list) rather than base44.users.inviteUser, which holds
+    // Write through db.entities.User (the same entity API this page reads
+    // from via loadUsers/list) rather than db.users.inviteUser, which holds
     // its own independent in-memory copy — a write there is invisible to a
     // .list() call through this page's separate User entity instance.
     const existing = users.find((u) => u.email?.toLowerCase() === formEmail.toLowerCase());
@@ -90,7 +90,7 @@ export default function Users() {
     setCreating(true);
     try {
       const mappedRoles = createRoles.map((r) => (r === 'system_administrator' ? 'admin' : r));
-      const created = await base44.entities.User.create({
+      const created = await db.entities.User.create({
         email: formEmail,
         full_name: formFullName,
         password: formPassword,

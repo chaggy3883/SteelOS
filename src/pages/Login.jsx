@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { base44 } from "@/api/base44Client";
+import { db } from "@/api/apiClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,7 +46,7 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      const { user } = await base44.auth.loginViaEmailPassword(email, password);
+      const { user } = await db.auth.loginViaEmailPassword(email, password);
       // Tenant resolution, company branding, and office-vs-field destination
       // all happen behind the scenes from the authenticated user record —
       // nothing about it is decided on this screen.

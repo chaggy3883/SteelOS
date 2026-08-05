@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
@@ -40,7 +40,7 @@ export default function DNBReasonModal({ open, onOpenChange, bidId, bidLabel, on
     }
     setSaving(true);
     try {
-      await base44.entities.Bid.update(bidId, {
+      await db.entities.Bid.update(bidId, {
         status: 'Did_Not_Bid',
         dnb_reason: reason,
         dnb_reason_notes: reason === 'other' ? notes.trim() : '',

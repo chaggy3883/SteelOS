@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Truck, Package, CheckCircle2, Search, Plus, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Button } from '@/components/ui/button';
@@ -44,11 +44,11 @@ export default function Shipping() {
   const loadLogisticsData = async () => {
     try {
       const [pieceData, loadsData, itemsData, manifestData, carrierData] = await Promise.all([
-        base44.entities.pieces.list('-created_date', 200),
-        base44.entities.loads.list('-created_date', 100),
-        base44.entities.load_items.list('-created_date', 500),
-        base44.entities.shipping_manifests.list('-created_date', 100),
-        base44.entities.Vendor.filter({ vendor_type: 'carrier', is_active: true }, 'name', 50),
+        db.entities.pieces.list('-created_date', 200),
+        db.entities.loads.list('-created_date', 100),
+        db.entities.load_items.list('-created_date', 500),
+        db.entities.shipping_manifests.list('-created_date', 100),
+        db.entities.Vendor.filter({ vendor_type: 'carrier', is_active: true }, 'name', 50),
       ]);
       setShopPieces(pieceData);
       setLoads(loadsData);
@@ -62,9 +62,9 @@ export default function Shipping() {
     setLoading(true);
     try {
       const [pieceData, projData, loadData_] = await Promise.all([
-        base44.entities.PieceMark.filter({ status: { $in: ['painted', 'shipped', 'erected'] } }, '-updated_date', 200),
-        base44.entities.Project.filter({ is_archived: false }, 'name', 50),
-        base44.entities.shipping_loads.list('-created_date', 100),
+        db.entities.PieceMark.filter({ status: { $in: ['painted', 'shipped', 'erected'] } }, '-updated_date', 200),
+        db.entities.Project.filter({ is_archived: false }, 'name', 50),
+        db.entities.shipping_loads.list('-created_date', 100),
       ]);
       setPieces(pieceData);
       setProjects(projData);
@@ -89,7 +89,7 @@ export default function Shipping() {
     }
     setSavingLoad(true);
     try {
-      const created = await base44.entities.shipping_loads.create({
+      const created = await db.entities.shipping_loads.create({
         project_id: loadForm.project_id,
         load_number: `Load ${trailerLoads.length + 1}`,
         trailer_id: loadForm.trailer_id.trim(),
@@ -110,7 +110,7 @@ export default function Shipping() {
 
   const handleLoadStatusChange = async (load, status) => {
     try {
-      const updated = await base44.entities.shipping_loads.update(load.id, { status });
+      const updated = await db.entities.shipping_loads.update(load.id, { status });
       setTrailerLoads((prev) => prev.map((l) => (l.id === load.id ? updated : l)));
     } catch (e) {
       toast({ title: 'Unable to update status', variant: 'destructive' });
@@ -123,7 +123,7 @@ export default function Shipping() {
     const shipping_load_id = destination.droppableId === 'unassigned' ? '' : destination.droppableId.replace('load-', '');
     setPieces((prev) => prev.map((p) => (p.id === draggableId ? { ...p, shipping_load_id } : p)));
     try {
-      await base44.entities.PieceMark.update(draggableId, { shipping_load_id });
+      await db.entities.PieceMark.update(draggableId, { shipping_load_id });
     } catch (e) {
       toast({ title: 'Unable to save assignment', variant: 'destructive' });
     }

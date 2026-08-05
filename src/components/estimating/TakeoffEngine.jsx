@@ -1,5 +1,5 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Save, Info, Upload, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -101,7 +101,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const me = await base44.auth.me();
+        const me = await db.auth.me();
         const roles = me?.roles || me?.user?.roles || ['user'];
         setCurrentUserRoles(roles.map(r => String(r).toLowerCase()));
       } catch (e) {
@@ -115,7 +115,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     if (!bid?.id) return;
     setLoading(true);
     try {
-      const existing = await base44.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 100);
+      const existing = await db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 100);
       const map = {};
       COST_CATEGORIES.forEach(cat => {
         const found = existing.find(e => e.cost_category === cat.key);
@@ -209,12 +209,12 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
           is_overridden: line.is_overridden || false,
           source: line.source || 'manual',
         };
-        if (line.id) return base44.entities.TakeoffLine.update(line.id, payload);
-        return base44.entities.TakeoffLine.create(payload);
+        if (line.id) return db.entities.TakeoffLine.update(line.id, payload);
+        return db.entities.TakeoffLine.create(payload);
       }).filter(Boolean);
       await Promise.all(ops);
-      const freshBid = await base44.entities.Bid.get(bid.id);
-      await base44.entities.Bid.update(bid.id, {
+      const freshBid = await db.entities.Bid.get(bid.id);
+      await db.entities.Bid.update(bid.id, {
         bid_total_cost: totalWithTax,
         inclusions,
         exclusions,
@@ -254,7 +254,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     setDocsLoading(true);
     setDocDrawerOpen(true);
     try {
-      const docs = await base44.entities.Document.filter({ bid_id: bid?.id }, '-created_date', 50);
+      const docs = await db.entities.Document.filter({ bid_id: bid?.id }, '-created_date', 50);
       setDocuments(docs.filter(doc => doc.document_type || doc.file_name));
     } catch (e) {
       setDocuments([]);

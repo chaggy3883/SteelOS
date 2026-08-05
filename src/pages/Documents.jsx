@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
-import { FileText, Search, Upload, FolderOpen, Eye, Download } from 'lucide-react';
+import { db } from '@/api/apiClient';
+import { Search, Upload, FolderOpen, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -26,8 +26,8 @@ export default function Documents() {
     setLoading(true);
     try {
       const [docData, projData] = await Promise.all([
-        base44.entities.Document.filter({ is_archived: false }, '-created_date', 200),
-        base44.entities.Project.filter({ is_archived: false }, 'name', 50),
+        db.entities.Document.filter({ is_archived: false }, '-created_date', 200),
+        db.entities.Project.filter({ is_archived: false }, 'name', 50),
       ]);
       setDocuments(docData);
       setProjects(projData);

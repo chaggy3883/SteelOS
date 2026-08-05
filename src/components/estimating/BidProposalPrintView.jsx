@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { computeBidTaxBreakdown } from '@/lib/financialAnalytics';
 import { getActiveTemplate, isColumnVisible } from '@/lib/reportTemplates';
 
@@ -12,8 +12,8 @@ export default function BidProposalPrintView({ bid }) {
 
   useEffect(() => {
     if (!bid?.id) return;
-    base44.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200).then(setLines).catch(() => setLines([]));
-    base44.entities.Company.list('-created_date', 1).then((rows) => setCompanyLogoUrl(rows[0]?.logo_url || null)).catch(() => {});
+    db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200).then(setLines).catch(() => setLines([]));
+    db.entities.Company.list('-created_date', 1).then((rows) => setCompanyLogoUrl(rows[0]?.logo_url || null)).catch(() => {});
     // Fails open: no active template means every line shows, same as before
     // this feature existed.
     getActiveTemplate('proposal').then(setTemplate).catch(() => setTemplate(null));

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { ShoppingCart, AlertTriangle, Package, TrendingDown, Plus, Search, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,10 +34,10 @@ export default function Purchasing() {
     setLoading(true);
     try {
       const [invData, findData, vendorData, projectData] = await Promise.all([
-        base44.entities.InventoryItem.filter({ is_active: true }, '-created_date', 100),
-        base44.entities.AIFinding.filter({ review_package: 'purchasing' }, '-created_date', 50),
-        base44.entities.Vendor.filter({ is_active: true }, '-created_date', 100),
-        base44.entities.Project.list('-created_date', 100),
+        db.entities.InventoryItem.filter({ is_active: true }, '-created_date', 100),
+        db.entities.AIFinding.filter({ review_package: 'purchasing' }, '-created_date', 50),
+        db.entities.Vendor.filter({ is_active: true }, '-created_date', 100),
+        db.entities.Project.list('-created_date', 100),
       ]);
       setInventory(invData);
       setFindings(findData);
@@ -55,7 +55,7 @@ export default function Purchasing() {
   const handleProjectChange = async (projectId) => {
     setPoForm(f => ({ ...f, project_id: projectId, cost_code: '' }));
     try {
-      const rows = await base44.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 100);
+      const rows = await db.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 100);
       setCostCodes(rows.filter(r => (r.cost_code || '').startsWith('05')));
     } catch (e) {
       setCostCodes([]);
@@ -72,7 +72,7 @@ export default function Purchasing() {
       const totalEstimatedCost = Number(poForm.total_estimated_cost) || 0;
       const approvalStatus = totalEstimatedCost <= AUTO_APPROVE_THRESHOLD ? 'Auto_Approved' : 'Exec_Review';
       const vendor = vendors.find(v => v.id === poForm.vendor_id);
-      await base44.entities.purchase_orders.create({
+      await db.entities.purchase_orders.create({
         vendor_id: poForm.vendor_id,
         vendor_name: vendor?.name || '',
         project_id: poForm.project_id,

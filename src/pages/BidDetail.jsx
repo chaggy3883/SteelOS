@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Factory, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import BidProposalPrintView from '@/components/estimating/BidProposalPrintView';
@@ -110,14 +110,14 @@ export default function BidDetail() {
   const loadBid = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.Bid.get(id);
+      const data = await db.entities.Bid.get(id);
       setBid(data);
     } catch (e) {} finally { setLoading(false); }
   };
 
   const getNextProjectNumber = async () => {
     const prefix = `P${String(new Date().getFullYear() % 100).padStart(2, '0')}`;
-    const existingProjects = await base44.entities.Project.list('-created_date', 500);
+    const existingProjects = await db.entities.Project.list('-created_date', 500);
     const pattern = new RegExp(`^${prefix}-(\\d{3})$`);
     const maxSeq = existingProjects.reduce((max, p) => {
       const match = pattern.exec(p.project_number || '');
@@ -129,11 +129,11 @@ export default function BidDetail() {
   const createProjectFromWonBid = async (wonBid) => {
     const project_number = await getNextProjectNumber();
     const [takeoffLines, documents] = await Promise.all([
-      base44.entities.TakeoffLine.filter({ bid_id: wonBid.id }, '-created_date', 200),
-      base44.entities.Document.filter({ bid_id: wonBid.id }, '-created_date', 200),
+      db.entities.TakeoffLine.filter({ bid_id: wonBid.id }, '-created_date', 200),
+      db.entities.Document.filter({ bid_id: wonBid.id }, '-created_date', 200),
     ]);
 
-    const project = await base44.entities.Project.create({
+    const project = await db.entities.Project.create({
       project_number,
       name: wonBid.job_name,
       customer_id: wonBid.customer_id,
@@ -154,19 +154,19 @@ export default function BidDetail() {
 
     await Promise.all([
       ...documents.map(({ id: _id, created_date: _cd, updated_date: _ud, ...doc }) =>
-        base44.entities.Document.create({ ...doc, project_id: project.id, bid_id: wonBid.id })),
+        db.entities.Document.create({ ...doc, project_id: project.id, bid_id: wonBid.id })),
       ...takeoffLines.map(({ id: _id, created_date: _cd, updated_date: _ud, ...line }) =>
-        base44.entities.TakeoffLine.create({ ...line, bid_id: wonBid.id, project_id: project.id })),
+        db.entities.TakeoffLine.create({ ...line, bid_id: wonBid.id, project_id: project.id })),
     ]);
 
-    await base44.entities.Bid.update(wonBid.id, { won_project_id: project.id, project_id: project.id });
+    await db.entities.Bid.update(wonBid.id, { won_project_id: project.id, project_id: project.id });
 
     return project;
   };
 
   const updateBidStatus = async (status) => {
     try {
-      const updated = await base44.entities.Bid.update(id, { status });
+      const updated = await db.entities.Bid.update(id, { status });
       if (status === 'lost') {
         setShowLossForm(true);
       } else if (status === 'won') {
@@ -191,7 +191,7 @@ export default function BidDetail() {
     if (!lossForm.reason) { toast({ title: 'Select a loss reason', variant: 'destructive' }); return; }
     setSavingLoss(true);
     try {
-      await base44.entities.Bid.update(id, {
+      await db.entities.Bid.update(id, {
         loss_reason: lossForm.reason,
         loss_reason_notes: lossForm.notes,
         competitor_name: lossForm.competitor,
@@ -211,7 +211,7 @@ export default function BidDetail() {
         tax_enabled: baseInfo.tax_enabled,
         tax_rate: baseInfo.tax_rate || bid?.tax_rate,
       });
-      await base44.entities.Bid.update(id, {
+      await db.entities.Bid.update(id, {
         street: baseInfo.street,
         city: baseInfo.city,
         state: baseInfo.state,
@@ -532,7 +532,7 @@ function ScopeText({ bid, onSaved }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await base44.entities.Bid.update(bid.id, { inclusions, exclusions });
+      await db.entities.Bid.update(bid.id, { inclusions, exclusions });
       toast({ title: 'Scope text saved!' });
       onSaved();
     } catch (e) { toast({ title: 'Save failed', variant: 'destructive' }); } finally { setSaving(false); }
@@ -571,8 +571,8 @@ function AIReviewPanel({ bid }) {
   const loadData = async () => {
     try {
       const [skillList, reportList] = await Promise.all([
-        base44.entities.AIReviewSkill.filter({ is_active: true }, '-created_date', 50),
-        base44.entities.BidReviewReport.filter({ bid_id: bid.id }, '-created_date', 50),
+        db.entities.AIReviewSkill.filter({ is_active: true }, '-created_date', 50),
+        db.entities.BidReviewReport.filter({ bid_id: bid.id }, '-created_date', 50),
       ]);
       setSkills(skillList);
       setReports(reportList);

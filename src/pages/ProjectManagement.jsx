@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import { Button } from '@/components/ui/button';
@@ -64,10 +64,10 @@ export default function ProjectManagement() {
     setLoading(true);
     try {
       const [projectRecord, coList, sequenceList, loadList] = await Promise.all([
-        base44.entities.projects.get(id),
-        base44.entities.change_orders.filter({ project_id: id }, '-created_date', 100),
-        base44.entities.shop_sequences.filter({ project_id: id }, '-created_date', 100),
-        base44.entities.shipping_loads.filter({ project_id: id }, '-created_date', 100),
+        db.entities.projects.get(id),
+        db.entities.change_orders.filter({ project_id: id }, '-created_date', 100),
+        db.entities.shop_sequences.filter({ project_id: id }, '-created_date', 100),
+        db.entities.shipping_loads.filter({ project_id: id }, '-created_date', 100),
       ]);
 
       setProject(projectRecord || null);
@@ -90,7 +90,7 @@ export default function ProjectManagement() {
 
   const saveProjectField = async (field, value) => {
     if (!project) return;
-    const updated = await base44.entities.projects.update(project.id, { [field]: value });
+    const updated = await db.entities.projects.update(project.id, { [field]: value });
     setProject(updated);
   };
 
@@ -108,7 +108,7 @@ export default function ProjectManagement() {
       attachment_path: coForm.attachment_path || ''
     };
 
-    const created = await base44.entities.change_orders.create(nextOrder);
+    const created = await db.entities.change_orders.create(nextOrder);
     const nextList = [created, ...changeOrders];
     setChangeOrders(nextList);
     setCoForm(defaultCoForm);
@@ -117,7 +117,7 @@ export default function ProjectManagement() {
   };
 
   const updateChangeOrderStatus = async (entry, status) => {
-    const updated = await base44.entities.change_orders.update(entry.id, { status });
+    const updated = await db.entities.change_orders.update(entry.id, { status });
     const nextList = changeOrders.map((item) => (item.id === entry.id ? updated : item));
     setChangeOrders(nextList);
     await syncProjectMetrics(project, nextList);
@@ -128,7 +128,7 @@ export default function ProjectManagement() {
     const target = shopSequences.find((item) => item.id === sequenceId);
     if (!target) return;
 
-    const updated = await base44.entities.shop_sequences.update(sequenceId, {
+    const updated = await db.entities.shop_sequences.update(sequenceId, {
       [milestoneKey]: !target[milestoneKey]
     });
     setShopSequences(shopSequences.map((item) => (item.id === sequenceId ? updated : item)));
@@ -148,7 +148,7 @@ export default function ProjectManagement() {
       attachment_path: loadForm.attachment_path || ''
     };
 
-    const created = await base44.entities.shipping_loads.create(nextLoad);
+    const created = await db.entities.shipping_loads.create(nextLoad);
     setShippingLoads([created, ...shippingLoads]);
     setLoadForm(defaultLoadForm);
     toast({ title: 'Shipping load logged' });

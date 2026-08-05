@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { QrCode, PackageCheck, Ban, MapPin, Upload, Truck, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -49,7 +49,7 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
       toast({ title: 'Scan mismatch — blocked', description: 'This QR payload does not match a staged item on this load.', variant: 'destructive' });
       return;
     }
-    await base44.entities.load_items.update(item.id, { status: 'Loaded' });
+    await db.entities.load_items.update(item.id, { status: 'Loaded' });
     await onReload();
     toast({ title: `${piece.piece_mark} loaded onto ${selectedLoad.load_number_id}` });
     setScanValue('');
@@ -62,7 +62,7 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
     }
     setSavingManifest(true);
     try {
-      const created = await base44.entities.shipping_manifests.create({
+      const created = await db.entities.shipping_manifests.create({
         load_id: selectedLoad.id,
         driver_name: manifestForm.driver_name.trim(),
         driver_phone: manifestForm.driver_phone.trim(),
@@ -72,7 +72,7 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
         signed_bol_file_uri: '',
         delivery_ticket_file_uri: '',
       });
-      await base44.entities.loads.update(selectedLoad.id, { status: 'In_Transit' });
+      await db.entities.loads.update(selectedLoad.id, { status: 'In_Transit' });
       await onReload();
       setShowManifestForm(false);
       setManifestForm(emptyManifestForm());
@@ -90,16 +90,16 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
       toast({ title: 'Master QR mismatch — blocked', description: 'This code does not match the manifest for this load.', variant: 'destructive' });
       return;
     }
-    await base44.entities.loads.update(selectedLoad.id, { status: 'Delivered' });
-    await Promise.all(items.filter((i) => i.status !== 'Field_Rejected').map((i) => base44.entities.pieces.update(i.piece_id, { field_status: 'On_Site' })));
+    await db.entities.loads.update(selectedLoad.id, { status: 'Delivered' });
+    await Promise.all(items.filter((i) => i.status !== 'Field_Rejected').map((i) => db.entities.pieces.update(i.piece_id, { field_status: 'On_Site' })));
     await onReload();
     toast({ title: `${selectedLoad.load_number_id} delivered`, description: 'Linked pieces marked On-Site.' });
     setScanValue('');
   };
 
   const rejectItem = async (item) => {
-    await base44.entities.load_items.update(item.id, { status: 'Field_Rejected' });
-    await base44.entities.loads.update(selectedLoad.id, { status: 'Field_Issue' });
+    await db.entities.load_items.update(item.id, { status: 'Field_Rejected' });
+    await db.entities.loads.update(selectedLoad.id, { status: 'Field_Issue' });
     await onReload();
     toast({ title: `${item.piece?.piece_mark} flagged as field-rejected`, variant: 'destructive' });
   };
@@ -117,7 +117,7 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
 
   const handleTagPrinted = async () => {
     if (!printSheet?.targetRecordId) return;
-    await base44.entities.print_label_jobs.create({
+    await db.entities.print_label_jobs.create({
       label_type: 'Shipping_Manifest',
       target_record_id: printSheet.targetRecordId,
       zpl_payload_string: buildZplPayload({ labelType: 'Shipping_Manifest', title: printSheet.title, subtitle: printSheet.subtitle, qrPayload: printSheet.qrPayload }),
@@ -128,7 +128,7 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
 
   const saveDeliveryTicket = async () => {
     if (!deliveryTicketUri.trim()) return;
-    await base44.entities.shipping_manifests.update(manifest.id, { delivery_ticket_file_uri: deliveryTicketUri.trim() });
+    await db.entities.shipping_manifests.update(manifest.id, { delivery_ticket_file_uri: deliveryTicketUri.trim() });
     await onReload();
     setDeliveryTicketUri('');
     toast({ title: 'Delivery ticket recorded' });

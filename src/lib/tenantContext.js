@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { getAuthState, setAuthState } from '@/api/localData';
 
 // HONESTY NOTE: this app has no real backend — every "tenant"'s data still
@@ -51,5 +51,5 @@ export function stopImpersonation() {
 export async function getEffectiveCompany() {
   const companyId = getEffectiveCompanyId();
   if (!companyId) return null;
-  return base44.entities.Company.get(companyId);
+  return db.entities.Company.get(companyId);
 }

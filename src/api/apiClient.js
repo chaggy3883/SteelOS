@@ -93,4 +93,4 @@ const createLocalApi = () => ({
   integrations: createIntegrationsApi()
 });
 
-export const base44 = createLocalApi();
+export const db = createLocalApi();

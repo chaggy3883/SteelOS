@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,7 +19,7 @@ export default function EmergencyContactPanel({ employee, onUpdated }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updated = await base44.entities.employees.update(employee.id, form);
+      const updated = await db.entities.employees.update(employee.id, form);
       onUpdated(updated);
       toast({ title: 'Emergency contact updated' });
     } finally {

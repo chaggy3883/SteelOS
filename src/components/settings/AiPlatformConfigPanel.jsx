@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { Cpu, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -56,7 +56,7 @@ export default function AiPlatformConfigPanel() {
       setExistingKeyToken(null);
       return;
     }
-    const rows = await base44.entities.ApiTokenVault.filter({ company_id: id, token_name: vaultTokenName(activeProvider) }, '-created_at', 1);
+    const rows = await db.entities.ApiTokenVault.filter({ company_id: id, token_name: vaultTokenName(activeProvider) }, '-created_at', 1);
     setExistingKeyToken(rows[0] || null);
   };
 
@@ -70,7 +70,7 @@ export default function AiPlatformConfigPanel() {
     if (!companyId) return;
     setSaving(true);
     try {
-      await base44.entities.Company.update(companyId, {
+      await db.entities.Company.update(companyId, {
         ai_provider: provider,
         ...(provider === 'local' ? { tenant_local_url: localUrl } : {}),
       });
@@ -94,8 +94,8 @@ export default function AiPlatformConfigPanel() {
         created_at: new Date().toISOString(),
       };
       const created = existingKeyToken
-        ? await base44.entities.ApiTokenVault.update(existingKeyToken.id, payload)
-        : await base44.entities.ApiTokenVault.create(payload);
+        ? await db.entities.ApiTokenVault.update(existingKeyToken.id, payload)
+        : await db.entities.ApiTokenVault.create(payload);
       setExistingKeyToken(created);
       setApiKeyInput('');
       toast({ title: `${PROVIDERS.find((p) => p.value === provider)?.label} key saved`, description: 'Only a masked reference is kept — the key itself is never re-displayed or sent to the browser again.' });

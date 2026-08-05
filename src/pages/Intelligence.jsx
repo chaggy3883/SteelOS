@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import {
   Brain, Upload, FileText, AlertTriangle, CheckCircle2,
   XCircle, HelpCircle, Eye, ChevronDown, ChevronRight,
-  Zap, Filter, RefreshCw, Search, Building2
+  Zap, Building2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,7 +46,7 @@ const FindingCard = ({ finding, onUpdate }) => {
   const handleReview = async (status) => {
     setUpdating(true);
     try {
-      await base44.entities.AIFinding.update(finding.id, { review_status: status, reviewed_by: 'Current User' });
+      await db.entities.AIFinding.update(finding.id, { review_status: status, reviewed_by: 'Current User' });
       onUpdate();
     } catch (e) {} finally { setUpdating(false); }
   };
@@ -170,17 +170,17 @@ export default function Intelligence() {
   }, [selectedProject]);
 
   const loadProjects = async () => {
-    const data = await base44.entities.Project.filter({ is_archived: false }, '-created_date', 50);
+    const data = await db.entities.Project.filter({ is_archived: false }, '-created_date', 50);
     setProjects(data);
   };
 
   const loadDocuments = async () => {
-    const data = await base44.entities.Document.filter({ project_id: selectedProject }, '-created_date', 20);
+    const data = await db.entities.Document.filter({ project_id: selectedProject }, '-created_date', 20);
     setDocuments(data);
   };
 
   const loadFindings = async () => {
-    const data = await base44.entities.AIFinding.filter({ project_id: selectedProject }, '-created_date', 100);
+    const data = await db.entities.AIFinding.filter({ project_id: selectedProject }, '-created_date', 100);
     setFindings(data);
   };
 
@@ -189,8 +189,8 @@ export default function Intelligence() {
     if (!file || !selectedProject) return;
     setUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
-      const doc = await base44.entities.Document.create({
+      const { file_url } = await db.integrations.Core.UploadFile({ file });
+      const doc = await db.entities.Document.create({
         project_id: selectedProject,
         name: file.name,
         document_type: docType,
@@ -218,7 +218,7 @@ export default function Intelligence() {
     if (!doc) return;
     setAnalyzing(true);
     try {
-      await base44.entities.Document.update(doc.id, { ai_processing_status: 'processing' });
+      await db.entities.Document.update(doc.id, { ai_processing_status: 'processing' });
 
       const fileContent = await fetch(doc.file_url).then(r => r.text()).catch(() => '');
       const project = projects.find(p => p.id === selectedProject);
@@ -256,7 +256,7 @@ For each finding provide:
 
 Generate at least 15-20 realistic findings covering different risk areas.`;
 
-      const result = await base44.integrations.Core.InvokeLLM({
+      const result = await db.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: 'object',
@@ -289,7 +289,7 @@ Generate at least 15-20 realistic findings covering different risk areas.`;
       });
 
       if (result?.findings?.length > 0) {
-        await base44.entities.AIFinding.bulkCreate(
+        await db.entities.AIFinding.bulkCreate(
           result.findings.map(f => ({
             ...f,
             project_id: selectedProject,
@@ -298,7 +298,7 @@ Generate at least 15-20 realistic findings covering different risk areas.`;
             is_resolved: false,
           }))
         );
-        await base44.entities.Document.update(doc.id, { ai_processing_status: 'complete', status: 'analyzed' });
+        await db.entities.Document.update(doc.id, { ai_processing_status: 'complete', status: 'analyzed' });
         toast({ title: `AI Analysis Complete`, description: `${result.findings.length} findings generated across all review packages.` });
         loadFindings();
         loadDocuments();
@@ -306,7 +306,7 @@ Generate at least 15-20 realistic findings covering different risk areas.`;
     } catch (e) {
       console.error(e);
       toast({ title: 'Analysis failed', description: 'AI analysis encountered an error.', variant: 'destructive' });
-      if (doc) await base44.entities.Document.update(doc.id, { ai_processing_status: 'failed' });
+      if (doc) await db.entities.Document.update(doc.id, { ai_processing_status: 'failed' });
     } finally {
       setAnalyzing(false);
     }

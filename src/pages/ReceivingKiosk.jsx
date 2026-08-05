@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,8 +23,8 @@ export default function ReceivingKiosk() {
   const loadData = async () => {
     try {
       const [poList, logList] = await Promise.all([
-        base44.entities.purchase_orders.list('-created_date', 100),
-        base44.entities.receiving_logs.list('-created_date', 10),
+        db.entities.purchase_orders.list('-created_date', 100),
+        db.entities.receiving_logs.list('-created_date', 10),
       ]);
       setPurchaseOrders(poList);
       setRecentLogs(logList);
@@ -46,11 +46,11 @@ export default function ReceivingKiosk() {
     try {
       let attachmentPath = '';
       for (const file of files) {
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        const { file_url } = await db.integrations.Core.UploadFile({ file });
         if (!attachmentPath) attachmentPath = file_url;
       }
 
-      const created = await base44.entities.receiving_logs.create({
+      const created = await db.entities.receiving_logs.create({
         po_id: matchedPo?.id || '',
         po_number: matchedPo?.po_number || form.po_number.trim(),
         quantity_ordered: matchedPo?.quantity_ordered || 0,
@@ -63,7 +63,7 @@ export default function ReceivingKiosk() {
       });
 
       const qrPayload = generateQrPayload(created);
-      await base44.entities.Document.create({
+      await db.entities.Document.create({
         project_id: matchedPo?.project_id || '',
         name: `Receiving QR — ${created.po_number} / ${created.material_heat_number || 'no heat'}`,
         document_type: 'other',

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -29,15 +29,15 @@ export default function FieldOperations() {
   const loadAll = useCallback(async () => {
     try {
       const [assetData, inspectionData, hookData, repairData, riggingData, projectData, pieceData, vendorData, poData] = await Promise.all([
-        base44.entities.erection_fleet_assets.list('-created_date', 200),
-        base44.entities.heavy_equipment_inspections.list('-created_date', 200),
-        base44.entities.field_hook_logs.list('-created_date', 500),
-        base44.entities.fleet_repair_logs.list('-created_date', 200),
-        base44.entities.rigging_inventory_ledger.list('-created_date', 200),
-        base44.entities.Project.filter({ is_archived: false }, 'name', 100),
-        base44.entities.pieces.list('-created_date', 500),
-        base44.entities.Vendor.filter({ vendor_type: 'equipment_rental', is_active: true }, 'name', 50),
-        base44.entities.purchase_orders.filter({ status: 'Open' }, '-created_date', 200),
+        db.entities.erection_fleet_assets.list('-created_date', 200),
+        db.entities.heavy_equipment_inspections.list('-created_date', 200),
+        db.entities.field_hook_logs.list('-created_date', 500),
+        db.entities.fleet_repair_logs.list('-created_date', 200),
+        db.entities.rigging_inventory_ledger.list('-created_date', 200),
+        db.entities.Project.filter({ is_archived: false }, 'name', 100),
+        db.entities.pieces.list('-created_date', 500),
+        db.entities.Vendor.filter({ vendor_type: 'equipment_rental', is_active: true }, 'name', 50),
+        db.entities.purchase_orders.filter({ status: 'Open' }, '-created_date', 200),
       ]);
       setAssets(assetData);
       setInspections(inspectionData);
@@ -57,13 +57,13 @@ export default function FieldOperations() {
 
   useEffect(() => {
     loadAll();
-    base44.auth.me()
+    db.auth.me()
       .then((me) => setCanManageFleet((me?.roles || []).some((r) => FLEET_WRITE_ROLES.includes(r))))
       .catch(() => setCanManageFleet(false));
   }, [loadAll]);
 
   const handleTogglePickup = async (asset) => {
-    await base44.entities.erection_fleet_assets.update(asset.id, { is_marked_ready_for_pickup: true });
+    await db.entities.erection_fleet_assets.update(asset.id, { is_marked_ready_for_pickup: true });
     await loadAll();
     toast({ title: `${asset.asset_name} marked ready for pickup` });
   };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Plus, Link as LinkIcon, Trash2, Check, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,8 +32,8 @@ export default function VendorPricing({ bidId }) {
     setLoading(true);
     try {
       const [linkData, custData] = await Promise.all([
-        base44.entities.VendorPricingLink.filter({ bid_id: bidId }, '-created_date', 100),
-        base44.entities.Customer.filter({ is_active: true }, 'name', 100),
+        db.entities.VendorPricingLink.filter({ bid_id: bidId }, '-created_date', 100),
+        db.entities.Customer.filter({ is_active: true }, 'name', 100),
       ]);
       setLinks(linkData);
       setCustomers(custData);
@@ -45,7 +45,7 @@ export default function VendorPricing({ bidId }) {
     setSaving(true);
     try {
       const vendor = customers.find(c => c.id === form.vendor_id);
-      await base44.entities.VendorPricingLink.create({
+      await db.entities.VendorPricingLink.create({
         bid_id: bidId,
         vendor_id: form.vendor_id || null,
         vendor_name: form.vendor_name || vendor?.name || '',
@@ -67,12 +67,12 @@ export default function VendorPricing({ bidId }) {
   };
 
   const toggleApprove = async (link) => {
-    await base44.entities.VendorPricingLink.update(link.id, { is_approved: !link.is_approved });
+    await db.entities.VendorPricingLink.update(link.id, { is_approved: !link.is_approved });
     loadData();
   };
 
   const handleDelete = async (link) => {
-    await base44.entities.VendorPricingLink.delete(link.id);
+    await db.entities.VendorPricingLink.delete(link.id);
     loadData();
   };
 

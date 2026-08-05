@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Search, FileText, Building2, FolderKanban, Calculator, X } from 'lucide-react';
 
 export default function GlobalSearchPalette() {
@@ -35,10 +35,10 @@ export default function GlobalSearchPalette() {
         const q = query.toLowerCase();
         const match = (val) => val?.toLowerCase().includes(q);
         const [bids, customers, projects, documents] = await Promise.all([
-          base44.entities.Bid.filter({ is_archived: false }, '-bid_due_date', 50),
-          base44.entities.Customer.filter({ is_active: true }, 'name', 50),
-          base44.entities.Project.filter({ is_archived: false }, 'name', 50),
-          base44.entities.Document.filter({ is_archived: false }, '-created_date', 50),
+          db.entities.Bid.filter({ is_archived: false }, '-bid_due_date', 50),
+          db.entities.Customer.filter({ is_active: true }, 'name', 50),
+          db.entities.Project.filter({ is_archived: false }, 'name', 50),
+          db.entities.Document.filter({ is_archived: false }, '-created_date', 50),
         ]);
         setResults({
           bids: bids.filter(b => match(b.bid_number) || match(b.job_name) || match(b.customer_name)).slice(0, 5),

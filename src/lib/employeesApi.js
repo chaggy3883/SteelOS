@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { encodeFormulaPin } from '@/lib/pinFormula';
 import { encodePin } from '@/lib/hrSecurity';
 
@@ -18,23 +18,23 @@ const maskEmployee = (employee) => {
 
 // This is the "employees API routing" masking chokepoint the HR module is
 // built around. Every UI surface must read employee records through these
-// two functions instead of calling base44.entities.employees directly, or
+// two functions instead of calling db.entities.employees directly, or
 // the SSN / pay-rate / PIN / lock-state masking below is bypassed entirely.
 // Shop_Manager / Project_Manager (and any role not in FULL_ACCESS_ROLES) only
 // ever see Name, ID, and classification — never pay rate, SSN, or PIN state.
 export async function listEmployeesForRole(roles, sortField = '-created_date', limit = 200) {
-  const rows = await base44.entities.employees.list(sortField, limit);
+  const rows = await db.entities.employees.list(sortField, limit);
   return hasFullAccess(roles) ? rows : rows.map(maskEmployee);
 }
 
 export async function getEmployeeForRole(id, roles) {
-  const row = await base44.entities.employees.get(id);
+  const row = await db.entities.employees.get(id);
   if (!row) return null;
   return hasFullAccess(roles) ? row : maskEmployee(row);
 }
 
 const nextEmployeeNumber = async () => {
-  const existing = await base44.entities.employees.list('-created_date', 500);
+  const existing = await db.entities.employees.list('-created_date', 500);
   const max = existing.reduce((m, e) => {
     const n = parseInt(e.employee_number, 10);
     return Number.isFinite(n) ? Math.max(m, n) : m;
@@ -47,14 +47,14 @@ const nextEmployeeNumber = async () => {
 // "mark candidate hired" UI action must go through this single call site so
 // provisioning can never be skipped.
 export async function hireCandidate(candidateId) {
-  const candidate = await base44.entities.candidate_profiles.get(candidateId);
+  const candidate = await db.entities.candidate_profiles.get(candidateId);
   if (!candidate) throw new Error('Candidate not found');
 
   const employee_number = await nextEmployeeNumber();
   // PIN is a pure formula of ssn_last4 + employee_number (see pinFormula.js's
   // security caveat) — with ssn_last4 still blank at provisioning time, this
   // computes a placeholder PIN that becomes real the moment HR enters the SSN.
-  const employee = await base44.entities.employees.create({
+  const employee = await db.entities.employees.create({
     employee_number,
     full_name: candidate.candidate_name,
     classification: candidate.position_applied,
@@ -69,7 +69,7 @@ export async function hireCandidate(candidateId) {
     is_active_login: true,
   });
 
-  await base44.entities.candidate_profiles.update(candidateId, {
+  await db.entities.candidate_profiles.update(candidateId, {
     status: 'Hired',
     hired_employee_id: employee.id,
   });
@@ -81,7 +81,7 @@ export async function hireCandidate(candidateId) {
 // instant BOTH W-4 and I-9 are approved, and re-locks if either is revoked.
 export async function reevaluateTimeclockLock(employee) {
   const shouldUnlock = !!employee.has_w4_approved && !!employee.has_i9_approved;
-  return base44.entities.employees.update(employee.id, { is_timeclock_locked: !shouldUnlock });
+  return db.entities.employees.update(employee.id, { is_timeclock_locked: !shouldUnlock });
 }
 
 // The formula PIN is the auto-assigned DEFAULT whenever the underlying
@@ -91,11 +91,11 @@ export async function reevaluateTimeclockLock(employee) {
 // override sticks until either HR sets a new one or edits ssn_last4/employee
 // number again, which recomputes the formula and replaces it.
 export async function syncFormulaPin(employee) {
-  return base44.entities.employees.update(employee.id, { pin_encrypted: encodeFormulaPin(employee) });
+  return db.entities.employees.update(employee.id, { pin_encrypted: encodeFormulaPin(employee) });
 }
 
 // Explicit HR override — bypasses the formula entirely. `rawPin` must be
 // exactly 5 digits (enforced by the System Access Portal's input mask).
 export async function setManualPin(employee, rawPin) {
-  return base44.entities.employees.update(employee.id, { pin_encrypted: encodePin(rawPin) });
+  return db.entities.employees.update(employee.id, { pin_encrypted: encodePin(rawPin) });
 }

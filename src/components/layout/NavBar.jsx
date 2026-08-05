@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { getUserPermissions, isModuleAllowed } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany, isImpersonating } from '@/lib/tenantContext';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
@@ -98,8 +98,8 @@ const navGroups = [
   },
 ];
 
-// Sandboxed Kiosk Navigation Block — an Employee-PIN session (base44's
-// synthetic session from loginViaEmployeePin, identified by employee_id)
+// Sandboxed Kiosk Navigation Block — an Employee-PIN session (the local
+// auth mock's synthetic session from loginViaEmployeePin, identified by employee_id)
 // is a shared shop-floor terminal identity, not a real app account. Its
 // 'user' role still legitimately grants /inventory and /documents for
 // non-kiosk general users, so this can't be fixed in rbacConfig — it's
@@ -117,7 +117,7 @@ export default function NavBar() {
   useEffect(() => {
     (async () => {
       try {
-        const u = await base44.auth.me();
+        const u = await db.auth.me();
         // A tenant-level 'admin' role's allowed_modules is the wildcard '*'
         // (see BUILTIN_ROLES in rbacConfig.jsx), which would otherwise pass
         // isModuleAllowed() for /super-admin/dashboard too — that's a nav
@@ -145,7 +145,7 @@ export default function NavBar() {
           // returned by me(), no separate fetch needed.
           if (u?.employee_id) {
             try {
-              const emp = await base44.entities.employees.get(u.employee_id);
+              const emp = await db.entities.employees.get(u.employee_id);
               const overrides = emp?.permission_overrides || [];
               modules = modules.filter((path) => path === '/employee-center' || isCapabilityAllowed(overrides, `module:${path}`));
             } catch (e) {}

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 const ROTATE_MS = 7000;
 
 // Renders whatever the Super Admin has uploaded in the Login Vault Slideshow
-// manager (base44.entities.login_slideshow_images) as a slow-zooming,
+// manager (db.entities.login_slideshow_images) as a slow-zooming,
 // cross-fading backdrop. Falls back to a plain dark gradient when nothing's
 // been uploaded yet — never a broken image, never a hardcoded external URL.
 export default function LoginVaultBackdrop() {
@@ -13,7 +13,7 @@ export default function LoginVaultBackdrop() {
   const [cycle, setCycle] = useState(0);
 
   useEffect(() => {
-    base44.entities.login_slideshow_images.list('display_order', 20)
+    db.entities.login_slideshow_images.list('display_order', 20)
       .then(setImages)
       .catch(() => setImages([]));
   }, []);

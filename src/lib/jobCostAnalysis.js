@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 const OVERRUN_THRESHOLD_PCT = 15;
 
@@ -9,13 +9,13 @@ export async function flagCostCodeOverruns(projectId) {
   if (!projectId) return [];
 
   const [bids, jobCostRows] = await Promise.all([
-    base44.entities.Bid.filter({ won_project_id: projectId }, '-created_date', 1),
-    base44.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 200),
+    db.entities.Bid.filter({ won_project_id: projectId }, '-created_date', 1),
+    db.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 200),
   ]);
   const bid = bids[0];
   if (!bid || jobCostRows.length === 0) return [];
 
-  const takeoffLines = await base44.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 100);
+  const takeoffLines = await db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 100);
   const estimatedHoursByCode = {};
   takeoffLines.forEach((line) => { estimatedHoursByCode[line.cost_category] = line.man_hours || 0; });
 

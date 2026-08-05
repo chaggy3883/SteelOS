@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { KeyRound, Plus, Copy, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,7 +37,7 @@ export default function TokenVaultManager({ tokens, onChanged }) {
     setSaving(true);
     try {
       const fullKey = generateFullKey();
-      const created = await base44.entities.ApiTokenVault.create({
+      const created = await db.entities.ApiTokenVault.create({
         token_name: tokenName.trim(),
         partial_key_string: maskKey(fullKey),
         encrypted_secret_key: obscureSecret(fullKey),
@@ -59,7 +59,7 @@ export default function TokenVaultManager({ tokens, onChanged }) {
     setBusyId(token.id);
     try {
       const nextStatus = token.status === 'Active' ? 'Revoked' : 'Active';
-      await base44.entities.ApiTokenVault.update(token.id, { status: nextStatus });
+      await db.entities.ApiTokenVault.update(token.id, { status: nextStatus });
       onChanged();
     } catch (e) {
       toast({ title: 'Failed to update key status', variant: 'destructive' });

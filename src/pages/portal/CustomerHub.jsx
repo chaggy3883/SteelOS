@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { getPortalSession } from '@/lib/portalAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -27,7 +27,7 @@ export default function CustomerHub() {
 
   const loadProjects = async () => {
     try {
-      const list = await base44.entities.Project.filter({ customer_id: session?.orgId }, '-created_date', 50);
+      const list = await db.entities.Project.filter({ customer_id: session?.orgId }, '-created_date', 50);
       setProjects(list);
       if (list.length > 0) setSelectedProjectId(list[0].id);
       else setLoading(false);
@@ -38,11 +38,11 @@ export default function CustomerHub() {
     setLoading(true);
     try {
       const [pieceData, rfiData, submittalData, coData, invoiceData] = await Promise.all([
-        base44.entities.PieceMark.filter({ project_id: projectId }, '-created_date', 200),
-        base44.entities.RFI.filter({ project_id: projectId }, '-created_date', 50),
-        base44.entities.Submittal.filter({ project_id: projectId }, '-created_date', 50),
-        base44.entities.change_orders.filter({ project_id: projectId }, '-created_date', 50),
-        base44.entities.InvoiceReceivable.filter({ project_id: projectId }, '-created_date', 50),
+        db.entities.PieceMark.filter({ project_id: projectId }, '-created_date', 200),
+        db.entities.RFI.filter({ project_id: projectId }, '-created_date', 50),
+        db.entities.Submittal.filter({ project_id: projectId }, '-created_date', 50),
+        db.entities.change_orders.filter({ project_id: projectId }, '-created_date', 50),
+        db.entities.InvoiceReceivable.filter({ project_id: projectId }, '-created_date', 50),
       ]);
       setPieces(pieceData);
       setRfis(rfiData);
@@ -64,8 +64,8 @@ export default function CustomerHub() {
     const file = e.dataTransfer.files?.[0];
     if (!file || !selectedProjectId) return;
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
-      await base44.entities.Document.create({
+      const { file_url } = await db.integrations.Core.UploadFile({ file });
+      await db.entities.Document.create({
         project_id: selectedProjectId,
         name: file.name,
         file_url,

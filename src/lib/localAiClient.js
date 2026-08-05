@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 // Client for a private, locally-hosted OpenAI-compatible chat completion
 // server (e.g. llama.cpp, vLLM, LM Studio). No commercial cloud endpoint is
@@ -129,7 +129,7 @@ export async function detectBlueprintShapesBatch(companyId, companyName, fileUrl
 export async function getCompanyName(companyId) {
   if (!companyId) return '';
   try {
-    const company = await base44.entities.Company.get(companyId);
+    const company = await db.entities.Company.get(companyId);
     return company?.name || '';
   } catch (e) {
     return '';
@@ -144,7 +144,7 @@ export async function getCompanyName(companyId) {
 export async function getCompanyAiConfig(companyId) {
   if (!companyId) return { provider: 'local', localUrl: getLocalAiBaseUrl() };
   try {
-    const company = await base44.entities.Company.get(companyId);
+    const company = await db.entities.Company.get(companyId);
     return {
       provider: company?.ai_provider || 'local',
       localUrl: company?.tenant_local_url || getLocalAiBaseUrl(),

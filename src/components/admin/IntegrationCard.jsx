@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -78,9 +78,9 @@ export default function IntegrationCard({ integration, credential, onSaved }) {
         is_active: form.is_active ?? credential?.is_active ?? false,
       };
       if (credential?.id) {
-        await base44.entities.ApiCredential.update(credential.id, data);
+        await db.entities.ApiCredential.update(credential.id, data);
       } else {
-        await base44.entities.ApiCredential.create(data);
+        await db.entities.ApiCredential.create(data);
       }
       toast({ title: `${integration.label} credentials saved` });
       setForm({});
@@ -104,7 +104,7 @@ export default function IntegrationCard({ integration, credential, onSaved }) {
       const testStatus = Math.random() > 0.3 ? 'connected' : 'error';
       const testMsg = testStatus === 'connected' ? 'Connection successful' : 'Authentication failed — check credentials';
       if (credential?.id) {
-        await base44.entities.ApiCredential.update(credential.id, {
+        await db.entities.ApiCredential.update(credential.id, {
           connection_status: testStatus,
           last_tested: new Date().toISOString(),
           last_test_message: testMsg,

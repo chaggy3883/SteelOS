@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { useToast } from '@/components/ui/use-toast';
 import { Delete, Loader2 } from 'lucide-react';
 import AuthLayout from '@/components/AuthLayout';
@@ -17,7 +17,7 @@ export default function KioskKeypadLogin({ companyCode, companyName }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    base44.entities.Company.list('-created_date', 200)
+    db.entities.Company.list('-created_date', 200)
       .then((rows) => setCompany(rows.find((c) => (c.company_code || '').toLowerCase() === companyCode.toLowerCase()) || null))
       .catch(() => setCompany(null));
   }, [companyCode]);
@@ -26,7 +26,7 @@ export default function KioskKeypadLogin({ companyCode, companyName }) {
     setLoading(true);
     setError('');
     try {
-      await base44.auth.loginViaEmployeePin(companyCode, finishedNumber, finishedPin);
+      await db.auth.loginViaEmployeePin(companyCode, finishedNumber, finishedPin);
       window.location.href = '/employee-center';
     } catch (err) {
       const message = err.message || 'Invalid employee number or PIN';

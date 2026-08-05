@@ -3,7 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import TopBar from './TopBar';
 import NavBar from './NavBar';
 import SubscriptionGate from './SubscriptionGate';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 
 export default function AppLayout() {
@@ -30,7 +30,7 @@ export default function AppLayout() {
 
   const loadUser = async () => {
     try {
-      const me = await base44.auth.me();
+      const me = await db.auth.me();
       setUser(me);
       const company = await getEffectiveCompany();
       setEffectiveCompany(company);

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, TransformControls, Grid, Html, Edges } from '@react-three/drei';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -93,7 +93,7 @@ export default function ShopFloorLayoutEditor() {
 
   const loadZones = async () => {
     try {
-      const rows = await base44.entities.ShopFloorZone.list('-created_date', 200);
+      const rows = await db.entities.ShopFloorZone.list('-created_date', 200);
       setZones(rows);
     } catch (e) {}
   };
@@ -110,7 +110,7 @@ export default function ShopFloorLayoutEditor() {
       return;
     }
     try {
-      const created = await base44.entities.ShopFloorZone.create({
+      const created = await db.entities.ShopFloorZone.create({
         label: form.label.trim(),
         zone_type: form.zone_type,
         length_ft: Number(form.length_ft) || 20,
@@ -131,7 +131,7 @@ export default function ShopFloorLayoutEditor() {
 
   const persistZone = async (id, patch) => {
     try {
-      const updated = await base44.entities.ShopFloorZone.update(id, patch);
+      const updated = await db.entities.ShopFloorZone.update(id, patch);
       setZones((prev) => prev.map((z) => (z.id === id ? updated : z)));
     } catch (e) {
       toast({ title: 'Unable to save zone', variant: 'destructive' });
@@ -162,7 +162,7 @@ export default function ShopFloorLayoutEditor() {
     setSaving(true);
     try {
       const committed = await Promise.all(
-        zones.map((zone) => base44.entities.ShopFloorZone.update(zone.id, {
+        zones.map((zone) => db.entities.ShopFloorZone.update(zone.id, {
           label: zone.label,
           zone_type: zone.zone_type,
           length_ft: zone.length_ft,
@@ -186,7 +186,7 @@ export default function ShopFloorLayoutEditor() {
   const handleDelete = async () => {
     if (!selectedZone) return;
     try {
-      await base44.entities.ShopFloorZone.delete(selectedZone.id);
+      await db.entities.ShopFloorZone.delete(selectedZone.id);
       delete groupRefs.current[selectedZone.id];
       setZones((prev) => prev.filter((z) => z.id !== selectedZone.id));
       setSelectedId(null);

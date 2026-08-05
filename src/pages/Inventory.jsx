@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Package, Plus, Search, Warehouse, List, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,7 @@ export default function Inventory() {
 
   const loadShopFloorZones = async () => {
     try {
-      const zones = await base44.entities.ShopFloorZone.list('-created_date', 200);
+      const zones = await db.entities.ShopFloorZone.list('-created_date', 200);
       setShopFloorZones(zones);
     } catch (e) { setShopFloorZones([]); }
   };
@@ -43,7 +43,7 @@ export default function Inventory() {
   const loadItems = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.InventoryItem.filter({ is_active: true }, '-created_date', 100);
+      const data = await db.entities.InventoryItem.filter({ is_active: true }, '-created_date', 100);
       setItems(data);
     } catch (e) {} finally { setLoading(false); }
   };
@@ -56,7 +56,7 @@ export default function Inventory() {
     setSavingItem(true);
     try {
       const quantityOnHand = Number(itemForm.quantity_on_hand) || 0;
-      const created = await base44.entities.InventoryItem.create({
+      const created = await db.entities.InventoryItem.create({
         item_number: itemForm.item_number.trim(),
         description: itemForm.description.trim(),
         category: itemForm.category,

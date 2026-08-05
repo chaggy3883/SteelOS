@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { computeEffectiveTaxRate, getJoistDeckTaxRate } from '@/lib/taxRate';
 
 const ERECTION_CATEGORIES = ['steel_erection', 'outsourced_misc_material_erection', 'erection_labor_hours', 'crane_rental', 'mobilization', 'field_rigging'];
@@ -25,7 +25,7 @@ export function computeBidTaxBreakdown(bid, lines) {
 // production query.
 export async function computeQuarterlyTaxExposure(bids) {
   const rows = await Promise.all(bids.map(async (bid) => {
-    const lines = await base44.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200);
+    const lines = await db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200);
     const { structuralTaxAmount, joistDeckTaxAmount } = computeBidTaxBreakdown(bid, lines);
     const anchorDate = bid.bid_due_date || bid.created_date;
     const d = new Date(anchorDate);

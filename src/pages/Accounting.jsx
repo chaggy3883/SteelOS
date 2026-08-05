@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -115,12 +115,12 @@ export default function Accounting() {
     setLoading(true);
     try {
       const [projData, findData, vendorData, poData, rlData, billData] = await Promise.all([
-        base44.entities.Project.filter({ is_archived: false }, '-contract_value', 50),
-        base44.entities.AIFinding.filter({ review_package: 'accounting' }, '-created_date', 50),
-        base44.entities.Vendor.list('-created_date', 100),
-        base44.entities.purchase_orders.list('-created_date', 100),
-        base44.entities.receiving_logs.list('-created_date', 100),
-        base44.entities.VendorBill.list('-created_date', 100),
+        db.entities.Project.filter({ is_archived: false }, '-contract_value', 50),
+        db.entities.AIFinding.filter({ review_package: 'accounting' }, '-created_date', 50),
+        db.entities.Vendor.list('-created_date', 100),
+        db.entities.purchase_orders.list('-created_date', 100),
+        db.entities.receiving_logs.list('-created_date', 100),
+        db.entities.VendorBill.list('-created_date', 100),
       ]);
       setProjects(projData);
       setFindings(findData);
@@ -135,7 +135,7 @@ export default function Accounting() {
   const loadJobCostRows = async (projectId) => {
     setLoadingJobCost(true);
     try {
-      const rows = await base44.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 200);
+      const rows = await db.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 200);
       setJobCostRows(rows);
     } catch (e) {
       setJobCostRows([]);
@@ -147,9 +147,9 @@ export default function Accounting() {
   const loadSovAndLedger = async (projectId) => {
     try {
       const [sovData, invoiceData, ledgerData] = await Promise.all([
-        base44.entities.SovLine.filter({ project_id: projectId }, '-created_date', 200),
-        base44.entities.InvoiceReceivable.filter({ project_id: projectId }, '-created_date', 200),
-        base44.entities.JobCostLedgerEntry.filter({ project_id: projectId }, '-created_date', 500),
+        db.entities.SovLine.filter({ project_id: projectId }, '-created_date', 200),
+        db.entities.InvoiceReceivable.filter({ project_id: projectId }, '-created_date', 200),
+        db.entities.JobCostLedgerEntry.filter({ project_id: projectId }, '-created_date', 500),
       ]);
       setSovLines(sovData);
       setInvoiceReceivables(invoiceData);
@@ -177,9 +177,9 @@ export default function Accounting() {
     try {
       const payload = { ...rowForm, project_id: selectedProjectId };
       if (editingRow && editingRow !== 'new') {
-        await base44.entities.ProjectJobCostSummary.update(editingRow.id, payload);
+        await db.entities.ProjectJobCostSummary.update(editingRow.id, payload);
       } else {
-        await base44.entities.ProjectJobCostSummary.create(payload);
+        await db.entities.ProjectJobCostSummary.create(payload);
       }
       toast({ title: 'Job cost row saved' });
       setEditingRow(null);
@@ -193,7 +193,7 @@ export default function Accounting() {
 
   const handleDeleteRow = async (row) => {
     try {
-      await base44.entities.ProjectJobCostSummary.delete(row.id);
+      await db.entities.ProjectJobCostSummary.delete(row.id);
       toast({ title: 'Row deleted' });
       loadJobCostRows(selectedProjectId);
     } catch (e) {
@@ -209,7 +209,7 @@ export default function Accounting() {
   const handleSaveContract = async () => {
     setSavingContract(true);
     try {
-      await base44.entities.Project.update(selectedProjectId, contractForm);
+      await db.entities.Project.update(selectedProjectId, contractForm);
       toast({ title: 'Contract summary saved' });
       setEditingContract(false);
       loadData();
@@ -224,7 +224,7 @@ export default function Accounting() {
   const handleSaveVendor = async () => {
     if (!vendorForm.name) { toast({ title: 'Vendor name is required', variant: 'destructive' }); return; }
     try {
-      await base44.entities.Vendor.create(vendorForm);
+      await db.entities.Vendor.create(vendorForm);
       toast({ title: 'Vendor added' });
       setEditingVendor(false);
       setVendorForm(emptyVendorForm());
@@ -251,9 +251,9 @@ export default function Accounting() {
       const po = purchaseOrders.find(p => p.id === billForm.po_id);
       const payload = { ...billForm, project_id: selectedProjectId };
       if (editingBill && editingBill !== 'new') {
-        await base44.entities.VendorBill.update(editingBill.id, payload);
+        await db.entities.VendorBill.update(editingBill.id, payload);
       } else {
-        await base44.entities.VendorBill.create(payload);
+        await db.entities.VendorBill.create(payload);
       }
       toast({ title: 'Vendor bill saved', description: po ? undefined : 'No matching PO found for match calculations.' });
       setEditingBill(null);
@@ -270,7 +270,7 @@ export default function Accounting() {
     const receivingLog = receivingLogs.find(r => r.po_id === bill.po_id || r.po_number === po?.po_number);
     const result = runThreeWayMatch(bill, po, receivingLog);
     try {
-      await base44.entities.VendorBill.update(bill.id, result);
+      await db.entities.VendorBill.update(bill.id, result);
       toast({ title: `Match result: ${result.status.replace(/_/g, ' ')}`, description: `Variance ${result.variance_pct}%` });
       loadData();
     } catch (e) {
@@ -294,9 +294,9 @@ export default function Accounting() {
     try {
       const payload = { ...sovForm, project_id: selectedProjectId };
       if (editingSov && editingSov !== 'new') {
-        await base44.entities.SovLine.update(editingSov.id, payload);
+        await db.entities.SovLine.update(editingSov.id, payload);
       } else {
-        await base44.entities.SovLine.create(payload);
+        await db.entities.SovLine.create(payload);
       }
       toast({ title: 'SOV line saved' });
       setEditingSov(null);
@@ -321,9 +321,9 @@ export default function Accounting() {
       const netBilling = (Number(invoiceForm.gross_amount) || 0) - (Number(invoiceForm.retainage_held) || 0);
       const payload = { ...invoiceForm, project_id: selectedProjectId, net_billing: netBilling };
       if (editingInvoice && editingInvoice !== 'new') {
-        await base44.entities.InvoiceReceivable.update(editingInvoice.id, payload);
+        await db.entities.InvoiceReceivable.update(editingInvoice.id, payload);
       } else {
-        await base44.entities.InvoiceReceivable.create(payload);
+        await db.entities.InvoiceReceivable.create(payload);
       }
       toast({ title: 'Progress billing saved' });
       setEditingInvoice(null);
@@ -357,7 +357,7 @@ export default function Accounting() {
     if (!ledgerForm.cost_code) { toast({ title: 'Cost Code is required', variant: 'destructive' }); return; }
     try {
       const payload = { ...ledgerForm, project_id: selectedProjectId };
-      await base44.entities.JobCostLedgerEntry.create(payload);
+      await db.entities.JobCostLedgerEntry.create(payload);
       toast({ title: 'Ledger entry added' });
       setEditingLedger(null);
       loadSovAndLedger(selectedProjectId);

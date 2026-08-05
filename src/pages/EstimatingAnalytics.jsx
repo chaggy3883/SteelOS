@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Factory, Target, Percent, Clock3 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -21,10 +21,10 @@ export default function EstimatingAnalytics() {
     setLoading(true);
     try {
       const [varData, bidData, jobCostRows, projectData] = await Promise.all([
-        base44.entities.HistoricalVariance.list('-completed_date', 100),
-        base44.entities.Bid.filter({ is_archived: false }, '-created_date', 500),
-        base44.entities.ProjectJobCostSummary.list('-created_date', 500),
-        base44.entities.Project.list('-created_date', 200),
+        db.entities.HistoricalVariance.list('-completed_date', 100),
+        db.entities.Bid.filter({ is_archived: false }, '-created_date', 500),
+        db.entities.ProjectJobCostSummary.list('-created_date', 500),
+        db.entities.Project.list('-created_date', 200),
       ]);
       setVariances(varData);
       setBids(bidData);

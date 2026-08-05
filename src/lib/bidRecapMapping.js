@@ -10,7 +10,7 @@
 // for the estimator to fill in Excel, same as today.
 const KNOWN_RECAP_ESTIMATORS = ['Bill Holfreter', 'Paul Hostetter']; // must match RECAP!A56:A57 — update if that roster changes
 const LEED_TIERS = ['Certified', 'Silver', 'Gold', 'Platinum', 'Government', 'N/A'];
-const STATE_TO_JURISDICTION = { indiana: 'Indiana', in: 'Indiana', kentucky: 'Kentucky', ky: 'Kentucky', michigan: 'Michigan', mi: 'Michigan' };
+const STATE_TO_JURISDICTION = { indiana: 'Indiana', in: 'Indiana', kentucky: 'Kentucky', ky: 'Kentucky', michigan: 'Michigan', mi: 'Michigan', ohio: 'Hancock', oh: 'Hancock' };
 
 const resolveEstimatorName = (fullName) =>
   KNOWN_RECAP_ESTIMATORS.find((n) => n.toLowerCase() === String(fullName || '').trim().toLowerCase()) || null;

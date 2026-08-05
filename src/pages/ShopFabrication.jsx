@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,10 +37,10 @@ const STATION_CERT_REQUIREMENTS = {
 const assertStationCertClearance = async (employeeNumber, stationId) => {
   const requiredCert = STATION_CERT_REQUIREMENTS[Number(stationId)];
   if (!requiredCert) return { ok: true };
-  const matches = await base44.entities.employees.filter({ employee_number: String(employeeNumber).trim() });
+  const matches = await db.entities.employees.filter({ employee_number: String(employeeNumber).trim() });
   const employee = matches[0];
   if (!employee) return { ok: true }; // no HR record on file for this ID — nothing to block against
-  const certs = await base44.entities.employee_certifications.filter({ employee_id: employee.id, cert_type: requiredCert });
+  const certs = await db.entities.employee_certifications.filter({ employee_id: employee.id, cert_type: requiredCert });
   const hasValidCert = certs.some((c) => getCertStatus(c.expiration_date) !== 'Expired');
   if (!hasValidCert) {
     return { ok: false, message: `${employee.full_name} needs a valid ${requiredCert.replace(/_/g, ' ')} certification for ${stationName(stationId)}.` };
@@ -87,7 +87,7 @@ export default function ShopFabrication() {
 
   const handleTagPrinted = async () => {
     if (!printSheet?.targetRecordId) return;
-    await base44.entities.print_label_jobs.create({
+    await db.entities.print_label_jobs.create({
       label_type: 'Piece_Mark',
       target_record_id: printSheet.targetRecordId,
       zpl_payload_string: buildZplPayload({ labelType: 'Piece_Mark', title: printSheet.title, subtitle: printSheet.subtitle, qrPayload: printSheet.qrPayload }),
@@ -100,11 +100,11 @@ export default function ShopFabrication() {
     setLoading(true);
     try {
       const [pieceData, logsData, qaData, scheduleData, overrideData] = await Promise.all([
-        base44.entities.pieces.list('-created_date', 100),
-        base44.entities.station_logs.list('-created_date', 100),
-        base44.entities.qa_inspections.list('-created_date', 100),
-        base44.entities.shop_schedules.list('-created_date', 200),
-        base44.entities.manager_overrides.list('-created_date', 200),
+        db.entities.pieces.list('-created_date', 100),
+        db.entities.station_logs.list('-created_date', 100),
+        db.entities.qa_inspections.list('-created_date', 100),
+        db.entities.shop_schedules.list('-created_date', 200),
+        db.entities.manager_overrides.list('-created_date', 200),
       ]);
       setSchedules(scheduleData);
       setOverrides(overrideData);
@@ -117,7 +117,7 @@ export default function ShopFabrication() {
           const cutoff = new Date(started);
           cutoff.setHours(SHIFT_END_HOUR, 0, 0, 0);
           const elapsed_minutes = Math.max(0, Math.round((cutoff.getTime() - started.getTime()) / 60000));
-          return base44.entities.station_logs.update(log.id, {
+          return db.entities.station_logs.update(log.id, {
             status: 'Paused',
             end_time: cutoff.toISOString(),
             elapsed_minutes,
@@ -178,7 +178,7 @@ export default function ShopFabrication() {
         return;
       }
     }
-    const log = await base44.entities.station_logs.create({
+    const log = await db.entities.station_logs.create({
       piece_id: selectedPiece.id,
       employee_id: employeeId,
       station_id: selectedPiece.current_station_id,
@@ -195,7 +195,7 @@ export default function ShopFabrication() {
     if (!activeLog) return;
     const endTime = new Date().toISOString();
     const elapsed_minutes = Math.max(1, Math.round((new Date(endTime).getTime() - new Date(activeLog.start_time).getTime()) / 60000));
-    const updated = await base44.entities.station_logs.update(activeLog.id, {
+    const updated = await db.entities.station_logs.update(activeLog.id, {
       status: nextStatus,
       end_time: endTime,
       elapsed_minutes,
@@ -207,7 +207,7 @@ export default function ShopFabrication() {
 
   const resumeWork = async (pausedLog) => {
     if (!selectedPiece) return;
-    const log = await base44.entities.station_logs.create({
+    const log = await db.entities.station_logs.create({
       piece_id: selectedPiece.id,
       employee_id: employeeId,
       station_id: pausedLog?.station_id ?? selectedPiece.current_station_id,
@@ -231,7 +231,7 @@ export default function ShopFabrication() {
       }
     }
     try {
-      const log = await base44.entities.station_logs.create({
+      const log = await db.entities.station_logs.create({
         piece_id: selectedPiece.id,
         employee_id: employeeId,
         station_id: nextStationId,
@@ -240,7 +240,7 @@ export default function ShopFabrication() {
         elapsed_minutes: 0,
         auto_paused: false,
       });
-      const updatedPiece = await base44.entities.pieces.update(selectedPiece.id, { current_station_id: nextStationId });
+      const updatedPiece = await db.entities.pieces.update(selectedPiece.id, { current_station_id: nextStationId });
       setStationLogs((prev) => [log, ...prev]);
       setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
       toast({ title: `Routed to ${stationName(nextStationId)}` });
@@ -251,7 +251,7 @@ export default function ShopFabrication() {
 
   const requestInspection = async () => {
     if (!selectedPiece) return;
-    const updated = await base44.entities.pieces.update(selectedPiece.id, { workflow_status: 'Inspector_Queue' });
+    const updated = await db.entities.pieces.update(selectedPiece.id, { workflow_status: 'Inspector_Queue' });
     setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     toast({ title: 'Sent to Inspector Queue', description: 'Workspace frozen pending approval.' });
   };
@@ -263,7 +263,7 @@ export default function ShopFabrication() {
       return;
     }
     const stage = pendingStage(selectedPiece);
-    const created = await base44.entities.qa_inspections.create({
+    const created = await db.entities.qa_inspections.create({
       piece_id: selectedPiece.id,
       stage,
       inspector_id: employeeId,
@@ -280,7 +280,7 @@ export default function ShopFabrication() {
     } else {
       nextWorkflowStatus = status === 'Approved' ? 'Paint_Unlocked' : 'Weld_Unlocked';
     }
-    const updatedPiece = await base44.entities.pieces.update(selectedPiece.id, { workflow_status: nextWorkflowStatus });
+    const updatedPiece = await db.entities.pieces.update(selectedPiece.id, { workflow_status: nextWorkflowStatus });
     setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
     setStampCredentials('');
     setQaNotes('');

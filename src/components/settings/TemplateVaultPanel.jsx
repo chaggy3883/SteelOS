@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Upload, FileSpreadsheet, Save, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +27,7 @@ export default function TemplateVaultPanel() {
   const loadTemplates = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.company_templates.filter({ is_active: true }, '-created_date', 100);
+      const data = await db.entities.company_templates.filter({ is_active: true }, '-created_date', 100);
       setTemplates(data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -38,8 +38,8 @@ export default function TemplateVaultPanel() {
     if (!file) return;
     setUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
-      const created = await base44.entities.company_templates.create({
+      const { file_url } = await db.integrations.Core.UploadFile({ file });
+      const created = await db.entities.company_templates.create({
         template_name: pendingName.trim() || file.name,
         category: pendingCategory,
         file_url,
@@ -63,7 +63,7 @@ export default function TemplateVaultPanel() {
   const saveLayout = async (id) => {
     setSavingId(id);
     try {
-      await base44.entities.company_templates.update(id, { layout_config_text: editingText });
+      await db.entities.company_templates.update(id, { layout_config_text: editingText });
       setTemplates((prev) => prev.map((t) => t.id === id ? { ...t, layout_config_text: editingText } : t));
       setEditingId(null);
       toast({ title: 'Layout saved' });
@@ -73,7 +73,7 @@ export default function TemplateVaultPanel() {
   };
 
   const removeTemplate = async (id) => {
-    await base44.entities.company_templates.update(id, { is_active: false });
+    await db.entities.company_templates.update(id, { is_active: false });
     setTemplates((prev) => prev.filter((t) => t.id !== id));
   };
 

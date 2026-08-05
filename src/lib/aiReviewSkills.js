@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 // Standardized handler for the "ai_review_skills" hook: takes a Skill (a stored
 // system prompt) plus unstructured file attachments, and produces a report tied
@@ -9,11 +9,11 @@ import { base44 } from '@/api/base44Client';
 export async function runBidReviewSkill(bid, skill, files = []) {
   const fileUrls = [];
   for (const file of files) {
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
+    const { file_url } = await db.integrations.Core.UploadFile({ file });
     fileUrls.push(file_url);
   }
 
-  const report = await base44.entities.BidReviewReport.create({
+  const report = await db.entities.BidReviewReport.create({
     bid_id: bid.id,
     skill_id: skill.id,
     skill_name: skill.name,
@@ -33,14 +33,14 @@ export async function runBidReviewSkill(bid, skill, files = []) {
       `Exclusions: ${bid.exclusions || 'N/A'}`,
     ].join('\n');
 
-    const response = await base44.integrations.Core.InvokeLLM({ prompt, file_urls: fileUrls });
+    const response = await db.integrations.Core.InvokeLLM({ prompt, file_urls: fileUrls });
 
-    return await base44.entities.BidReviewReport.update(report.id, {
+    return await db.entities.BidReviewReport.update(report.id, {
       status: 'complete',
       report_content: response?.content || '',
       summary: response?.summary || '',
     });
   } catch (e) {
-    return base44.entities.BidReviewReport.update(report.id, { status: 'failed' });
+    return db.entities.BidReviewReport.update(report.id, { status: 'failed' });
   }
 }

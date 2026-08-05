@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { ArrowLeft, ExternalLink, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +29,7 @@ export default function BidNew() {
 
   const loadCRM = async () => {
     try {
-      const data = await base44.entities.Customer.filter({ is_active: true }, 'name', 200);
+      const data = await db.entities.Customer.filter({ is_active: true }, 'name', 200);
       setCustomers(data.filter(c => ['general_contractor', 'owner', 'other'].includes(c.customer_type)));
       setVendors(data.filter(c => c.customer_type === 'general_contractor'));
     } catch (e) {}
@@ -55,7 +55,7 @@ export default function BidNew() {
     try {
       const yearSuffix = String(new Date().getFullYear()).slice(-2);
       const bidPrefix = `E${yearSuffix}-`;
-      const allBids = await base44.entities.Bid.list('-created_date', 500);
+      const allBids = await db.entities.Bid.list('-created_date', 500);
       const currentYearBids = allBids.filter(b => String(b.bid_number || '').startsWith(bidPrefix));
       const maxNum = currentYearBids.reduce((max, b) => {
         const n = parseInt(String(b.bid_number || '').split('-')[1] || '0', 10);
@@ -68,7 +68,7 @@ export default function BidNew() {
       const job_city = locParts[0] || '';
       const job_state = locParts[1] || '';
 
-      const bid = await base44.entities.Bid.create({
+      const bid = await db.entities.Bid.create({
         bid_number: bidNumber,
         customer_id: form.customer_id || null,
         customer_name: form.customer_name,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { getPortalSession } from '@/lib/portalAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,10 +38,10 @@ export default function VendorPanel() {
     setLoading(true);
     try {
       const [poData, recvData, billData, mtrData] = await Promise.all([
-        base44.entities.purchase_orders.filter({ vendor_id: session?.orgId }, '-created_date', 100),
-        base44.entities.receiving_logs.list('-created_date', 200),
-        base44.entities.VendorBill.filter({ vendor_id: session?.orgId }, '-created_date', 100),
-        base44.entities.MillTestReport.filter({ vendor_id: session?.orgId }, '-created_date', 100),
+        db.entities.purchase_orders.filter({ vendor_id: session?.orgId }, '-created_date', 100),
+        db.entities.receiving_logs.list('-created_date', 200),
+        db.entities.VendorBill.filter({ vendor_id: session?.orgId }, '-created_date', 100),
+        db.entities.MillTestReport.filter({ vendor_id: session?.orgId }, '-created_date', 100),
       ]);
       setPurchaseOrders(poData);
       setReceivingLogs(recvData);
@@ -54,7 +54,7 @@ export default function VendorPanel() {
 
   const handleAcceptPo = async (po) => {
     try {
-      const updated = await base44.entities.purchase_orders.update(po.id, {
+      const updated = await db.entities.purchase_orders.update(po.id, {
         vendor_accepted: true,
         vendor_accepted_date: new Date().toISOString().slice(0, 10),
       });
@@ -68,7 +68,7 @@ export default function VendorPanel() {
   const handleLogShipment = async (po) => {
     if (!hasMtr(po.id)) return;
     try {
-      const updated = await base44.entities.purchase_orders.update(po.id, { status: 'Shipped' });
+      const updated = await db.entities.purchase_orders.update(po.id, { status: 'Shipped' });
       setPurchaseOrders((prev) => prev.map((p) => (p.id === po.id ? updated : p)));
       toast({ title: 'Shipment logged' });
     } catch (e) {
@@ -91,10 +91,10 @@ export default function VendorPanel() {
     setUploadingBill(true);
     try {
       const po = purchaseOrders.find((p) => p.id === billPoId);
-      const { file_url } = await base44.integrations.Core.UploadFile({ file: billFile });
+      const { file_url } = await db.integrations.Core.UploadFile({ file: billFile });
       const receivingLog = receivingLogs.find((r) => r.po_id === billPoId || r.po_number === po?.po_number);
 
-      const bill = await base44.entities.VendorBill.create({
+      const bill = await db.entities.VendorBill.create({
         vendor_id: session?.orgId,
         po_id: billPoId,
         project_id: po?.project_id || '',
@@ -105,9 +105,9 @@ export default function VendorPanel() {
       });
 
       const matchResult = runThreeWayMatch(bill, po, receivingLog);
-      const updatedBill = await base44.entities.VendorBill.update(bill.id, matchResult);
+      const updatedBill = await db.entities.VendorBill.update(bill.id, matchResult);
 
-      await base44.entities.Document.create({
+      await db.entities.Document.create({
         project_id: po?.project_id || '',
         name: billFile.name,
         file_url,
@@ -139,7 +139,7 @@ export default function VendorPanel() {
     setSavingMtr(true);
     try {
       const po = purchaseOrders.find((p) => p.id === mtrPoId);
-      const created = await base44.entities.MillTestReport.create({
+      const created = await db.entities.MillTestReport.create({
         po_id: mtrPoId,
         vendor_id: session?.orgId,
         heat_number: heatNumber.trim(),

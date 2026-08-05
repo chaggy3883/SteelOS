@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { CheckSquare, AlertTriangle, XCircle, FileText, Brain, CheckCircle2, Plus, Search, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,7 @@ export default function Quality() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.AIFinding.filter({ review_package: 'quality_assurance' }, '-created_date', 100);
+      const data = await db.entities.AIFinding.filter({ review_package: 'quality_assurance' }, '-created_date', 100);
       setFindings(data);
     } catch (e) {} finally { setLoading(false); }
   };

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { useToast } from '@/components/ui/use-toast';
 import { PERMISSION_CATALOG, isCapabilityAllowed, toggleCapability } from '@/lib/permissionCatalog';
 import { ShieldCheck, ChevronDown, ChevronRight, Lock } from 'lucide-react';
@@ -34,7 +34,7 @@ export default function PermissionsGridPanel({ subject, subjectType = 'employees
     setOverrides(next);
     setSavingKey(key);
     try {
-      const updated = await base44.entities[subjectType].update(subject.id, { permission_overrides: next });
+      const updated = await db.entities[subjectType].update(subject.id, { permission_overrides: next });
       onUpdated(updated);
     } finally {
       setSavingKey(null);

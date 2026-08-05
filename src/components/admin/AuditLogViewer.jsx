@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Search, ChevronLeft, ChevronRight, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +21,7 @@ export default function AuditLogViewer() {
   const loadLogs = async () => {
     setLoading(true);
     try {
-      const list = await base44.entities.AuditLog.list('-created_date', 200);
+      const list = await db.entities.AuditLog.list('-created_date', 200);
       setLogs(list);
     } catch (e) {
       setLogs([]);

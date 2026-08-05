@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Settings2, Plus, Check, Loader2 } from 'lucide-react';
 import DashboardWidget from '@/components/dashboard/DashboardWidget';
@@ -53,7 +53,7 @@ export default function Dashboard() {
       setTargetEntity(entity);
       setTargetId(id);
 
-      const record = user?.employee_id ? await base44.entities.employees.get(user.employee_id) : user;
+      const record = user?.employee_id ? await db.entities.employees.get(user.employee_id) : user;
       const existingLayouts = record?.page_layouts_json || {};
 
       if (Array.isArray(existingLayouts[PAGE_KEY]) && existingLayouts[PAGE_KEY].length > 0) {
@@ -65,7 +65,7 @@ export default function Dashboard() {
         const seededLayouts = { ...existingLayouts, [PAGE_KEY]: defaultLayout };
         setLayout(defaultLayout);
         setPageLayouts(seededLayouts);
-        await base44.entities[entity].update(id, { page_layouts_json: seededLayouts });
+        await db.entities[entity].update(id, { page_layouts_json: seededLayouts });
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -75,7 +75,7 @@ export default function Dashboard() {
   // add), so it persists immediately every time — no debounce. This only
   // ever touches this account's own PAGE_KEY block inside page_layouts_json
   // (spread-merged, so any other page's saved layout is untouched), straight
-  // through base44.entities[User|employees].update → localData.js's
+  // through db.entities[User|employees].update → localData.js's
   // saveStore → the /__db-sync file mirror onto db.json.
   const persistLayout = async (newLayout) => {
     setLayout(newLayout);
@@ -83,7 +83,7 @@ export default function Dashboard() {
     setPageLayouts(newPageLayouts);
     if (!targetId) return;
     try {
-      await base44.entities[targetEntity].update(targetId, { page_layouts_json: newPageLayouts });
+      await db.entities[targetEntity].update(targetId, { page_layouts_json: newPageLayouts });
     } catch (e) { console.error(e); }
   };
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { getTerminalId, isTerminalLocked, recordFailedAttempt, recordSuccessfulLogin } from '@/lib/terminalSession';
 import { verifyPin } from '@/lib/hrSecurity';
 import { computeOvertimeForClockOut, resolveLaborScaleFromCategory, computeMultiScaleGrossPayCents } from '@/lib/attendanceMath';
@@ -93,8 +93,8 @@ export default function EmployeeCenter() {
 
   useEffect(() => {
     checkLock();
-    base44.entities.Project.filter({ is_archived: false }, 'name', 50).then(setProjects).catch(() => setProjects([]));
-    base44.auth.me()
+    db.entities.Project.filter({ is_archived: false }, 'name', 50).then(setProjects).catch(() => setProjects([]));
+    db.auth.me()
       .then((me) => {
         setAppUserRoles(me?.roles || ['user']);
         // A kiosk-PIN session (Login.jsx / KioskKeypadLogin.jsx) already
@@ -103,7 +103,7 @@ export default function EmployeeCenter() {
         // through the Kiosk Login card below.
         if (me?.employee_id) {
           setIsKioskSession(true);
-          return base44.entities.employees.get(me.employee_id).then((emp) => {
+          return db.entities.employees.get(me.employee_id).then((emp) => {
             if (!emp) return;
             setEmployee(emp);
             setVaultUnlocked(false);
@@ -127,7 +127,7 @@ export default function EmployeeCenter() {
       return;
     }
     try {
-      setCompany(await base44.entities.Company.get(companyId));
+      setCompany(await db.entities.Company.get(companyId));
     } catch (e) {
       setCompany(null);
     }
@@ -135,7 +135,7 @@ export default function EmployeeCenter() {
 
   const loadPendingLeaveQueue = async () => {
     try {
-      const rows = await base44.entities.time_off_requests.list('-created_date', 200);
+      const rows = await db.entities.time_off_requests.list('-created_date', 200);
       setAllPendingLeave(rows);
     } catch (e) {}
   };
@@ -144,10 +144,10 @@ export default function EmployeeCenter() {
 
   const loadEmployeeData = async (employeeId) => {
     const [punchData, leaveData, payrollData, expenseData] = await Promise.all([
-      base44.entities.attendance_punches.filter({ employee_id: employeeId }, '-created_date', 200),
-      base44.entities.time_off_requests.filter({ employee_id: employeeId }, '-created_date', 100),
-      base44.entities.payroll_document_mappings.filter({ employee_id: employeeId }, '-created_date', 100),
-      base44.entities.credit_card_expenses.filter({ employee_id: employeeId }, '-created_date', 100),
+      db.entities.attendance_punches.filter({ employee_id: employeeId }, '-created_date', 200),
+      db.entities.time_off_requests.filter({ employee_id: employeeId }, '-created_date', 100),
+      db.entities.payroll_document_mappings.filter({ employee_id: employeeId }, '-created_date', 100),
+      db.entities.credit_card_expenses.filter({ employee_id: employeeId }, '-created_date', 100),
     ]);
     setPunches(punchData);
     setTimeOffRequests(leaveData);
@@ -164,7 +164,7 @@ export default function EmployeeCenter() {
     }
     setLoggingIn(true);
     try {
-      const matches = await base44.entities.employees.filter({ employee_number: kioskNumber.trim() });
+      const matches = await db.entities.employees.filter({ employee_number: kioskNumber.trim() });
       const candidate = matches[0];
       if (!candidate || !verifyPin(kioskPin, candidate.pin_encrypted)) {
         const { justLocked, session } = await recordFailedAttempt(terminalId);
@@ -203,12 +203,12 @@ export default function EmployeeCenter() {
   // Kiosk Reset Action — a real kiosk-PIN session (isKioskSession) has no
   // office account underneath it to preserve, unlike the manual PIN-entry
   // path above (an office user testing/covering the terminal, who should
-  // stay signed into their own account). A full base44.auth.logout clears
+  // stay signed into their own account). A full db.auth.logout clears
   // the session entirely and hard-redirects to /login, which — since the
   // device's kiosk-mode localStorage flag is untouched — lands back on the
   // clean KioskKeypadLogin numeric dialer for the next worker.
   const handleFinishAndExitTerminal = () => {
-    base44.auth.logout('/login');
+    db.auth.logout('/login');
   };
 
   const sortedPunches = useMemo(() => [...punches].sort((a, b) => new Date(b.punch_time) - new Date(a.punch_time)), [punches]);
@@ -238,10 +238,10 @@ export default function EmployeeCenter() {
       punch_out_location_coordinates: punchType === 'Clock_Out' ? coordinates : null,
     };
     if (punchType === 'Clock_Out') {
-      const allEmployeePunches = await base44.entities.attendance_punches.filter({ employee_id: employee.id }, '-created_date', 500);
+      const allEmployeePunches = await db.entities.attendance_punches.filter({ employee_id: employee.id }, '-created_date', 500);
       Object.assign(payload, computeOvertimeForClockOut(employee.id, punch_time, allEmployeePunches));
     }
-    const created = await base44.entities.attendance_punches.create(payload);
+    const created = await db.entities.attendance_punches.create(payload);
     setPunches((prev) => [created, ...prev]);
     toast({
       title: `${punchType.replace('_', ' ')} recorded`,
@@ -254,7 +254,7 @@ export default function EmployeeCenter() {
       toast({ title: 'Enter a piece mark and select a job first', variant: 'destructive' });
       return;
     }
-    const created = await base44.entities.piece_production_logs.create({
+    const created = await db.entities.piece_production_logs.create({
       company_id: employee.company_id,
       project_id: selectedProjectId,
       employee_id: employee.id,
@@ -272,7 +272,7 @@ export default function EmployeeCenter() {
     if (!activePieceLog) return;
     const endTime = new Date();
     const elapsedMinutes = Math.max(0, Math.round((endTime - new Date(activePieceLog.start_time)) / 60000));
-    await base44.entities.piece_production_logs.update(activePieceLog.id, {
+    await db.entities.piece_production_logs.update(activePieceLog.id, {
       end_time: endTime.toISOString(),
       elapsed_minutes: elapsedMinutes,
       status: 'Complete',
@@ -302,7 +302,7 @@ export default function EmployeeCenter() {
     }
     setSavingExpense(true);
     try {
-      const created = await base44.entities.credit_card_expenses.create({
+      const created = await db.entities.credit_card_expenses.create({
         employee_id: employee.id,
         project_id: selectedProjectId || lastPunch?.project_id || '',
         merchant_name: expenseForm.merchant_name.trim(),
@@ -327,7 +327,7 @@ export default function EmployeeCenter() {
       toast({ title: 'Start and end dates are required', variant: 'destructive' });
       return;
     }
-    const created = await base44.entities.time_off_requests.create({
+    const created = await db.entities.time_off_requests.create({
       employee_id: employee.id,
       ...leaveForm,
       total_hours: Number(leaveForm.total_hours) || 0,
@@ -345,7 +345,7 @@ export default function EmployeeCenter() {
   // capacity heatmap's tonnage math) — ShopOperations.jsx instead queries
   // Approved time_off_requests live and annotates the week columns with them.
   const decideLeaveRequest = async (request, status, notes = '') => {
-    const updated = await base44.entities.time_off_requests.update(request.id, { status, supervisor_notes: notes });
+    const updated = await db.entities.time_off_requests.update(request.id, { status, supervisor_notes: notes });
     setAllPendingLeave((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
     if (employee && request.employee_id === employee.id) {
       setTimeOffRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
@@ -365,7 +365,7 @@ export default function EmployeeCenter() {
 
   const requestInfoUpdate = async () => {
     try {
-      await base44.entities.Notification.create({
+      await db.entities.Notification.create({
         title: 'Employee Info Update Request',
         message: `${employee.full_name} (#${employee.employee_number}) requested a profile info update.`,
         is_read: false,

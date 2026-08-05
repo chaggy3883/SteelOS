@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Loader2, Plug } from 'lucide-react';
 import { INTEGRATIONS } from '@/components/admin/adminConstants';
 import IntegrationCard from '@/components/admin/IntegrationCard';
@@ -13,7 +13,7 @@ export default function IntegrationsGateway() {
   const loadCredentials = async () => {
     setLoading(true);
     try {
-      const list = await base44.entities.ApiCredential.list('-created_date', 50);
+      const list = await db.entities.ApiCredential.list('-created_date', 50);
       setCredentials(list);
     } catch (e) { setCredentials([]); }
     finally { setLoading(false); }

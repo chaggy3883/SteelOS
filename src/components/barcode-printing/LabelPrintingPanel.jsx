@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Lock } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { buildZplPayload, LABEL_STOCK_SIZES } from '@/lib/zplLabels';
@@ -33,7 +33,7 @@ export default function LabelPrintingPanel({ pieces, manifests, printJobs, onRel
   const recordPrintJob = async ({ labelType, targetRecordId, title, subtitle, qrPayload }) => {
     if (!targetRecordId) return;
     const zpl_payload_string = buildZplPayload({ labelType, title, subtitle, qrPayload });
-    await base44.entities.print_label_jobs.create({
+    await db.entities.print_label_jobs.create({
       label_type: labelType,
       target_record_id: targetRecordId,
       zpl_payload_string,

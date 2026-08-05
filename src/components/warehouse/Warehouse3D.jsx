@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RotateCcw, Maximize2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 // Unify the legacy hardcoded zones and admin-created ShopFloorZone rows into
 // one shape so the rendering loop below doesn't need to special-case either source.
@@ -84,7 +84,7 @@ export default function Warehouse3D({ items = [] }) {
 
   // Ingestion hook: pull admin-created zones (Admin > 3D Shop Floor Layout) so this view stays in sync
   useEffect(() => {
-    base44.entities.ShopFloorZone.list('-created_date', 200).then(setDbZones).catch(() => setDbZones([]));
+    db.entities.ShopFloorZone.list('-created_date', 200).then(setDbZones).catch(() => setDbZones([]));
   }, []);
 
   // Custom database zones (from the Admin 3D Modeler) are the sole source of

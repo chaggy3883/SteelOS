@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Building2, Plus, Search, Phone, Mail, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,7 +51,7 @@ export default function CRM() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.Customer.filter({ is_active: true }, '-created_date', 100);
+      const data = await db.entities.Customer.filter({ is_active: true }, '-created_date', 100);
       setCustomers(data);
     } catch (e) {} finally { setLoading(false); }
   };
@@ -70,10 +70,10 @@ export default function CRM() {
       const relationship_type = deriveRelationshipType(form.is_customer, form.is_vendor);
       const payload = { ...form, relationship_type, is_active: true, contacts };
       if (editingCustomer) {
-        await base44.entities.Customer.update(editingCustomer.id, payload);
+        await db.entities.Customer.update(editingCustomer.id, payload);
         toast({ title: 'Customer updated' });
       } else {
-        await base44.entities.Customer.create(payload);
+        await db.entities.Customer.create(payload);
         toast({ title: 'Customer added!' });
       }
       setOpen(false);

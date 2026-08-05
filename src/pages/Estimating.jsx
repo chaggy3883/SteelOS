@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Link } from 'react-router-dom';
 import { Plus, Settings2, Calculator, TrendingUp, CheckCircle2, XCircle, Archive, ListChecks, Eye, EyeOff, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -44,7 +44,7 @@ export default function Estimating() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.Bid.list('-bid_due_date', 200);
+      const data = await db.entities.Bid.list('-bid_due_date', 200);
       setBids(data);
     } catch (e) {} finally { setLoading(false); }
   };
@@ -67,7 +67,7 @@ export default function Estimating() {
     }
     setSavingEdit(true);
     try {
-      await base44.entities.Bid.update(editingBid.id, {
+      await db.entities.Bid.update(editingBid.id, {
         job_name: editForm.job_name,
         customer_name: editForm.customer_name,
         bid_due_date: editForm.bid_due_date || null,

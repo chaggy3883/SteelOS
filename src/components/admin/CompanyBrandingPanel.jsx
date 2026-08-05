@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,7 @@ export default function CompanyBrandingPanel() {
     if (!company) return;
     setSaving(true);
     try {
-      const updated = await base44.entities.Company.update(company.id, {
+      const updated = await db.entities.Company.update(company.id, {
         logo_url: logoUrl.trim(),
         brand_color_hex: colorHex,
       });

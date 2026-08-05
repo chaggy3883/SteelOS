@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { computeWinLossStats, computeProjectWipRadar, computeQuarterlyTaxExposure } from '@/lib/financialAnalytics';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
@@ -33,9 +33,9 @@ export default function ExecutiveAnalytics() {
     setLoading(true);
     try {
       const [projectData, ledgerData, bidData] = await Promise.all([
-        base44.entities.Project.filter({ is_archived: false }, 'name', 100),
-        base44.entities.JobCostLedgerEntry.list('-created_date', 500),
-        base44.entities.Bid.list('-created_date', 200),
+        db.entities.Project.filter({ is_archived: false }, 'name', 100),
+        db.entities.JobCostLedgerEntry.list('-created_date', 500),
+        db.entities.Bid.list('-created_date', 200),
       ]);
       setProjects(projectData);
       setLedgerEntries(ledgerData);
@@ -63,7 +63,7 @@ export default function ExecutiveAnalytics() {
     try {
       const totalWip = wipRadar.reduce((s, p) => s + p.contractValue, 0);
       const totalCash = projects.reduce((s, p) => s + (p.total_invoiced_to_date || 0), 0);
-      await base44.entities.executive_metrics_snapshots.create({
+      await db.entities.executive_metrics_snapshots.create({
         snapshot_date: new Date().toISOString().slice(0, 10),
         total_wip_value_cents: Math.round(totalWip * 100),
         total_cash_collected_cents: Math.round(totalCash * 100),

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Loader2, Gauge } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -22,9 +22,9 @@ export default function ShopEfficiency() {
     setLoading(true);
     try {
       const [logData, employeeData, projectData] = await Promise.all([
-        base44.entities.piece_production_logs.filter({ status: 'Complete' }, '-created_date', 1000),
-        base44.entities.employees.list('-created_date', 500),
-        base44.entities.Project.list('-created_date', 200),
+        db.entities.piece_production_logs.filter({ status: 'Complete' }, '-created_date', 1000),
+        db.entities.employees.list('-created_date', 500),
+        db.entities.Project.list('-created_date', 200),
       ]);
       setLogs(logData);
       setEmployees(employeeData);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import {
   Package, Search, QrCode, Plus
 } from 'lucide-react';
@@ -26,8 +26,8 @@ export default function Production() {
     setLoading(true);
     try {
       const [pieceData, projectData] = await Promise.all([
-        base44.entities.PieceMark.list('-created_date', 200),
-        base44.entities.Project.filter({ is_archived: false }, 'name', 50),
+        db.entities.PieceMark.list('-created_date', 200),
+        db.entities.Project.filter({ is_archived: false }, 'name', 50),
       ]);
       setPieces(pieceData);
       setProjects(projectData);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Loader2, Building2, Phone, Mail } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -34,8 +34,8 @@ export default function CrmDirectories() {
     setLoading(true);
     try {
       const [customerData, vendorData] = await Promise.all([
-        base44.entities.Customer.filter({ is_active: true }, '-created_date', 200),
-        base44.entities.Vendor.filter({ is_active: true }, '-created_date', 200),
+        db.entities.Customer.filter({ is_active: true }, '-created_date', 200),
+        db.entities.Vendor.filter({ is_active: true }, '-created_date', 200),
       ]);
       setCustomers(customerData);
       setVendors(vendorData);

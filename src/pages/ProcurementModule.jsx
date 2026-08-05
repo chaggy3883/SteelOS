@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,11 +36,11 @@ export default function ProcurementModule() {
     setLoading(true);
     try {
       const [poList, reqList, recvList, invoiceList, vendorList] = await Promise.all([
-        base44.entities.purchase_orders.list('-created_date', 100),
-        base44.entities.purchase_requisitions.list('-created_date', 100),
-        base44.entities.receiving_logs.list('-created_date', 100),
-        base44.entities.payable_invoices.list('-created_date', 100),
-        base44.entities.Vendor.filter({ is_active: true }, '-created_date', 100),
+        db.entities.purchase_orders.list('-created_date', 100),
+        db.entities.purchase_requisitions.list('-created_date', 100),
+        db.entities.receiving_logs.list('-created_date', 100),
+        db.entities.payable_invoices.list('-created_date', 100),
+        db.entities.Vendor.filter({ is_active: true }, '-created_date', 100),
       ]);
       setPurchaseOrders(poList);
       setRequisitions(reqList);
@@ -57,7 +57,7 @@ export default function ProcurementModule() {
   const createPurchaseOrder = async (event) => {
     event.preventDefault();
     const selectedVendor = vendors.find((vendor) => vendor.id === poForm.vendor_id) || vendors[0];
-    const created = await base44.entities.purchase_orders.create({
+    const created = await db.entities.purchase_orders.create({
       po_number: poForm.po_number || `PO-${String(purchaseOrders.length + 1001)}`,
       vendor_id: selectedVendor?.id || '',
       vendor_name: selectedVendor?.name || '',
@@ -78,7 +78,7 @@ export default function ProcurementModule() {
     event.preventDefault();
     const total = Number(reqForm.requisition_total || 0);
     const requiresSignature = total > AUTO_APPROVE_THRESHOLD;
-    const created = await base44.entities.purchase_requisitions.create({
+    const created = await db.entities.purchase_requisitions.create({
       job_number: reqForm.job_number,
       item_description: reqForm.item_description,
       required_on_site_date: reqForm.required_on_site_date,
@@ -98,11 +98,11 @@ export default function ProcurementModule() {
 
     let attachmentPath = '';
     for (const file of receivingFiles) {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      const { file_url } = await db.integrations.Core.UploadFile({ file });
       if (!attachmentPath) attachmentPath = file_url;
     }
 
-    const created = await base44.entities.receiving_logs.create({
+    const created = await db.entities.receiving_logs.create({
       po_id: matchingPo?.id || '',
       po_number: matchingPo?.po_number || receivingForm.po_number,
       quantity_ordered: Number(receivingForm.quantity_ordered || 0),
@@ -117,7 +117,7 @@ export default function ProcurementModule() {
 
     // Serialization: write a QR routing payload to the flat project documents registry
     const qrPayload = generateQrPayload(created);
-    await base44.entities.Document.create({
+    await db.entities.Document.create({
       project_id: matchingPo?.project_id || '',
       name: `Receiving QR — ${created.po_number} / ${created.material_heat_number || 'no heat'}`,
       document_type: 'other',
@@ -141,7 +141,7 @@ export default function ProcurementModule() {
     const costVariance = Math.abs(invoiceAmount - expectedCost) / Math.max(expectedCost, 1);
     const quantityVariance = Math.abs(quantityReceived - expectedQty) / Math.max(expectedQty, 1);
     const status = costVariance <= 0.01 && quantityVariance <= 0.01 ? 'Approved for Payment' : 'Pending Purchasing Agent Review';
-    const created = await base44.entities.payable_invoices.create({
+    const created = await db.entities.payable_invoices.create({
       po_id: selectedPo?.id || '',
       invoice_number: invoiceForm.invoice_number,
       invoice_amount: invoiceAmount,

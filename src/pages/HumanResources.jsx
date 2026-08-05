@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin } from '@/lib/employeesApi';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { verifyPin } from '@/lib/hrSecurity';
@@ -69,7 +69,7 @@ export default function HumanResources() {
     setLoading(true);
     let currentRoles = ['user'];
     try {
-      const me = await base44.auth.me();
+      const me = await db.auth.me();
       currentRoles = me?.roles || me?.user?.roles || ['user'];
       setPermissionOverrides(me?.permission_overrides || []);
     } catch (e) {}
@@ -82,10 +82,10 @@ export default function HumanResources() {
   const loadAll = async (currentRoles) => {
     try {
       const [candidateData, employeeData, certData, leaveData] = await Promise.all([
-        base44.entities.candidate_profiles.list('-created_date', 100),
+        db.entities.candidate_profiles.list('-created_date', 100),
         listEmployeesForRole(currentRoles),
-        base44.entities.employee_certifications.list('-created_date', 200),
-        base44.entities.time_off_requests.list('-created_date', 200),
+        db.entities.employee_certifications.list('-created_date', 200),
+        db.entities.time_off_requests.list('-created_date', 200),
       ]);
       setCandidates(candidateData);
       setEmployees(employeeData);
@@ -103,7 +103,7 @@ export default function HumanResources() {
     }
     setSavingCandidate(true);
     try {
-      const created = await base44.entities.candidate_profiles.create({
+      const created = await db.entities.candidate_profiles.create({
         ...candidateForm,
         status: 'Applied',
         applied_date: new Date().toISOString().slice(0, 10),
@@ -130,12 +130,12 @@ export default function HumanResources() {
       }
       return;
     }
-    const updated = await base44.entities.candidate_profiles.update(candidate.id, { status });
+    const updated = await db.entities.candidate_profiles.update(candidate.id, { status });
     setCandidates((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
   };
 
   const toggleCompliance = async (employee, field, value) => {
-    const updated = await base44.entities.employees.update(employee.id, { [field]: value });
+    const updated = await db.entities.employees.update(employee.id, { [field]: value });
     const relocked = await reevaluateTimeclockLock(updated);
     setEmployees((prev) => prev.map((e) => (e.id === relocked.id ? relocked : e)));
     toast({ title: relocked.is_timeclock_locked ? 'Timeclock still locked' : 'Timeclock unlocked — both W-4 and I-9 approved' });
@@ -151,7 +151,7 @@ export default function HumanResources() {
   };
 
   const toggleAccountActive = async (employee, value) => {
-    const updated = await base44.entities.employees.update(employee.id, { is_active_login: value });
+    const updated = await db.entities.employees.update(employee.id, { is_active_login: value });
     setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
     toast({ title: value ? `${updated.full_name}'s login re-enabled` : `${updated.full_name}'s login suspended` });
   };
@@ -159,7 +159,7 @@ export default function HumanResources() {
   const assignPlatformRole = async (employee, role) => {
     setAssigningRoleId(employee.id);
     try {
-      const updated = await base44.entities.employees.update(employee.id, { platform_role: role });
+      const updated = await db.entities.employees.update(employee.id, { platform_role: role });
       setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
       toast({ title: `${updated.full_name} assigned to ${allRoles.find((r) => r.value === role)?.label || role}` });
     } finally {
@@ -169,7 +169,7 @@ export default function HumanResources() {
 
   const updateSsnLast4 = async (employee, value) => {
     const ssn_last4 = value.replace(/\D/g, '').slice(0, 4);
-    const updated = await base44.entities.employees.update(employee.id, { ssn_last4 });
+    const updated = await db.entities.employees.update(employee.id, { ssn_last4 });
     const relocked = await syncFormulaPin(updated);
     setEmployees((prev) => prev.map((e) => (e.id === relocked.id ? relocked : e)));
     toast({ title: 'SSN updated', description: 'Kiosk PIN recomputed from the formula.' });
@@ -181,7 +181,7 @@ export default function HumanResources() {
     // not a roster-browsing operation — it must work even for viewers whose
     // `employees` state is masked and has no pin_encrypted field at all.
     try {
-      const matches = await base44.entities.employees.filter({ employee_number: terminalEmployeeNumber.trim() });
+      const matches = await db.entities.employees.filter({ employee_number: terminalEmployeeNumber.trim() });
       const employee = matches[0];
       if (!employee || !verifyPin(terminalPin, employee.pin_encrypted)) {
         toast({ title: 'Invalid employee number or PIN', variant: 'destructive' });
@@ -203,7 +203,7 @@ export default function HumanResources() {
   // which is what EmployeeCenter.jsx's "My Time Off Requests" list reads to
   // show the employee their decision and comments in their own view.
   const decideLeaveRequest = async (request, status, notes = '') => {
-    const updated = await base44.entities.time_off_requests.update(request.id, { status, supervisor_notes: notes });
+    const updated = await db.entities.time_off_requests.update(request.id, { status, supervisor_notes: notes });
     setPendingLeave((prev) => prev.filter((r) => r.id !== updated.id));
     setDecliningRequestId(null);
     setDeclineNote('');

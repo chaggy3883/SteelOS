@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import {
   ArrowLeft, Brain, MessageSquare, Package,
   DollarSign, Edit,
@@ -51,10 +51,10 @@ export default function ProjectDetail() {
     setLoading(true);
     try {
       const [proj, finds, rfiList, pieceList] = await Promise.all([
-        base44.entities.Project.get(id),
-        base44.entities.AIFinding.filter({ project_id: id }, '-created_date', 50),
-        base44.entities.RFI.filter({ project_id: id }, '-created_date', 20),
-        base44.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 50),
+        db.entities.Project.get(id),
+        db.entities.AIFinding.filter({ project_id: id }, '-created_date', 50),
+        db.entities.RFI.filter({ project_id: id }, '-created_date', 20),
+        db.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 50),
       ]);
       setProject(proj);
       setFindings(finds);
@@ -70,12 +70,12 @@ export default function ProjectDetail() {
   const handleMarkAwarded = async () => {
     setMarkingAwarded(true);
     try {
-      const updated = await base44.entities.Project.update(id, { status: 'awarded' });
+      const updated = await db.entities.Project.update(id, { status: 'awarded' });
       setProject(updated);
 
       const workStartDate = updated.award_date || updated.start_date || new Date().toISOString().slice(0, 10);
       const { days, notice_type, deadlineDate } = getStatutoryDeadline(updated.state, workStartDate);
-      const notice = await base44.entities.StatutoryNotice.create({
+      const notice = await db.entities.StatutoryNotice.create({
         project_id: id,
         state: updated.state || '',
         notice_type,
@@ -83,7 +83,7 @@ export default function ProjectDetail() {
         work_start_date: workStartDate,
         deadline_date: deadlineDate,
       });
-      await base44.entities.LegalAuditEvent.create({
+      await db.entities.LegalAuditEvent.create({
         project_id: id,
         event_type: 'statutory_notice_created',
         related_entity_type: 'StatutoryNotice',

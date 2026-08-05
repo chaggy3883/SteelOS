@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,7 +40,7 @@ export default function FormLayoutBuilder() {
   const loadLayout = async (key) => {
     setLoading(true);
     try {
-      const rows = await base44.entities.form_layouts.filter({ target_form_key: key }, '-created_date', 1);
+      const rows = await db.entities.form_layouts.filter({ target_form_key: key }, '-created_date', 1);
       setLayoutRow(rows[0] || null);
       setFields(rows[0]?.fields_schema_json?.length ? rows[0].fields_schema_json.map((f) => ({ ...f })) : []);
     } finally {
@@ -59,10 +59,10 @@ export default function FormLayoutBuilder() {
     setSaving(true);
     try {
       if (layoutRow) {
-        const updated = await base44.entities.form_layouts.update(layoutRow.id, { fields_schema_json: fields });
+        const updated = await db.entities.form_layouts.update(layoutRow.id, { fields_schema_json: fields });
         setLayoutRow(updated);
       } else {
-        const created = await base44.entities.form_layouts.create({ target_form_key: targetFormKey, fields_schema_json: fields });
+        const created = await db.entities.form_layouts.create({ target_form_key: targetFormKey, fields_schema_json: fields });
         setLayoutRow(created);
       }
       toast({ title: 'Form layout saved' });

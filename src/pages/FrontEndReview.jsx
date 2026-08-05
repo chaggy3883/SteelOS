@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { simulateAiReview } from '@/lib/aiIntelligenceEngine';
 import { extractTextFromPdf } from '@/lib/pdfTextExtractor';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,7 @@ export default function FrontEndReview() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    base44.entities.Bid.list('-created_date', 200)
+    db.entities.Bid.list('-created_date', 200)
       .then((rows) => setBids(rows.filter((b) => PENDING_BID_STATUSES.includes(b.status))))
       .catch(() => setBids([]));
   }, []);
@@ -57,7 +57,7 @@ export default function FrontEndReview() {
     if (!bidId) { setLines([]); return; }
     setLoadingLines(true);
     try {
-      const rows = await base44.entities.contract_exception_lines.filter({ bid_id: bidId }, '-created_date', 200);
+      const rows = await db.entities.contract_exception_lines.filter({ bid_id: bidId }, '-created_date', 200);
       setLines(rows);
     } catch (e) {
       setLines([]);
@@ -142,8 +142,8 @@ export default function FrontEndReview() {
     if (!bidId) return;
     setSaving(true);
     try {
-      await Promise.all(lines.map((line) => base44.entities.contract_exception_lines.update(line.id, line)));
-      await base44.entities.Bid.update(bidId, { front_end_review_status: 'in_review' });
+      await Promise.all(lines.map((line) => db.entities.contract_exception_lines.update(line.id, line)));
+      await db.entities.Bid.update(bidId, { front_end_review_status: 'in_review' });
       toast({ title: 'Front-End Spec Review saved', description: 'Bid marked as in review.' });
     } catch (e) {
       toast({ title: 'Save failed', variant: 'destructive' });

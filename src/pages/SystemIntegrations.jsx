@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Webhook } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,8 +15,8 @@ export default function SystemIntegrations() {
   const loadData = useCallback(async () => {
     try {
       const [logData, tokenData] = await Promise.all([
-        base44.entities.ApiIntegrationLog.list('-processed_at', 100),
-        base44.entities.ApiTokenVault.list('-created_at', 100),
+        db.entities.ApiIntegrationLog.list('-processed_at', 100),
+        db.entities.ApiTokenVault.list('-created_at', 100),
       ]);
       setLogs(logData);
       setTokens(tokenData);

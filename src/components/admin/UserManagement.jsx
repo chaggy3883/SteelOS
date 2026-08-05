@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Search, Ban, Trash2, Loader2, PlusCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,7 @@ export default function UserManagement() {
   useEffect(() => {
     loadUsers();
     getAllRoles().then(setAllRoles);
-    base44.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
+    db.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
   }, []);
 
   // Super-Admin Role Firewall: a plain tenant `admin` (not a platform
@@ -37,7 +37,7 @@ export default function UserManagement() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const list = await base44.entities.User.list('-created_date', 200);
+      const list = await db.entities.User.list('-created_date', 200);
       setUsers(list);
     } catch (e) {
       toast({ title: 'Failed to load users', variant: 'destructive' });
@@ -59,7 +59,7 @@ export default function UserManagement() {
       return;
     }
     try {
-      const created = await base44.entities.User.create({
+      const created = await db.entities.User.create({
         full_name: builderForm.full_name,
         email: builderForm.email,
         password: builderForm.password,
@@ -83,7 +83,7 @@ export default function UserManagement() {
       return;
     }
     try {
-      await base44.entities.User.update(userId, { roles: [newRole] });
+      await db.entities.User.update(userId, { roles: [newRole] });
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, roles: [newRole] } : u));
       toast({ title: 'Role updated' });
     } catch (e) {
@@ -94,7 +94,7 @@ export default function UserManagement() {
   const handleSuspend = async (user) => {
     if (!confirm(`Suspend ${user.full_name || user.email}? They will lose access on next login.`)) return;
     try {
-      await base44.entities.User.update(user.id, { roles: ['suspended'] });
+      await db.entities.User.update(user.id, { roles: ['suspended'] });
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, roles: ['suspended'] } : u));
       toast({ title: 'User suspended' });
     } catch (e) {
@@ -105,7 +105,7 @@ export default function UserManagement() {
   const handleDelete = async (user) => {
     if (!confirm(`Delete ${user.full_name || user.email}? This cannot be undone.`)) return;
     try {
-      await base44.entities.User.delete(user.id);
+      await db.entities.User.delete(user.id);
       setUsers(prev => prev.filter(u => u.id !== user.id));
       toast({ title: 'User deleted' });
     } catch (e) {

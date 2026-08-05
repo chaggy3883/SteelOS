@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Search, Plus, Trash2, Edit2, Loader2, RefreshCw, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,7 @@ export default function TaxZoneLookup() {
   const loadRates = async () => {
     setLoading(true);
     try {
-      const list = await base44.entities.TaxRate.filter({ is_active: true }, '-created_date', 200);
+      const list = await db.entities.TaxRate.filter({ is_active: true }, '-created_date', 200);
       setRates(list);
     } catch (e) { setRates([]); }
     finally { setLoading(false); }
@@ -40,10 +40,10 @@ export default function TaxZoneLookup() {
     try {
       const data = { ...form, tax_percentage: parseFloat(form.tax_percentage) || 0 };
       if (editId) {
-        await base44.entities.TaxRate.update(editId, data);
+        await db.entities.TaxRate.update(editId, data);
         toast({ title: 'Tax rate updated' });
       } else {
-        await base44.entities.TaxRate.create(data);
+        await db.entities.TaxRate.create(data);
         toast({ title: 'Tax rate added' });
       }
       setShowAdd(false); setEditId(null);
@@ -61,7 +61,7 @@ export default function TaxZoneLookup() {
   const handleDelete = async (rate) => {
     if (!confirm(`Delete tax rate for ${rate.zip_code}?`)) return;
     try {
-      await base44.entities.TaxRate.update(rate.id, { is_active: false });
+      await db.entities.TaxRate.update(rate.id, { is_active: false });
       setRates(prev => prev.filter(r => r.id !== rate.id));
       toast({ title: 'Tax rate deleted' });
     } catch (e) { toast({ title: 'Failed to delete', variant: 'destructive' }); }

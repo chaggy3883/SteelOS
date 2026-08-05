@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,7 +30,7 @@ export default function Legal() {
   const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
-    base44.auth.me().then((u) => { setCurrentUser(u); setLoading(false); }).catch(() => setLoading(false));
+    db.auth.me().then((u) => { setCurrentUser(u); setLoading(false); }).catch(() => setLoading(false));
   }, []);
 
   useEffect(() => { if (currentUser) loadData(); }, [currentUser]);
@@ -38,10 +38,10 @@ export default function Legal() {
   const loadData = async () => {
     try {
       const [projectList, contractList, noticeList, eventList] = await Promise.all([
-        base44.entities.Project.list('-created_date', 200),
-        base44.entities.Contract.list('-created_date', 100),
-        base44.entities.StatutoryNotice.list('-created_date', 100),
-        base44.entities.LegalAuditEvent.list('-created_date', 200),
+        db.entities.Project.list('-created_date', 200),
+        db.entities.Contract.list('-created_date', 100),
+        db.entities.StatutoryNotice.list('-created_date', 100),
+        db.entities.LegalAuditEvent.list('-created_date', 200),
       ]);
       setProjects(projectList);
       setContracts(contractList);
@@ -62,7 +62,7 @@ export default function Legal() {
       if (daysUntil > 10) continue;
       const alreadyLogged = eventList.some((e) => e.event_type === 'statutory_deadline_warning' && e.related_entity_id === notice.id);
       if (alreadyLogged) continue;
-      await base44.entities.LegalAuditEvent.create({
+      await db.entities.LegalAuditEvent.create({
         project_id: notice.project_id,
         event_type: 'statutory_deadline_warning',
         related_entity_type: 'StatutoryNotice',
@@ -84,8 +84,8 @@ export default function Legal() {
     }
     setScanning(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file: contractFile });
-      const document = await base44.entities.Document.create({
+      const { file_url } = await db.integrations.Core.UploadFile({ file: contractFile });
+      const document = await db.entities.Document.create({
         project_id: contractForm.project_id,
         name: contractFile.name,
         file_url,
@@ -97,7 +97,7 @@ export default function Legal() {
         ai_processing_status: 'pending',
       });
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await db.integrations.Core.InvokeLLM({
         prompt: 'You are a construction contract review assistant. Extract from the attached General Contractor agreement: liquidated_damages_per_day (number, $ per day of delay), notice_cure_days (number, days allowed to notify of delay/extra work), rfi_response_window_days (number, contractual days for architect/engineer RFI responses), retainage_pct (decimal fraction, e.g. 0.10), retainage_release_terms (string), and a short summary. Set unknown numeric fields to 0.',
         file_urls: [file_url],
         response_json_schema: {
@@ -128,9 +128,9 @@ export default function Legal() {
         status: 'active',
       };
       const riskFlags = await computeRiskFlags(contractPayload);
-      const contract = await base44.entities.Contract.create({ ...contractPayload, risk_flags: riskFlags });
+      const contract = await db.entities.Contract.create({ ...contractPayload, risk_flags: riskFlags });
 
-      await base44.entities.LegalAuditEvent.create({
+      await db.entities.LegalAuditEvent.create({
         project_id: contractForm.project_id,
         event_type: 'contract_scanned',
         related_entity_type: 'Contract',
@@ -139,7 +139,7 @@ export default function Legal() {
         severity: riskFlags.length > 0 ? 'warning' : 'info',
       });
       for (const flag of riskFlags) {
-        await base44.entities.LegalAuditEvent.create({
+        await db.entities.LegalAuditEvent.create({
           project_id: contractForm.project_id,
           event_type: 'risk_flag_raised',
           related_entity_type: 'Contract',
@@ -162,7 +162,7 @@ export default function Legal() {
 
   const handleNoticeFieldSave = async (notice, patch) => {
     try {
-      const updated = await base44.entities.StatutoryNotice.update(notice.id, patch);
+      const updated = await db.entities.StatutoryNotice.update(notice.id, patch);
       setNotices((prev) => prev.map((n) => (n.id === notice.id ? updated : n)));
     } catch (e) {
       toast({ title: 'Unable to save notice', variant: 'destructive' });
@@ -171,8 +171,8 @@ export default function Legal() {
 
   const handleFiledUpload = async (notice, file) => {
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
-      const doc = await base44.entities.Document.create({
+      const { file_url } = await db.integrations.Core.UploadFile({ file });
+      const doc = await db.entities.Document.create({
         project_id: notice.project_id,
         name: file.name,
         file_url,
@@ -187,7 +187,7 @@ export default function Legal() {
         filed_document_id: doc.id,
         filed_date: new Date().toISOString().slice(0, 10),
       });
-      await base44.entities.LegalAuditEvent.create({
+      await db.entities.LegalAuditEvent.create({
         project_id: notice.project_id,
         event_type: 'statutory_notice_filed',
         related_entity_type: 'StatutoryNotice',

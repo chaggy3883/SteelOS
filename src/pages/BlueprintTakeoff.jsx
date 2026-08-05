@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useOutletContext, useParams } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { simulateAiBatchTakeoff } from '@/lib/aiIntelligenceEngine';
 import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -81,7 +81,7 @@ export default function BlueprintTakeoff() {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    base44.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
+    db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
   }, []);
 
   // Only present when this page is reached as /estimating/blueprint-takeoff/:id
@@ -90,7 +90,7 @@ export default function BlueprintTakeoff() {
   // template. Opened standalone (no bidId), those cells are simply skipped.
   useEffect(() => {
     if (!bidId) return;
-    base44.entities.Bid.get(bidId).then(setBid).catch(() => setBid(null));
+    db.entities.Bid.get(bidId).then(setBid).catch(() => setBid(null));
   }, [bidId]);
 
   useEffect(() => {
@@ -98,7 +98,7 @@ export default function BlueprintTakeoff() {
       setEstimatorFullName('');
       return;
     }
-    base44.entities.employees.get(bid.estimator_id)
+    db.entities.employees.get(bid.estimator_id)
       .then((emp) => setEstimatorFullName(emp?.full_name || ''))
       .catch(() => setEstimatorFullName(''));
   }, [bid?.estimator_id]);
@@ -114,7 +114,7 @@ export default function BlueprintTakeoff() {
 
   const stageFile = async (file) => {
     if (!file) return;
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
+    const { file_url } = await db.integrations.Core.UploadFile({ file });
     setFileUrl(file_url);
     setFileName(file.name);
     setSheetCount(null);
@@ -174,9 +174,9 @@ export default function BlueprintTakeoff() {
       accepted_items: newRows.map(({ _key, ...rest }) => rest),
     };
     if (takeoffId) {
-      await base44.entities.blueprint_takeoffs.update(takeoffId, payload);
+      await db.entities.blueprint_takeoffs.update(takeoffId, payload);
     } else {
-      const created = await base44.entities.blueprint_takeoffs.create(payload);
+      const created = await db.entities.blueprint_takeoffs.create(payload);
       setTakeoffId(created.id);
     }
   };
@@ -231,7 +231,7 @@ export default function BlueprintTakeoff() {
     setExportingExcel(true);
     setExcelExportError(null);
     try {
-      const templates = await base44.entities.company_templates.filter({ is_active: true }, '-created_date', 100);
+      const templates = await db.entities.company_templates.filter({ is_active: true }, '-created_date', 100);
       const bidTemplate = templates.find(
         (t) => t.category === 'Spreadsheet' && /bid[\s_-]*proposal/i.test(`${t.template_name || ''} ${t.file_name || ''}`)
       );

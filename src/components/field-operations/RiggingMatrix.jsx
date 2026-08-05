@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Plus, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -69,7 +69,7 @@ export default function RiggingMatrix({ ledger, canManageFleet, onReload }) {
         payload.ply_count = form.ply_count;
         payload.width_inches = Number(form.width_inches) || 0;
       }
-      await base44.entities.rigging_inventory_ledger.create(payload);
+      await db.entities.rigging_inventory_ledger.create(payload);
       await onReload();
       setShowForm(false);
       setForm(emptyRiggingForm());

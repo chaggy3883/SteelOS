@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
-import { Factory, Plus, Search, RefreshCw } from 'lucide-react';
+import { db } from '@/api/apiClient';
+import { Factory, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,7 +33,7 @@ export default function MillPricingTable({ bid }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await base44.entities.MillPricing.filter({ is_active: true }, '-effective_date', 100);
+      const data = await db.entities.MillPricing.filter({ is_active: true }, '-effective_date', 100);
       setPricing(data);
     } catch (e) {} finally { setLoading(false); }
   };
@@ -42,7 +42,7 @@ export default function MillPricingTable({ bid }) {
     if (!form.price_per_ton) return;
     setSaving(true);
     try {
-      await base44.entities.MillPricing.create({
+      await db.entities.MillPricing.create({
         mill_name: form.mill_name,
         mill_display_name: MILLS.find(m => m.value === form.mill_name)?.label || form.mill_name,
         product_type: form.product_type,

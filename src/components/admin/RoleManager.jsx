@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,7 +22,7 @@ export default function RoleManager() {
 
   useEffect(() => {
     loadRoles();
-    base44.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
+    db.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
   }, []);
 
   // Super-Admin Role Firewall: a plain tenant admin never sees the
@@ -31,7 +31,7 @@ export default function RoleManager() {
 
   const loadRoles = async () => {
     setLoading(true);
-    try { const list = await base44.entities.CustomRole.list('-created_date', 50); setCustomRoles(list); }
+    try { const list = await db.entities.CustomRole.list('-created_date', 50); setCustomRoles(list); }
     catch (e) {}
     finally { setLoading(false); }
   };
@@ -41,10 +41,10 @@ export default function RoleManager() {
     setSaving(true);
     try {
       if (editing) {
-        await base44.entities.CustomRole.update(editing.id, form);
+        await db.entities.CustomRole.update(editing.id, form);
         toast({ title: 'Role updated' });
       } else {
-        await base44.entities.CustomRole.create({ ...form, is_system: false, is_active: true });
+        await db.entities.CustomRole.create({ ...form, is_system: false, is_active: true });
         toast({ title: 'Custom role created' });
       }
       loadRoles();
@@ -62,7 +62,7 @@ export default function RoleManager() {
 
   const handleDelete = async (role) => {
     if (!confirm(`Delete role "${role.label}"? Users with this role will lose access.`)) return;
-    try { await base44.entities.CustomRole.delete(role.id); toast({ title: 'Role deleted' }); loadRoles(); }
+    try { await db.entities.CustomRole.delete(role.id); toast({ title: 'Role deleted' }); loadRoles(); }
     catch (e) { toast({ title: 'Failed to delete role', variant: 'destructive' }); }
   };
 

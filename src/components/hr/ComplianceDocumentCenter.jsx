@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { FileText, Eye } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -16,7 +16,7 @@ export default function ComplianceDocumentCenter({ employee }) {
 
   const loadDocuments = async () => {
     try {
-      const rows = await base44.entities.employee_documents.filter({ employee_id: employee.id }, '-created_date', 100);
+      const rows = await db.entities.employee_documents.filter({ employee_id: employee.id }, '-created_date', 100);
       setDocuments(rows);
     } finally {
       setLoading(false);
@@ -28,7 +28,7 @@ export default function ComplianceDocumentCenter({ employee }) {
   const handleFileSelected = (file) => {
     const reader = new FileReader();
     reader.onload = async () => {
-      await base44.entities.employee_documents.create({
+      await db.entities.employee_documents.create({
         employee_id: employee.id,
         document_type_key: docType,
         file_uri: reader.result,

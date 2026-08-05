@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 export function incrementVersion(versionString) {
   const [majorRaw, minorRaw] = String(versionString || '1.0').split('.');
@@ -11,7 +11,7 @@ export function incrementVersion(versionString) {
 // shows by default rather than a missing config row silently blanking a
 // proposal out.
 export async function getActiveTemplate(documentTypeKey) {
-  const rows = await base44.entities.report_templates.filter({ document_type_key: documentTypeKey, is_active: true }, '-created_date', 1);
+  const rows = await db.entities.report_templates.filter({ document_type_key: documentTypeKey, is_active: true }, '-created_date', 1);
   return rows[0] || null;
 }
 
@@ -26,9 +26,9 @@ export function isColumnVisible(template, flagKey, defaultVisible = true) {
 // history stays browsable rather than silently lost.
 export async function saveNewTemplateVersion(previousTemplate, updates) {
   if (previousTemplate?.id) {
-    await base44.entities.report_templates.update(previousTemplate.id, { is_active: false });
+    await db.entities.report_templates.update(previousTemplate.id, { is_active: false });
   }
-  return base44.entities.report_templates.create({
+  return db.entities.report_templates.create({
     document_type_key: previousTemplate?.document_type_key || updates.document_type_key,
     version_string: incrementVersion(previousTemplate?.version_string),
     header_footer_config_json: updates.header_footer_config_json || previousTemplate?.header_footer_config_json || {},

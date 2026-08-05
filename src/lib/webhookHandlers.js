@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 // Procore Pay and Textura both push billing/payment status changes for progress
 // billings. This app has no backend, so there's no live HTTP endpoint to receive
@@ -24,7 +24,7 @@ export async function handleProcorePayWebhook(payload) {
   if (!invoiceReceivableId || !mapped) {
     throw new Error('Unrecognized Procore Pay payload — expected { invoice_receivable_id, status }');
   }
-  return base44.entities.InvoiceReceivable.update(invoiceReceivableId, { payment_status: mapped });
+  return db.entities.InvoiceReceivable.update(invoiceReceivableId, { payment_status: mapped });
 }
 
 export async function handleTexturaWebhook(payload) {
@@ -33,5 +33,5 @@ export async function handleTexturaWebhook(payload) {
   if (!invoiceReceivableId || !mapped) {
     throw new Error('Unrecognized Textura payload — expected { invoice_receivable_id, sov_status }');
   }
-  return base44.entities.InvoiceReceivable.update(invoiceReceivableId, { payment_status: mapped });
+  return db.entities.InvoiceReceivable.update(invoiceReceivableId, { payment_status: mapped });
 }

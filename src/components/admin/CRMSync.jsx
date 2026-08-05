@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Search, GitMerge, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +20,7 @@ export default function CRMSync() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const list = await base44.entities.Customer.list('-created_date', 500);
+      const list = await db.entities.Customer.list('-created_date', 500);
       setCustomers(list);
       findDuplicates(list);
     } catch (e) { setCustomers([]); }
@@ -41,19 +41,19 @@ export default function CRMSync() {
   const handleMerge = async (primary, duplicate) => {
     setMerging(duplicate.id);
     try {
-      await base44.entities.VendorPricingLink.updateMany(
+      await db.entities.VendorPricingLink.updateMany(
         { vendor_id: duplicate.id },
         { $set: { vendor_id: primary.id, vendor_name: primary.name } }
       );
-      await base44.entities.Bid.updateMany(
+      await db.entities.Bid.updateMany(
         { customer_id: duplicate.id },
         { $set: { customer_id: primary.id, customer_name: primary.name } }
       );
-      await base44.entities.Project.updateMany(
+      await db.entities.Project.updateMany(
         { customer_id: duplicate.id },
         { $set: { customer_id: primary.id, customer_name: primary.name } }
       );
-      await base44.entities.Customer.delete(duplicate.id);
+      await db.entities.Customer.delete(duplicate.id);
       toast({ title: `Merged "${duplicate.name}" into "${primary.name}"` });
       loadData();
     } catch (e) {

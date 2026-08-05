@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { setManualPin } from '@/lib/employeesApi';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,7 +39,7 @@ export default function SystemAccessPortal({ employee, roles, onUpdated }) {
   };
 
   const handleToggleActive = async (value) => {
-    const updated = await base44.entities.employees.update(employee.id, { is_active_login: value });
+    const updated = await db.entities.employees.update(employee.id, { is_active_login: value });
     onUpdated(updated);
     toast({ title: value ? 'Login re-enabled' : 'Login suspended' });
   };
@@ -52,7 +52,7 @@ export default function SystemAccessPortal({ employee, roles, onUpdated }) {
     }
     setSavingWage(true);
     try {
-      const updated = await base44.entities.employees.update(employee.id, { pay_rate_cents: Math.round(dollars * 100) });
+      const updated = await db.entities.employees.update(employee.id, { pay_rate_cents: Math.round(dollars * 100) });
       onUpdated(updated);
       toast({ title: 'Hourly pay rate updated' });
     } finally {

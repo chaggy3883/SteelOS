@@ -7,7 +7,7 @@ import {
   FileText, Shield, MessageSquare, Layers, Calculator, ShieldCheck, Wrench, UserCog, Gauge, KeyRound, HardHat
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { getUserPermissions, isModuleAllowed } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { isErectPlan } from '@/lib/planGating';
@@ -74,7 +74,7 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, onClose }
   const [erectPlan, setErectPlan] = useState(false);
 
   useEffect(() => {
-    base44.auth.me().then(async (u) => {
+    db.auth.me().then(async (u) => {
       const perms = await getUserPermissions(u.roles || ['user']);
       setAllowedModules(perms.modules);
     }).catch(() => {});

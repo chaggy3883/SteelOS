@@ -2,7 +2,7 @@
 // steel_catalog entity on first load. The Blueprint Takeoff grid and the
 // Full Takeoff manual bid-line grid no longer read `.sizes` directly for
 // their "Available Size" dropdown — that now comes live from
-// base44.entities.steel_catalog, filtered by shape_class. `.sizes` here only
+// db.entities.steel_catalog, filtered by shape_class. `.sizes` here only
 // seeds that catalog and only runs once (see localData.js buildSeedData).
 //
 // `value` strings match steel_catalog.jsonc's shape_class enum exactly, so a

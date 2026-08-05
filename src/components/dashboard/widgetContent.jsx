@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +18,7 @@ function WidgetEmpty({ message }) {
 function BidListWidget() {
   const [bids, setBids] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { base44.entities.Bid.list('-created_date', 8).then(l => { setBids(l); setLoading(false); }).catch(() => setLoading(false)); }, []);
+  useEffect(() => { db.entities.Bid.list('-created_date', 8).then(l => { setBids(l); setLoading(false); }).catch(() => setLoading(false)); }, []);
   if (loading) return <WidgetSkeleton lines={5} />;
   if (bids.length === 0) return <WidgetEmpty message="No bids yet" />;
   return <div className="space-y-1">{bids.map(b => (
@@ -31,7 +31,7 @@ function BidListWidget() {
 
 function ActiveBidsCountWidget() {
   const [count, setCount] = useState(null);
-  useEffect(() => { base44.entities.Bid.filter({ status: 'in_progress' }, '-created_date', 100).then(l => setCount(l.length)).catch(() => setCount(0)); }, []);
+  useEffect(() => { db.entities.Bid.filter({ status: 'in_progress' }, '-created_date', 100).then(l => setCount(l.length)).catch(() => setCount(0)); }, []);
   return (
     <div className="flex flex-col items-center justify-center h-full">
       <p className="text-3xl font-bold text-primary">{count === null ? '—' : count}</p>
@@ -43,7 +43,7 @@ function ActiveBidsCountWidget() {
 function BidWinRateWidget() {
   const [rate, setRate] = useState(null);
   useEffect(() => {
-    base44.entities.Bid.list('-created_date', 200).then(bids => {
+    db.entities.Bid.list('-created_date', 200).then(bids => {
       const won = bids.filter(b => b.status === 'won').length;
       const lost = bids.filter(b => b.status === 'lost').length;
       const total = won + lost;
@@ -71,7 +71,7 @@ function BidHistoryWidget() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    base44.entities.Bid.list('-created_date', 100).then(bids => {
+    db.entities.Bid.list('-created_date', 100).then(bids => {
       const months = {};
       bids.forEach(b => {
         const d = new Date(b.created_date || b.bid_due_date);
@@ -110,9 +110,9 @@ function QuickAddBidWidget() {
     if (!form.job_name || !form.customer_name) return;
     setSaving(true);
     try {
-      const existing = await base44.entities.Bid.list('-created_date', 1);
+      const existing = await db.entities.Bid.list('-created_date', 1);
       const num = String((existing.length || 0) + 1).padStart(5, '0');
-      await base44.entities.Bid.create({ ...form, bid_number: `BID-${num}`, status: 'draft' });
+      await db.entities.Bid.create({ ...form, bid_number: `BID-${num}`, status: 'draft' });
       toast({ title: 'Bid created' });
       setForm({ job_name: '', customer_name: '' });
     } catch (e) { toast({ title: 'Failed to create bid', variant: 'destructive' }); }
@@ -133,7 +133,7 @@ function ActiveProjectsWidget() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    base44.entities.Project.filter({ is_archived: false }, '-created_date', 10).then(p => {
+    db.entities.Project.filter({ is_archived: false }, '-created_date', 10).then(p => {
       setProjects(p.filter(x => !['complete', 'cancelled'].includes(x.status)));
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -152,7 +152,7 @@ function ChangeOrdersWidget() {
   const [data, setData] = useState({ pending: 0, approved: 0, draft: 0 });
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    base44.entities.RFI.list('-created_date', 100).then(rfis => {
+    db.entities.RFI.list('-created_date', 100).then(rfis => {
       setData({
         pending: rfis.filter(r => r.status === 'submitted' || r.status === 'under_review').length,
         approved: rfis.filter(r => r.status === 'answered' || r.status === 'closed').length,
@@ -184,8 +184,8 @@ function FabProgressWidget() {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     Promise.all([
-      base44.entities.Project.filter({ is_archived: false }, '-created_date', 10),
-      base44.entities.PieceMark.list('-created_date', 200),
+      db.entities.Project.filter({ is_archived: false }, '-created_date', 10),
+      db.entities.PieceMark.list('-created_date', 200),
     ]).then(([projs, pieces]) => {
       const result = projs.filter(p => ['fabrication', 'erection', 'awarded', 'engineering'].includes(p.status)).slice(0, 5).map(p => {
         const projPieces = pieces.filter(pi => pi.project_id === p.id);
@@ -217,7 +217,7 @@ function ShipmentsCalendarWidget() {
   const [shipments, setShipments] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    base44.entities.PieceMark.list('-created_date', 200).then(pieces => {
+    db.entities.PieceMark.list('-created_date', 200).then(pieces => {
       const upcoming = pieces.filter(p => p.ship_date && new Date(p.ship_date) >= new Date())
         .sort((a, b) => new Date(a.ship_date) - new Date(b.ship_date))
         .slice(0, 8);
@@ -246,7 +246,7 @@ function InvoicedVsRemainingWidget() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    base44.entities.Project.filter({ is_archived: false }, '-created_date', 10).then(projs => {
+    db.entities.Project.filter({ is_archived: false }, '-created_date', 10).then(projs => {
       const result = projs.filter(p => p.contract_value > 0).slice(0, 5).map(p => {
         const invoiced = Math.round((p.contract_value || 0) * 0.6);
         return { name: p.name?.substring(0, 12), Invoiced: invoiced, Remaining: (p.contract_value || 0) - invoiced };
@@ -274,7 +274,7 @@ function InvoicedVsRemainingWidget() {
 function ProjectHealthSummaryWidget() {
   const [project, setProject] = useState(null);
   useEffect(() => {
-    base44.entities.Project.filter({ is_archived: false }, '-created_date', 1).then((projects) => setProject(projects[0] || null)).catch(() => setProject(null));
+    db.entities.Project.filter({ is_archived: false }, '-created_date', 1).then((projects) => setProject(projects[0] || null)).catch(() => setProject(null));
   }, []);
 
   if (!project) return <WidgetEmpty message="No project data yet" />;
@@ -305,7 +305,7 @@ function ProjectHealthSummaryWidget() {
 function ChangeOrderPipelineWidget() {
   const [data, setData] = useState([]);
   useEffect(() => {
-    base44.entities.change_orders.list('-created_date', 50).then((orders) => {
+    db.entities.change_orders.list('-created_date', 50).then((orders) => {
       const summary = {
         Draft: orders.filter((item) => item.status === 'Draft').length,
         Submitted: orders.filter((item) => item.status === 'Submitted to GC').length,
@@ -338,7 +338,7 @@ function ChangeOrderPipelineWidget() {
 function ShipmentsCalendarWidgetCard() {
   const [loads, setLoads] = useState([]);
   useEffect(() => {
-    base44.entities.shipping_loads.list('-created_date', 8).then((items) => setLoads(items)).catch(() => setLoads([]));
+    db.entities.shipping_loads.list('-created_date', 8).then((items) => setLoads(items)).catch(() => setLoads([]));
   }, []);
 
   if (loads.length === 0) return <WidgetEmpty message="No shipments logged" />;
@@ -357,7 +357,7 @@ function ShipmentsCalendarWidgetCard() {
 function BuyoutVarianceWidget() {
   const [orders, setOrders] = useState([]);
   useEffect(() => {
-    base44.entities.purchase_orders.list('-created_date', 10).then((items) => setOrders(items)).catch(() => setOrders([]));
+    db.entities.purchase_orders.list('-created_date', 10).then((items) => setOrders(items)).catch(() => setOrders([]));
   }, []);
 
   if (orders.length === 0) return <WidgetEmpty message="No buyout data yet" />;
@@ -384,7 +384,7 @@ function BuyoutVarianceWidget() {
 function PendingRequisitionApprovalsWidget() {
   const [items, setItems] = useState([]);
   useEffect(() => {
-    base44.entities.purchase_requisitions.list('-created_date', 10).then((result) => setItems(result.filter((item) => item.requires_signature))).catch(() => setItems([]));
+    db.entities.purchase_requisitions.list('-created_date', 10).then((result) => setItems(result.filter((item) => item.requires_signature))).catch(() => setItems([]));
   }, []);
 
   if (items.length === 0) return <WidgetEmpty message="No pending approvals" />;
@@ -402,7 +402,7 @@ function PendingRequisitionApprovalsWidget() {
 function MaterialReceivedTrackerWidget() {
   const [items, setItems] = useState([]);
   useEffect(() => {
-    base44.entities.receiving_logs.list('-created_date', 10).then(setItems).catch(() => setItems([]));
+    db.entities.receiving_logs.list('-created_date', 10).then(setItems).catch(() => setItems([]));
   }, []);
 
   if (items.length === 0) return <WidgetEmpty message="No receiving activity yet" />;

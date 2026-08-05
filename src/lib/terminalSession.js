@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 const TERMINAL_ID_KEY = 'steelos_terminal_id';
 const LOCKOUT_THRESHOLD = 3;
@@ -14,9 +14,9 @@ export function getTerminalId() {
 }
 
 const getOrCreateSession = async (terminalId) => {
-  const matches = await base44.entities.employee_portal_sessions.filter({ terminal_id: terminalId }, '-created_date', 1);
+  const matches = await db.entities.employee_portal_sessions.filter({ terminal_id: terminalId }, '-created_date', 1);
   if (matches[0]) return matches[0];
-  return base44.entities.employee_portal_sessions.create({ terminal_id: terminalId, attempts_count: 0, locked_until_timestamp: '', active_token: '' });
+  return db.entities.employee_portal_sessions.create({ terminal_id: terminalId, attempts_count: 0, locked_until_timestamp: '', active_token: '' });
 };
 
 export async function isTerminalLocked(terminalId) {
@@ -42,9 +42,9 @@ export async function recordFailedAttempt(terminalId) {
     updates.attempts_count = 0;
     justLocked = true;
   }
-  const updated = await base44.entities.employee_portal_sessions.update(session.id, updates);
+  const updated = await db.entities.employee_portal_sessions.update(session.id, updates);
   if (justLocked) {
-    await base44.entities.AuditLog.create({
+    await db.entities.AuditLog.create({
       user_id: terminalId,
       action_type: 'OTHER',
       entity_type: 'employee_portal_sessions',
@@ -61,7 +61,7 @@ export async function recordFailedAttempt(terminalId) {
 export async function recordSuccessfulLogin(terminalId, employeeId) {
   const session = await getOrCreateSession(terminalId);
   const active_token = `${employeeId}::${Date.now()}::${Math.random().toString(16).slice(2)}`;
-  return base44.entities.employee_portal_sessions.update(session.id, {
+  return db.entities.employee_portal_sessions.update(session.id, {
     attempts_count: 0,
     locked_until_timestamp: '',
     active_token,

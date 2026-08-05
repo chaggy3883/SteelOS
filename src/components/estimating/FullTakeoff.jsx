@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { Calculator, Gauge, Clock3, Save, Plus, Trash2, Minus, Download, FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,7 +45,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
 
   useEffect(() => { loadRows(); }, [bid?.id]);
   useEffect(() => {
-    base44.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
+    db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
   }, []);
 
   // Live catalog lookup — the "Available Size" dropdown no longer reads the
@@ -61,7 +61,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     if (!bid?.id) return;
     setLoading(true);
     try {
-      const existing = await base44.entities.MaterialTakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200);
+      const existing = await db.entities.MaterialTakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200);
       setRows(existing.length ? existing.map((r) => {
         const shapeClass = r.shape_class || 'W-Beam';
         return {
@@ -131,11 +131,11 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
           coating_type: row.coating_type || 'No Coating',
           paint_area_sq_in: paintAreaSqIn || 0,
         };
-        if (row.id) return base44.entities.MaterialTakeoffLine.update(row.id, payload);
-        return base44.entities.MaterialTakeoffLine.create(payload);
+        if (row.id) return db.entities.MaterialTakeoffLine.update(row.id, payload);
+        return db.entities.MaterialTakeoffLine.create(payload);
       });
       await Promise.all(ops);
-      await base44.entities.Bid.update(bid.id, {
+      await db.entities.Bid.update(bid.id, {
         estimated_tons: totalTons,
         estimated_man_hours: totalManHours,
         shop_efficiency_pct: Number(shopEfficiencyPct) || 100,

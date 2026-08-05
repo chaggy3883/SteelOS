@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 import { AlertTriangle, Truck, Warehouse, Plus, Gauge, Wrench } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -41,7 +41,7 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
     }
     setSaving(true);
     try {
-      await base44.entities.erection_fleet_assets.create({
+      await db.entities.erection_fleet_assets.create({
         asset_name: assetForm.asset_name.trim(),
         asset_type: assetForm.asset_type,
         status: assetForm.status,
@@ -66,7 +66,7 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
     if (!logHoursAsset) return;
     setSaving(true);
     try {
-      await base44.entities.erection_fleet_assets.update(logHoursAsset.id, { runtime_hours: Number(logHoursValue) || 0 });
+      await db.entities.erection_fleet_assets.update(logHoursAsset.id, { runtime_hours: Number(logHoursValue) || 0 });
       await onReload();
       setLogHoursAsset(null);
       setLogHoursValue('');

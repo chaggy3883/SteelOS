@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/apiClient';
 
 // Company standard legal baselines used to flag risky contract clauses.
 // These are illustrative internal thresholds, not legal advice — adjust to
@@ -11,7 +11,7 @@ export const MIN_RFI_RESPONSE_WINDOW_DAYS = 10;
 // while Contract.retainage_pct is a decimal fraction (e.g. 0.10) — convert here.
 export async function getRetainageBaseline() {
   try {
-    const list = await base44.entities.SystemSetting.filter({ setting_group: 'cost_variables' }, '-created_date', 1);
+    const list = await db.entities.SystemSetting.filter({ setting_group: 'cost_variables' }, '-created_date', 1);
     const pct = list[0]?.retainage_default_pct;
     return typeof pct === 'number' ? pct / 100 : 0.10;
   } catch (e) {
