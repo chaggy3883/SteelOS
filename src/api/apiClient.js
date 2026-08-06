@@ -76,6 +76,7 @@ const createLocalApi = () => ({
     shop_sequences: createEntityApi('shop_sequences'),
     shipping_loads: createEntityApi('shipping_loads'),
     purchase_orders: createEntityApi('purchase_orders'),
+    purchase_order_lines: createEntityApi('purchase_order_lines'),
     purchase_requisitions: createEntityApi('purchase_requisitions'),
     receiving_logs: createEntityApi('receiving_logs'),
     payable_invoices: createEntityApi('payable_invoices'),

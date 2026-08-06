@@ -30,6 +30,17 @@ const normalizeDbZone = (zone) => ({
   description: (zone.zone_type || '').replace(/_/g, ' '),
 });
 
+// zone.color is normally a numeric hex integer (e.g. 0x3b82f6), which is what
+// the Three.js material color assignment wants directly — but CSS needs a
+// "#rrggbb" string, and if color ever comes through as a string instead,
+// `.toString(16)` on it silently produces "NaN" -> "#NaN" (an invisible/black
+// swatch) rather than an error. This normalizes either shape, with a safe
+// fallback color instead of NaN.
+const toHexColor = (c) => {
+  const n = typeof c === 'string' ? parseInt(c.replace('#', ''), 16) : c;
+  return isNaN(n) ? '#3b82f6' : '#' + n.toString(16).padStart(6, '0');
+};
+
 const ZONES = [
   { id: 'receiving', label: 'Receiving', x: -12, z: -8, w: 6, d: 4, color: 0x3b82f6, description: 'Incoming material receiving area' },
   { id: 'raw_steel', label: 'Raw Steel Storage', x: -4, z: -8, w: 8, d: 4, color: 0x6366f1, description: 'Wide flange, HSS, angles, channels' },
@@ -97,6 +108,15 @@ export default function Warehouse3D({ items = [] }) {
     if (!mountRef.current) return;
     const W = mountRef.current.clientWidth;
     const H = mountRef.current.clientHeight;
+
+    // Computed here (not read from the render-scope `allZones`/`activeRacks`
+    // above) so this effect's only real dependencies are dbZones/items, as
+    // its dependency array says — a render-scope derived array is a new
+    // reference on every render (e.g. the fullscreen toggle), and closing
+    // over that here would tie the scene's lifetime to renders that have
+    // nothing to do with the underlying zone data.
+    const allZones = dbZones.length > 0 ? dbZones.map(normalizeDbZone) : ZONES.map(normalizeStaticZone);
+    const activeRacks = dbZones.length > 0 ? [] : RACKS;
 
     // Scene
     const scene = new THREE.Scene();
@@ -333,6 +353,24 @@ export default function Warehouse3D({ items = [] }) {
     };
   }, [items, dbZones]);
 
+  // Fullscreen toggle changes the mount container's size, not the underlying
+  // scene/zone data — recalculate the camera aspect and renderer size against
+  // refs instead of tearing down and rebuilding the whole Three.js scene.
+  // toggleFullscreen's own double-rAF + window resize event covers this too;
+  // this effect is the direct, ref-driven counterpart of that same recalculation.
+  useEffect(() => {
+    if (!mountRef.current || !cameraRef.current || !rendererRef.current) return;
+    const recalc = () => {
+      if (!mountRef.current || !cameraRef.current || !rendererRef.current) return;
+      const W2 = mountRef.current.clientWidth;
+      const H2 = mountRef.current.clientHeight;
+      cameraRef.current.aspect = W2 / H2;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(W2, H2);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(recalc));
+  }, [isFullscreen]);
+
   function updateCamera() {
     if (!cameraRef.current) return;
     const { theta, phi } = cameraAngle.current;
@@ -390,7 +428,7 @@ export default function Warehouse3D({ items = [] }) {
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Zones</p>
           {allZones.slice(0, 6).map(zone => (
             <div key={zone.id} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: `#${zone.color.toString(16).padStart(6, '0')}` }} />
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: toHexColor(zone.color) }} />
               <span className="text-xs text-foreground/80">{zone.label}</span>
             </div>
           ))}
@@ -398,7 +436,7 @@ export default function Warehouse3D({ items = [] }) {
 
         {/* Selected Zone Info */}
         {selectedZone && (
-          <div className={`absolute ${isFullscreen ? 'top-20' : 'top-4'} right-4 bg-card/95 backdrop-blur border border-border rounded-lg p-4 w-64 animate-fade-in`}>
+          <div className={`absolute ${isFullscreen ? 'top-24 left-4' : 'top-4 right-4'} bg-card/95 backdrop-blur border border-border rounded-lg p-4 w-64 animate-fade-in`}>
             <div className="flex items-start justify-between mb-2">
               <h4 className="font-semibold text-sm">{selectedZone.label}</h4>
               <button onClick={() => setSelectedZone(null)} className="text-muted-foreground hover:text-foreground text-xs">✕</button>
@@ -436,7 +474,7 @@ export default function Warehouse3D({ items = [] }) {
                   onClick={() => setSelectedZone({ ...zone, itemCount: count })}
                   className="flex items-center gap-2 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors"
                 >
-                  <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: `#${zone.color.toString(16).padStart(6, '0')}` }} />
+                  <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: toHexColor(zone.color) }} />
                   <div className="min-w-0">
                     <p className="text-xs font-medium truncate">{zone.label}</p>
                     <p className="text-xs text-muted-foreground">{count} items</p>

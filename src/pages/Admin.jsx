@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -30,7 +31,9 @@ const TABS = [
 ];
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState('users');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'users';
+  const setActiveTab = (id) => setSearchParams({ tab: id });
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 

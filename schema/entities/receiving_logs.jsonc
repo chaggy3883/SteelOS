@@ -1,0 +1,61 @@
+{
+  "name": "receiving_logs",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "po_id": {
+      "type": "string"
+    },
+    "po_number": {
+      "type": "string"
+    },
+    "quantity_ordered": {
+      "type": "number",
+      "default": 0
+    },
+    "quantity_received": {
+      "type": "number",
+      "default": 0
+    },
+    "delivery_status": {
+      "type": "string",
+      "enum": [
+        "Received Complete",
+        "Partial Delivery"
+      ]
+    },
+    "packing_list": {
+      "type": "string"
+    },
+    "material_heat_number": {
+      "type": "string"
+    },
+    "attachment_path": {
+      "type": "string"
+    },
+    "verified": {
+      "type": "boolean",
+      "default": false
+    },
+    "line_id": {
+      "type": "string",
+      "description": "Links to a specific purchase_order_line this delivery entry applies to."
+    },
+    "quantity_received_this_delivery": {
+      "type": "number",
+      "default": 0
+    },
+    "receiver_name": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "po_id",
+    "po_number"
+  ]
+}

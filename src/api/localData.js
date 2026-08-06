@@ -1263,6 +1263,72 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
+    purchase_order_lines: [
+      {
+        id: 'pol-1001-1',
+        po_id: 'po-1001',
+        line_number: 1,
+        description: 'W14x90 Wide Flange Columns',
+        material_category: 'Structural Shapes',
+        quantity_ordered: 24,
+        unit_of_measure: 'pc',
+        unit_cost: 2800,
+        line_total: 24 * 2800,
+        quantity_received: 24,
+        quantity_remaining: 0,
+        is_fully_received: true,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'pol-1001-2',
+        po_id: 'po-1001',
+        line_number: 2,
+        description: 'W18x35 Wide Flange Beams',
+        material_category: 'Structural Shapes',
+        quantity_ordered: 48,
+        unit_of_measure: 'pc',
+        unit_cost: 890,
+        line_total: 48 * 890,
+        quantity_received: 24,
+        quantity_remaining: 24,
+        is_fully_received: false,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'pol-1001-3',
+        po_id: 'po-1001',
+        line_number: 3,
+        description: 'HSS 6x6x1/4 Tube Columns',
+        material_category: 'Structural Shapes',
+        quantity_ordered: 36,
+        unit_of_measure: 'pc',
+        unit_cost: 640,
+        line_total: 36 * 640,
+        quantity_received: 24,
+        quantity_remaining: 12,
+        is_fully_received: false,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'pol-1001-4',
+        po_id: 'po-1001',
+        line_number: 4,
+        description: 'Misc Plate and Connection Material',
+        material_category: 'Misc Metals',
+        quantity_ordered: 1,
+        unit_of_measure: 'lot',
+        unit_cost: 18000,
+        line_total: 18000,
+        quantity_received: 0,
+        quantity_remaining: 1,
+        is_fully_received: false,
+        created_date: now,
+        updated_date: now
+      }
+    ],
     purchase_requisitions: [
       {
         id: 'req-1001',
@@ -1551,7 +1617,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();

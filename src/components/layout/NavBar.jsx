@@ -16,7 +16,7 @@ import {
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
-  Globe, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit
+  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit
 } from 'lucide-react';
 
 const navGroups = [
@@ -78,7 +78,9 @@ const navGroups = [
   {
     label: 'External Gateways',
     items: [
-      { icon: Globe, label: 'Portal Management', path: '/admin', query: '' },
+      { icon: Globe, label: 'Customer Portal Setup', path: '/admin', query: '?tab=integrations' },
+      { icon: Handshake, label: 'Vendor Portal Setup', path: '/admin', query: '?tab=crm' },
+      { icon: ShieldCheck, label: 'Portal Access Links', path: '/admin', query: '?tab=integrations' },
     ]
   },
   {
@@ -215,7 +217,7 @@ export default function NavBar() {
                 const Icon = item.icon;
                 const active = isActive(item.path);
                 return (
-                  <DropdownMenuItem key={item.path + (item.query || '')} asChild>
+                  <DropdownMenuItem key={item.label} asChild>
                     <Link
                       to={item.path + (item.query || '')}
                       className={cn('flex items-center gap-2.5 cursor-pointer', active && 'font-medium')}

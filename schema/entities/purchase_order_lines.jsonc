@@ -1,0 +1,56 @@
+{
+  "name": "purchase_order_lines",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "po_id": {
+      "type": "string",
+      "description": "Links to purchase_orders."
+    },
+    "line_number": {
+      "type": "number"
+    },
+    "description": {
+      "type": "string"
+    },
+    "material_category": {
+      "type": "string"
+    },
+    "quantity_ordered": {
+      "type": "number",
+      "default": 0
+    },
+    "unit_of_measure": {
+      "type": "string",
+      "default": "ea"
+    },
+    "unit_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "line_total": {
+      "type": "number",
+      "default": 0
+    },
+    "quantity_received": {
+      "type": "number",
+      "default": 0
+    },
+    "quantity_remaining": {
+      "type": "number",
+      "default": 0,
+      "description": "Computed display field (quantity_ordered - quantity_received) — stored as 0 initially, kept in sync by the receiving workflow rather than derived on read."
+    },
+    "is_fully_received": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "po_id",
+    "description",
+    "quantity_ordered"
+  ]
+}
