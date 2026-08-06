@@ -17,9 +17,13 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
   const [unreadCount, setUnreadCount] = useState(0);
   const navigate = useNavigate();
 
+  // Depends on user?.id (not []) — AppLayout's own db.auth.me() call resolves
+  // asynchronously, so on first mount `user` is still null. Firing this once
+  // with an empty deps array would filter on user_id: undefined forever
+  // (matching only legacy notifications that predate the user_id column).
   useEffect(() => {
-    loadNotifications();
-  }, []);
+    if (user?.id) loadNotifications();
+  }, [user?.id]);
 
   // Co-branded chrome: the effective tenant's own logo/color, passed down
   // from AppLayout (which already resolves it per-route) rather than this

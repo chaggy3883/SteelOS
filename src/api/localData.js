@@ -1428,17 +1428,38 @@ const loadStore = () => {
 // Fire-and-forget and silently swallowed on failure: this only exists under
 // `npm run dev`, so it must be a strict no-op everywhere else (production
 // build, tests, SSR) rather than something callers have to guard against.
+//
+// Debounced rather than fired per-call: a burst of writes (bulk seeding, for
+// example) previously queued one unsequenced POST per call, and since these
+// are all in-flight concurrently against the same localhost endpoint, an
+// EARLIER call's request could complete AFTER a later one's — last write
+// wins on disk, so the earlier (staler, less-complete) snapshot could
+// silently clobber the later one, losing data on the next reload even
+// though localStorage itself (read synchronously, same-tab) was always
+// correct. Collapsing a burst into a single POST of the latest snapshot,
+// sent once the burst goes quiet, removes that race entirely.
+let pendingSyncStore = null;
+let pendingSyncTimer = null;
+const SYNC_DEBOUNCE_MS = 250;
+
 const syncStoreToFile = (store) => {
   if (typeof fetch !== 'function') return;
-  try {
-    fetch('/__db-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(store),
-    }).catch(() => {});
-  } catch (e) {
-    // no-op
-  }
+  pendingSyncStore = store;
+  if (pendingSyncTimer) clearTimeout(pendingSyncTimer);
+  pendingSyncTimer = setTimeout(() => {
+    const toSend = pendingSyncStore;
+    pendingSyncTimer = null;
+    pendingSyncStore = null;
+    try {
+      fetch('/__db-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toSend),
+      }).catch(() => {});
+    } catch (e) {
+      // no-op
+    }
+  }, SYNC_DEBOUNCE_MS);
 };
 
 const saveStore = (store) => {

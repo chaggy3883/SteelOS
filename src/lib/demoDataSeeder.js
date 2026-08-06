@@ -61,6 +61,28 @@ function periodFor(year, month) {
   return `${year}-${String(month).padStart(2, '0')}`;
 }
 
+function isoDaysFromNow(delta) {
+  const d = new Date();
+  d.setDate(d.getDate() + delta);
+  return d.toISOString();
+}
+
+// Offsets (0 or negative "days ago") for the most recent N weekdays
+// (Mon-Fri), most recent first — used to spread attendance punches across
+// the last few real work-weeks without landing any on a weekend.
+function lastNWeekdayOffsets(n) {
+  const offsets = [];
+  let i = 0;
+  while (offsets.length < n) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) offsets.push(-i);
+    i += 1;
+  }
+  return offsets;
+}
+
 export async function seedDemoData() {
   const existingBids = await db.entities.Bid.list('-created_date', 1);
   if (existingBids.length > 0) {
@@ -402,6 +424,488 @@ export async function seedDemoData() {
     }))
   );
 
+  // 14. Customers (CRM) — feeds CustomerPickerModal's picker list
+  const customerSeeds = [
+    { name: 'Midwest General Contractors', customer_type: 'general_contractor', city: 'Columbus', state: 'OH' },
+    { name: 'Buckeye Construction Group', customer_type: 'general_contractor', city: 'Toledo', state: 'OH' },
+    { name: 'Great Lakes Builders', customer_type: 'general_contractor', city: 'Cleveland', state: 'OH' },
+    { name: 'Heartland Construction Partners', customer_type: 'general_contractor', city: 'Cincinnati', state: 'OH' },
+    { name: 'Franklin County Schools', customer_type: 'owner', city: 'Columbus', state: 'OH' },
+    { name: 'Ohio State Medical Center', customer_type: 'owner', city: 'Columbus', state: 'OH' },
+    { name: 'Findlay City Engineering', customer_type: 'other', city: 'Findlay', state: 'OH' },
+    { name: 'Northwest Ohio Port Authority', customer_type: 'other', city: 'Toledo', state: 'OH' },
+  ];
+  await db.entities.Customer.bulkCreate(
+    customerSeeds.map((c) => ({ ...c, is_active: true, portal_enabled: false }))
+  );
+
+  // 15. Contracts — one per project
+  const projectStatusLdRate = { complete: 500, erection: 1000, fabrication: 750, awarded: 0 };
+  const contractSeeds = projects.map((proj, i) => ({
+    project_id: proj.id,
+    gc_name: wonBidsForProjects[i].customer_name,
+    contract_value: proj.contract_value,
+    rfi_response_window_days: i < 2 ? 10 : 7,
+    liquidated_damages_per_day: projectStatusLdRate[proj.status],
+    retainage_pct: 0.10,
+    notice_cure_days: 7,
+    status: 'active',
+  }));
+  await db.entities.Contract.bulkCreate(contractSeeds);
+
+  // 16. SOV Lines — 5 per active project (complete/erection/fabrication), skip the just-awarded one
+  const sovItemWeights = [
+    { item_description: 'Structural Steel Fabrication', weight: 0.45 },
+    { item_description: 'Steel Erection', weight: 0.30 },
+    { item_description: 'Anchor Bolts & Miscellaneous', weight: 0.10 },
+    { item_description: 'Shop Drawings & Submittals', weight: 0.08 },
+    { item_description: 'Project Management & Closeout', weight: 0.07 },
+  ];
+  const sovCompletionByIdx = [1.0, 0.65, 0.30]; // complete, erection, fabrication
+  const sovPayloads = [];
+  costProjects.forEach((proj, idx) => {
+    const completion_percentage = sovCompletionByIdx[idx];
+    sovItemWeights.forEach(({ item_description, weight }) => {
+      const original_scheduled_value = Math.round(proj.contract_value * weight);
+      sovPayloads.push({
+        project_id: proj.id,
+        item_description,
+        original_scheduled_value,
+        completion_percentage,
+        current_billed_amount: Math.round(original_scheduled_value * completion_percentage),
+        retainage_rate: 0.10,
+      });
+    });
+  });
+  await db.entities.SovLine.bulkCreate(sovPayloads);
+
+  // 17. RFIs — 4 per active project (2 answered, 1 submitted, 1 draft)
+  const estimatingEmployees = employees.filter((e) => e.department === 'Estimating');
+  const pmEmployee = employees.find((e) => e.department === 'Project Management');
+  const shopEmployees = employees.filter((e) => e.department === 'Shop/Fabrication');
+  const fieldEmployees = employees.filter((e) => e.department === 'Field/Erection');
+  const shopManager = employees.find((e) => e.department === 'Shop Management');
+  const accountant = employees.find((e) => e.department === 'Accounting');
+  const hrEmployee = employees.find((e) => e.department === 'HR');
+
+  const rfiProjectSeeds = [
+    {
+      project: costProjects[0],
+      items: [
+        { subject: 'Connection detail clarification at grid line C-4', priority: 'medium', status: 'answered', submittedOffset: -28, answeredOffset: -10, response: 'Confirmed per detail 5/S3.1 — proceed as drawn.', submitter: estimatingEmployees[0] },
+        { subject: 'Anchor bolt layout confirmation — column line 7', priority: 'high', status: 'answered', submittedOffset: -21, answeredOffset: -7, response: 'Revised anchor bolt pattern per SK-001, see attached sketch.', submitter: pmEmployee },
+        { subject: 'Beam cope detail at moment connection', priority: 'high', status: 'submitted', submittedOffset: -7, requiredOffset: 3, submitter: estimatingEmployees[1] },
+        { subject: 'Erection sequence clarification for north bay', priority: 'medium', status: 'draft', submitter: pmEmployee },
+      ],
+    },
+    {
+      project: costProjects[1],
+      items: [
+        { subject: 'Column base plate detail verification', priority: 'high', status: 'answered', submittedOffset: -25, answeredOffset: -12, response: 'See revised detail 8/S4.2 for base plate connection.', submitter: pmEmployee },
+        { subject: 'Fireproofing scope at exposed steel columns', priority: 'medium', status: 'answered', submittedOffset: -20, answeredOffset: -8, response: 'Fireproofing by others per spec section 07 81 00 — steel scope excludes SFRM application.', submitter: estimatingEmployees[0] },
+        { subject: 'Coating specification for exterior canopy steel', priority: 'high', status: 'submitted', submittedOffset: -7, requiredOffset: 3, submitter: estimatingEmployees[1] },
+        { subject: 'Erection sequence for high bay crane runway', priority: 'medium', status: 'draft', submitter: pmEmployee },
+      ],
+    },
+    {
+      project: costProjects[2],
+      items: [
+        { subject: 'Connection detail clarification at typical beam-to-column', priority: 'medium', status: 'answered', submittedOffset: -22, answeredOffset: -9, response: 'Approved as submitted, no cost impact.', submitter: estimatingEmployees[1] },
+        { subject: 'Anchor bolt layout — loading dock canopy', priority: 'high', status: 'answered', submittedOffset: -24, answeredOffset: -11, response: 'Revised anchor bolt pattern per SK-002, see attached sketch.', submitter: pmEmployee },
+        { subject: 'Beam cope detail at cantilever condition', priority: 'high', status: 'submitted', submittedOffset: -7, requiredOffset: 3, submitter: estimatingEmployees[0] },
+        { subject: 'Coating specification confirmation for interior exposed steel', priority: 'medium', status: 'draft', submitter: estimatingEmployees[1] },
+      ],
+    },
+  ];
+
+  const rfiPayloads = [];
+  rfiProjectSeeds.forEach(({ project, items }) => {
+    items.forEach((item, i) => {
+      rfiPayloads.push({
+        project_id: project.id,
+        rfi_number: `RFI-${String(i + 1).padStart(3, '0')}`,
+        subject: item.subject,
+        status: item.status,
+        priority: item.priority,
+        submitted_by: item.submitter.full_name,
+        ...(item.status !== 'draft' ? { date_submitted: daysFromNow(item.submittedOffset) } : {}),
+        ...(item.requiredOffset != null ? { date_required: daysFromNow(item.requiredOffset) } : {}),
+        ...(item.answeredOffset != null ? { date_answered: daysFromNow(item.answeredOffset) } : {}),
+        response: item.response || '',
+      });
+    });
+  });
+  await db.entities.RFI.bulkCreate(rfiPayloads);
+
+  // 18. Change Orders — 3 on complete, 3 on erection, 2 on fabrication
+  const changeOrderProjectSeeds = [
+    {
+      project: costProjects[0],
+      items: [
+        { description: 'Added beam at grid line 5 per RFI resolution', status: 'Approved', cost_impact: 8500, schedule_impact: 0, dateOffset: -20 },
+        { description: 'Owner-directed fireproofing upgrade to 2-hour rating', status: 'Approved', cost_impact: 15200, schedule_impact: 4, dateOffset: -14 },
+        { description: 'Additional anchor bolts for equipment pad reinforcement', status: 'Approved', cost_impact: 4800, schedule_impact: 0, dateOffset: -8 },
+      ],
+    },
+    {
+      project: costProjects[1],
+      items: [
+        { description: 'Crane runway beam reinforcement', status: 'Approved', cost_impact: 18500, schedule_impact: 5, dateOffset: -16 },
+        { description: 'Additional erection bracing for high bay', status: 'Approved', cost_impact: 6200, schedule_impact: 0, dateOffset: -10 },
+        { description: 'Owner-directed canopy steel addition', status: 'Submitted to GC', cost_impact: 21800, schedule_impact: 3, dateOffset: -3 },
+      ],
+    },
+    {
+      project: costProjects[2],
+      items: [
+        { description: 'Revised connection design for loading dock canopy', status: 'Draft', cost_impact: 3800, schedule_impact: 0, dateOffset: -1 },
+        { description: 'Additional shop drawings for owner-requested layout change', status: 'Submitted to GC', cost_impact: 10500, schedule_impact: 0, dateOffset: -4 },
+      ],
+    },
+  ];
+
+  const changeOrderPayloads = [];
+  changeOrderProjectSeeds.forEach(({ project, items }) => {
+    items.forEach((item, i) => {
+      changeOrderPayloads.push({
+        project_id: project.id,
+        change_order_id: `CO-${String(i + 1).padStart(3, '0')}`,
+        co_sequence_number: i + 1,
+        description: item.description,
+        status: item.status,
+        cost_impact: item.cost_impact,
+        total_change_order_value_cents: item.cost_impact * 100,
+        schedule_impact: item.schedule_impact,
+        date_submitted: daysFromNow(item.dateOffset),
+      });
+    });
+  });
+  await db.entities.change_orders.bulkCreate(changeOrderPayloads);
+
+  // 19. Submittals — 4/3/3 across the 3 active projects
+  const submittalProjectSeeds = [
+    {
+      project: costProjects[0],
+      items: [
+        { title: 'Structural Steel Shop Drawings', spec_section: '05 12 00 Structural Steel Framing', status: 'approved', submittedOffset: -28, returnedOffset: -18 },
+        { title: 'Mill Certifications / MTRs', spec_section: '05 12 00 Structural Steel Framing', status: 'approved', submittedOffset: -25, returnedOffset: -15 },
+        { title: 'Paint System Data Sheets', spec_section: '09 91 13 Exterior Painting', status: 'approved', submittedOffset: -20, returnedOffset: -10 },
+        { title: 'Anchor Bolt Layout Plan', spec_section: '03 15 00 Anchor Bolts', status: 'approved', submittedOffset: -30, returnedOffset: -22 },
+      ],
+    },
+    {
+      project: costProjects[1],
+      items: [
+        { title: 'Structural Steel Shop Drawings', spec_section: '05 12 00 Structural Steel Framing', status: 'approved', submittedOffset: -26, returnedOffset: -16 },
+        // Schema has no "Revise and Resubmit" status — 'rejected' is the closest real value; the note preserves the actual disposition.
+        { title: 'Connection Design Calculations', spec_section: '05 50 00 Metal Fabrications', status: 'rejected', submittedOffset: -18, returnedOffset: -10, notes: 'Revise and resubmit — see reviewer comments.' },
+        { title: 'Paint System Data Sheets', spec_section: '09 91 13 Exterior Painting', status: 'under_review', submittedOffset: -10, requiredOffset: 4 },
+      ],
+    },
+    {
+      project: costProjects[2],
+      items: [
+        { title: 'Mill Certifications / MTRs', spec_section: '05 12 00 Structural Steel Framing', status: 'under_review', submittedOffset: -8, requiredOffset: 6 },
+        { title: 'Anchor Bolt Layout Plan', spec_section: '03 15 00 Anchor Bolts', status: 'approved', submittedOffset: -22, returnedOffset: -14 },
+        { title: 'Connection Design Calculations', spec_section: '05 50 00 Metal Fabrications', status: 'draft' },
+      ],
+    },
+  ];
+
+  const submittalPayloads = [];
+  let submittalCounter = 0;
+  submittalProjectSeeds.forEach(({ project, items }) => {
+    items.forEach((item) => {
+      submittalCounter += 1;
+      submittalPayloads.push({
+        project_id: project.id,
+        submittal_number: `SUB-${String(submittalCounter).padStart(3, '0')}`,
+        title: item.title,
+        spec_section: item.spec_section,
+        status: item.status,
+        ...(item.submittedOffset != null ? { date_submitted: daysFromNow(item.submittedOffset) } : {}),
+        ...(item.requiredOffset != null ? { date_required: daysFromNow(item.requiredOffset) } : {}),
+        ...(item.returnedOffset != null ? { date_returned: daysFromNow(item.returnedOffset) } : {}),
+        ...(item.notes ? { notes: item.notes } : {}),
+      });
+    });
+  });
+  await db.entities.Submittal.bulkCreate(submittalPayloads);
+
+  // 20. Pieces (Shop Floor) — 15 each on the fabrication and erection projects
+  // pieces has no literal "fabricated/in_fab/pending/shipped" status field —
+  // it's modeled via workflow_status + field_status + current_station_id.
+  // seedStatus below is our own bookkeeping label, mapped to those real
+  // fields, and kept alongside (not stored) so later sections know which
+  // pieces need QA records / loads.
+  function buildProjectPieces(projectId, statusPlan) {
+    const shapeGroups = [
+      { prefix: 'W', count: 6, shape: 'W-Beam', dims: ['W14x90', 'W18x35', 'W12x26', 'W16x40', 'W10x22', 'W14x30'], weights: [1980, 1240, 980, 1580, 720, 1080] },
+      { prefix: 'C', count: 4, shape: 'C-Channel', dims: ['C10x20', 'C12x25', 'C9x15', 'C10x20'], weights: [640, 820, 460, 640] },
+      { prefix: 'B', count: 3, shape: 'HSS Tube', dims: ['HSS6x6x1/4', 'HSS8x8x3/8', 'HSS4x4x1/4'], weights: [380, 590, 220] },
+      { prefix: 'M', count: 2, shape: 'HSS Tube', dims: ['HSS3x3x1/4', 'HSS3x3x1/4'], weights: [210, 230] },
+    ];
+    const stationMap = {
+      shipped: { workflow_status: 'Paint_Unlocked', field_status: 'On_Site', current_station_id: 6 },
+      fabricated: { workflow_status: 'Paint_Unlocked', field_status: 'In_Shop', current_station_id: 5 },
+      in_fab: { workflow_status: 'In_Fabrication', field_status: 'In_Shop', current_station_id: 3 },
+      pending: { workflow_status: 'In_Fabrication', field_status: 'In_Shop', current_station_id: 1 },
+    };
+    const payloads = [];
+    const statuses = [];
+    let idx = 0;
+    shapeGroups.forEach((group) => {
+      for (let i = 1; i <= group.count; i++) {
+        const seedStatus = statusPlan[idx];
+        payloads.push({
+          project_id: projectId,
+          piece_mark: `${group.prefix}${i}`,
+          material_shape: group.shape,
+          dimensions: group.dims[i - 1],
+          weight: group.weights[i - 1],
+          ...stationMap[seedStatus],
+        });
+        statuses.push(seedStatus);
+        idx += 1;
+      }
+    });
+    return { payloads, statuses };
+  }
+
+  const fabricationStatusPlan = [...Array(8).fill('fabricated'), ...Array(4).fill('in_fab'), ...Array(3).fill('pending')];
+  const erectionStatusPlan = Array(15).fill('shipped');
+
+  const { payloads: fabricationPiecePayloads, statuses: fabricationStatuses } = buildProjectPieces(costProjects[2].id, fabricationStatusPlan);
+  const { payloads: erectionPiecePayloads } = buildProjectPieces(costProjects[1].id, erectionStatusPlan);
+
+  const fabricationPieces = await db.entities.pieces.bulkCreate(fabricationPiecePayloads);
+  const erectionPieces = await db.entities.pieces.bulkCreate(erectionPiecePayloads);
+
+  // 21. QA Inspections — one per piece that's fabricated or shipped
+  // qa_inspections.stage only supports 1_Layout/2_Weld (no "final_fab") —
+  // 2_Weld is the closest real stage to "final shop inspection before ship".
+  // Likewise status only supports Approved/Failed (no "pending") — a couple
+  // of the fabricated pieces are modeled as Failed (caught in QA, awaiting
+  // rework) rather than inventing a status the schema doesn't have.
+  const fabricatedOnlyPieces = fabricationPieces.filter((_, i) => fabricationStatuses[i] === 'fabricated');
+  const qaCandidates = [...fabricatedOnlyPieces, ...erectionPieces];
+  const qaDayOffsets = [-10, -9, -8, -7, -6, -5, -4, -3, -2];
+  const qaInspectionPayloads = qaCandidates.map((piece, i) => ({
+    piece_id: piece.id,
+    stage: '2_Weld',
+    inspector_id: shopManager.id,
+    status: i < fabricatedOnlyPieces.length && (i === 1 || i === 4) ? 'Failed' : 'Approved',
+    inspected_at: isoDaysFromNow(qaDayOffsets[i % qaDayOffsets.length]),
+  }));
+  await db.entities.qa_inspections.bulkCreate(qaInspectionPayloads);
+
+  // 22. Loads & Shipping — erection project's 15 pieces across 3 loads of 5
+  const loadDefs = [
+    { pieces: erectionPieces.slice(0, 5), status: 'Delivered', dayOffset: -14, driver: { name: 'Sam Ortega', phone: '419-555-0177' } },
+    { pieces: erectionPieces.slice(5, 10), status: 'Delivered', dayOffset: -7, driver: { name: 'Marcus Reyes', phone: '419-555-0198' } },
+    { pieces: erectionPieces.slice(10, 15), status: 'In_Transit', dayOffset: -1, driver: { name: 'Dana Whitfield', phone: '419-555-0142' } },
+  ];
+
+  const loadPayloads = loadDefs.map((def, i) => ({
+    project_id: costProjects[1].id,
+    load_number_id: `LOAD-${String(i + 1).padStart(3, '0')}`,
+    status: def.status,
+    total_weight_lbs: def.pieces.reduce((sum, p) => sum + (p.weight || 0), 0),
+    created_date: isoDaysFromNow(def.dayOffset),
+  }));
+  const loads = await db.entities.loads.bulkCreate(loadPayloads);
+
+  const loadItemPayloads = [];
+  loadDefs.forEach((def, li) => {
+    def.pieces.forEach((piece, pi) => {
+      loadItemPayloads.push({
+        load_id: loads[li].id,
+        piece_id: piece.id,
+        sequence_number: pi + 1,
+        status: 'Loaded',
+      });
+    });
+  });
+  await db.entities.load_items.bulkCreate(loadItemPayloads);
+
+  await db.entities.shipping_manifests.bulkCreate(
+    loadDefs.map((def, i) => ({
+      load_id: loads[i].id,
+      driver_name: def.driver.name,
+      driver_phone: def.driver.phone,
+      trailer_type: 'Flatbed',
+    }))
+  );
+
+  // 23. Erection Fleet Assets
+  // asset_type/status enums don't have telehandler/aerial_lift/active/maintenance
+  // — mapped to the closest real values (Other for non-crane equipment,
+  // Internal_Owned for company-owned gear); the Gradall is left off the
+  // erection project's location to informally represent it being down.
+  await db.entities.erection_fleet_assets.bulkCreate([
+    { asset_name: 'Grove RT760E Rough Terrain Crane', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: 847, project_location_id: costProjects[1].id },
+    { asset_name: 'Manitowoc 14000 Lattice Boom Crane', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: 1203, project_location_id: costProjects[1].id },
+    { asset_name: 'Gradall XL4100 Telehandler', asset_type: 'Other', status: 'Internal_Owned', runtime_hours: 2341 },
+    { asset_name: 'JLG 600S Boom Lift', asset_type: 'Other', status: 'Internal_Owned', runtime_hours: 412, project_location_id: costProjects[1].id },
+  ]);
+
+  // 24. Attendance Punches — 20 in/out pairs per employee across the last 4 work-weeks
+  const weekdayOffsets = lastNWeekdayOffsets(20);
+  const attendancePayloads = [];
+  employees.forEach((emp, empIdx) => {
+    const isShop = emp.department === 'Shop/Fabrication';
+    const isField = emp.department === 'Field/Erection';
+    const project_id = isShop ? costProjects[2].id : isField ? costProjects[1].id : undefined;
+    const labor_activity_category = isShop ? 'Shop_Fab' : isField ? 'Field_Erection' : undefined;
+    weekdayOffsets.forEach((offset, dayIdx) => {
+      const inMinute = (empIdx * 7 + dayIdx * 3) % 30;
+      const outMinute = (empIdx * 5 + dayIdx * 2) % 30;
+      const inDate = new Date();
+      inDate.setDate(inDate.getDate() + offset);
+      inDate.setHours(6, inMinute, 0, 0);
+      const outDate = new Date();
+      outDate.setDate(outDate.getDate() + offset);
+      outDate.setHours(15, outMinute, 0, 0);
+      attendancePayloads.push({
+        employee_id: emp.id,
+        punch_type: 'Clock_In',
+        punch_time: inDate.toISOString(),
+        ...(project_id ? { project_id } : {}),
+        ...(labor_activity_category ? { labor_activity_category } : {}),
+      });
+      attendancePayloads.push({
+        employee_id: emp.id,
+        punch_type: 'Clock_Out',
+        punch_time: outDate.toISOString(),
+        total_regular_minutes: 540,
+        ...(project_id ? { project_id } : {}),
+        ...(labor_activity_category ? { labor_activity_category } : {}),
+      });
+    });
+  });
+  await db.entities.attendance_punches.bulkCreate(attendancePayloads);
+
+  // 25. Employee Certifications
+  // cert_type enum has no "AWS D1.1"/"Ironworker Journeyman Card"/"PMP" —
+  // mapped to the closest real trade certs (Welding_6G, Rigging); PMP has no
+  // sensible mapping in this safety-cert-focused enum, so it's skipped rather
+  // than forcing a nonexistent value into a field that models something else.
+  const certSeeds = [
+    { employee: shopEmployees.find((e) => e.full_name === 'James Anderson'), cert_type: 'OSHA_10', issuedOffset: -600, expirationOffset: 700 },
+    { employee: shopEmployees.find((e) => e.full_name === 'Robert Kim'), cert_type: 'OSHA_10', issuedOffset: -500, expirationOffset: 600 },
+    { employee: shopEmployees.find((e) => e.full_name === 'Robert Kim'), cert_type: 'Welding_6G', issuedOffset: -400, expirationOffset: 550 },
+    { employee: fieldEmployees.find((e) => e.full_name === 'Carlos Ramirez'), cert_type: 'OSHA_30', issuedOffset: -700, expirationOffset: 500 },
+    { employee: fieldEmployees.find((e) => e.full_name === 'Carlos Ramirez'), cert_type: 'Rigging', issuedOffset: -337, expirationOffset: 28, statusOverride: 'Expiring_Soon' },
+    { employee: fieldEmployees.find((e) => e.full_name === "Brian O'Connell"), cert_type: 'OSHA_30', issuedOffset: -800, expirationOffset: 600 },
+    { employee: fieldEmployees.find((e) => e.full_name === "Brian O'Connell"), cert_type: 'Rigging', issuedOffset: -300, expirationOffset: 450 },
+    { employee: pmEmployee, cert_type: 'OSHA_30', issuedOffset: -900, expirationOffset: 500 },
+    { employee: shopManager, cert_type: 'OSHA_30', issuedOffset: -850, expirationOffset: 520 },
+  ];
+  await db.entities.employee_certifications.bulkCreate(
+    certSeeds.map((c) => ({
+      employee_id: c.employee.id,
+      cert_type: c.cert_type,
+      cert_number: `${c.cert_type}-${c.employee.employee_number}`,
+      issued_date: daysFromNow(c.issuedOffset),
+      expiration_date: daysFromNow(c.expirationOffset),
+      status: c.statusOverride || 'Valid',
+    }))
+  );
+
+  // 26. Credit Card Expenses
+  const OFFICE_CARD = '4821';
+  const FIELD_CARD = '7734';
+  const expenseSeeds = [
+    { employee: hrEmployee, merchant_name: 'Office Depot', category: 'Other', amount: 67.50, card: OFFICE_CARD, dayOffset: -26 },
+    { employee: accountant, merchant_name: 'Staples', category: 'Other', amount: 124.30, card: OFFICE_CARD, dayOffset: -19 },
+    { employee: fieldEmployees[0], merchant_name: 'Speedway Fuel', category: 'Fuel', amount: 215.40, card: FIELD_CARD, project: costProjects[1], dayOffset: -13 },
+    { employee: fieldEmployees[1], merchant_name: 'Pilot Travel Center', category: 'Fuel', amount: 298.75, card: FIELD_CARD, project: costProjects[1], dayOffset: -6 },
+    { employee: shopEmployees[0], merchant_name: 'Marathon Gas', category: 'Fuel', amount: 156.20, card: FIELD_CARD, project: costProjects[2], dayOffset: -22 },
+    { employee: shopEmployees[1], merchant_name: 'Harbor Freight Tools', category: 'Other', amount: 342.10, card: FIELD_CARD, project: costProjects[2], dayOffset: -17 },
+    { employee: shopEmployees[0], merchant_name: 'Grainger Industrial Supply', category: 'Other', amount: 198.65, card: FIELD_CARD, project: costProjects[2], dayOffset: -9 },
+    { employee: pmEmployee, merchant_name: 'Panera Bread', category: 'Meals', amount: 62.40, card: OFFICE_CARD, project: costProjects[1], dayOffset: -12 },
+    { employee: fieldEmployees[1], merchant_name: 'Texas Roadhouse', category: 'Meals', amount: 78.90, card: FIELD_CARD, project: costProjects[1], dayOffset: -7, outOfTown: true },
+    { employee: fieldEmployees[0], merchant_name: 'Hampton Inn Cleveland', category: 'Lodging', amount: 172.00, card: FIELD_CARD, project: costProjects[1], dayOffset: -14, outOfTown: true, perDiem: 65 },
+    { employee: fieldEmployees[1], merchant_name: 'Hampton Inn Cleveland', category: 'Lodging', amount: 189.50, card: FIELD_CARD, project: costProjects[1], dayOffset: -7, outOfTown: true, perDiem: 65 },
+    { employee: shopManager, merchant_name: 'Office Depot', category: 'Other', amount: 89.20, card: OFFICE_CARD, dayOffset: -24 },
+    { employee: shopManager, merchant_name: 'BP Gas Station', category: 'Fuel', amount: 178.30, card: OFFICE_CARD, project: costProjects[2], dayOffset: -15 },
+    { employee: shopEmployees[1], merchant_name: 'Fastenal', category: 'Other', amount: 415.00, card: FIELD_CARD, project: costProjects[2], dayOffset: -4 },
+    { employee: estimatingEmployees[0], merchant_name: 'Subway', category: 'Meals', amount: 48.75, card: OFFICE_CARD, project: costProjects[1], dayOffset: -18 },
+  ];
+  await db.entities.credit_card_expenses.bulkCreate(
+    expenseSeeds.map((e) => ({
+      employee_id: e.employee.id,
+      ...(e.project ? { project_id: e.project.id } : {}),
+      card_last4: e.card,
+      merchant_name: e.merchant_name,
+      expense_category: e.category,
+      amount_cents: Math.round(e.amount * 100),
+      expense_date: daysFromNow(e.dayOffset),
+      ...(e.outOfTown ? { is_out_of_town_travel: true, per_diem_allowance_cents: Math.round((e.perDiem || 65) * 100) } : {}),
+      status: 'Approved',
+    }))
+  );
+
+  // 27. Historical Variance — won bids whose project is complete or in erection
+  const historicalVarianceSeeds = [
+    { bid: wonBidsForProjects[0], project: projects[0], estimatedTons: 185, actualTonsPct: 1.08, estimatedHours: 9200, actualHoursPct: 1.06, geometry: 'moment_frame', completedOffset: -5 },
+    { bid: wonBidsForProjects[1], project: projects[1], estimatedTons: 140, actualTonsPct: 0.91, estimatedHours: 7100, actualHoursPct: 0.94, geometry: 'braced_frame', completedOffset: -2 },
+  ];
+  await db.entities.HistoricalVariance.bulkCreate(
+    historicalVarianceSeeds.map((v) => {
+      const actual_tons = Math.round(v.estimatedTons * v.actualTonsPct);
+      const actual_man_hours = Math.round(v.estimatedHours * v.actualHoursPct);
+      const tonsVariancePct = ((actual_tons - v.estimatedTons) / v.estimatedTons) * 100;
+      const hoursVariancePct = ((actual_man_hours - v.estimatedHours) / v.estimatedHours) * 100;
+      const overall_variance_pct = Math.round(((tonsVariancePct + hoursVariancePct) / 2) * 10) / 10;
+      return {
+        bid_id: v.bid.id,
+        project_id: v.project.id,
+        bid_number: v.bid.bid_number,
+        project_number: v.project.project_number,
+        structural_geometry_type: v.geometry,
+        estimated_tons: v.estimatedTons,
+        actual_tons,
+        estimated_man_hours: v.estimatedHours,
+        actual_man_hours,
+        overall_variance_pct,
+        auto_adjuster_alert: Math.abs(overall_variance_pct) > 7,
+        adjuster_suggestion_pct: Math.abs(overall_variance_pct) > 7 ? Math.round(overall_variance_pct) : 0,
+        completed_date: daysFromNow(v.completedOffset),
+      };
+    })
+  );
+
+  // 28. Recurring Cash Items
+  const recurringCashSeeds = [
+    { label: 'Bi-Weekly Payroll', amount: 38500, direction: 'Outflow', frequency: 'Biweekly', next_occurrence_date: daysFromNow(5), is_active: true },
+    { label: 'Office & Facility Rent', amount: 4200, direction: 'Outflow', frequency: 'Monthly', next_occurrence_date: daysFromNow(12), is_active: true },
+    { label: 'Equipment Lease Payment', amount: 8750, direction: 'Outflow', frequency: 'Monthly', next_occurrence_date: daysFromNow(8), is_active: true },
+  ];
+  await db.entities.RecurringCashItem.bulkCreate(recurringCashSeeds);
+
+  // 29. Notifications — for whoever is running the seeder (Notification is read by user_id)
+  const currentUser = await db.auth.me().catch(() => null);
+  const notificationSeeds = [
+    { text: 'RFI-003 response overdue — 3 days past contractual window', type: 'rfi_update', is_read: false, dayOffset: -1 },
+    { text: 'Change Order CO-003 approved by Buckeye Construction Group', type: 'success', is_read: true, dayOffset: -3 },
+    { text: 'Ironworker certification expiring in 28 days — Carlos Ramirez', type: 'warning', is_read: false, dayOffset: -1 },
+    { text: 'Load #3 departed yard — 5 pieces in transit to Cleveland', type: 'info', is_read: true, dayOffset: -1 },
+    { text: 'Monthly budget variance: LAB category 8% over budget YTD', type: 'warning', is_read: false, dayOffset: 0 },
+  ];
+  if (currentUser) {
+    await db.entities.Notification.bulkCreate(
+      notificationSeeds.map((n) => ({
+        user_id: currentUser.id,
+        title: n.text,
+        message: n.text,
+        type: n.type,
+        is_read: n.is_read,
+        created_date: isoDaysFromNow(n.dayOffset),
+      }))
+    );
+  }
+
   return {
     skipped: false,
     counts: {
@@ -414,6 +918,24 @@ export async function seedDemoData() {
       vendorBills: vendorBillSeeds.length,
       invoiceReceivables: invoiceReceivableSeeds.length,
       reviewChecklistItems: reviewChecklistSeeds.length,
+      customers: customerSeeds.length,
+      contracts: contractSeeds.length,
+      sovLines: sovPayloads.length,
+      rfis: rfiPayloads.length,
+      changeOrders: changeOrderPayloads.length,
+      submittals: submittalPayloads.length,
+      pieces: fabricationPiecePayloads.length + erectionPiecePayloads.length,
+      qaInspections: qaInspectionPayloads.length,
+      loads: loadPayloads.length,
+      loadItems: loadItemPayloads.length,
+      shippingManifests: loadDefs.length,
+      fleetAssets: 4,
+      attendancePunches: attendancePayloads.length,
+      employeeCertifications: certSeeds.length,
+      creditCardExpenses: expenseSeeds.length,
+      historicalVariances: historicalVarianceSeeds.length,
+      recurringCashItems: recurringCashSeeds.length,
+      notifications: currentUser ? notificationSeeds.length : 0,
     },
   };
 }
