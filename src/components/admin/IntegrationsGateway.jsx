@@ -62,8 +62,15 @@ function PortalAccessLinks() {
 export default function IntegrationsGateway() {
   const [credentials, setCredentials] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadCredentials(); }, []);
+
+  useEffect(() => {
+    db.auth.me().then(u => setCurrentUser(u)).catch(() => setCurrentUser(null));
+  }, []);
+
+  const isSuperAdmin = currentUser?.roles?.includes('super_admin') ?? false;
 
   const loadCredentials = async () => {
     setLoading(true);
@@ -92,7 +99,7 @@ export default function IntegrationsGateway() {
         <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {INTEGRATIONS.map(integration => (
+          {INTEGRATIONS.filter(i => i.value !== 'aws_s3' || isSuperAdmin).map(integration => (
             <IntegrationCard key={integration.value} integration={integration} credential={getCredential(integration.value)} onSaved={loadCredentials} />
           ))}
         </div>
