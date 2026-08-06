@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { useToast } from '@/components/ui/use-toast';
 import FileDropzone from '@/components/ui/FileDropzone';
+import { compressImageFile } from '@/lib/imageCompression';
 import { Image as ImageIcon, Trash2, GalleryHorizontal } from 'lucide-react';
 
 // Platform-level, not tenant-scoped — this feeds the public Login Vault's
@@ -10,7 +11,9 @@ export default function LoginSlideshowManager() {
   const { toast } = useToast();
   const [images, setImages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  // null | 'compressing' | 'uploading' — two honest, distinct status states
+  // instead of one "Uploading…" that's misleading during the compression step.
+  const [progressStage, setProgressStage] = useState(null);
 
   const loadImages = async () => {
     try {
@@ -23,29 +26,23 @@ export default function LoginSlideshowManager() {
 
   useEffect(() => { loadImages(); }, []);
 
-  const handleFileSelected = (file) => {
-    setUploading(true);
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setUploading(false);
-      toast({ title: 'Could not read that file', description: reader.error?.message || 'Please try a different image.', variant: 'destructive' });
-    };
-    reader.onload = async () => {
-      try {
-        const nextOrder = images.reduce((max, img) => Math.max(max, img.display_order || 0), 0) + 1;
-        const created = await db.entities.login_slideshow_images.create({
-          image_data_uri: reader.result,
-          display_order: nextOrder,
-        });
-        setImages((prev) => [...prev, created]);
-        toast({ title: 'Slideshow image added' });
-      } catch (err) {
-        toast({ title: 'Upload failed', description: err?.message || 'Unknown error — check the browser console for details.', variant: 'destructive' });
-      } finally {
-        setUploading(false);
-      }
-    };
-    reader.readAsDataURL(file);
+  const handleFileSelected = async (file) => {
+    setProgressStage('compressing');
+    try {
+      const imageDataUri = await compressImageFile(file);
+      setProgressStage('uploading');
+      const nextOrder = images.reduce((max, img) => Math.max(max, img.display_order || 0), 0) + 1;
+      const created = await db.entities.login_slideshow_images.create({
+        image_data_uri: imageDataUri,
+        display_order: nextOrder,
+      });
+      setImages((prev) => [...prev, created]);
+      toast({ title: 'Slideshow image added' });
+    } catch (err) {
+      toast({ title: 'Upload failed', description: err?.message || 'Unknown error — check the browser console for details.', variant: 'destructive' });
+    } finally {
+      setProgressStage(null);
+    }
   };
 
   const handleDelete = async (image) => {
@@ -86,8 +83,10 @@ export default function LoginSlideshowManager() {
           ))}
         </div>
       )}
-      {uploading && (
-        <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5"><ImageIcon className="w-3.5 h-3.5" />Uploading…</p>
+      {progressStage && (
+        <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
+          <ImageIcon className="w-3.5 h-3.5" />{progressStage === 'compressing' ? 'Compressing…' : 'Uploading…'}
+        </p>
       )}
     </div>
   );
