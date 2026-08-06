@@ -13,6 +13,7 @@ export default function EstimatingAnalytics() {
   const [bids, setBids] = useState([]);
   const [costOverruns, setCostOverruns] = useState([]);
   const [projectNames, setProjectNames] = useState({});
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadData(); }, []);
@@ -20,15 +21,17 @@ export default function EstimatingAnalytics() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [varData, bidData, jobCostRows, projectData] = await Promise.all([
+      const [varData, bidData, jobCostRows, projectData, employeeData] = await Promise.all([
         db.entities.HistoricalVariance.list('-completed_date', 100),
         db.entities.Bid.filter({ is_archived: false }, '-created_date', 500),
         db.entities.ProjectJobCostSummary.list('-created_date', 500),
         db.entities.Project.list('-created_date', 200),
+        db.entities.employees.list('full_name', 500),
       ]);
       setVariances(varData);
       setBids(bidData);
       setProjectNames(projectData.reduce((acc, p) => ({ ...acc, [p.id]: p.name }), {}));
+      setEmployees(employeeData);
 
       const projectIds = [...new Set(jobCostRows.map(r => r.project_id))];
       const flaggedLists = await Promise.all(projectIds.map(pid => flagCostCodeOverruns(pid)));
@@ -51,6 +54,21 @@ export default function EstimatingAnalytics() {
   });
   const winRateByGC = Object.entries(gcStats).map(([gc, s]) => ({
     name: gc.length > 15 ? gc.substring(0, 13) + '…' : gc,
+    winRate: s.total > 0 ? Math.round(s.won / s.total * 100) : 0,
+    total: s.total,
+  })).filter(d => d.total >= 1).sort((a, b) => b.winRate - a.winRate);
+
+  // Win rate by Estimator
+  const employeeNames = employees.reduce((acc, e) => ({ ...acc, [e.id]: e.full_name }), {});
+  const estimatorStats = {};
+  decided.forEach(b => {
+    const estimator = b.estimator_id ? (employeeNames[b.estimator_id] || 'Unknown') : 'Unassigned';
+    if (!estimatorStats[estimator]) estimatorStats[estimator] = { won: 0, lost: 0, total: 0 };
+    estimatorStats[estimator].total++;
+    if (b.status === 'won') estimatorStats[estimator].won++; else estimatorStats[estimator].lost++;
+  });
+  const winRateByEstimator = Object.entries(estimatorStats).map(([estimator, s]) => ({
+    name: estimator.length > 15 ? estimator.substring(0, 13) + '…' : estimator,
     winRate: s.total > 0 ? Math.round(s.won / s.total * 100) : 0,
     total: s.total,
   })).filter(d => d.total >= 1).sort((a, b) => b.winRate - a.winRate);
@@ -191,6 +209,24 @@ export default function EstimatingAnalytics() {
           ) : (
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={winRateByGC} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} width={80} />
+                <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} formatter={v => `${v}%`} />
+                <Bar dataKey="winRate" name="Win Rate" fill="#1d7ed8" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Win Rate by Estimator */}
+        <div className="steel-card p-5">
+          <h3 className="font-semibold mb-4 flex items-center gap-2"><Target className="w-4 h-4 text-blue-500" />Win Rate by Estimator</h3>
+          {winRateByEstimator.length === 0 ? (
+            <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">No decided bids yet.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={winRateByEstimator} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} width={80} />

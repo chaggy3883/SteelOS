@@ -13,6 +13,7 @@ export default function BidNew() {
   const { toast } = useToast();
   const [customers, setCustomers] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     customer_id: '',
@@ -22,16 +23,24 @@ export default function BidNew() {
     job_name: '',
     job_location: '',
     bid_due_date: '',
+    estimator_id: '',
   });
   const [errors, setErrors] = useState({});
 
-  useEffect(() => { loadCRM(); }, []);
+  useEffect(() => { loadCRM(); loadEmployees(); }, []);
 
   const loadCRM = async () => {
     try {
       const data = await db.entities.Customer.filter({ is_active: true }, 'name', 200);
       setCustomers(data.filter(c => ['general_contractor', 'owner', 'other'].includes(c.customer_type)));
       setVendors(data.filter(c => c.customer_type === 'general_contractor'));
+    } catch (e) {}
+  };
+
+  const loadEmployees = async () => {
+    try {
+      const data = await db.entities.employees.list('full_name', 500);
+      setEmployees(data);
     } catch (e) {}
   };
 
@@ -42,6 +51,7 @@ export default function BidNew() {
     if (!form.job_name) errs.job_name = 'Job name is required';
     if (!form.job_location) errs.job_location = 'Job location is required';
     if (!form.bid_due_date) errs.bid_due_date = 'Bid due date is required';
+    if (!form.estimator_id) errs.estimator_id = 'Estimator is required';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -79,6 +89,7 @@ export default function BidNew() {
         job_city,
         job_state,
         bid_due_date: form.bid_due_date,
+        estimator_id: form.estimator_id,
         status: 'draft',
         front_end_review_status: 'not_started',
       });
@@ -162,6 +173,19 @@ export default function BidNew() {
           <Label>Bid Due Date <span className="text-red-500">*</span></Label>
           <Input type="date" {...fieldProps('bid_due_date')} />
           {errors.bid_due_date && <p className="text-xs text-red-500 mt-1">{errors.bid_due_date}</p>}
+        </div>
+
+        {/* Estimator */}
+        <div>
+          <Label>Estimator <span className="text-red-500">*</span></Label>
+          <select
+            {...fieldProps('estimator_id')}
+            className={`mt-1 flex h-9 w-full rounded-md border border-input bg-input/40 px-3 py-1 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm ${errors.estimator_id ? 'border-red-500' : ''}`}
+          >
+            <option value="">Select estimator…</option>
+            {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+          </select>
+          {errors.estimator_id && <p className="text-xs text-red-500 mt-1">{errors.estimator_id}</p>}
         </div>
 
         <div className="flex justify-end pt-2">
