@@ -26,6 +26,10 @@ export default function LoginSlideshowManager() {
   const handleFileSelected = (file) => {
     setUploading(true);
     const reader = new FileReader();
+    reader.onerror = () => {
+      setUploading(false);
+      toast({ title: 'Could not read that file', description: reader.error?.message || 'Please try a different image.', variant: 'destructive' });
+    };
     reader.onload = async () => {
       try {
         const nextOrder = images.reduce((max, img) => Math.max(max, img.display_order || 0), 0) + 1;
@@ -35,6 +39,8 @@ export default function LoginSlideshowManager() {
         });
         setImages((prev) => [...prev, created]);
         toast({ title: 'Slideshow image added' });
+      } catch (err) {
+        toast({ title: 'Upload failed', description: err?.message || 'Unknown error — check the browser console for details.', variant: 'destructive' });
       } finally {
         setUploading(false);
       }
