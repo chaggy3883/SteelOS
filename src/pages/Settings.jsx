@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet, Sparkles } from 'lucide-react';
+import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet, Sparkles, ListChecks } from 'lucide-react';
 import TemplateVaultPanel from '@/components/settings/TemplateVaultPanel';
 import AiPlatformConfigPanel from '@/components/settings/AiPlatformConfigPanel';
 import DemoDataPanel from '@/components/settings/DemoDataPanel';
+import ReviewChecklistPanel from '@/components/settings/ReviewChecklistPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -81,6 +82,7 @@ export default function Settings() {
           <TabsTrigger value="notifications"><Bell className="w-4 h-4 mr-1.5" /> Notifications</TabsTrigger>
           <TabsTrigger value="integrations"><Layers className="w-4 h-4 mr-1.5" /> Integrations</TabsTrigger>
           <TabsTrigger value="templates"><FileSpreadsheet className="w-4 h-4 mr-1.5" /> Templates</TabsTrigger>
+          <TabsTrigger value="review-checklist"><ListChecks className="w-4 h-4 mr-1.5" /> Review Checklist</TabsTrigger>
           <TabsTrigger value="devices"><Tablet className="w-4 h-4 mr-1.5" /> Devices</TabsTrigger>
           <TabsTrigger value="demo-data"><Sparkles className="w-4 h-4 mr-1.5" /> Demo Data</TabsTrigger>
         </TabsList>
@@ -232,6 +234,11 @@ export default function Settings() {
         {/* Templates */}
         <TabsContent value="templates">
           <TemplateVaultPanel />
+        </TabsContent>
+
+        {/* Review Checklist */}
+        <TabsContent value="review-checklist">
+          <ReviewChecklistPanel />
         </TabsContent>
 
         {/* Devices */}

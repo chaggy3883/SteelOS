@@ -360,6 +360,48 @@ export async function seedDemoData() {
     })
   );
 
+  // 13. Review Checklist Items — Hancock Steel's actual front-end review requirements
+  const reviewChecklistSeeds = [
+    { item_code: 'INS-1', category: 'General/Commercial', item_label: 'Insurance Requirements', keywords: 'insurance,certificate of insurance,COI,general liability,umbrella,additional insured', sort_order: 1, note_for_estimator: 'Check required limits — flag if above standard policy' },
+    { item_code: 'BND-1', category: 'General/Commercial', item_label: 'Bond Requirements', keywords: 'bond,performance bond,payment bond,surety,bonding', sort_order: 2, note_for_estimator: 'Confirm bond % and who provides it' },
+    { item_code: 'PAY-1', category: 'General/Commercial', item_label: 'Payment and Performance', keywords: 'payment terms,net 30,net 45,pay-if-paid,pay when paid,progress payment,schedule of values', sort_order: 3 },
+    { item_code: 'LD-1', category: 'General/Commercial', item_label: 'Liquidated Damages', keywords: 'liquidated damages,LD,delay damages,per diem,per day penalty', sort_order: 4, note_for_estimator: 'Note dollar amount per day and milestone date' },
+    { item_code: 'CO-1', category: 'General/Commercial', item_label: 'Change Order Procedures', keywords: 'change order,change directive,modifications,contract modification,change order procedure', sort_order: 5 },
+    { item_code: 'TAX-1', category: 'General/Commercial', item_label: 'Sales Tax / Tax Exempt', keywords: 'sales tax,tax exempt,exemption certificate,tax exemption', sort_order: 6, note_for_estimator: 'Confirm location — city and state affect rate' },
+    { item_code: 'BIM-1', category: 'General/Commercial', item_label: 'BIM Requirements', keywords: 'BIM,building information modeling,Revit,Navisworks,clash detection,model coordination,IFC', sort_order: 7, note_for_estimator: 'Flag — adds cost and schedule' },
+    { item_code: 'TEX-1', category: 'General/Commercial', item_label: 'Textura', keywords: 'Textura,payment management,compliance tracking,GCPay', sort_order: 8, note_for_estimator: 'Confirm fee structure' },
+    { item_code: 'PRO-1', category: 'General/Commercial', item_label: 'Procore Pay', keywords: 'Procore,Procore pay,project management platform', sort_order: 9 },
+    { item_code: 'BID-1', category: 'General/Commercial', item_label: 'Bid Withdraw Days', keywords: 'bid withdrawal,irrevocable,bid open,bid valid,days after bid', sort_order: 10 },
+    { item_code: 'PW-1', category: 'General/Commercial', item_label: 'Prevailing Wage', keywords: 'prevailing wage,Davis-Bacon,wage determination,certified payroll,labor standards', sort_order: 11, note_for_estimator: 'Flag for estimator — impacts labor cost significantly' },
+    { item_code: 'CLN-1', category: 'General/Commercial', item_label: 'Cleaning Cost', keywords: 'cleaning,clean up,site cleanup,debris removal,housekeeping', sort_order: 12 },
+    { item_code: 'TST-1', category: 'General/Commercial', item_label: 'Testing Cost', keywords: 'testing,special inspection,third-party inspection,non-destructive,ultrasonic,MT,UT,RT', sort_order: 13, note_for_estimator: 'Confirm who pays and scope of testing required' },
+    { item_code: 'WRN-1', category: 'General/Commercial', item_label: 'Warranty (>1 year)', keywords: 'warranty,guarantee,correction period,defect liability', sort_order: 14, note_for_estimator: 'Flag if warranty exceeds 1 year on structural steel' },
+    { item_code: 'CLO-1', category: 'General/Commercial', item_label: 'Closeout Submittals', keywords: 'closeout,as-built,record drawings,O&M,operation and maintenance,final completion,substantial completion,closeout submittal', sort_order: 15 },
+    { item_code: 'EDG-1', category: 'General/Commercial', item_label: 'EDGE / WBE / MBE Certifications', keywords: 'EDGE,WBE,MBE,DBE,minority,woman-owned,disadvantaged business,subcontracting goal,participation goal', sort_order: 16, requires_value_extraction: true, note_for_estimator: 'Note required % if found' },
+    { item_code: 'LED-1', category: 'General/Commercial', item_label: 'LEED Requirements', keywords: 'LEED,green building,sustainable,recycled content,regional material,certified wood,environmental', sort_order: 17 },
+    { item_code: 'PRQ-1', category: 'General/Commercial', item_label: 'Prequalified Bidders', keywords: 'prequalified,pre-qualified,approved bidder,approved contractor,prequalification', sort_order: 18 },
+    { item_code: 'SAF-1', category: 'General/Commercial', item_label: 'Safety Requirements', keywords: 'safety plan,safety program,incident rate,EMR,experience modification,OSHA,safety requirements', sort_order: 19 },
+    { item_code: 'RET-1', category: 'General/Commercial', item_label: 'Retainage', keywords: 'retainage,retention,retain,retainage reduction', sort_order: 20, note_for_estimator: 'Note % held and release conditions' },
+    { item_code: 'RFI-1', category: 'General/Commercial', item_label: 'RFI Procedures', keywords: 'RFI,request for information,RFI response,submittal procedure', sort_order: 21 },
+    { item_code: 'PCO-1', category: 'General/Commercial', item_label: 'Project Closeout Procedures', keywords: 'closeout procedure,punch list,final inspection,certificate of occupancy,project closeout', sort_order: 22 },
+    { item_code: 'D05-AISC', category: 'Division 05', item_label: 'AISC Certification Required', keywords: 'AISC,certification,certified fabricator,standard for steel buildings,AISC 360', sort_order: 30, note_for_estimator: 'Confirm category required — Standard vs Advanced vs Sophisticated' },
+    { item_code: 'D05-SCH', category: 'Division 05', item_label: 'Schedule Procedures', keywords: 'schedule,CPM,critical path,baseline schedule,schedule of values,construction schedule', sort_order: 31, note_for_estimator: 'If no schedule found, note "NO SCHEDULE"' },
+    { item_code: 'D05-RFI', category: 'Division 05', item_label: 'RFI Submission (Div 05)', keywords: 'RFI,request for information,clarification,submittal log', sort_order: 32 },
+    { item_code: 'D05-SAF', category: 'Division 05', item_label: 'Safety Requirements for Subcontractor', keywords: 'subcontractor safety,ironworker,fall protection,OSHA 1926,steel erection,safety plan', sort_order: 33 },
+    { item_code: 'D05-COT', category: 'Division 05', item_label: 'Special Coating on Steel', keywords: 'coating,paint system,primer,epoxy,zinc,galvanized,SSPC,surface preparation,paint spec', sort_order: 34, note_for_estimator: 'Note full paint system spec if found' },
+    { item_code: 'D05-FP', category: 'Division 05', item_label: 'Fireproofing', keywords: 'fireproofing,spray-applied,intumescent,fire rating,UL assembly,hourly rating,SFRM', sort_order: 35, note_for_estimator: 'Confirm who supplies and installs — in scope or excluded' },
+    { item_code: 'D05-LOC', category: 'Division 05', item_label: 'Schedule Location in Document', keywords: 'schedule,project schedule,milestone schedule,construction schedule,attached hereto', sort_order: 36, note_for_estimator: 'List page/section reference where schedule appears' },
+  ];
+  await db.entities.ReviewChecklistItem.bulkCreate(
+    reviewChecklistSeeds.map((item) => ({
+      is_active: true,
+      requires_value_extraction: false,
+      is_required: true,
+      note_for_estimator: '',
+      ...item,
+    }))
+  );
+
   return {
     skipped: false,
     counts: {
@@ -371,6 +413,7 @@ export async function seedDemoData() {
       bankTransactions: bankTransactionPayloads.length,
       vendorBills: vendorBillSeeds.length,
       invoiceReceivables: invoiceReceivableSeeds.length,
+      reviewChecklistItems: reviewChecklistSeeds.length,
     },
   };
 }

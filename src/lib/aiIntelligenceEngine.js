@@ -310,9 +310,84 @@ export async function simulateAiBatchTakeoff(companyId, fileUrl, fileName, scale
   return detectBlueprintShapesBatch(companyId, companyName, fileUrl, fileName, scaleReference);
 }
 
+// Returns the sentence containing `index` (bounded by the nearest '.' or
+// newline on either side), so a keyword match can be shown with just enough
+// surrounding context instead of the whole document.
+function sentenceAround(text, index) {
+  const priorPeriod = text.lastIndexOf('.', index);
+  const priorNewline = text.lastIndexOf('\n', index);
+  const start = Math.max(priorPeriod, priorNewline, -1) + 1;
+  let end = text.indexOf('.', index);
+  const nextNewline = text.indexOf('\n', index);
+  if (end === -1) end = text.length;
+  if (nextNewline !== -1 && nextNewline < end) end = nextNewline;
+  return text.slice(start, end).trim();
+}
+
+// "Within 100 characters of the keyword match" on both sides — covers a
+// number that appears either just before or just after the matched phrase
+// (e.g. "10% EDGE participation" vs. "EDGE participation of 10%").
+function extractNearbyPercent(text, index, matchLength) {
+  const start = Math.max(0, index - 100);
+  const end = Math.min(text.length, index + matchLength + 100);
+  const match = text.slice(start, end).match(/\d{1,3}(?:\.\d+)?\s?%/);
+  return match ? match[0] : null;
+}
+
+function findKeywordMatch(text, lowerText, keywordsCsv) {
+  const keywords = String(keywordsCsv || '').split(',').map((k) => k.trim()).filter(Boolean);
+  for (const keyword of keywords) {
+    const index = lowerText.indexOf(keyword.toLowerCase());
+    if (index !== -1) return { keyword, index, length: keyword.length };
+  }
+  return null;
+}
+
+function buildChecklistLineSeed(item, text, lowerText, filename) {
+  const match = findKeywordMatch(text, lowerText, item.keywords);
+  let owner_gc_cm_comment;
+  if (match) {
+    const sentence = sentenceAround(text, match.index).slice(0, 150);
+    let extracted = '';
+    if (item.requires_value_extraction) {
+      const value = extractNearbyPercent(text, match.index, match.length);
+      if (value) extracted = ` — extracted value: ${value}`;
+    }
+    owner_gc_cm_comment = `FOUND — ${match.keyword} — ${sentence}${extracted}`;
+  } else {
+    owner_gc_cm_comment = 'NOT FOUND — verify manually';
+  }
+  return {
+    provision_number_tag: item.item_code,
+    owner_gc_cm_comment,
+    comment_to_estimator: item.note_for_estimator || '',
+    document_source_key: filename,
+  };
+}
+
+// Admin-editable checklist (Settings > Review Checklist, ReviewChecklistItem
+// entity) drives the front-end review seeding. Falls back to the original 3
+// hardcoded items only when a company has no checklist items configured yet
+// (e.g. before demo data / initial setup) — so this never seeds zero lines.
+async function seedChecklistLines(bid, text, filename) {
+  let items = [];
+  try {
+    items = await db.entities.ReviewChecklistItem.filter({ company_id: bid.company_id, is_active: true }, 'sort_order', 500);
+  } catch (e) {
+    items = [];
+  }
+
+  if (!items || items.length === 0) {
+    return [seedNdtLine(text, filename), seedLiquidatedDamagesLine(text, filename), seedMillSourceLine(text, filename)];
+  }
+
+  const lowerText = text.toLowerCase();
+  return items.map((item) => buildChecklistLineSeed(item, text, lowerText, filename));
+}
+
 export async function simulateAiReview(bid, rawText, filename) {
   const text = String(rawText || '');
-  const seeds = [seedNdtLine(text, filename), seedLiquidatedDamagesLine(text, filename), seedMillSourceLine(text, filename)];
+  const seeds = await seedChecklistLines(bid, text, filename);
 
   const review = await db.entities.frontend_contract_reviews.create({
     bid_id: bid.id,

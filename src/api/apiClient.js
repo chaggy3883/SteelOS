@@ -80,6 +80,7 @@ const createLocalApi = () => ({
     receiving_logs: createEntityApi('receiving_logs'),
     payable_invoices: createEntityApi('payable_invoices'),
     RFI: createEntityApi('RFI'),
+    ReviewChecklistItem: createEntityApi('ReviewChecklistItem'),
     ShopFloorZone: createEntityApi('ShopFloorZone'),
     SovLine: createEntityApi('SovLine'),
     StatutoryNotice: createEntityApi('StatutoryNotice'),
