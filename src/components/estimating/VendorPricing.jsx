@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
+import CustomerPickerModal from '@/components/shared/CustomerPickerModal';
 
 const PROCUREMENT_CATEGORIES = [
   { key: 'detailing_engineering', label: 'Detailing and Engineering' },
@@ -24,6 +25,7 @@ export default function VendorPricing({ bidId }) {
   const [loading, setLoading] = useState(true);
   const [openCat, setOpenCat] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   const [form, setForm] = useState({ vendor_id: '', vendor_name: '', quoted_amount: '', unit_cost: '', unit_of_measure: '', cost_sheet_url: '', notes: '' });
 
   useEffect(() => { loadData(); }, [bidId]);
@@ -102,9 +104,9 @@ export default function VendorPricing({ bidId }) {
                           {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
-                      <a href="/crm" target="_blank" className="text-xs text-primary hover:underline mt-1 inline-flex items-center gap-1">
-                        <ExternalLink className="w-3 h-3" />Open CRM to add new vendor
-                      </a>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setCustomerPickerOpen(true)} className="mt-1.5">
+                        <ExternalLink className="w-3.5 h-3.5 mr-1" />CRM
+                      </Button>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div><Label>Quoted Amount ($)</Label><Input type="number" value={form.quoted_amount} onChange={e => setForm(f => ({ ...f, quoted_amount: e.target.value }))} className="mt-1" /></div>
@@ -160,6 +162,12 @@ export default function VendorPricing({ bidId }) {
           </div>
         );
       })}
+      <CustomerPickerModal
+        open={customerPickerOpen}
+        onOpenChange={setCustomerPickerOpen}
+        customers={customers}
+        onSelect={(customer) => setForm(f => ({ ...f, vendor_id: customer.id, vendor_name: customer.name }))}
+      />
     </div>
   );
 }

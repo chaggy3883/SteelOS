@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
+import CustomerPickerModal from '@/components/shared/CustomerPickerModal';
 
 export default function BidNew() {
   const navigate = useNavigate();
@@ -15,6 +16,8 @@ export default function BidNew() {
   const [vendors, setVendors] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const [gcPickerOpen, setGcPickerOpen] = useState(false);
   const [form, setForm] = useState({
     customer_id: '',
     customer_name: '',
@@ -126,11 +129,17 @@ export default function BidNew() {
             <datalist id="customer-list">
               {customers.map(c => <option key={c.id} value={c.name} />)}
             </datalist>
-            <a href="/crm" target="_blank" className="flex items-center gap-1 text-xs text-primary hover:underline whitespace-nowrap px-2">
-              <ExternalLink className="w-3.5 h-3.5" />CRM
-            </a>
+            <Button type="button" variant="outline" size="sm" onClick={() => setCustomerPickerOpen(true)} className="whitespace-nowrap">
+              <ExternalLink className="w-3.5 h-3.5 mr-1" />CRM
+            </Button>
           </div>
           {errors.customer_name && <p className="text-xs text-red-500 mt-1">{errors.customer_name}</p>}
+          <CustomerPickerModal
+            open={customerPickerOpen}
+            onOpenChange={setCustomerPickerOpen}
+            customers={customers}
+            onSelect={(customer) => setForm(f => ({ ...f, customer_name: customer.name, customer_id: customer.id }))}
+          />
         </div>
 
         {/* General Contractor */}
@@ -146,11 +155,17 @@ export default function BidNew() {
             <datalist id="gc-list">
               {vendors.map(c => <option key={c.id} value={c.name} />)}
             </datalist>
-            <a href="/crm" target="_blank" className="flex items-center gap-1 text-xs text-primary hover:underline whitespace-nowrap px-2">
-              <ExternalLink className="w-3.5 h-3.5" />CRM
-            </a>
+            <Button type="button" variant="outline" size="sm" onClick={() => setGcPickerOpen(true)} className="whitespace-nowrap">
+              <ExternalLink className="w-3.5 h-3.5 mr-1" />CRM
+            </Button>
           </div>
           {errors.general_contractor_name && <p className="text-xs text-red-500 mt-1">{errors.general_contractor_name}</p>}
+          <CustomerPickerModal
+            open={gcPickerOpen}
+            onOpenChange={setGcPickerOpen}
+            customers={vendors}
+            onSelect={(vendor) => setForm(f => ({ ...f, general_contractor_name: vendor.name, general_contractor_id: vendor.id }))}
+          />
         </div>
 
         {/* Job Name */}
