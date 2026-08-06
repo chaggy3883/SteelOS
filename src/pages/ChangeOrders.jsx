@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -27,6 +29,10 @@ export default function ChangeOrders() {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
+  const [selectedCo, setSelectedCo] = useState(null);
+  const [editingCo, setEditingCo] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => { loadProjects(); }, []);
   useEffect(() => { if (selectedProjectId) loadProjectOrders(selectedProjectId); }, [selectedProjectId]);
@@ -87,6 +93,63 @@ export default function ChangeOrders() {
       setSaving(false);
     }
   };
+
+  const startEditingCo = () => {
+    setEditForm({
+      description: selectedCo.description || '',
+      status: selectedCo.status || 'Draft',
+      date_submitted: selectedCo.date_submitted || '',
+      cost_impact: selectedCo.cost_impact ?? 0,
+      schedule_impact: selectedCo.schedule_impact ?? 0,
+      added_tonnage_weight_lbs: selectedCo.added_tonnage_weight_lbs ?? 0,
+      added_labor_hours: selectedCo.added_labor_hours ?? 0,
+      total_change_order_value_cents: selectedCo.total_change_order_value_cents ?? 0,
+    });
+    setEditingCo(true);
+  };
+
+  const cancelEditingCo = () => {
+    setEditingCo(false);
+    setEditForm({
+      description: selectedCo.description || '',
+      status: selectedCo.status || 'Draft',
+      date_submitted: selectedCo.date_submitted || '',
+      cost_impact: selectedCo.cost_impact ?? 0,
+      schedule_impact: selectedCo.schedule_impact ?? 0,
+      added_tonnage_weight_lbs: selectedCo.added_tonnage_weight_lbs ?? 0,
+      added_labor_hours: selectedCo.added_labor_hours ?? 0,
+      total_change_order_value_cents: selectedCo.total_change_order_value_cents ?? 0,
+    });
+  };
+
+  const handleCostImpactChange = (value) => {
+    setEditForm((f) => ({ ...f, cost_impact: value, total_change_order_value_cents: Math.round((Number(value) || 0) * 100) }));
+  };
+
+  const handleSaveCoEdit = async () => {
+    if (!selectedCo) return;
+    setSavingEdit(true);
+    try {
+      const payload = {
+        ...editForm,
+        cost_impact: Number(editForm.cost_impact) || 0,
+        schedule_impact: Number(editForm.schedule_impact) || 0,
+        added_tonnage_weight_lbs: Number(editForm.added_tonnage_weight_lbs) || 0,
+        added_labor_hours: Number(editForm.added_labor_hours) || 0,
+      };
+      const updated = await db.entities.change_orders.update(selectedCo.id, payload);
+      setChangeOrders((prev) => prev.map((c) => (c.id === selectedCo.id ? updated : c)));
+      setSelectedCo(updated);
+      setEditingCo(false);
+      toast({ title: 'Change order updated' });
+    } catch (e) {
+      toast({ title: 'Unable to save changes', variant: 'destructive' });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const fmtCurrency = (n) => `$${Number(n || 0).toLocaleString()}`;
 
   return (
     <div className="p-6 w-full max-w-none space-y-4 animate-fade-in">
@@ -153,7 +216,11 @@ export default function ChangeOrders() {
               ) : (
                 <div className="space-y-2">
                   {changeOrders.map((co) => (
-                    <div key={co.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-sm">
+                    <div
+                      key={co.id}
+                      onClick={() => { setSelectedCo(co); setEditingCo(false); }}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-sm cursor-pointer hover:bg-muted/50 transition-colors"
+                    >
                       <div>
                         <p className="font-medium">{co.change_order_id} — {co.description}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
@@ -173,6 +240,112 @@ export default function ChangeOrders() {
           <p className="text-sm text-muted-foreground">Unable to load that project.</p>
         )
       )}
+
+      <Dialog open={!!selectedCo} onOpenChange={(o) => { if (!o) { setSelectedCo(null); setEditingCo(false); } }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          {selectedCo && !editingCo && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 flex-wrap">
+                  <span>{selectedCo.change_order_id}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted font-medium">{selectedCo.status}</span>
+                </DialogTitle>
+              </DialogHeader>
+              <p className="text-xs text-muted-foreground -mt-2">{selectedCo.date_submitted || 'No submission date'}</p>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground">Project</p>
+                  <p className="font-medium">{selectedProject?.name || '—'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground">Description</p>
+                  <p className="font-medium whitespace-pre-wrap">{selectedCo.description || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Cost Impact</p>
+                  <p className="font-medium">{fmtCurrency(selectedCo.cost_impact)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Contract value impact</p>
+                  <p className="font-medium">{fmtCurrency((selectedCo.total_change_order_value_cents || 0) / 100)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Schedule Impact</p>
+                  <p className="font-medium">{selectedCo.schedule_impact || 0} days</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Added Tonnage</p>
+                  <p className="font-medium">{selectedCo.added_tonnage_weight_lbs || 0} lbs</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Added Labor Hours</p>
+                  <p className="font-medium">{selectedCo.added_labor_hours || 0} hours</p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setSelectedCo(null)}>Close</Button>
+                <Button onClick={startEditingCo} className="steel-gradient text-white border-0">Edit</Button>
+              </div>
+            </>
+          )}
+
+          {selectedCo && editingCo && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <span>{selectedCo.change_order_id}</span>
+                  <span className="text-sm text-muted-foreground font-normal">Edit Change Order</span>
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-3">
+                <div>
+                  <Label>Description</Label>
+                  <Textarea value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} className="mt-1" rows={3} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Status</Label>
+                    <Select value={editForm.status} onValueChange={(v) => setEditForm((f) => ({ ...f, status: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>{STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Date Submitted</Label>
+                    <Input type="date" value={editForm.date_submitted} onChange={(e) => setEditForm((f) => ({ ...f, date_submitted: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Cost Impact ($)</Label>
+                    <Input type="number" value={editForm.cost_impact} onChange={(e) => handleCostImpactChange(e.target.value)} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Schedule Impact (days)</Label>
+                    <Input type="number" value={editForm.schedule_impact} onChange={(e) => setEditForm((f) => ({ ...f, schedule_impact: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Added Tonnage (lbs)</Label>
+                    <Input type="number" value={editForm.added_tonnage_weight_lbs} onChange={(e) => setEditForm((f) => ({ ...f, added_tonnage_weight_lbs: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Added Labor Hours</Label>
+                    <Input type="number" value={editForm.added_labor_hours} onChange={(e) => setEditForm((f) => ({ ...f, added_labor_hours: e.target.value }))} className="mt-1" />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={cancelEditingCo}>Cancel</Button>
+                  <Button onClick={handleSaveCoEdit} disabled={savingEdit} className="steel-gradient text-white border-0">
+                    {savingEdit ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

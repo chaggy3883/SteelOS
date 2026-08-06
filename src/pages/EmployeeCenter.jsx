@@ -20,8 +20,11 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText,
   User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt, DoorOpen,
-  Timer, Square,
+  Timer, Square, Eye,
 } from 'lucide-react';
+import PdfViewerModal from '@/components/shared/PdfViewerModal';
+
+const isPdfFileUri = (uri) => /\.pdf($|[?#])/i.test(uri || '') || /^data:application\/pdf/i.test(uri || '');
 
 // SANDBOX LOCK — intentional, read before adding anything here.
 // This page never renders DashboardWidget/WIDGET_LIBRARY and never reads or
@@ -79,6 +82,7 @@ export default function EmployeeCenter() {
 
   const [payrollDocs, setPayrollDocs] = useState([]);
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
+  const [pdfViewer, setPdfViewer] = useState(null);
   const [showVaultGate, setShowVaultGate] = useState(false);
   const [vaultPin, setVaultPin] = useState('');
 
@@ -695,9 +699,20 @@ export default function EmployeeCenter() {
                           <p className="text-xs text-muted-foreground">{doc.payout_date} • Gross ${((doc.gross_wages_cents || 0) / 100).toFixed(2)} • Net ${((doc.net_pay_cents || 0) / 100).toFixed(2)}</p>
                         </div>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="font-mono text-sm font-semibold">{ytdHoursForYear(doc.tax_year)}h</p>
-                        <p className="text-[10px] text-muted-foreground">YTD {doc.tax_year} hours</p>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        {isPdfFileUri(doc.file_secure_uri) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setPdfViewer({ source: doc.file_secure_uri, fileName: `${doc.document_type}-${doc.tax_year}.pdf` })}
+                          >
+                            <Eye className="w-3.5 h-3.5 mr-1.5" />Open
+                          </Button>
+                        )}
+                        <div className="text-right">
+                          <p className="font-mono text-sm font-semibold">{ytdHoursForYear(doc.tax_year)}h</p>
+                          <p className="text-[10px] text-muted-foreground">YTD {doc.tax_year} hours</p>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -805,6 +820,13 @@ export default function EmployeeCenter() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PdfViewerModal
+        open={!!pdfViewer}
+        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
+        source={pdfViewer?.source}
+        fileName={pdfViewer?.fileName}
+      />
     </div>
   );
 }

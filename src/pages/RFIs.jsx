@@ -25,6 +25,10 @@ export default function RFIs() {
   const [saving, setSaving] = useState(false);
   const [generatingNoticeId, setGeneratingNoticeId] = useState(null);
   const [bids, setBids] = useState([]);
+  const [selectedRfi, setSelectedRfi] = useState(null);
+  const [editingRfi, setEditingRfi] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
@@ -120,6 +124,60 @@ export default function RFIs() {
     } finally { setSaving(false); }
   };
 
+  const startEditingRfi = () => {
+    setEditForm({
+      subject: selectedRfi.subject || '',
+      status: selectedRfi.status || 'draft',
+      priority: selectedRfi.priority || 'medium',
+      assigned_to: selectedRfi.assigned_to || '',
+      date_required: selectedRfi.date_required || '',
+      date_answered: selectedRfi.date_answered || '',
+      response: selectedRfi.response || '',
+      csi_section: selectedRfi.csi_section || '',
+      drawing_reference: selectedRfi.drawing_reference || '',
+      spec_reference: selectedRfi.spec_reference || '',
+      cost_impact: selectedRfi.cost_impact || 'none',
+      schedule_impact: selectedRfi.schedule_impact || 'none',
+      notes: selectedRfi.notes || '',
+    });
+    setEditingRfi(true);
+  };
+
+  const cancelEditingRfi = () => {
+    setEditingRfi(false);
+    setEditForm({
+      subject: selectedRfi.subject || '',
+      status: selectedRfi.status || 'draft',
+      priority: selectedRfi.priority || 'medium',
+      assigned_to: selectedRfi.assigned_to || '',
+      date_required: selectedRfi.date_required || '',
+      date_answered: selectedRfi.date_answered || '',
+      response: selectedRfi.response || '',
+      csi_section: selectedRfi.csi_section || '',
+      drawing_reference: selectedRfi.drawing_reference || '',
+      spec_reference: selectedRfi.spec_reference || '',
+      cost_impact: selectedRfi.cost_impact || 'none',
+      schedule_impact: selectedRfi.schedule_impact || 'none',
+      notes: selectedRfi.notes || '',
+    });
+  };
+
+  const handleSaveRfiEdit = async () => {
+    if (!selectedRfi) return;
+    setSavingEdit(true);
+    try {
+      const updated = await db.entities.RFI.update(selectedRfi.id, editForm);
+      setRfis(prev => prev.map(r => r.id === selectedRfi.id ? updated : r));
+      setSelectedRfi(updated);
+      setEditingRfi(false);
+      toast({ title: 'RFI updated' });
+    } catch (e) {
+      toast({ title: 'Unable to save changes', variant: 'destructive' });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const filtered = rfis.filter(r => {
     const matchSearch = !search || r.subject?.toLowerCase().includes(search.toLowerCase()) || r.rfi_number?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || r.status === statusFilter;
@@ -127,6 +185,10 @@ export default function RFIs() {
   });
 
   const PRIORITY_COLORS = { low: 'text-gray-400', medium: 'text-yellow-500', high: 'text-orange-500', critical: 'text-red-500' };
+  const IMPACT_OPTIONS = ['none', 'potential', 'confirmed'];
+  const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+
+  const selectedRfiProject = selectedRfi ? projects.find(p => p.id === selectedRfi.project_id) : null;
 
   const stats = {
     total: rfis.length,
@@ -225,7 +287,11 @@ export default function RFIs() {
             const { daysDelayed } = getContractDelinquency(r);
             const isContractuallyDelinquent = daysDelayed > 0;
             return (
-              <div key={r.id} className={`steel-card p-4 border-l-4 ${isContractuallyDelinquent ? 'border-l-red-600' : isOverdue ? 'border-l-red-500' : r.priority === 'critical' ? 'border-l-red-400' : r.priority === 'high' ? 'border-l-orange-400' : 'border-l-blue-400'}`}>
+              <div
+                key={r.id}
+                onClick={() => { setSelectedRfi(r); setEditingRfi(false); }}
+                className={`steel-card p-4 border-l-4 cursor-pointer hover:bg-muted/50 transition-colors ${isContractuallyDelinquent ? 'border-l-red-600' : isOverdue ? 'border-l-red-500' : r.priority === 'critical' ? 'border-l-red-400' : r.priority === 'high' ? 'border-l-orange-400' : 'border-l-blue-400'}`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -246,7 +312,7 @@ export default function RFIs() {
                       variant="outline"
                       className="text-red-600 border-red-500/30 hover:bg-red-500/10 flex-shrink-0"
                       disabled={generatingNoticeId === r.id}
-                      onClick={() => handleGenerateDelayNotice(r)}
+                      onClick={(e) => { e.stopPropagation(); handleGenerateDelayNotice(r); }}
                     >
                       <FileWarning className="w-3.5 h-3.5 mr-1.5" />
                       {generatingNoticeId === r.id ? 'Generating…' : 'Generate Delay Impact Notice'}
@@ -258,6 +324,164 @@ export default function RFIs() {
           })
         )}
       </div>
+
+      <Dialog open={!!selectedRfi} onOpenChange={(o) => { if (!o) { setSelectedRfi(null); setEditingRfi(false); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          {selectedRfi && !editingRfi && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-primary">{selectedRfi.rfi_number}</span>
+                  <span>{selectedRfi.subject}</span>
+                </DialogTitle>
+              </DialogHeader>
+              <div className="flex items-center gap-2 flex-wrap">
+                <StatusBadge status={selectedRfi.status} />
+                <span className={`text-xs font-medium ${PRIORITY_COLORS[selectedRfi.priority]}`}>{selectedRfi.priority?.toUpperCase()}</span>
+                {selectedRfi.ai_generated && <span className="text-xs bg-purple-500/10 text-purple-500 px-2 py-0.5 rounded-full font-medium">AI GENERATED</span>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                {[
+                  { label: 'Project', value: selectedRfiProject ? `${selectedRfiProject.project_number} — ${selectedRfiProject.name}` : '—' },
+                  { label: 'Date Submitted', value: selectedRfi.date_submitted || '—' },
+                  { label: 'Date Required', value: selectedRfi.date_required || '—' },
+                  { label: 'Date Answered', value: selectedRfi.date_answered || '—' },
+                  { label: 'Submitted By', value: selectedRfi.submitted_by || '—' },
+                  { label: 'Assigned To', value: selectedRfi.assigned_to || '—' },
+                  { label: 'CSI Section', value: selectedRfi.csi_section || '—' },
+                  { label: 'Drawing Reference', value: selectedRfi.drawing_reference || '—' },
+                  { label: 'Spec Reference', value: selectedRfi.spec_reference || '—' },
+                  { label: 'Cost Impact', value: capitalize(selectedRfi.cost_impact || 'none') },
+                  { label: 'Schedule Impact', value: capitalize(selectedRfi.schedule_impact || 'none') },
+                ].map(({ label, value }) => (
+                  <div key={label}>
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="font-medium">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <p className="text-xs text-muted-foreground">Description</p>
+                <p className="text-sm mt-1 whitespace-pre-wrap">{selectedRfi.description || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Response</p>
+                <p className="text-sm mt-1 whitespace-pre-wrap">{selectedRfi.response || 'No response yet'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Notes</p>
+                <p className="text-sm mt-1 whitespace-pre-wrap">{selectedRfi.notes || 'No notes'}</p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setSelectedRfi(null)}>Close</Button>
+                <Button onClick={startEditingRfi} className="steel-gradient text-white border-0">Edit</Button>
+              </div>
+            </>
+          )}
+
+          {selectedRfi && editingRfi && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="font-mono text-primary">{selectedRfi.rfi_number}</span>
+                  <span className="text-sm text-muted-foreground font-normal">Edit RFI</span>
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-3">
+                <div>
+                  <Label>Subject</Label>
+                  <Input value={editForm.subject} onChange={e => setEditForm(f => ({ ...f, subject: e.target.value }))} className="mt-1" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Status</Label>
+                    <Select value={editForm.status} onValueChange={v => setEditForm(f => ({ ...f, status: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {['draft','submitted','under_review','answered','closed'].map(s => (
+                          <SelectItem key={s} value={s}>{s.replace('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Priority</Label>
+                    <Select value={editForm.priority} onValueChange={v => setEditForm(f => ({ ...f, priority: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {['low','medium','high','critical'].map(p => <SelectItem key={p} value={p}>{capitalize(p)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Assigned To</Label>
+                    <Input value={editForm.assigned_to} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Date Required</Label>
+                    <Input type="date" value={editForm.date_required} onChange={e => setEditForm(f => ({ ...f, date_required: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Date Answered</Label>
+                    <Input type="date" value={editForm.date_answered} onChange={e => setEditForm(f => ({ ...f, date_answered: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>CSI Section</Label>
+                    <Input value={editForm.csi_section} onChange={e => setEditForm(f => ({ ...f, csi_section: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Drawing Reference</Label>
+                    <Input value={editForm.drawing_reference} onChange={e => setEditForm(f => ({ ...f, drawing_reference: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Spec Reference</Label>
+                    <Input value={editForm.spec_reference} onChange={e => setEditForm(f => ({ ...f, spec_reference: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Cost Impact</Label>
+                    <Select value={editForm.cost_impact} onValueChange={v => setEditForm(f => ({ ...f, cost_impact: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {IMPACT_OPTIONS.map(o => <SelectItem key={o} value={o}>{capitalize(o)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Schedule Impact</Label>
+                    <Select value={editForm.schedule_impact} onValueChange={v => setEditForm(f => ({ ...f, schedule_impact: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {IMPACT_OPTIONS.map(o => <SelectItem key={o} value={o}>{capitalize(o)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div>
+                  <Label>Response</Label>
+                  <Textarea value={editForm.response} onChange={e => setEditForm(f => ({ ...f, response: e.target.value }))} className="mt-1" rows={3} />
+                </div>
+                <div>
+                  <Label>Notes</Label>
+                  <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} className="mt-1" rows={2} />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={cancelEditingRfi}>Cancel</Button>
+                  <Button onClick={handleSaveRfiEdit} disabled={savingEdit} className="steel-gradient text-white border-0">
+                    {savingEdit ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

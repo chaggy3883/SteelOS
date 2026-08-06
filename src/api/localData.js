@@ -1911,6 +1911,23 @@ export const createIntegrationsApi = () => ({
       return { file_url: fileUrl, name: file?.name || 'uploaded-file' };
     },
     async InvokeLLM(payload) {
+      const proxyUrl = import.meta.env?.VITE_AI_PROXY_URL;
+      if (proxyUrl) {
+        try {
+          const res = await fetch(`${proxyUrl}/invoke`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) throw new Error(`Proxy returned ${res.status}`);
+          const data = await res.json();
+          return { content: data.content ?? data.text ?? '', summary: data.summary ?? '' };
+        } catch (err) {
+          console.warn('[InvokeLLM] Proxy call failed, falling back to mock:', err.message);
+        }
+      }
+      // Fallback — mock echo, same as before. Active when VITE_AI_PROXY_URL
+      // is not set (local dev, flash drive demo, no backend yet).
       return {
         content: typeof payload?.prompt === 'string' ? payload.prompt : 'Local analysis complete.',
         summary: 'Local placeholder analysis completed.'

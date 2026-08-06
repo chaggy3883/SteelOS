@@ -141,6 +141,35 @@
   }
 }
 
+/* Universal print support (PdfViewerModal's Print button, and any other
+   window.print() call made while a modal is open). AppLayout.jsx's root
+   element, NavBar.jsx's <nav>, and TopBar.jsx's <header> already hide
+   themselves and let <main> fill the page via Tailwind's print: variant
+   (print:hidden / print:h-auto / print:overflow-visible / print:flex-none)
+   — nothing to duplicate here. What's NOT covered by that: Radix Dialog
+   renders its overlay/content through a Portal appended directly to
+   <body>, outside AppLayout's tree entirely, so it needs its own print
+   rules — hide the dark backdrop (it would otherwise print as a solid
+   black page) and turn the dialog content from a fixed, viewport-centered,
+   height-capped box into a normal full-width block that can flow and
+   paginate across multiple printed pages. */
+@media print {
+  .fixed.inset-0.bg-black\/80 {
+    display: none !important;
+  }
+
+  [role="dialog"] {
+    position: static !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

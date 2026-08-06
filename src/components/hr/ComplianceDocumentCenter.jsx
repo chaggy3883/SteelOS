@@ -5,14 +5,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import FileDropzone from '@/components/ui/FileDropzone';
+import PdfViewerModal from '@/components/shared/PdfViewerModal';
 
 const DOCUMENT_TYPES = ['Drivers_License', 'SSN_Card', 'Birth_Cert', 'Training_Cert'];
+
+const isPdfDataUri = (uri) => /^data:application\/pdf/i.test(uri || '');
 
 export default function ComplianceDocumentCenter({ employee }) {
   const { toast } = useToast();
   const [documents, setDocuments] = useState([]);
   const [docType, setDocType] = useState('Drivers_License');
   const [loading, setLoading] = useState(true);
+  const [pdfViewer, setPdfViewer] = useState(null);
 
   const loadDocuments = async () => {
     try {
@@ -70,12 +74,29 @@ export default function ComplianceDocumentCenter({ employee }) {
                 <p className="text-xs text-muted-foreground">{new Date(doc.uploaded_at).toLocaleDateString()}</p>
               </div>
             </div>
-            <a href={doc.file_uri} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline flex-shrink-0">
-              <Eye className="w-3.5 h-3.5" />View
-            </a>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {isPdfDataUri(doc.file_uri) && (
+                <button
+                  onClick={() => setPdfViewer({ source: doc.file_uri, fileName: `${doc.document_type_key}.pdf` })}
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <Eye className="w-3.5 h-3.5" />Open
+                </button>
+              )}
+              <a href={doc.file_uri} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                <Eye className="w-3.5 h-3.5" />View
+              </a>
+            </div>
           </div>
         ))}
       </div>
+
+      <PdfViewerModal
+        open={!!pdfViewer}
+        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
+        source={pdfViewer?.source}
+        fileName={pdfViewer?.fileName}
+      />
     </div>
   );
 }

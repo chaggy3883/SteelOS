@@ -8,8 +8,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
-import { Scale, ShieldAlert, FileText, Upload, Brain, AlertTriangle, ScrollText } from 'lucide-react';
+import { Scale, ShieldAlert, FileText, Upload, Brain, AlertTriangle, ScrollText, Eye } from 'lucide-react';
 import { computeRiskFlags, RISK_FLAG_LABELS } from '@/lib/legalBaselines';
+import PdfViewerModal from '@/components/shared/PdfViewerModal';
+
+// A Document counts as an in-app-viewable PDF when it has a file to open and
+// either its MIME type or file name says so — covers both real uploads
+// (file_type from the File object) and any data/blob URI source.
+const isPdfDocument = (doc) => !!doc?.file_url && (
+  doc.file_type === 'application/pdf' ||
+  /\.pdf($|[?#])/i.test(doc.file_name || '') ||
+  /^data:application\/pdf/i.test(doc.file_url)
+);
 
 const LEGAL_ROLES = ['admin', 'president', 'ceo'];
 
@@ -24,6 +34,8 @@ export default function Legal() {
   const [contracts, setContracts] = useState([]);
   const [notices, setNotices] = useState([]);
   const [auditEvents, setAuditEvents] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [pdfViewer, setPdfViewer] = useState(null);
 
   const [contractForm, setContractForm] = useState(emptyContractForm());
   const [contractFile, setContractFile] = useState(null);
@@ -37,16 +49,18 @@ export default function Legal() {
 
   const loadData = async () => {
     try {
-      const [projectList, contractList, noticeList, eventList] = await Promise.all([
+      const [projectList, contractList, noticeList, eventList, documentList] = await Promise.all([
         db.entities.Project.list('-created_date', 200),
         db.entities.Contract.list('-created_date', 100),
         db.entities.StatutoryNotice.list('-created_date', 100),
         db.entities.LegalAuditEvent.list('-created_date', 200),
+        db.entities.Document.list('-created_date', 500),
       ]);
       setProjects(projectList);
       setContracts(contractList);
       setNotices(noticeList);
       setAuditEvents(eventList);
+      setDocuments(documentList);
       await flagExpiringNotices(noticeList, eventList);
     } catch (e) {}
   };
@@ -274,14 +288,23 @@ export default function Legal() {
             {contracts.length === 0 ? (
               <div className="steel-card p-8 text-center text-sm text-muted-foreground">No contracts scanned yet.</div>
             ) : (
-              contracts.map((c) => (
+              contracts.map((c) => {
+                const contractDoc = documents.find((d) => d.id === c.contract_document_id);
+                return (
                 <div key={c.id} className="steel-card p-5">
                   <div className="flex items-start justify-between mb-2">
                     <div>
                       <h4 className="font-semibold">{c.gc_name}</h4>
                       <p className="text-xs text-muted-foreground">{projectName(c.project_id)} · ${Number(c.contract_value || 0).toLocaleString()}</p>
                     </div>
-                    <Badge variant={c.risk_flags?.length > 0 ? 'destructive' : 'secondary'}>{c.risk_flags?.length > 0 ? `${c.risk_flags.length} risk flag(s)` : 'No flags'}</Badge>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {isPdfDocument(contractDoc) && (
+                        <Button size="sm" variant="outline" onClick={() => setPdfViewer({ source: contractDoc.file_url, fileName: contractDoc.file_name })}>
+                          <Eye className="w-3.5 h-3.5 mr-1.5" />Open
+                        </Button>
+                      )}
+                      <Badge variant={c.risk_flags?.length > 0 ? 'destructive' : 'secondary'}>{c.risk_flags?.length > 0 ? `${c.risk_flags.length} risk flag(s)` : 'No flags'}</Badge>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mb-3">
                     <div className="bg-muted rounded p-2"><p className="text-muted-foreground">Liquidated Damages</p><p className="font-mono font-bold">${Number(c.liquidated_damages_per_day || 0).toLocaleString()}/day</p></div>
@@ -300,7 +323,8 @@ export default function Legal() {
                   )}
                   {c.ai_extraction_summary && <p className="text-xs text-muted-foreground italic">{c.ai_extraction_summary}</p>}
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </TabsContent>
@@ -308,9 +332,11 @@ export default function Legal() {
         <TabsContent value="lien">
           <LienRightsRadar
             notices={notices}
+            documents={documents}
             projectName={projectName}
             onFieldSave={handleNoticeFieldSave}
             onFiledUpload={handleFiledUpload}
+            onOpenPdf={setPdfViewer}
           />
         </TabsContent>
 
@@ -337,11 +363,18 @@ export default function Legal() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <PdfViewerModal
+        open={!!pdfViewer}
+        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
+        source={pdfViewer?.source}
+        fileName={pdfViewer?.fileName}
+      />
     </div>
   );
 }
 
-function LienRightsRadar({ notices, projectName, onFieldSave, onFiledUpload }) {
+function LienRightsRadar({ notices, documents, projectName, onFieldSave, onFiledUpload, onOpenPdf }) {
   const [edits, setEdits] = useState(emptyNoticeEdits);
 
   const getField = (notice, field) => edits[notice.id]?.[field] ?? notice[field] ?? '';
@@ -361,6 +394,7 @@ function LienRightsRadar({ notices, projectName, onFieldSave, onFiledUpload }) {
           const remaining = daysUntil(notice);
           const isExpired = remaining < 0 && notice.filed_status !== 'filed' && notice.filed_status !== 'not_required';
           const isDanger = !isExpired && remaining <= 10 && notice.filed_status !== 'filed' && notice.filed_status !== 'not_required';
+          const filedDoc = documents.find((d) => d.id === notice.filed_document_id);
           return (
             <div key={notice.id} className={`steel-card p-5 ${isExpired ? 'border-red-600 border-2' : isDanger ? 'border-red-500/50 border-2' : ''}`}>
               <div className="flex items-start justify-between mb-3">
@@ -373,6 +407,11 @@ function LienRightsRadar({ notices, projectName, onFieldSave, onFiledUpload }) {
                   {isDanger && <Badge variant="destructive">{remaining}d left — not filed</Badge>}
                   {notice.filed_status === 'filed' && <Badge variant="secondary">Filed {notice.filed_date}</Badge>}
                   {!isExpired && !isDanger && notice.filed_status === 'pending' && <Badge variant="outline">{remaining}d left</Badge>}
+                  {isPdfDocument(filedDoc) && (
+                    <Button size="sm" variant="outline" onClick={() => onOpenPdf({ source: filedDoc.file_url, fileName: filedDoc.file_name })}>
+                      <Eye className="w-3.5 h-3.5 mr-1.5" />Open
+                    </Button>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">

@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { UploadCloud, FileText, FileSpreadsheet, File, Brain, CheckCircle2, AlertCircle, X, RefreshCw } from 'lucide-react';
+import { UploadCloud, FileText, FileSpreadsheet, File, Brain, CheckCircle2, AlertCircle, X, RefreshCw, Eye, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { downloadFile } from '@/lib/downloadFile';
 
 // Forces project_id to always be a valid, non-empty string before it reaches
 // any Document/Bid write, and provides the same fallback chain everywhere:
@@ -35,6 +37,9 @@ const getFileIcon = (name) => {
   return File;
 };
 
+const isPdfName = (name) => !!name?.match(/\.pdf$/i);
+const isOfficeDocName = (name) => !!name?.match(/\.(docx|xlsx|xls)$/i);
+
 export default function SmartFileDump({ bidId, bid, onParseComplete }) {
   const { toast } = useToast();
   const [dragging, setDragging] = useState(false);
@@ -46,6 +51,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
   const [parseError, setParseError] = useState('');
   const [projects, setProjects] = useState([]);
   const [projectOverride, setProjectOverride] = useState('');
+  const [pdfViewer, setPdfViewer] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -246,6 +252,24 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
                     <p className="text-sm font-medium truncate">{f.file.name}</p>
                     <p className="text-xs text-muted-foreground">{(f.file.size / 1024).toFixed(0)} KB · {f.status === 'uploaded' ? '✓ Uploaded' : 'Pending'}</p>
                   </div>
+                  {f.file_url && isPdfName(f.file.name) && (
+                    <button
+                      title="Open"
+                      onClick={(e) => { e.stopPropagation(); setPdfViewer({ source: f.file_url, fileName: f.file.name }); }}
+                      className="text-muted-foreground hover:text-primary flex-shrink-0"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  )}
+                  {f.file_url && isOfficeDocName(f.file.name) && (
+                    <button
+                      title="Download to Print — Open in Word/Excel to print."
+                      onClick={(e) => { e.stopPropagation(); downloadFile(f.file_url, f.file.name); }}
+                      className="text-muted-foreground hover:text-primary flex-shrink-0"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
+                  )}
                   <select
                     value={f.bucket}
                     onChange={(e) => assignBucket(i, e.target.value)}
@@ -320,6 +344,13 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
           <p className="text-sm">AI fields approved and saved to takeoff. Switch to the BID Worksheet tab to adjust line items.</p>
         </div>
       )}
+
+      <PdfViewerModal
+        open={!!pdfViewer}
+        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
+        source={pdfViewer?.source}
+        fileName={pdfViewer?.fileName}
+      />
     </div>
   );
 }

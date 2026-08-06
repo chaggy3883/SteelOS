@@ -1,14 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Upload, FileSpreadsheet, Save, Trash2, Loader2 } from 'lucide-react';
+import { Upload, FileSpreadsheet, Save, Trash2, Loader2, Eye, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
+import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { downloadFile } from '@/lib/downloadFile';
 
 const CATEGORIES = ['Proposal', 'Invoice', 'Packing_Slip', 'Spreadsheet', 'Custom'];
+const isPdfName = (name) => !!name?.match(/\.pdf$/i);
+const isOfficeDocName = (name) => !!name?.match(/\.(docx|xlsx|xls)$/i);
 
 export default function TemplateVaultPanel() {
   const { toast } = useToast();
@@ -21,6 +25,7 @@ export default function TemplateVaultPanel() {
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [savingId, setSavingId] = useState(null);
+  const [pdfViewer, setPdfViewer] = useState(null);
 
   useEffect(() => { loadTemplates(); }, []);
 
@@ -123,6 +128,21 @@ export default function TemplateVaultPanel() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
+                    {isPdfName(t.file_name) && (
+                      <Button size="sm" variant="outline" onClick={() => setPdfViewer({ source: t.file_url, fileName: t.file_name })}>
+                        <Eye className="w-3.5 h-3.5 mr-1.5" />Open
+                      </Button>
+                    )}
+                    {isOfficeDocName(t.file_name) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        title="Open in Word/Excel to print."
+                        onClick={() => downloadFile(t.file_url, t.file_name)}
+                      >
+                        <Download className="w-3.5 h-3.5 mr-1.5" />Download to Print
+                      </Button>
+                    )}
                     <Button size="sm" variant="outline" onClick={() => openEditor(t)}>Edit Layout</Button>
                     <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => removeTemplate(t.id)}><Trash2 className="w-4 h-4" /></Button>
                   </div>
@@ -150,6 +170,13 @@ export default function TemplateVaultPanel() {
           </div>
         )}
       </div>
+
+      <PdfViewerModal
+        open={!!pdfViewer}
+        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
+        source={pdfViewer?.source}
+        fileName={pdfViewer?.fileName}
+      />
     </div>
   );
 }
