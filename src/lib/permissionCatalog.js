@@ -25,7 +25,6 @@ export const PERMISSION_CATALOG = [
     { key: 'tab:/estimating:bid-worksheet', label: 'BID Worksheet' },
     { key: 'tab:/estimating:full-takeoff', label: 'Full Takeoff' },
     { key: 'tab:/estimating:vendor-pricing', label: 'Vendor Pricing' },
-    { key: 'tab:/estimating:mill-pricing', label: 'Mill Pricing' },
     { key: 'tab:/estimating:scope-text', label: 'Scope Text' },
     { key: 'tab:/estimating:ai-review', label: 'AI Review' },
     { key: 'tab:/estimating:ai-contract-review', label: 'AI Contract Review' },

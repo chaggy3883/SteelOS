@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Factory, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen } from 'lucide-react';
+import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import BidProposalPrintView from '@/components/estimating/BidProposalPrintView';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,6 @@ import AIContractReviewPanel from '@/components/estimating/AIContractReviewPanel
 import DNBReasonModal from '@/components/estimating/DNBReasonModal';
 import TakeoffEngine from '@/components/estimating/TakeoffEngine';
 import VendorPricing from '@/components/estimating/VendorPricing';
-import MillPricingTable from '@/components/estimating/MillPricingTable';
 import { useToast } from '@/components/ui/use-toast';
 import { Switch } from '@/components/ui/switch';
 import FullTakeoff from '@/components/estimating/FullTakeoff';
@@ -499,7 +498,6 @@ export default function BidDetail() {
           <TabsTrigger value="takeoff"><Calculator className="w-4 h-4 mr-1.5" />BID Worksheet</TabsTrigger>
           <TabsTrigger value="fulltakeoff"><BarChart3 className="w-4 h-4 mr-1.5" />Full Takeoff</TabsTrigger>
           <TabsTrigger value="vendor"><Link2 className="w-4 h-4 mr-1.5" />Vendor Pricing</TabsTrigger>
-          <TabsTrigger value="mill"><Factory className="w-4 h-4 mr-1.5" />Mill Pricing</TabsTrigger>
           <TabsTrigger value="inclusions"><FileText className="w-4 h-4 mr-1.5" />Scope Text</TabsTrigger>
           <TabsTrigger value="ai"><Brain className="w-4 h-4 mr-1.5" />AI Review</TabsTrigger>
           <TabsTrigger value="contract-review"><ScanSearch className="w-4 h-4 mr-1.5" />AI Contract Review</TabsTrigger>
@@ -519,10 +517,6 @@ export default function BidDetail() {
 
         <TabsContent value="vendor">
           <VendorPricing bidId={bid.id} />
-        </TabsContent>
-
-        <TabsContent value="mill">
-          <MillPricingTable bid={bid} />
         </TabsContent>
 
         <TabsContent value="inclusions">

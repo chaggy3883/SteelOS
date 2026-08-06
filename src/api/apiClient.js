@@ -62,7 +62,6 @@ const createLocalApi = () => ({
     remnant_inventory: createEntityApi('remnant_inventory'),
     manager_overrides: createEntityApi('manager_overrides'),
     MaterialTakeoffLine: createEntityApi('MaterialTakeoffLine'),
-    MillPricing: createEntityApi('MillPricing'),
     MillTestReport: createEntityApi('MillTestReport'),
     Notification: createEntityApi('Notification'),
     PieceMark: createEntityApi('PieceMark'),

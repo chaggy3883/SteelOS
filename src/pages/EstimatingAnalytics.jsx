@@ -116,7 +116,7 @@ export default function EstimatingAnalytics() {
 
   return (
     <div className="p-6 animate-fade-in">
-      <PageHeader title="Historic Cost Analytics" subtitle="Estimating vs. Actuals loop, win/loss post-mortem, and mill pricing intelligence" />
+      <PageHeader title="Historic Cost Analytics" subtitle="Estimating vs. Actuals loop, win/loss post-mortem" />
 
       {/* Top KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
