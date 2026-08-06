@@ -41,7 +41,7 @@ export default function CRM() {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
-  const [form, setForm] = useState({ name: '', customer_type: 'general_contractor', is_customer: true, is_vendor: false, phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '' });
+  const [form, setForm] = useState({ name: '', customer_type: 'general_contractor', is_customer: true, is_vendor: false, phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '', portal_enabled: false, portal_email: '', portal_password: '' });
   const [contacts, setContacts] = useState([]);
   const [contactForm, setContactForm] = useState({ name: '', title: '', phone: '', email: '', notes: '' });
   const [saving, setSaving] = useState(false);
@@ -57,7 +57,7 @@ export default function CRM() {
   };
 
   const resetForm = () => {
-    setForm({ name: '', customer_type: 'general_contractor', is_customer: true, is_vendor: false, phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '' });
+    setForm({ name: '', customer_type: 'general_contractor', is_customer: true, is_vendor: false, phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '', portal_enabled: false, portal_email: '', portal_password: '' });
     setEditingCustomer(null);
     setContacts([]);
     setContactForm({ name: '', title: '', phone: '', email: '', notes: '' });
@@ -100,6 +100,9 @@ export default function CRM() {
       billing_city: customer.billing_city || '',
       billing_state: customer.billing_state || '',
       billing_zip: customer.billing_zip || '',
+      portal_enabled: !!customer.portal_enabled,
+      portal_email: customer.portal_email || '',
+      portal_password: customer.portal_password || '',
     });
     setContacts(Array.isArray(customer.contacts) ? customer.contacts : []);
     setOpen(true);
@@ -186,6 +189,25 @@ export default function CRM() {
                 <div><Label>Billing ZIP</Label><Input value={form.billing_zip} onChange={e => setForm(f => ({ ...f, billing_zip: e.target.value }))} className="mt-1" /></div>
                 <div><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="mt-1" /></div>
                 <div><Label>Phone</Label><Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="mt-1" /></div>
+
+                <div className="rounded-lg border border-border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold">Customer Portal Access</h4>
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="w-3.5 h-3.5"
+                        checked={form.portal_enabled}
+                        onChange={e => setForm(f => ({ ...f, portal_enabled: e.target.checked }))}
+                      />
+                      Enabled
+                    </label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Login credentials for this company's Customer Portal — share the portal link from Admin &gt; Integrations.</p>
+                  <div><Label className="text-xs">Portal Email</Label><Input type="email" value={form.portal_email} onChange={e => setForm(f => ({ ...f, portal_email: e.target.value }))} className="mt-1" placeholder="portal login email" /></div>
+                  <div><Label className="text-xs">Portal Password</Label><Input type="password" value={form.portal_password} onChange={e => setForm(f => ({ ...f, portal_password: e.target.value }))} className="mt-1" placeholder="portal login password" /></div>
+                </div>
+
                 <div className="rounded-lg border border-border p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <h4 className="text-sm font-semibold">Contacts</h4>

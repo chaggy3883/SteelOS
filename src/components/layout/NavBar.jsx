@@ -16,7 +16,7 @@ import {
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
-  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit
+  Globe, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit
 } from 'lucide-react';
 
 const navGroups = [
@@ -78,8 +78,7 @@ const navGroups = [
   {
     label: 'External Gateways',
     items: [
-      { icon: Globe, label: 'Customer Portal', path: '/portal/login', query: '?type=customer' },
-      { icon: Handshake, label: 'Vendor Portal', path: '/portal/login', query: '?type=vendor' },
+      { icon: Globe, label: 'Portal Management', path: '/admin', query: '' },
     ]
   },
   {

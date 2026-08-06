@@ -45,7 +45,7 @@ function emptyRowForm() {
 }
 
 function emptyVendorForm() {
-  return { name: '', vendor_type: 'supplier', contact_name: '', phone: '', email: '' };
+  return { name: '', vendor_type: 'supplier', contact_name: '', phone: '', email: '', portal_enabled: false, portal_email: '', portal_password: '' };
 }
 
 function emptyBillForm() {
@@ -939,6 +939,25 @@ export default function Accounting() {
             <div>
               <Label>Email</Label>
               <Input value={vendorForm.email} onChange={(e) => setVendorForm(f => ({ ...f, email: e.target.value }))} className="mt-1" />
+            </div>
+            <div className="col-span-2 rounded-lg border border-border p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold">Vendor Portal Access</h4>
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5"
+                    checked={vendorForm.portal_enabled}
+                    onChange={(e) => setVendorForm(f => ({ ...f, portal_enabled: e.target.checked }))}
+                  />
+                  Enabled
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">Login credentials for this vendor's Vendor Portal — share the portal link from Admin &gt; Integrations.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">Portal Email</Label><Input type="email" value={vendorForm.portal_email} onChange={(e) => setVendorForm(f => ({ ...f, portal_email: e.target.value }))} className="mt-1" placeholder="portal login email" /></div>
+                <div><Label className="text-xs">Portal Password</Label><Input type="password" value={vendorForm.portal_password} onChange={(e) => setVendorForm(f => ({ ...f, portal_password: e.target.value }))} className="mt-1" placeholder="portal login password" /></div>
+              </div>
             </div>
           </div>
           <DialogFooter>
