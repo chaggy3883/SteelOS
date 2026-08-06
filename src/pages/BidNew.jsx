@@ -51,7 +51,6 @@ export default function BidNew() {
     if (!form.job_name) errs.job_name = 'Job name is required';
     if (!form.job_location) errs.job_location = 'Job location is required';
     if (!form.bid_due_date) errs.bid_due_date = 'Bid due date is required';
-    if (!form.estimator_id) errs.estimator_id = 'Estimator is required';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -177,15 +176,15 @@ export default function BidNew() {
 
         {/* Estimator */}
         <div>
-          <Label>Estimator <span className="text-red-500">*</span></Label>
+          <Label>Estimator</Label>
           <select
             {...fieldProps('estimator_id')}
-            className={`mt-1 flex h-9 w-full rounded-md border border-input bg-input/40 px-3 py-1 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm ${errors.estimator_id ? 'border-red-500' : ''}`}
+            className="mt-1 flex h-9 w-full rounded-md border border-input bg-input/40 px-3 py-1 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
           >
             <option value="">Select estimator…</option>
             {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
           </select>
-          {errors.estimator_id && <p className="text-xs text-red-500 mt-1">{errors.estimator_id}</p>}
+          <p className="text-xs text-muted-foreground mt-1">Can be assigned later if not yet known.</p>
         </div>
 
         <div className="flex justify-end pt-2">

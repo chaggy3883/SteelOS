@@ -221,7 +221,8 @@ export default function EstimatingAnalytics() {
 
         {/* Win Rate by Estimator */}
         <div className="steel-card p-5">
-          <h3 className="font-semibold mb-4 flex items-center gap-2"><Target className="w-4 h-4 text-blue-500" />Win Rate by Estimator</h3>
+          <h3 className="font-semibold mb-1 flex items-center gap-2"><Target className="w-4 h-4 text-blue-500" />Win Rate by Estimator</h3>
+          <p className="text-xs text-muted-foreground mb-4">Bids decided while still unassigned won't be attributed to any estimator — assign the estimator before marking a bid won or lost for accurate tracking.</p>
           {winRateByEstimator.length === 0 ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">No decided bids yet.</div>
           ) : (

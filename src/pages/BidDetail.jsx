@@ -51,10 +51,13 @@ export default function BidDetail() {
   const [savingBaseInfo, setSavingBaseInfo] = useState(false);
   const [baseInfoDirty, setBaseInfoDirty] = useState(false);
   const [savingEstimate, setSavingEstimate] = useState(false);
+  const [employees, setEmployees] = useState([]);
+  const [savingEstimator, setSavingEstimator] = useState(false);
   const takeoffRef = useRef(null);
   const materialRef = useRef(null);
 
   useEffect(() => { loadBid(); }, [id]);
+  useEffect(() => { loadEmployees(); }, []);
 
   useEffect(() => {
     if (bid) {
@@ -113,6 +116,25 @@ export default function BidDetail() {
       const data = await db.entities.Bid.get(id);
       setBid(data);
     } catch (e) {} finally { setLoading(false); }
+  };
+
+  const loadEmployees = async () => {
+    try {
+      const data = await db.entities.employees.list('full_name', 500);
+      setEmployees(data);
+    } catch (e) {}
+  };
+
+  const handleEstimatorChange = async (value) => {
+    setSavingEstimator(true);
+    try {
+      await db.entities.Bid.update(id, { estimator_id: value || null });
+      loadBid();
+    } catch (e) {
+      toast({ title: 'Failed to update estimator', variant: 'destructive' });
+    } finally {
+      setSavingEstimator(false);
+    }
   };
 
   const getNextProjectNumber = async () => {
@@ -340,7 +362,19 @@ export default function BidDetail() {
       />
 
       {/* Bid Summary Bar */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+        <div className="steel-card p-3">
+          <p className="text-xs text-muted-foreground">Estimator</p>
+          <select
+            value={bid.estimator_id || ''}
+            onChange={(e) => handleEstimatorChange(e.target.value)}
+            disabled={savingEstimator}
+            className="mt-0.5 w-full rounded-md border border-input bg-input/40 px-1.5 py-0.5 text-sm font-bold disabled:opacity-50"
+          >
+            <option value="">Unassigned</option>
+            {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+          </select>
+        </div>
         {[
           { label: 'Bid Total', value: bid.bid_total_cost ? `$${bid.bid_total_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—' },
           { label: 'Est. Tons', value: bid.estimated_tons?.toLocaleString() || '—' },
