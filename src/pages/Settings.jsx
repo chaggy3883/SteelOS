@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet } from 'lucide-react';
+import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet, Sparkles } from 'lucide-react';
 import TemplateVaultPanel from '@/components/settings/TemplateVaultPanel';
 import AiPlatformConfigPanel from '@/components/settings/AiPlatformConfigPanel';
+import DemoDataPanel from '@/components/settings/DemoDataPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -81,6 +82,7 @@ export default function Settings() {
           <TabsTrigger value="integrations"><Layers className="w-4 h-4 mr-1.5" /> Integrations</TabsTrigger>
           <TabsTrigger value="templates"><FileSpreadsheet className="w-4 h-4 mr-1.5" /> Templates</TabsTrigger>
           <TabsTrigger value="devices"><Tablet className="w-4 h-4 mr-1.5" /> Devices</TabsTrigger>
+          <TabsTrigger value="demo-data"><Sparkles className="w-4 h-4 mr-1.5" /> Demo Data</TabsTrigger>
         </TabsList>
 
         {/* Company Settings */}
@@ -246,6 +248,11 @@ export default function Settings() {
               {provisioning ? 'Provisioning…' : 'Provision Local Shop Floor Kiosk Tablet'}
             </Button>
           </div>
+        </TabsContent>
+
+        {/* Demo Data */}
+        <TabsContent value="demo-data">
+          <DemoDataPanel />
         </TabsContent>
       </Tabs>
     </div>
