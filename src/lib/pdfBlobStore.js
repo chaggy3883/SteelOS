@@ -48,7 +48,7 @@ export const savePdf = async (takeoffId, file) => {
     const store = transaction.objectStore(STORE_NAME);
     const request = store.put(file, takeoffId);
 
-    request.onsuccess = () => finish(() => resolve());
+    transaction.oncomplete = () => finish(() => resolve());
     request.onerror = () => finish(() => reject(new Error(`Failed to store PDF for takeoff ${takeoffId}: ${request.error?.message || 'unknown error'}`)));
     transaction.onerror = () => finish(() => reject(new Error(`Failed to store PDF for takeoff ${takeoffId}: ${transaction.error?.message || 'unknown error'}`)));
   });
@@ -112,7 +112,7 @@ export const deletePdf = async (takeoffId) => {
     const store = transaction.objectStore(STORE_NAME);
     const request = store.delete(takeoffId);
 
-    request.onsuccess = () => finish(() => resolve());
+    transaction.oncomplete = () => finish(() => resolve());
     request.onerror = () => finish(() => reject(new Error(`Failed to delete PDF for takeoff ${takeoffId}: ${request.error?.message || 'unknown error'}`)));
     transaction.onerror = () => finish(() => reject(new Error(`Failed to delete PDF for takeoff ${takeoffId}: ${transaction.error?.message || 'unknown error'}`)));
   });

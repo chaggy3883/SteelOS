@@ -35,6 +35,17 @@
     "scale_reference": {
       "type": "string"
     },
+    "takeoff_name": {
+      "type": "string"
+    },
+    "last_opened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "has_stored_pdf": {
+      "type": "boolean",
+      "default": false
+    },
     "accepted_items": {
       "type": "array",
       "items": {

@@ -85,7 +85,6 @@ export default function BlueprintTakeoff() {
   const [creatingSession, setCreatingSession] = useState(false);
   const [pdfMissingNotice, setPdfMissingNotice] = useState(false);
   const [reattachError, setReattachError] = useState(null);
-
   const [fileUrl, setFileUrl] = useState(null);
   const [fileName, setFileName] = useState('');
   const [sheetCount, setSheetCount] = useState(null);
@@ -98,6 +97,8 @@ export default function BlueprintTakeoff() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [excelExportError, setExcelExportError] = useState(null);
+  const [takeoffName, setTakeoffName] = useState('');
+  const [hasStoredPdf, setHasStoredPdf] = useState(false);
   const fileInputRef = useRef(null);
   const reattachInputRef = useRef(null);
   const activePdfUrlRef = useRef(null);
@@ -143,7 +144,7 @@ export default function BlueprintTakeoff() {
   const loadSessions = async () => {
     setSessionsLoading(true);
     try {
-      const list = await db.entities.blueprint_takeoffs.filter({}, '-created_date', 500);
+      const list = await db.entities.blueprint_takeoffs.filter({ company_id: user?.company_id }, '-created_date', 500);
       const sorted = [...list].sort((a, b) => {
         const aOpened = a.last_opened_at || '';
         const bOpened = b.last_opened_at || '';
@@ -191,12 +192,14 @@ export default function BlueprintTakeoff() {
 
   const openSession = async (takeoff) => {
     setTakeoffId(takeoff.id);
+    setTakeoffName(takeoff.takeoff_name || takeoff.file_name || 'Untitled takeoff');
     setFileName(takeoff.file_name || '');
     setSheetCount(takeoff.sheet_count || null);
     setScaleReference(takeoff.scale_reference || '');
     setRows((takeoff.accepted_items || []).map((item) => emptyRow({ ...item })));
     setScanError(null);
     setReattachError(null);
+    setHasStoredPdf(Boolean(takeoff.has_stored_pdf));
 
     let url = null;
     if (takeoff.has_stored_pdf) {
@@ -218,6 +221,8 @@ export default function BlueprintTakeoff() {
 
   const handleBackToSessions = () => {
     resetWorkspaceState();
+    setTakeoffName('');
+    setHasStoredPdf(false);
     setMode('sessions');
     loadSessions();
   };
@@ -264,6 +269,8 @@ export default function BlueprintTakeoff() {
       });
 
       setTakeoffId(created.id);
+      setTakeoffName(newTakeoffName.trim());
+      setHasStoredPdf(false);
       setActivePdfUrl(file_url);
       setFileName(file.name);
       setSheetCount(null);
@@ -276,8 +283,10 @@ export default function BlueprintTakeoff() {
       try {
         await savePdf(created.id, file);
         await db.entities.blueprint_takeoffs.update(created.id, { has_stored_pdf: true });
+        setHasStoredPdf(true);
       } catch (e) {
         console.error('Failed to store PDF for offline resume', e);
+        setHasStoredPdf(false);
         setNewSessionError('This session was created, but the PDF could not be stored on this device — reopening it later will restore measurements only, not the drawing.');
       }
 
@@ -364,12 +373,17 @@ export default function BlueprintTakeoff() {
       sheet_count: sheetCount || 1,
       scale_reference: scaleReference,
       accepted_items: newRows.map(({ _key, ...rest }) => rest),
+      takeoff_name: takeoffName.trim() || fileName || undefined,
+      has_stored_pdf: hasStoredPdf,
     };
     if (takeoffId) {
       await db.entities.blueprint_takeoffs.update(takeoffId, payload);
+      await loadSessions();
     } else {
       const created = await db.entities.blueprint_takeoffs.create(payload);
       setTakeoffId(created.id);
+      setTakeoffName(created.takeoff_name || takeoffName || fileName || '');
+      await loadSessions();
     }
   };
 
