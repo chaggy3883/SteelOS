@@ -42,6 +42,20 @@
       "type": "string",
       "enum": ["ft", "in"]
     },
+    "tool_chest": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "tool": { "type": "string", "enum": ["count", "length"] },
+          "label": { "type": "string" },
+          "shapeClass": { "type": "string" },
+          "sizeDesignation": { "type": "string" },
+          "color": { "type": "string" }
+        }
+      }
+    },
     "accepted_items": {
       "type": "array",
       "items": {
@@ -90,6 +104,40 @@
           "is_demo": {
             "type": "boolean",
             "default": false
+          },
+          "source": {
+            "type": "string",
+            "enum": ["measurement"]
+          },
+          "tool": {
+            "type": "string",
+            "enum": ["count", "length"]
+          },
+          "label": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "pdfX": {
+            "type": "number"
+          },
+          "pdfY": {
+            "type": "number"
+          },
+          "point1": {
+            "type": "object",
+            "properties": {
+              "pdfX": { "type": "number" },
+              "pdfY": { "type": "number" }
+            }
+          },
+          "point2": {
+            "type": "object",
+            "properties": {
+              "pdfX": { "type": "number" },
+              "pdfY": { "type": "number" }
+            }
           }
         }
       }

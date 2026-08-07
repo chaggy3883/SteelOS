@@ -9,10 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical, FileDown,
   Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
+  MousePointer2, MousePointerClick, Wrench, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
@@ -114,9 +116,29 @@ export default function BlueprintTakeoff() {
   const [pxPerFt, setPxPerFt] = useState(null);
   const [canvasScale, setCanvasScale] = useState(1);
 
+  // Count/Length measurement tools. Both write straight into `rows`, same
+  // as any other accepted_items row — source: 'measurement' is what marks
+  // them as tool-placed (vs. AI-detected/manual/demo) for redraw + display.
+  // toolChest presets are per-session saved shortcuts (label + shape +
+  // color) so an estimator doesn't have to re-pick a shape/size before every
+  // click; selectedPresetId tracks which one is "loaded" into the tools.
+  const [activeTool, setActiveTool] = useState(null);
+  const [lengthPoints, setLengthPoints] = useState([]);
+  const [toolChest, setToolChest] = useState([]);
+  const [selectedPresetId, setSelectedPresetId] = useState(null);
+  const [toolChestOpen, setToolChestOpen] = useState(false);
+  const [newPresetLabel, setNewPresetLabel] = useState('');
+  const [newPresetShapeClass, setNewPresetShapeClass] = useState(SHAPE_CLASSES[0].value);
+  const [newPresetSize, setNewPresetSize] = useState('');
+  const [newPresetTool, setNewPresetTool] = useState('count');
+  const [newPresetColor, setNewPresetColor] = useState('#ef4444');
+
   const fileInputRef = useRef(null);
   const reattachInputRef = useRef(null);
   const activePdfUrlRef = useRef(null);
+  const toolChestSaveTimerRef = useRef(null);
+
+  const selectedPreset = toolChest.find((p) => p.id === selectedPresetId) || null;
 
   useEffect(() => {
     db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
@@ -193,6 +215,20 @@ export default function BlueprintTakeoff() {
     loadSessions();
   }, [user?.company_id]);
 
+  // Debounced so rapid-fire "Add Preset" clicks (or the load-triggered set
+  // right after openSession) don't each fire their own write — only the
+  // settled toolChest, 800ms after the last change, gets persisted.
+  useEffect(() => {
+    if (!takeoffId) return;
+    if (toolChestSaveTimerRef.current) clearTimeout(toolChestSaveTimerRef.current);
+    toolChestSaveTimerRef.current = setTimeout(() => {
+      db.entities.blueprint_takeoffs.update(takeoffId, { tool_chest: toolChest }).catch((e) => {
+        console.error('Failed to persist tool chest', e);
+      });
+    }, 800);
+    return () => clearTimeout(toolChestSaveTimerRef.current);
+  }, [toolChest, takeoffId]);
+
   const resetWorkspaceState = () => {
     setTakeoffId(null);
     setActivePdfUrl(null);
@@ -208,6 +244,10 @@ export default function BlueprintTakeoff() {
     setCalibrationRealDistance('');
     setCalibrationUnit('ft');
     setPxPerFt(null);
+    setActiveTool(null);
+    setLengthPoints([]);
+    setToolChest([]);
+    setSelectedPresetId(null);
   };
 
   const openSession = async (takeoff) => {
@@ -225,6 +265,10 @@ export default function BlueprintTakeoff() {
     setCalibrationRealDistance('');
     setCalibrationUnit(takeoff.calibration_unit || 'ft');
     setPxPerFt(takeoff.px_per_ft ?? null);
+    setActiveTool(null);
+    setLengthPoints([]);
+    setToolChest(takeoff.tool_chest || []);
+    setSelectedPresetId(null);
 
     let url = null;
     if (takeoff.has_stored_pdf) {
@@ -309,6 +353,10 @@ export default function BlueprintTakeoff() {
       setCalibrationRealDistance('');
       setCalibrationUnit('ft');
       setPxPerFt(null);
+      setActiveTool(null);
+      setLengthPoints([]);
+      setToolChest([]);
+      setSelectedPresetId(null);
 
       try {
         await savePdf(created.id, file);
@@ -365,6 +413,8 @@ export default function BlueprintTakeoff() {
   const handleDragLeave = () => setIsDragOver(false);
 
   const handleStartCalibration = () => {
+    setActiveTool(null);
+    setLengthPoints([]);
     setCalibrationPoints([]);
     setCalibrationMode(true);
   };
@@ -419,6 +469,129 @@ export default function BlueprintTakeoff() {
       }
     }
   };
+
+  const handleSelectTool = () => {
+    setActiveTool(null);
+    setLengthPoints([]);
+  };
+
+  // Gate every tool activation behind calibration — Count/Length distances
+  // are meaningless without pxPerFt, so there's no partial-credit path here:
+  // either it's set and the tool goes live, or it isn't and nothing changes
+  // beyond the toast telling the estimator what to do first.
+  const handleActivateTool = (tool) => {
+    if (pxPerFt == null) {
+      toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
+      return;
+    }
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setLengthPoints([]);
+    setActiveTool(tool);
+  };
+
+  const handleMeasurementClick = ({ tool, pdfX, pdfY }) => {
+    if (tool === 'count') {
+      const preset = selectedPreset;
+      const newRow = {
+        _key: crypto.randomUUID(),
+        source: 'measurement',
+        tool: 'count',
+        shape_type: preset?.shapeClass || 'Custom',
+        size_designation: preset?.sizeDesignation || '',
+        label: preset?.label || 'Count',
+        color: preset?.color || '#ef4444',
+        pdfX,
+        pdfY,
+        quantity: 1,
+        length_ft: 0,
+        unit_weight_lbs_per_ft: 0,
+        is_accepted: true,
+      };
+      const updated = [...rows, newRow];
+      setRows(updated);
+      persist(updated);
+      return;
+    }
+
+    if (tool === 'length') {
+      if (lengthPoints.length === 0) {
+        setLengthPoints([{ pdfX, pdfY }]);
+        return;
+      }
+
+      const p1 = lengthPoints[0];
+      const p2 = { pdfX, pdfY };
+      const pxDist = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2) * canvasScale;
+      const lengthFt = pxDist / pxPerFt;
+      const preset = selectedPreset;
+      const newRow = {
+        _key: crypto.randomUUID(),
+        source: 'measurement',
+        tool: 'length',
+        shape_type: preset?.shapeClass || 'Custom',
+        size_designation: preset?.sizeDesignation || '',
+        label: preset?.label || 'Length',
+        color: preset?.color || '#3b82f6',
+        point1: p1,
+        point2: p2,
+        quantity: 1,
+        length_ft: Math.round(lengthFt * 100) / 100,
+        unit_weight_lbs_per_ft: 0,
+        is_accepted: true,
+      };
+      const updated = [...rows, newRow];
+      setRows(updated);
+      persist(updated);
+      setLengthPoints([]);
+    }
+  };
+
+  const handleSelectPreset = (preset) => {
+    setSelectedPresetId(preset.id);
+    if (pxPerFt == null) {
+      toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
+      return;
+    }
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setLengthPoints([]);
+    setActiveTool(preset.tool);
+  };
+
+  const handleRemovePreset = (id) => {
+    setToolChest((prev) => prev.filter((p) => p.id !== id));
+    setSelectedPresetId((prev) => (prev === id ? null : prev));
+  };
+
+  const handleAddPreset = () => {
+    if (!newPresetLabel.trim()) return;
+    const preset = {
+      id: crypto.randomUUID(),
+      tool: newPresetTool,
+      label: newPresetLabel.trim(),
+      shapeClass: newPresetShapeClass,
+      sizeDesignation: newPresetSize.trim(),
+      color: newPresetColor,
+    };
+    setToolChest((prev) => [...prev, preset]);
+    setNewPresetLabel('');
+    setNewPresetSize('');
+  };
+
+  // Escape always wins, regardless of which tool (or none) is active —
+  // it's the one universal "get me out of whatever I'm doing" key.
+  useEffect(() => {
+    if (mode !== 'workspace') return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setActiveTool(null);
+        setLengthPoints([]);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mode]);
 
   // Live catalog lookup — the "Available Size" dropdown no longer reads the
   // hardcoded SHAPE_CLASSES.sizes array, it reads whatever sizes are
@@ -669,72 +842,185 @@ export default function BlueprintTakeoff() {
           )}
           {reattachError && <p className="text-sm text-amber-600">{reattachError}</p>}
 
-          <div className="flex flex-wrap items-center gap-3">
-            {pxPerFt == null ? (
-              <Badge variant="outline" className="text-amber-600 border-amber-300">Not calibrated</Badge>
-            ) : (
-              <Badge variant="outline" className="text-green-700 border-green-300">Calibrated — 1 ft = {pxPerFt.toFixed(1)} px</Badge>
-            )}
-            {calibrationMode ? (
-              <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel Calibration</Button>
-            ) : (
-              <Button size="sm" variant="outline" onClick={handleStartCalibration} disabled={!fileUrl}>
-                <Ruler className="w-3.5 h-3.5 mr-1.5" />{pxPerFt == null ? 'Set Scale' : 'Recalibrate'}
-              </Button>
-            )}
-          </div>
+          <div className="flex flex-col lg:flex-row gap-4 items-start">
+            <div className="flex-1 min-w-0 space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                {pxPerFt == null ? (
+                  <Badge variant="outline" className="text-amber-600 border-amber-300">Not calibrated</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-green-700 border-green-300">Calibrated — 1 ft = {pxPerFt.toFixed(1)} px</Badge>
+                )}
+                {calibrationMode ? (
+                  <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel Calibration</Button>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={handleStartCalibration} disabled={!fileUrl}>
+                    <Ruler className="w-3.5 h-3.5 mr-1.5" />{pxPerFt == null ? 'Set Scale' : 'Recalibrate'}
+                  </Button>
+                )}
+              </div>
 
-          {calibrationMode && calibrationPoints.length === 2 && (
-            <Card>
-              <CardContent className="p-3 flex flex-wrap items-end gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Real-world distance between the two points</label>
-                  <div className="flex items-center gap-2">
+              {calibrationMode && calibrationPoints.length === 2 && (
+                <Card>
+                  <CardContent className="p-3 flex flex-wrap items-end gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Real-world distance between the two points</label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={calibrationRealDistance}
+                          onChange={(e) => setCalibrationRealDistance(e.target.value)}
+                          placeholder="e.g. 10"
+                          className="w-28 h-8"
+                        />
+                        <div className="flex rounded-md border overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setCalibrationUnit('ft')}
+                            className={`px-2.5 py-1 text-xs font-medium ${calibrationUnit === 'ft' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
+                          >
+                            ft
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCalibrationUnit('in')}
+                            className={`px-2.5 py-1 text-xs font-medium border-l ${calibrationUnit === 'in' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
+                          >
+                            in
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <Button size="sm" onClick={handleConfirmCalibration} disabled={!calibrationRealDistance}>Confirm</Button>
+                    <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel</Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Small horizontal toolbar — Select/Count/Length/Calibrate.
+                  Escape (bound in an effect above) always drops back to
+                  Select, same as clicking it. */}
+              <div className="flex items-center gap-1.5 p-1.5 rounded-lg border bg-muted/20 w-fit">
+                <Button size="sm" variant={activeTool === null && !calibrationMode ? 'default' : 'ghost'} onClick={handleSelectTool}>
+                  <MousePointer2 className="w-3.5 h-3.5 mr-1.5" />Select
+                </Button>
+                <Button size="sm" variant={activeTool === 'count' ? 'default' : 'ghost'} onClick={() => handleActivateTool('count')} disabled={!fileUrl}>
+                  <MousePointerClick className="w-3.5 h-3.5 mr-1.5" />Count
+                </Button>
+                <Button size="sm" variant={activeTool === 'length' ? 'default' : 'ghost'} onClick={() => handleActivateTool('length')} disabled={!fileUrl}>
+                  <Ruler className="w-3.5 h-3.5 mr-1.5" />Length
+                </Button>
+                <div className="w-px h-5 bg-border mx-1" />
+                <Button size="sm" variant={calibrationMode ? 'default' : 'ghost'} onClick={handleStartCalibration} disabled={!fileUrl}>
+                  <Crosshair className="w-3.5 h-3.5 mr-1.5" />Calibrate
+                </Button>
+              </div>
+
+              {/* Visual PDF viewer, plus scale calibration and the Count/
+                  Length measurement tools. Only rendered for actual PDF
+                  uploads; image uploads have nothing for pdfjs to open. */}
+              {fileUrl && /\.pdf$/i.test(fileName || '') && (
+                <BlueprintCanvas
+                  source={fileUrl}
+                  calibrationMode={calibrationMode}
+                  calibrationPoints={calibrationPoints}
+                  onCalibrationClick={handleCalibrationClick}
+                  onScaleChange={setCanvasScale}
+                  activeTool={activeTool}
+                  lengthPoints={lengthPoints}
+                  onMeasurementClick={handleMeasurementClick}
+                  measurementItems={rows}
+                  pxPerFt={pxPerFt}
+                />
+              )}
+            </div>
+
+            <div className="w-full lg:w-72 flex-shrink-0 border rounded-lg">
+              <button
+                type="button"
+                onClick={() => setToolChestOpen((o) => !o)}
+                className="w-full flex items-center justify-between px-3 py-2 text-sm font-semibold"
+              >
+                <span className="flex items-center gap-2"><Wrench className="w-4 h-4" />Tool Chest</span>
+                {toolChestOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+              {toolChestOpen && (
+                <div className="border-t p-3 space-y-3">
+                  {toolChest.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No saved presets yet — add one below.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {toolChest.map((preset) => (
+                        <div
+                          key={preset.id}
+                          onClick={() => handleSelectPreset(preset)}
+                          className={`flex items-center gap-2 rounded-md border px-2 py-1.5 cursor-pointer text-xs ${selectedPresetId === preset.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'}`}
+                        >
+                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: preset.color }} />
+                          {preset.tool === 'count' ? <MousePointerClick className="w-3.5 h-3.5 flex-shrink-0" /> : <Ruler className="w-3.5 h-3.5 flex-shrink-0" />}
+                          <span className="font-medium truncate">{preset.label}</span>
+                          <span className="text-muted-foreground truncate flex-1">
+                            {preset.shapeClass}{preset.sizeDesignation ? ` — ${preset.sizeDesignation}` : ''}
+                          </span>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 flex-shrink-0"
+                            onClick={(e) => { e.stopPropagation(); handleRemovePreset(preset.id); }}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="border-t pt-3 space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">New Preset</p>
                     <Input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={calibrationRealDistance}
-                      onChange={(e) => setCalibrationRealDistance(e.target.value)}
-                      placeholder="e.g. 10"
-                      className="w-28 h-8"
+                      placeholder="Label — e.g. W14x90 Columns"
+                      value={newPresetLabel}
+                      onChange={(e) => setNewPresetLabel(e.target.value)}
+                      className="h-8 text-xs"
                     />
-                    <div className="flex rounded-md border overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setCalibrationUnit('ft')}
-                        className={`px-2.5 py-1 text-xs font-medium ${calibrationUnit === 'ft' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
-                      >
-                        ft
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCalibrationUnit('in')}
-                        className={`px-2.5 py-1 text-xs font-medium border-l ${calibrationUnit === 'in' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
-                      >
-                        in
-                      </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select value={newPresetShapeClass} onValueChange={setNewPresetShapeClass}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {SHAPE_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        placeholder="Size (e.g. W14X90)"
+                        value={newPresetSize}
+                        onChange={(e) => setNewPresetSize(e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Select value={newPresetTool} onValueChange={setNewPresetTool}>
+                        <SelectTrigger className="h-8 text-xs w-28"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="count">Count</SelectItem>
+                          <SelectItem value="length">Length</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <input
+                        type="color"
+                        value={newPresetColor}
+                        onChange={(e) => setNewPresetColor(e.target.value)}
+                        className="h-8 w-10 rounded border cursor-pointer"
+                      />
+                      <Button size="sm" onClick={handleAddPreset} disabled={!newPresetLabel.trim()} className="ml-auto">
+                        <Plus className="w-3.5 h-3.5 mr-1" />Add
+                      </Button>
                     </div>
                   </div>
                 </div>
-                <Button size="sm" onClick={handleConfirmCalibration} disabled={!calibrationRealDistance}>Confirm</Button>
-                <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel</Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Visual PDF viewer, plus two-point scale calibration. Only
-              rendered for actual PDF uploads; image uploads have nothing for
-              pdfjs to open. */}
-          {fileUrl && /\.pdf$/i.test(fileName || '') && (
-            <BlueprintCanvas
-              source={fileUrl}
-              calibrationMode={calibrationMode}
-              calibrationPoints={calibrationPoints}
-              onCalibrationClick={handleCalibrationClick}
-              onScaleChange={setCanvasScale}
-            />
-          )}
+              )}
+            </div>
+          </div>
 
           {/* Single-action batch trigger */}
           <Button
@@ -801,6 +1087,7 @@ export default function BlueprintTakeoff() {
                       <th className="p-2 font-medium w-20">Qty</th>
                       <th className="p-2 font-medium w-24">Wt (lb/ft)</th>
                       <th className="p-2 font-medium w-20">Length (ft)</th>
+                      <th className="p-2 font-medium w-20">Length</th>
                       <th className="p-2 font-medium w-24">Total Wt (lb)</th>
                       <th className="p-2 font-medium w-10"></th>
                     </tr>
@@ -859,6 +1146,9 @@ export default function BlueprintTakeoff() {
                           <td className="p-2"><Input type="number" min={0} value={r.quantity} onChange={(e) => updateRow(r._key, 'quantity', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2"><Input type="number" min={0} value={r.unit_weight_lbs_per_ft} onChange={(e) => updateRow(r._key, 'unit_weight_lbs_per_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2"><Input type="number" min={0} value={r.length_ft} onChange={(e) => updateRow(r._key, 'length_ft', Number(e.target.value) || 0)} className="h-8" /></td>
+                          <td className="p-2 text-xs text-muted-foreground">
+                            {r.tool === 'count' ? '—' : `${Math.floor(r.length_ft || 0)}'-${Math.round(((r.length_ft || 0) % 1) * 12)}"`}
+                          </td>
                           <td className="p-2 text-xs font-medium">{rowWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                           <td className="p-2">
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeRow(r._key)}><Trash2 className="w-3.5 h-3.5" /></Button>
@@ -869,7 +1159,7 @@ export default function BlueprintTakeoff() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t bg-muted/30 font-semibold">
-                      <td colSpan={11} className="p-2 text-right">Job Totals ({acceptedRows.length} accepted)</td>
+                      <td colSpan={12} className="p-2 text-right">Job Totals ({acceptedRows.length} accepted)</td>
                       <td className="p-2 text-xs">{totalWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })} lb</td>
                       <td></td>
                     </tr>

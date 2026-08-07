@@ -9,10 +9,13 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 const VIEWPORT_HEIGHT = 640;
 
 // Phase 1: visual PDF viewer only — page render, page nav, zoom, and pan.
-// Phase 2 adds the first measurement tool: two-point scale calibration,
-// drawn on the same overlay canvas via calibrationMode/calibrationPoints.
-// The overlay canvas is sized and positioned pixel-identical to the base
-// canvas on every render/zoom/pan so later tools can keep drawing on it
+// Phase 2 added the first measurement tool: two-point scale calibration.
+// Phase 3 adds Count and Length, the two tools estimators use most — both
+// driven the same way as calibration (activeTool/lengthPoints in, clicks out
+// via onMeasurementClick) so BlueprintTakeoff owns all the takeoff-row logic
+// and this component only ever needs to know how to place a click and draw
+// a marker. The overlay canvas is sized and positioned pixel-identical to
+// the base canvas on every render/zoom/pan so tools can keep drawing on it
 // without touching this file's layout math again.
 export default function BlueprintCanvas({
   source,
@@ -20,6 +23,11 @@ export default function BlueprintCanvas({
   calibrationPoints = [],
   onCalibrationClick,
   onScaleChange,
+  activeTool = null,
+  lengthPoints = [],
+  onMeasurementClick,
+  measurementItems = [],
+  pxPerFt = null,
 }) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
@@ -149,15 +157,16 @@ export default function BlueprintCanvas({
     onScaleChange?.(scale);
   }, [scale, onScaleChange]);
 
-  // Draws the two-point calibration markers on the overlay canvas. Runs
-  // after the sizing effect above (declared later, same [page, scale]
-  // dependency ordering guarantee) so it never draws onto a canvas that's
-  // about to be wiped by a width/height resize. Points are stored in PDF
-  // space (scale=1); multiplying by `scale` alone (not pdfToScreen, which
-  // also adds `pan`) converts them back to canvas-local pixel space — this
-  // canvas already sits inside the pan-translated wrapper div, so its CSS
-  // transform bakes pan in once already. Adding it again here would double
-  // it and make the crosshairs drift if the user pans between clicks.
+  // Draws calibration crosshairs, in-progress length points, and completed
+  // count/length measurements on the overlay canvas. Runs after the sizing
+  // effect above (declared later, same [page, scale] dependency ordering
+  // guarantee) so it never draws onto a canvas that's about to be wiped by
+  // a width/height resize. Every point is stored in PDF space (scale=1);
+  // multiplying by `scale` alone (not pdfToScreen, which also adds `pan`)
+  // converts it back to canvas-local pixel space — this canvas already sits
+  // inside the pan-translated wrapper div, so its CSS transform bakes pan in
+  // once already. Adding it again here would double it and make markers
+  // drift if the user pans mid-measurement.
   useEffect(() => {
     const overlayCanvas = overlayCanvasRef.current;
     if (!overlayCanvas) return;
@@ -167,11 +176,9 @@ export default function BlueprintCanvas({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, overlayCanvas.width / dpr, overlayCanvas.height / dpr);
 
-    if (!calibrationMode && calibrationPoints.length === 0) return;
-
-    const drawCrosshair = (x, y) => {
+    const drawCrosshair = (x, y, color = '#dc2626') => {
       const size = 8;
-      ctx.strokeStyle = '#dc2626';
+      ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.setLineDash([]);
       ctx.beginPath();
@@ -185,30 +192,95 @@ export default function BlueprintCanvas({
       ctx.stroke();
     };
 
-    const points = calibrationPoints.map((p) => ({ x: p.pdfX * scale, y: p.pdfY * scale }));
-    if (points.length >= 1) drawCrosshair(points[0].x, points[0].y);
-    if (points.length >= 2) {
-      drawCrosshair(points[1].x, points[1].y);
-      ctx.save();
-      ctx.strokeStyle = '#dc2626';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 4]);
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      ctx.lineTo(points[1].x, points[1].y);
-      ctx.stroke();
-      ctx.restore();
+    if (calibrationMode || calibrationPoints.length > 0) {
+      const points = calibrationPoints.map((p) => ({ x: p.pdfX * scale, y: p.pdfY * scale }));
+      if (points.length >= 1) drawCrosshair(points[0].x, points[0].y);
+      if (points.length >= 2) {
+        drawCrosshair(points[1].x, points[1].y);
+        ctx.save();
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        ctx.lineTo(points[1].x, points[1].y);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
-  }, [page, scale, calibrationMode, calibrationPoints]);
+
+    if (activeTool === 'length' && lengthPoints.length === 1) {
+      drawCrosshair(lengthPoints[0].pdfX * scale, lengthPoints[0].pdfY * scale, '#3b82f6');
+    }
+
+    const countByLabel = {};
+    measurementItems.filter((item) => item.source === 'measurement').forEach((item) => {
+      if (item.tool === 'count') {
+        const key = item.label || 'Count';
+        countByLabel[key] = (countByLabel[key] || 0) + 1;
+        const x = item.pdfX * scale;
+        const y = item.pdfY * scale;
+        const color = item.color || '#ef4444';
+
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(countByLabel[key]), x, y + 0.5);
+      } else if (item.tool === 'length' && item.point1 && item.point2) {
+        const p1 = { x: item.point1.pdfX * scale, y: item.point1.pdfY * scale };
+        const p2 = { x: item.point2.pdfX * scale, y: item.point2.pdfY * scale };
+        const color = item.color || '#3b82f6';
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.restore();
+
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        const ft = Math.floor(item.length_ft || 0);
+        const inches = Math.round(((item.length_ft || 0) % 1) * 12);
+        const label = `${ft}'-${inches}"`;
+
+        ctx.font = 'bold 11px sans-serif';
+        const textWidth = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(midX - textWidth / 2 - 4, midY - 9, textWidth + 8, 18);
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, midX, midY + 0.5);
+      }
+    });
+  }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems]);
 
   const handleOverlayClick = (e) => {
-    if (!calibrationMode || !onCalibrationClick) return;
     // offsetX/offsetY are already in canvas pixel space (the CSS translate
     // moves the whole wrapper div, not the canvas element itself, so these
     // are canvas-local coordinates — do NOT subtract pan here).
     const pdfX = e.offsetX / scale;
     const pdfY = e.offsetY / scale;
-    onCalibrationClick({ pdfX, pdfY });
+
+    if (calibrationMode) {
+      onCalibrationClick?.({ pdfX, pdfY });
+      return;
+    }
+
+    if (activeTool === 'count' || activeTool === 'length') {
+      if (pxPerFt == null) return;
+      onMeasurementClick?.({ tool: activeTool, pdfX, pdfY });
+    }
   };
 
   const handlePointerDown = (e) => {
@@ -307,6 +379,16 @@ export default function BlueprintCanvas({
             {calibrationPoints.length >= 2 && 'Points captured — enter the real-world distance below'}
           </div>
         )}
+        {!calibrationMode && activeTool === 'length' && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
+            {lengthPoints.length === 0 ? 'Click the start of the run' : 'Click the end of the run'}
+          </div>
+        )}
+        {!calibrationMode && activeTool === 'count' && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-red-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
+            Click each piece to count it
+          </div>
+        )}
         <div
           className="absolute top-0 left-0"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
@@ -314,7 +396,7 @@ export default function BlueprintCanvas({
           <canvas ref={baseCanvasRef} className="block shadow-lg" />
           <canvas
             ref={overlayCanvasRef}
-            className={calibrationMode ? 'absolute inset-0 cursor-crosshair' : 'absolute inset-0 pointer-events-none'}
+            className={(calibrationMode || activeTool === 'count' || activeTool === 'length') ? 'absolute inset-0 cursor-crosshair' : 'absolute inset-0 pointer-events-none'}
             onClick={handleOverlayClick}
           />
         </div>
