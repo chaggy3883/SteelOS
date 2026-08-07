@@ -35,16 +35,12 @@
     "scale_reference": {
       "type": "string"
     },
-    "takeoff_name": {
-      "type": "string"
+    "px_per_ft": {
+      "type": "number"
     },
-    "last_opened_at": {
+    "calibration_unit": {
       "type": "string",
-      "format": "date-time"
-    },
-    "has_stored_pdf": {
-      "type": "boolean",
-      "default": false
+      "enum": ["ft", "in"]
     },
     "accepted_items": {
       "type": "array",

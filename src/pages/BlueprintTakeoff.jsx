@@ -9,9 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/components/ui/use-toast';
 import {
   Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical, FileDown,
-  Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw,
+  Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
@@ -71,6 +72,7 @@ const DEMO_ROWS = [
 export default function BlueprintTakeoff() {
   const { user } = useOutletContext() || {};
   const { id: bidId } = useParams();
+  const { toast } = useToast();
   const [bid, setBid] = useState(null);
   const [estimatorFullName, setEstimatorFullName] = useState('');
 
@@ -99,6 +101,19 @@ export default function BlueprintTakeoff() {
   const [excelExportError, setExcelExportError] = useState(null);
   const [takeoffName, setTakeoffName] = useState('');
   const [hasStoredPdf, setHasStoredPdf] = useState(false);
+
+  // Two-point scale calibration. calibrationPoints are stored in PDF space
+  // (scale=1) so they stay valid across zoom/pan; canvasScale mirrors
+  // BlueprintCanvas's own live render scale (reported via onScaleChange)
+  // since that's what converts a PDF-space distance into an actual
+  // on-screen pixel distance at the current zoom level.
+  const [calibrationMode, setCalibrationMode] = useState(false);
+  const [calibrationPoints, setCalibrationPoints] = useState([]);
+  const [calibrationRealDistance, setCalibrationRealDistance] = useState('');
+  const [calibrationUnit, setCalibrationUnit] = useState('ft');
+  const [pxPerFt, setPxPerFt] = useState(null);
+  const [canvasScale, setCanvasScale] = useState(1);
+
   const fileInputRef = useRef(null);
   const reattachInputRef = useRef(null);
   const activePdfUrlRef = useRef(null);
@@ -188,6 +203,11 @@ export default function BlueprintTakeoff() {
     setScanError(null);
     setPdfMissingNotice(false);
     setReattachError(null);
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setCalibrationRealDistance('');
+    setCalibrationUnit('ft');
+    setPxPerFt(null);
   };
 
   const openSession = async (takeoff) => {
@@ -200,6 +220,11 @@ export default function BlueprintTakeoff() {
     setScanError(null);
     setReattachError(null);
     setHasStoredPdf(Boolean(takeoff.has_stored_pdf));
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setCalibrationRealDistance('');
+    setCalibrationUnit(takeoff.calibration_unit || 'ft');
+    setPxPerFt(takeoff.px_per_ft ?? null);
 
     let url = null;
     if (takeoff.has_stored_pdf) {
@@ -279,6 +304,11 @@ export default function BlueprintTakeoff() {
       setScanError(null);
       setPdfMissingNotice(false);
       setReattachError(null);
+      setCalibrationMode(false);
+      setCalibrationPoints([]);
+      setCalibrationRealDistance('');
+      setCalibrationUnit('ft');
+      setPxPerFt(null);
 
       try {
         await savePdf(created.id, file);
@@ -333,6 +363,62 @@ export default function BlueprintTakeoff() {
   };
 
   const handleDragLeave = () => setIsDragOver(false);
+
+  const handleStartCalibration = () => {
+    setCalibrationPoints([]);
+    setCalibrationMode(true);
+  };
+
+  const handleCalibrationCancel = () => {
+    setCalibrationPoints([]);
+    setCalibrationMode(false);
+  };
+
+  const handleCalibrationClick = ({ pdfX, pdfY }) => {
+    setCalibrationPoints((prev) => (prev.length >= 2 ? prev : [...prev, { pdfX, pdfY }]));
+  };
+
+  const handleConfirmCalibration = async () => {
+    const [p1, p2] = calibrationPoints;
+    if (!p1 || !p2) return;
+
+    const typedDistance = parseFloat(calibrationRealDistance);
+    const realFt = calibrationUnit === 'in' ? typedDistance / 12 : typedDistance;
+    const pxDist = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2) * canvasScale;
+    const resolvedPxPerFt = pxDist / realFt;
+
+    if (!(realFt > 0)) {
+      toast({ title: "Can't calibrate to zero distance", description: 'Enter a real-world distance greater than zero.', variant: 'destructive' });
+      setCalibrationPoints([]);
+      return;
+    }
+    if (!(pxDist > 10)) {
+      toast({ title: 'Points are too close together', description: 'Click two clearly separated points on the drawing.', variant: 'destructive' });
+      setCalibrationPoints([]);
+      return;
+    }
+    if (!(resolvedPxPerFt > 0 && resolvedPxPerFt < 100000)) {
+      toast({ title: 'Implausible scale', description: 'That scale looks wrong — check your points and distance and try again.', variant: 'destructive' });
+      setCalibrationPoints([]);
+      return;
+    }
+
+    setPxPerFt(resolvedPxPerFt);
+    setCalibrationMode(false);
+    setScaleReference(`${calibrationRealDistance}${calibrationUnit}`);
+
+    if (takeoffId) {
+      try {
+        await db.entities.blueprint_takeoffs.update(takeoffId, {
+          px_per_ft: resolvedPxPerFt,
+          calibration_unit: calibrationUnit,
+          scale_reference: `${calibrationRealDistance}${calibrationUnit}`,
+        });
+      } catch (e) {
+        console.error('Failed to persist calibration', e);
+      }
+    }
+  };
 
   // Live catalog lookup — the "Available Size" dropdown no longer reads the
   // hardcoded SHAPE_CLASSES.sizes array, it reads whatever sizes are
@@ -583,14 +669,72 @@ export default function BlueprintTakeoff() {
           )}
           {reattachError && <p className="text-sm text-amber-600">{reattachError}</p>}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Input placeholder="Drawing scale (e.g. 1/4in = 1ft)" value={scaleReference} onChange={(e) => setScaleReference(e.target.value)} className="w-64" />
+          <div className="flex flex-wrap items-center gap-3">
+            {pxPerFt == null ? (
+              <Badge variant="outline" className="text-amber-600 border-amber-300">Not calibrated</Badge>
+            ) : (
+              <Badge variant="outline" className="text-green-700 border-green-300">Calibrated — 1 ft = {pxPerFt.toFixed(1)} px</Badge>
+            )}
+            {calibrationMode ? (
+              <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel Calibration</Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={handleStartCalibration} disabled={!fileUrl}>
+                <Ruler className="w-3.5 h-3.5 mr-1.5" />{pxPerFt == null ? 'Set Scale' : 'Recalibrate'}
+              </Button>
+            )}
           </div>
 
-          {/* Visual PDF viewer only — no measurement tools yet (phase 2). Only
+          {calibrationMode && calibrationPoints.length === 2 && (
+            <Card>
+              <CardContent className="p-3 flex flex-wrap items-end gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Real-world distance between the two points</label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={calibrationRealDistance}
+                      onChange={(e) => setCalibrationRealDistance(e.target.value)}
+                      placeholder="e.g. 10"
+                      className="w-28 h-8"
+                    />
+                    <div className="flex rounded-md border overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setCalibrationUnit('ft')}
+                        className={`px-2.5 py-1 text-xs font-medium ${calibrationUnit === 'ft' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
+                      >
+                        ft
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCalibrationUnit('in')}
+                        className={`px-2.5 py-1 text-xs font-medium border-l ${calibrationUnit === 'in' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
+                      >
+                        in
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <Button size="sm" onClick={handleConfirmCalibration} disabled={!calibrationRealDistance}>Confirm</Button>
+                <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel</Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Visual PDF viewer, plus two-point scale calibration. Only
               rendered for actual PDF uploads; image uploads have nothing for
               pdfjs to open. */}
-          {fileUrl && /\.pdf$/i.test(fileName || '') && <BlueprintCanvas source={fileUrl} />}
+          {fileUrl && /\.pdf$/i.test(fileName || '') && (
+            <BlueprintCanvas
+              source={fileUrl}
+              calibrationMode={calibrationMode}
+              calibrationPoints={calibrationPoints}
+              onCalibrationClick={handleCalibrationClick}
+              onScaleChange={setCanvasScale}
+            />
+          )}
 
           {/* Single-action batch trigger */}
           <Button

@@ -9,11 +9,18 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 const VIEWPORT_HEIGHT = 640;
 
 // Phase 1: visual PDF viewer only — page render, page nav, zoom, and pan.
-// No measurement logic yet. The overlay canvas is sized and positioned
-// pixel-identical to the base canvas on every render/zoom/pan so a later
-// phase can start drawing markups on it without touching this file's
-// layout math again.
-export default function BlueprintCanvas({ source }) {
+// Phase 2 adds the first measurement tool: two-point scale calibration,
+// drawn on the same overlay canvas via calibrationMode/calibrationPoints.
+// The overlay canvas is sized and positioned pixel-identical to the base
+// canvas on every render/zoom/pan so later tools can keep drawing on it
+// without touching this file's layout math again.
+export default function BlueprintCanvas({
+  source,
+  calibrationMode = false,
+  calibrationPoints = [],
+  onCalibrationClick,
+  onScaleChange,
+}) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
   const [pageNum, setPageNum] = useState(1);
@@ -134,6 +141,76 @@ export default function BlueprintCanvas({ source }) {
     };
   }, [page, scale]);
 
+  // Calibration needs the live render scale to convert a clicked pixel
+  // distance back to PDF-space distance — this is the only way for
+  // BlueprintTakeoff (which owns the calibration math) to know it, since
+  // `scale` itself lives inside this component's useCanvasTransform instance.
+  useEffect(() => {
+    onScaleChange?.(scale);
+  }, [scale, onScaleChange]);
+
+  // Draws the two-point calibration markers on the overlay canvas. Runs
+  // after the sizing effect above (declared later, same [page, scale]
+  // dependency ordering guarantee) so it never draws onto a canvas that's
+  // about to be wiped by a width/height resize. Points are stored in PDF
+  // space (scale=1); multiplying by `scale` alone (not pdfToScreen, which
+  // also adds `pan`) converts them back to canvas-local pixel space — this
+  // canvas already sits inside the pan-translated wrapper div, so its CSS
+  // transform bakes pan in once already. Adding it again here would double
+  // it and make the crosshairs drift if the user pans between clicks.
+  useEffect(() => {
+    const overlayCanvas = overlayCanvasRef.current;
+    if (!overlayCanvas) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = overlayCanvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, overlayCanvas.width / dpr, overlayCanvas.height / dpr);
+
+    if (!calibrationMode && calibrationPoints.length === 0) return;
+
+    const drawCrosshair = (x, y) => {
+      const size = 8;
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x - size, y);
+      ctx.lineTo(x + size, y);
+      ctx.moveTo(x, y - size);
+      ctx.lineTo(x, y + size);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+      ctx.stroke();
+    };
+
+    const points = calibrationPoints.map((p) => ({ x: p.pdfX * scale, y: p.pdfY * scale }));
+    if (points.length >= 1) drawCrosshair(points[0].x, points[0].y);
+    if (points.length >= 2) {
+      drawCrosshair(points[1].x, points[1].y);
+      ctx.save();
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      ctx.lineTo(points[1].x, points[1].y);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }, [page, scale, calibrationMode, calibrationPoints]);
+
+  const handleOverlayClick = (e) => {
+    if (!calibrationMode || !onCalibrationClick) return;
+    // offsetX/offsetY are already in canvas pixel space (the CSS translate
+    // moves the whole wrapper div, not the canvas element itself, so these
+    // are canvas-local coordinates — do NOT subtract pan here).
+    const pdfX = e.offsetX / scale;
+    const pdfY = e.offsetY / scale;
+    onCalibrationClick({ pdfX, pdfY });
+  };
+
   const handlePointerDown = (e) => {
     dragRef.current = { startX: e.clientX, startY: e.clientY, startPan: pan };
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -223,12 +300,23 @@ export default function BlueprintCanvas({ source }) {
             {loadError}
           </div>
         )}
+        {calibrationMode && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-red-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
+            {calibrationPoints.length === 0 && 'Click point 1 on a known dimension'}
+            {calibrationPoints.length === 1 && 'Click point 2'}
+            {calibrationPoints.length >= 2 && 'Points captured — enter the real-world distance below'}
+          </div>
+        )}
         <div
           className="absolute top-0 left-0"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
         >
           <canvas ref={baseCanvasRef} className="block shadow-lg" />
-          <canvas ref={overlayCanvasRef} className="absolute inset-0 pointer-events-none" />
+          <canvas
+            ref={overlayCanvasRef}
+            className={calibrationMode ? 'absolute inset-0 cursor-crosshair' : 'absolute inset-0 pointer-events-none'}
+            onClick={handleOverlayClick}
+          />
         </div>
       </div>
     </div>
