@@ -17,6 +17,17 @@
     "file_name": {
       "type": "string"
     },
+    "takeoff_name": {
+      "type": "string"
+    },
+    "last_opened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "has_stored_pdf": {
+      "type": "boolean",
+      "default": false
+    },
     "sheet_count": {
       "type": "number",
       "default": 1
