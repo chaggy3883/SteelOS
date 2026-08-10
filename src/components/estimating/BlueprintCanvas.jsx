@@ -296,17 +296,24 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   };
 
   const handlePointerDown = (e) => {
+    // setPointerCapture on the viewport redirects the subsequent click event
+    // to the viewport div, so the overlay canvas's own onClick never fires —
+    // pan/drag must stay off whenever calibration or a tool is live, or
+    // clicks meant for calibration/measurement get swallowed here instead.
+    if (calibrationMode || activeTool != null) return;
     dragRef.current = { startX: e.clientX, startY: e.clientY, startPan: pan };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e) => {
+    if (calibrationMode || activeTool != null) return;
     if (!dragRef.current) return;
     const { startX, startY, startPan } = dragRef.current;
     setPan({ x: startPan.x + (e.clientX - startX), y: startPan.y + (e.clientY - startY) });
   };
 
   const handlePointerUp = (e) => {
+    if (calibrationMode || activeTool != null) return;
     dragRef.current = null;
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
@@ -372,7 +379,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       <div
         ref={viewportRef}
         className={`relative overflow-hidden bg-neutral-700 ${fillHeight ? 'flex-1 min-h-0' : ''}`}
-        style={{ height: fillHeight ? undefined : VIEWPORT_HEIGHT, cursor: dragRef.current ? 'grabbing' : 'grab' }}
+        style={{ height: fillHeight ? undefined : VIEWPORT_HEIGHT, cursor: (calibrationMode || activeTool != null) ? 'crosshair' : (dragRef.current ? 'grabbing' : 'grab') }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
