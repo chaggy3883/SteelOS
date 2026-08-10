@@ -48,7 +48,7 @@
         "type": "object",
         "properties": {
           "id": { "type": "string" },
-          "tool": { "type": "string", "enum": ["count", "length"] },
+          "tool": { "type": "string", "enum": ["count", "length", "area"] },
           "label": { "type": "string" },
           "shapeClass": { "type": "string" },
           "sizeDesignation": { "type": "string" },
@@ -111,7 +111,7 @@
           },
           "tool": {
             "type": "string",
-            "enum": ["count", "length"]
+            "enum": ["count", "length", "area"]
           },
           "label": {
             "type": "string"
@@ -138,6 +138,19 @@
               "pdfX": { "type": "number" },
               "pdfY": { "type": "number" }
             }
+          },
+          "polygon_points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pdfX": { "type": "number" },
+                "pdfY": { "type": "number" }
+              }
+            }
+          },
+          "area_sq_ft": {
+            "type": "number"
           }
         }
       }

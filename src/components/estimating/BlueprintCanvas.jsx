@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Button } from '@/components/ui/button';
 import { Loader2, ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -17,18 +17,27 @@ const VIEWPORT_HEIGHT = 640;
 // a marker. The overlay canvas is sized and positioned pixel-identical to
 // the base canvas on every render/zoom/pan so tools can keep drawing on it
 // without touching this file's layout math again.
-export default function BlueprintCanvas({
+// Phase 4 adds Area (unlimited-vertex polygon, closed by double-click or by
+// clicking back near the first vertex) and VisualSearch candidate review
+// markers. ref exposes getFullPageDataUrl/getCropDataUrl so BlueprintTakeoff
+// can hand the local VLM the images it needs without this component knowing
+// anything about VisualSearch itself.
+const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   source,
   calibrationMode = false,
   calibrationPoints = [],
   onCalibrationClick,
   onScaleChange,
+  onPageSizeChange,
   activeTool = null,
   lengthPoints = [],
+  areaPoints = [],
   onMeasurementClick,
   measurementItems = [],
   pxPerFt = null,
-}) {
+  candidateMarkers = [],
+  onCandidateToggle,
+}, ref) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
   const [pageNum, setPageNum] = useState(1);
@@ -99,6 +108,7 @@ export default function BlueprintCanvas({
       setPage(p);
       const natural = p.getViewport({ scale: 1 });
       setPageSize({ width: natural.width, height: natural.height });
+      onPageSizeChange?.({ width: natural.width, height: natural.height });
       const containerWidth = viewportRef.current?.clientWidth || natural.width;
       const fit = Math.min(2, Math.max(0.1, (containerWidth - 32) / natural.width));
       resetTransform(fit);
@@ -106,7 +116,7 @@ export default function BlueprintCanvas({
     return () => {
       cancelled = true;
     };
-  }, [pdfDoc, pageNum, resetTransform]);
+  }, [pdfDoc, pageNum, resetTransform, onPageSizeChange]);
 
   // Renders the current page at the current scale onto the base canvas.
   // Cancels any in-flight render task before starting a new one — pdfjs
@@ -403,4 +413,6 @@ export default function BlueprintCanvas({
       </div>
     </div>
   );
-}
+});
+
+export default BlueprintCanvas;

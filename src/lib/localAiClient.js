@@ -126,6 +126,44 @@ export async function detectBlueprintShapesBatch(companyId, companyName, fileUrl
   }
 }
 
+const VLM_SIMILAR_SYMBOL_INSTRUCTIONS = `The first image is a full blueprint page. The second image is a cropped example of a symbol to find. Identify every other location on the full page that visually matches the cropped example. Respond with ONLY a JSON object (no prose, no markdown fences) shaped exactly as:
+{"matches": [{"x_percent": number, "y_percent": number, "confidence": number}]}
+x_percent/y_percent are 0-100 position on the full page image (not the crop), measured from the top-left corner.`;
+
+const MIN_SIMILAR_SYMBOL_CONFIDENCE = 0.5;
+
+// pageImageDataUrl is the full current canvas render; cropDataUrl is a small
+// region centered on a marker the estimator already placed by hand. Returns
+// a validated, confidence-filtered matches array, or null if the local VLM
+// is unreachable or its reply doesn't match the expected contract — callers
+// treat null as "show the no-model-reachable message", never a silent empty
+// result. existingScaleReference is passed through only as context for the
+// model, same as detectBlueprintShapes does with scaleReference.
+export async function findSimilarSymbols(pageImageDataUrl, cropDataUrl, existingScaleReference) {
+  const messages = [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: `${VLM_SIMILAR_SYMBOL_INSTRUCTIONS}\nDrawing scale: ${existingScaleReference || 'unknown'}.` },
+        { type: 'image_url', image_url: { url: pageImageDataUrl } },
+        { type: 'image_url', image_url: { url: cropDataUrl } },
+      ],
+    },
+  ];
+  const reply = await callLocalAI(messages, { baseUrl: getLocalVlmBaseUrl() });
+  if (!reply) return null;
+  try {
+    const parsed = JSON.parse(reply);
+    if (!Array.isArray(parsed?.matches)) return null;
+    const clamp = (n) => Math.min(100, Math.max(0, Number(n)));
+    return parsed.matches
+      .filter((m) => Number.isFinite(Number(m?.x_percent)) && Number.isFinite(Number(m?.y_percent)) && Number(m?.confidence) >= MIN_SIMILAR_SYMBOL_CONFIDENCE)
+      .map((m) => ({ x_percent: clamp(m.x_percent), y_percent: clamp(m.y_percent), confidence: Number(m.confidence) }));
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function getCompanyName(companyId) {
   if (!companyId) return '';
   try {

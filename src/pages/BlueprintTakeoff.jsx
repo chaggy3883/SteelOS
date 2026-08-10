@@ -4,6 +4,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { db } from '@/api/apiClient';
 import { simulateAiBatchTakeoff } from '@/lib/aiIntelligenceEngine';
 import { savePdf, getPdf } from '@/lib/pdfBlobStore';
+import { findSimilarSymbols } from '@/lib/localAiClient';
 import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +16,7 @@ import {
   Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical, FileDown,
   Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
   MousePointer2, MousePointerClick, Wrench, ChevronDown, ChevronUp,
+  Shapes, ScanSearch, Check, X,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
@@ -115,15 +117,18 @@ export default function BlueprintTakeoff() {
   const [calibrationUnit, setCalibrationUnit] = useState('ft');
   const [pxPerFt, setPxPerFt] = useState(null);
   const [canvasScale, setCanvasScale] = useState(1);
+  const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
-  // Count/Length measurement tools. Both write straight into `rows`, same
-  // as any other accepted_items row — source: 'measurement' is what marks
-  // them as tool-placed (vs. AI-detected/manual/demo) for redraw + display.
-  // toolChest presets are per-session saved shortcuts (label + shape +
-  // color) so an estimator doesn't have to re-pick a shape/size before every
-  // click; selectedPresetId tracks which one is "loaded" into the tools.
+  // Count/Length/Area measurement tools. All write straight into `rows`,
+  // same as any other accepted_items row — source: 'measurement' is what
+  // marks them as tool-placed (vs. AI-detected/manual/demo) for redraw +
+  // display. toolChest presets are per-session saved shortcuts (label +
+  // shape + color) so an estimator doesn't have to re-pick a shape/size
+  // before every click; selectedPresetId tracks which one is "loaded" into
+  // the tools.
   const [activeTool, setActiveTool] = useState(null);
   const [lengthPoints, setLengthPoints] = useState([]);
+  const [areaPoints, setAreaPoints] = useState([]);
   const [toolChest, setToolChest] = useState([]);
   const [selectedPresetId, setSelectedPresetId] = useState(null);
   const [toolChestOpen, setToolChestOpen] = useState(false);
@@ -133,10 +138,20 @@ export default function BlueprintTakeoff() {
   const [newPresetTool, setNewPresetTool] = useState('count');
   const [newPresetColor, setNewPresetColor] = useState('#ef4444');
 
+  // VisualSearch — a Count row's marker gets cropped, sent to the local VLM
+  // alongside the full page, and candidate matches come back as transient
+  // review markers. Nothing here ever reaches `rows`/persist until the
+  // estimator explicitly accepts it (see handleAcceptAllCandidates).
+  const [candidates, setCandidates] = useState([]);
+  const [candidateSourceRow, setCandidateSourceRow] = useState(null);
+  const [visualSearchLoading, setVisualSearchLoading] = useState(false);
+  const [visualSearchError, setVisualSearchError] = useState(null);
+
   const fileInputRef = useRef(null);
   const reattachInputRef = useRef(null);
   const activePdfUrlRef = useRef(null);
   const toolChestSaveTimerRef = useRef(null);
+  const canvasRef = useRef(null);
 
   const selectedPreset = toolChest.find((p) => p.id === selectedPresetId) || null;
 
@@ -246,8 +261,13 @@ export default function BlueprintTakeoff() {
     setPxPerFt(null);
     setActiveTool(null);
     setLengthPoints([]);
+    setAreaPoints([]);
     setToolChest([]);
     setSelectedPresetId(null);
+    setCandidates([]);
+    setCandidateSourceRow(null);
+    setVisualSearchLoading(false);
+    setVisualSearchError(null);
   };
 
   const openSession = async (takeoff) => {
@@ -267,8 +287,13 @@ export default function BlueprintTakeoff() {
     setPxPerFt(takeoff.px_per_ft ?? null);
     setActiveTool(null);
     setLengthPoints([]);
+    setAreaPoints([]);
     setToolChest(takeoff.tool_chest || []);
     setSelectedPresetId(null);
+    setCandidates([]);
+    setCandidateSourceRow(null);
+    setVisualSearchLoading(false);
+    setVisualSearchError(null);
 
     let url = null;
     if (takeoff.has_stored_pdf) {
@@ -355,8 +380,13 @@ export default function BlueprintTakeoff() {
       setPxPerFt(null);
       setActiveTool(null);
       setLengthPoints([]);
+      setAreaPoints([]);
       setToolChest([]);
       setSelectedPresetId(null);
+      setCandidates([]);
+      setCandidateSourceRow(null);
+      setVisualSearchLoading(false);
+      setVisualSearchError(null);
 
       try {
         await savePdf(created.id, file);
@@ -415,6 +445,7 @@ export default function BlueprintTakeoff() {
   const handleStartCalibration = () => {
     setActiveTool(null);
     setLengthPoints([]);
+    setAreaPoints([]);
     setCalibrationPoints([]);
     setCalibrationMode(true);
   };
@@ -473,12 +504,14 @@ export default function BlueprintTakeoff() {
   const handleSelectTool = () => {
     setActiveTool(null);
     setLengthPoints([]);
+    setAreaPoints([]);
   };
 
-  // Gate every tool activation behind calibration — Count/Length distances
-  // are meaningless without pxPerFt, so there's no partial-credit path here:
-  // either it's set and the tool goes live, or it isn't and nothing changes
-  // beyond the toast telling the estimator what to do first.
+  // Gate every tool activation behind calibration — Count/Length/Area
+  // measurements are meaningless without pxPerFt, so there's no
+  // partial-credit path here: either it's set and the tool goes live, or it
+  // isn't and nothing changes beyond the toast telling the estimator what to
+  // do first.
   const handleActivateTool = (tool) => {
     if (pxPerFt == null) {
       toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
@@ -487,10 +520,11 @@ export default function BlueprintTakeoff() {
     setCalibrationMode(false);
     setCalibrationPoints([]);
     setLengthPoints([]);
+    setAreaPoints([]);
     setActiveTool(tool);
   };
 
-  const handleMeasurementClick = ({ tool, pdfX, pdfY }) => {
+  const handleMeasurementClick = ({ tool, pdfX, pdfY, isClosingClick }) => {
     if (tool === 'count') {
       const preset = selectedPreset;
       const newRow = {
@@ -544,6 +578,51 @@ export default function BlueprintTakeoff() {
       setRows(updated);
       persist(updated);
       setLengthPoints([]);
+      return;
+    }
+
+    if (tool === 'area') {
+      if (isClosingClick) {
+        // Fewer than 3 vertices can't form a polygon — ignore the closing
+        // click entirely (don't add it as a vertex either) and keep
+        // collecting points.
+        if (areaPoints.length < 3) return;
+
+        const points = areaPoints;
+        // Shoelace formula on PDF-space (scale=1) points, then rescaled by
+        // canvasScale squared — area scales with the square of the linear
+        // scale factor, unlike Length's linear pxDist * canvasScale above.
+        const pxArea = Math.abs(points.reduce((sum, p, i) => {
+          const next = points[(i + 1) % points.length];
+          return sum + (p.pdfX * next.pdfY - next.pdfX * p.pdfY);
+        }, 0)) / 2;
+        const scaledPxArea = pxArea * (canvasScale ** 2);
+        const areaSqFt = scaledPxArea / (pxPerFt ** 2);
+
+        const preset = selectedPreset;
+        const newRow = {
+          _key: crypto.randomUUID(),
+          source: 'measurement',
+          tool: 'area',
+          shape_type: preset?.shapeClass || 'Custom',
+          size_designation: preset?.sizeDesignation || '',
+          label: preset?.label || 'Area',
+          color: preset?.color || '#22c55e',
+          polygon_points: points,
+          quantity: 1,
+          area_sq_ft: Math.round(areaSqFt * 100) / 100,
+          length_ft: 0,
+          unit_weight_lbs_per_ft: 0,
+          is_accepted: true,
+        };
+        const updated = [...rows, newRow];
+        setRows(updated);
+        persist(updated);
+        setAreaPoints([]);
+        return;
+      }
+
+      setAreaPoints((prev) => [...prev, { pdfX, pdfY }]);
     }
   };
 
@@ -556,6 +635,7 @@ export default function BlueprintTakeoff() {
     setCalibrationMode(false);
     setCalibrationPoints([]);
     setLengthPoints([]);
+    setAreaPoints([]);
     setActiveTool(preset.tool);
   };
 
@@ -579,6 +659,84 @@ export default function BlueprintTakeoff() {
     setNewPresetSize('');
   };
 
+  // Crops a small region around a Count row's marker, captures the current
+  // full page render, and asks the local VLM to find visually similar spots
+  // elsewhere on the page. Results land in `candidates` only — a transient
+  // review state that never touches `rows`/persist until the estimator
+  // explicitly accepts them below.
+  const handleFindSimilar = async (row) => {
+    setVisualSearchError(null);
+    setCandidates([]);
+    setCandidateSourceRow(row);
+
+    if (!canvasRef.current || pageSize.width <= 0 || pageSize.height <= 0) {
+      setVisualSearchError('Could not capture the drawing for visual search.');
+      return;
+    }
+
+    setVisualSearchLoading(true);
+    try {
+      const pageImageDataUrl = canvasRef.current.getFullPageDataUrl();
+      const cropDataUrl = canvasRef.current.getCropDataUrl(row.pdfX, row.pdfY, 120);
+      if (!pageImageDataUrl || !cropDataUrl) {
+        setVisualSearchError('Could not capture the drawing for visual search.');
+        return;
+      }
+
+      const matches = await findSimilarSymbols(pageImageDataUrl, cropDataUrl, scaleReference);
+      if (!matches) {
+        setVisualSearchError('Visual search requires a local AI model — see Settings > AI Configuration');
+        return;
+      }
+
+      // x_percent/y_percent are fractions of the full page image, which is
+      // scale-invariant the same way it is for detectBlueprintShapes' bbox
+      // fractions — no need to know the canvas's current zoom/dpr here.
+      setCandidates(matches.map((m) => ({
+        id: crypto.randomUUID(),
+        pdfX: (m.x_percent / 100) * pageSize.width,
+        pdfY: (m.y_percent / 100) * pageSize.height,
+        confidence: m.confidence,
+      })));
+    } finally {
+      setVisualSearchLoading(false);
+    }
+  };
+
+  const handleToggleCandidate = (id) => {
+    setCandidates((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const handleClearCandidates = () => {
+    setCandidates([]);
+    setCandidateSourceRow(null);
+    setVisualSearchError(null);
+  };
+
+  const handleAcceptAllCandidates = () => {
+    if (candidates.length === 0) return;
+    const source = candidateSourceRow;
+    const newRows = candidates.map((c) => ({
+      _key: crypto.randomUUID(),
+      source: 'measurement',
+      tool: 'count',
+      shape_type: source?.shape_type || 'Custom',
+      size_designation: source?.size_designation || '',
+      label: source?.label || 'Count',
+      color: source?.color || '#ef4444',
+      pdfX: c.pdfX,
+      pdfY: c.pdfY,
+      quantity: 1,
+      length_ft: 0,
+      unit_weight_lbs_per_ft: 0,
+      is_accepted: true,
+    }));
+    const updated = [...rows, ...newRows];
+    setRows(updated);
+    persist(updated);
+    handleClearCandidates();
+  };
+
   // Escape always wins, regardless of which tool (or none) is active —
   // it's the one universal "get me out of whatever I'm doing" key.
   useEffect(() => {
@@ -587,6 +745,7 @@ export default function BlueprintTakeoff() {
       if (e.key === 'Escape') {
         setActiveTool(null);
         setLengthPoints([]);
+        setAreaPoints([]);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -898,7 +1057,7 @@ export default function BlueprintTakeoff() {
                 </Card>
               )}
 
-              {/* Small horizontal toolbar — Select/Count/Length/Calibrate.
+              {/* Small horizontal toolbar — Select/Count/Length/Area/Calibrate.
                   Escape (bound in an effect above) always drops back to
                   Select, same as clicking it. */}
               <div className="flex items-center gap-1.5 p-1.5 rounded-lg border bg-muted/20 w-fit">
@@ -911,27 +1070,66 @@ export default function BlueprintTakeoff() {
                 <Button size="sm" variant={activeTool === 'length' ? 'default' : 'ghost'} onClick={() => handleActivateTool('length')} disabled={!fileUrl}>
                   <Ruler className="w-3.5 h-3.5 mr-1.5" />Length
                 </Button>
+                <Button size="sm" variant={activeTool === 'area' ? 'default' : 'ghost'} onClick={() => handleActivateTool('area')} disabled={!fileUrl}>
+                  <Shapes className="w-3.5 h-3.5 mr-1.5" />Area
+                </Button>
                 <div className="w-px h-5 bg-border mx-1" />
                 <Button size="sm" variant={calibrationMode ? 'default' : 'ghost'} onClick={handleStartCalibration} disabled={!fileUrl}>
                   <Crosshair className="w-3.5 h-3.5 mr-1.5" />Calibrate
                 </Button>
               </div>
 
+              {(visualSearchLoading || visualSearchError || candidates.length > 0) && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 flex flex-wrap items-center justify-between gap-3">
+                  {visualSearchLoading && (
+                    <p className="text-sm text-amber-800 flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />Scanning page for matches…
+                    </p>
+                  )}
+                  {!visualSearchLoading && visualSearchError && (
+                    <p className="text-sm text-amber-800">{visualSearchError}</p>
+                  )}
+                  {!visualSearchLoading && !visualSearchError && candidates.length > 0 && (
+                    <>
+                      <p className="text-sm text-amber-800 font-medium">
+                        {candidates.length} candidate match{candidates.length === 1 ? '' : 'es'} found — click a marker to exclude it
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" onClick={handleAcceptAllCandidates}>
+                          <Check className="w-3.5 h-3.5 mr-1.5" />Accept All
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={handleClearCandidates}>
+                          <X className="w-3.5 h-3.5 mr-1.5" />Clear
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                  {!visualSearchLoading && visualSearchError && (
+                    <Button size="sm" variant="outline" onClick={handleClearCandidates}>Dismiss</Button>
+                  )}
+                </div>
+              )}
+
               {/* Visual PDF viewer, plus scale calibration and the Count/
-                  Length measurement tools. Only rendered for actual PDF
+                  Length/Area measurement tools. Only rendered for actual PDF
                   uploads; image uploads have nothing for pdfjs to open. */}
               {fileUrl && /\.pdf$/i.test(fileName || '') && (
                 <BlueprintCanvas
+                  ref={canvasRef}
                   source={fileUrl}
                   calibrationMode={calibrationMode}
                   calibrationPoints={calibrationPoints}
                   onCalibrationClick={handleCalibrationClick}
                   onScaleChange={setCanvasScale}
+                  onPageSizeChange={setPageSize}
                   activeTool={activeTool}
                   lengthPoints={lengthPoints}
+                  areaPoints={areaPoints}
                   onMeasurementClick={handleMeasurementClick}
                   measurementItems={rows}
                   pxPerFt={pxPerFt}
+                  candidateMarkers={candidates}
+                  onCandidateToggle={handleToggleCandidate}
                 />
               )}
             </div>
@@ -958,7 +1156,9 @@ export default function BlueprintTakeoff() {
                           className={`flex items-center gap-2 rounded-md border px-2 py-1.5 cursor-pointer text-xs ${selectedPresetId === preset.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'}`}
                         >
                           <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: preset.color }} />
-                          {preset.tool === 'count' ? <MousePointerClick className="w-3.5 h-3.5 flex-shrink-0" /> : <Ruler className="w-3.5 h-3.5 flex-shrink-0" />}
+                          {preset.tool === 'count' && <MousePointerClick className="w-3.5 h-3.5 flex-shrink-0" />}
+                          {preset.tool === 'length' && <Ruler className="w-3.5 h-3.5 flex-shrink-0" />}
+                          {preset.tool === 'area' && <Shapes className="w-3.5 h-3.5 flex-shrink-0" />}
                           <span className="font-medium truncate">{preset.label}</span>
                           <span className="text-muted-foreground truncate flex-1">
                             {preset.shapeClass}{preset.sizeDesignation ? ` — ${preset.sizeDesignation}` : ''}
@@ -1004,6 +1204,7 @@ export default function BlueprintTakeoff() {
                         <SelectContent>
                           <SelectItem value="count">Count</SelectItem>
                           <SelectItem value="length">Length</SelectItem>
+                          <SelectItem value="area">Area</SelectItem>
                         </SelectContent>
                       </Select>
                       <input
@@ -1088,8 +1289,9 @@ export default function BlueprintTakeoff() {
                       <th className="p-2 font-medium w-24">Wt (lb/ft)</th>
                       <th className="p-2 font-medium w-20">Length (ft)</th>
                       <th className="p-2 font-medium w-20">Length</th>
+                      <th className="p-2 font-medium w-24">Area (sq ft)</th>
                       <th className="p-2 font-medium w-24">Total Wt (lb)</th>
-                      <th className="p-2 font-medium w-10"></th>
+                      <th className="p-2 font-medium w-28"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1147,11 +1349,28 @@ export default function BlueprintTakeoff() {
                           <td className="p-2"><Input type="number" min={0} value={r.unit_weight_lbs_per_ft} onChange={(e) => updateRow(r._key, 'unit_weight_lbs_per_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2"><Input type="number" min={0} value={r.length_ft} onChange={(e) => updateRow(r._key, 'length_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2 text-xs text-muted-foreground">
-                            {r.tool === 'count' ? '—' : `${Math.floor(r.length_ft || 0)}'-${Math.round(((r.length_ft || 0) % 1) * 12)}"`}
+                            {r.tool === 'count' || r.tool === 'area' ? '—' : `${Math.floor(r.length_ft || 0)}'-${Math.round(((r.length_ft || 0) % 1) * 12)}"`}
+                          </td>
+                          <td className="p-2 text-xs text-muted-foreground">
+                            {r.tool === 'area' ? r.area_sq_ft?.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
                           </td>
                           <td className="p-2 text-xs font-medium">{rowWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                           <td className="p-2">
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeRow(r._key)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            <div className="flex items-center gap-1 justify-end">
+                              {r.source === 'measurement' && r.tool === 'count' && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7"
+                                  title="Find Similar"
+                                  onClick={() => handleFindSimilar(r)}
+                                  disabled={visualSearchLoading}
+                                >
+                                  <ScanSearch className="w-3.5 h-3.5" />
+                                </Button>
+                              )}
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeRow(r._key)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1159,7 +1378,7 @@ export default function BlueprintTakeoff() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t bg-muted/30 font-semibold">
-                      <td colSpan={12} className="p-2 text-right">Job Totals ({acceptedRows.length} accepted)</td>
+                      <td colSpan={13} className="p-2 text-right">Job Totals ({acceptedRows.length} accepted)</td>
                       <td className="p-2 text-xs">{totalWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })} lb</td>
                       <td></td>
                     </tr>
