@@ -742,12 +742,52 @@ export async function seedDemoData() {
   // — mapped to the closest real values (Other for non-crane equipment,
   // Internal_Owned for company-owned gear); the Gradall is left off the
   // erection project's location to informally represent it being down.
-  await db.entities.erection_fleet_assets.bulkCreate([
-    { asset_name: 'Grove RT760E Rough Terrain Crane', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: 847, project_location_id: costProjects[1].id },
-    { asset_name: 'Manitowoc 14000 Lattice Boom Crane', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: 1203, project_location_id: costProjects[1].id },
+  const [groveCrane, manitowocCrane] = await db.entities.erection_fleet_assets.bulkCreate([
+    { asset_name: 'Grove RT760E Rough Terrain Crane', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: 847, project_location_id: costProjects[1].id, cost_per_hour: 185, cost_rate_type: 'owned', default_cost_code: 'EQP-001' },
+    { asset_name: 'Manitowoc 14000 Lattice Boom Crane', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: 1203, project_location_id: costProjects[1].id, rental_rate_per_hour: 220, cost_rate_type: 'rented', default_cost_code: 'EQP-001' },
     { asset_name: 'Gradall XL4100 Telehandler', asset_type: 'Other', status: 'Internal_Owned', runtime_hours: 2341 },
     { asset_name: 'JLG 600S Boom Lift', asset_type: 'Other', status: 'Internal_Owned', runtime_hours: 412, project_location_id: costProjects[1].id },
   ]);
+
+  // 23b. Equipment Usage Logs — Grove (owned, $185/hr) and Manitowoc (rented,
+  // $220/hr) usage on the erection project over the last 3 weeks, each
+  // mirroring what the Equipment Usage tab's "Log & Post to Job Cost" action
+  // does: one EquipmentUsageLog plus a matching JobCostLedgerEntry.
+  const equipmentUsageSeeds = [
+    { asset: groveCrane, hours: 8, dayOffset: -20 },
+    { asset: groveCrane, hours: 6, dayOffset: -15 },
+    { asset: groveCrane, hours: 10, dayOffset: -9 },
+    { asset: groveCrane, hours: 8, dayOffset: -3 },
+    { asset: manitowocCrane, hours: 12, dayOffset: -17 },
+    { asset: manitowocCrane, hours: 8, dayOffset: -6 },
+  ];
+  for (const seed of equipmentUsageSeeds) {
+    const rate = seed.asset.cost_rate_type === 'owned' ? seed.asset.cost_per_hour : seed.asset.rental_rate_per_hour;
+    const totalCost = seed.hours * rate;
+    const usageDate = daysFromNow(seed.dayOffset);
+    const description = `${seed.asset.asset_name} — ${seed.hours} hrs @ $${rate}/hr`;
+    const log = await db.entities.EquipmentUsageLog.create({
+      asset_id: seed.asset.id,
+      project_id: costProjects[1].id,
+      usage_date: usageDate,
+      hours_used: seed.hours,
+      cost_code: seed.asset.default_cost_code,
+      rate_used: rate,
+      total_cost: totalCost,
+      description,
+    });
+    const ledgerEntry = await db.entities.JobCostLedgerEntry.create({
+      project_id: costProjects[1].id,
+      cost_code: seed.asset.default_cost_code,
+      cost_class: 'EQP',
+      amount: totalCost,
+      transaction_date: usageDate,
+      source_type: 'equipment',
+      source_id: log.id,
+      description,
+    });
+    await db.entities.EquipmentUsageLog.update(log.id, { posted_to_job_cost: true, job_cost_entry_id: ledgerEntry.id });
+  }
 
   // 24. Attendance Punches — 20 in/out pairs per employee across the last 4 work-weeks
   const weekdayOffsets = lastNWeekdayOffsets(20);
@@ -1094,6 +1134,7 @@ export async function seedDemoData() {
       loadItems: loadItemPayloads.length,
       shippingManifests: loadDefs.length,
       fleetAssets: 4,
+      equipmentUsageLogs: equipmentUsageSeeds.length,
       attendancePunches: attendancePayloads.length,
       employeeCertifications: certSeeds.length,
       creditCardExpenses: expenseSeeds.length,

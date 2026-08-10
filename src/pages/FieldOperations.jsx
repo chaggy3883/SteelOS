@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2 } from 'lucide-react';
+import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2, Gauge } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
@@ -9,6 +9,7 @@ import InspectionRadar from '@/components/field-operations/InspectionRadar';
 import HookProductionTerminal from '@/components/field-operations/HookProductionTerminal';
 import RepairLedger from '@/components/field-operations/RepairLedger';
 import RiggingMatrix from '@/components/field-operations/RiggingMatrix';
+import EquipmentUsagePanel from '@/components/field-operations/EquipmentUsagePanel';
 
 const FLEET_WRITE_ROLES = ['admin', 'super_admin', 'Maintenance_Manager'];
 
@@ -23,12 +24,14 @@ export default function FieldOperations() {
   const [pieces, setPieces] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [usageLogs, setUsageLogs] = useState([]);
   const [canManageFleet, setCanManageFleet] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadAll = useCallback(async () => {
     try {
-      const [assetData, inspectionData, hookData, repairData, riggingData, projectData, pieceData, vendorData, poData] = await Promise.all([
+      const [assetData, inspectionData, hookData, repairData, riggingData, projectData, pieceData, vendorData, poData, employeeData, usageLogData] = await Promise.all([
         db.entities.erection_fleet_assets.list('-created_date', 200),
         db.entities.heavy_equipment_inspections.list('-created_date', 200),
         db.entities.field_hook_logs.list('-created_date', 500),
@@ -38,6 +41,8 @@ export default function FieldOperations() {
         db.entities.pieces.list('-created_date', 500),
         db.entities.Vendor.filter({ vendor_type: 'equipment_rental', is_active: true }, 'name', 50),
         db.entities.purchase_orders.filter({ status: 'Open' }, '-created_date', 200),
+        db.entities.employees.list('full_name', 500),
+        db.entities.EquipmentUsageLog.list('-usage_date', 500),
       ]);
       setAssets(assetData);
       setInspections(inspectionData);
@@ -48,6 +53,8 @@ export default function FieldOperations() {
       setPieces(pieceData);
       setVendors(vendorData);
       setPurchaseOrders(poData);
+      setEmployees(employeeData);
+      setUsageLogs(usageLogData);
     } catch (e) {
       // no-op — panels render empty states when their lists are empty
     } finally {
@@ -79,6 +86,7 @@ export default function FieldOperations() {
       <Tabs defaultValue="fleet">
         <TabsList className="mb-4 max-w-full overflow-x-auto justify-start">
           <TabsTrigger value="fleet" className="gap-1.5"><Truck className="w-3.5 h-3.5" />Fleet &amp; Rental Registry</TabsTrigger>
+          <TabsTrigger value="usage" className="gap-1.5"><Gauge className="w-3.5 h-3.5" />Equipment Usage</TabsTrigger>
           <TabsTrigger value="radar" className="gap-1.5"><ShieldAlert className="w-3.5 h-3.5" />Inspection Radar</TabsTrigger>
           <TabsTrigger value="hooks" className="gap-1.5"><ArrowUpFromLine className="w-3.5 h-3.5" />Hook Production Terminal</TabsTrigger>
           <TabsTrigger value="repairs" className="gap-1.5"><Wrench className="w-3.5 h-3.5" />Repair Ledger</TabsTrigger>
@@ -86,7 +94,11 @@ export default function FieldOperations() {
         </TabsList>
 
         <TabsContent value="fleet">
-          <FleetRentalRegistry assets={assets} projects={projects} vendors={vendors} purchaseOrders={purchaseOrders} canManageFleet={canManageFleet} onTogglePickup={handleTogglePickup} onReload={loadAll} />
+          <FleetRentalRegistry assets={assets} projects={projects} vendors={vendors} purchaseOrders={purchaseOrders} usageLogs={usageLogs} canManageFleet={canManageFleet} onTogglePickup={handleTogglePickup} onReload={loadAll} />
+        </TabsContent>
+
+        <TabsContent value="usage">
+          <EquipmentUsagePanel assets={assets} projects={projects} employees={employees} usageLogs={usageLogs} onReload={loadAll} />
         </TabsContent>
 
         <TabsContent value="radar">

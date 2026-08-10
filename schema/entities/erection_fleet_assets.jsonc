@@ -42,6 +42,26 @@
     "maintenance_threshold_hours": {
       "type": "number",
       "default": 500
+    },
+    "cost_per_hour": {
+      "type": "number",
+      "default": 0,
+      "description": "Internal blended rate (operator + machine) for owned equipment — used to post job cost when cost_rate_type is 'owned'."
+    },
+    "rental_rate_per_hour": {
+      "type": "number",
+      "default": 0,
+      "description": "Vendor billing rate for rented equipment — used to post job cost when cost_rate_type is 'rented'."
+    },
+    "cost_rate_type": {
+      "type": "string",
+      "enum": ["owned", "rented", "none"],
+      "default": "none",
+      "description": "Which rate field to apply when posting equipment usage to job cost — independent of the ownership `status` field so a rented asset's billing rate can be tracked without changing its dispatch status."
+    },
+    "default_cost_code": {
+      "type": "string",
+      "default": "EQP-001"
     }
   },
   "required": [

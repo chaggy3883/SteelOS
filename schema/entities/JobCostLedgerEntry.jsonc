@@ -25,7 +25,7 @@
     },
     "source_type": {
       "type": "string",
-      "enum": ["vendor_bill", "labor", "material", "subcontract", "other"],
+      "enum": ["vendor_bill", "labor", "material", "subcontract", "equipment", "other"],
       "default": "other"
     },
     "source_id": {

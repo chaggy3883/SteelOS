@@ -1,0 +1,60 @@
+{
+  "name": "EquipmentUsageLog",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "asset_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "operator_employee_id": {
+      "type": "string"
+    },
+    "usage_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "hours_used": {
+      "type": "number",
+      "default": 0
+    },
+    "cost_code": {
+      "type": "string",
+      "default": "EQP-001"
+    },
+    "rate_used": {
+      "type": "number",
+      "default": 0,
+      "description": "The asset's cost_per_hour or rental_rate_per_hour at the time this usage was logged — snapshotted so a later rate change doesn't rewrite history."
+    },
+    "total_cost": {
+      "type": "number",
+      "default": 0,
+      "description": "hours_used * rate_used, computed on save."
+    },
+    "posted_to_job_cost": {
+      "type": "boolean",
+      "default": false
+    },
+    "job_cost_entry_id": {
+      "type": "string",
+      "description": "The JobCostLedgerEntry id created from this log."
+    },
+    "notes": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "asset_id",
+    "project_id",
+    "usage_date",
+    "hours_used"
+  ]
+}
