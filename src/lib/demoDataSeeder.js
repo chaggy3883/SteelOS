@@ -2,6 +2,7 @@ import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { SHAPE_CATALOG } from '@/data/steelShapes';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
+import { computeOvertimeForClockOut } from '@/lib/attendanceMath';
 
 // shapeClass is accepted (and required by callers below for readability) but
 // unused here — SHAPE_CATALOG is keyed by material category (beams, columns,
@@ -123,16 +124,16 @@ export async function seedDemoData() {
 
   // 3. Employees — 2 Estimating, 1 PM, 2 Shop/Fab, 2 Field/Erection, 1 Accounting, 1 HR, 1 Shop Mgmt
   const employeeSeeds = [
-    { employee_number: 'EMP-001', full_name: 'Sarah Mitchell', classification: 'Senior Estimator', department: 'Estimating', hire_date: daysFromNow(-1460) },
-    { employee_number: 'EMP-002', full_name: 'David Chen', classification: 'Estimator', department: 'Estimating', hire_date: daysFromNow(-680) },
-    { employee_number: 'EMP-003', full_name: 'Michael Torres', classification: 'Project Manager', department: 'Project Management', hire_date: daysFromNow(-1200) },
-    { employee_number: 'EMP-004', full_name: 'James Anderson', classification: 'Fabricator', department: 'Shop/Fabrication', hire_date: daysFromNow(-540) },
-    { employee_number: 'EMP-005', full_name: 'Robert Kim', classification: 'Welder', department: 'Shop/Fabrication', hire_date: daysFromNow(-980) },
-    { employee_number: 'EMP-006', full_name: 'Carlos Ramirez', classification: 'Ironworker', department: 'Field/Erection', hire_date: daysFromNow(-410) },
-    { employee_number: 'EMP-007', full_name: "Brian O'Connell", classification: 'Erection Foreman', department: 'Field/Erection', hire_date: daysFromNow(-1350) },
-    { employee_number: 'EMP-008', full_name: 'Linda Parker', classification: 'Staff Accountant', department: 'Accounting', hire_date: daysFromNow(-860) },
-    { employee_number: 'EMP-009', full_name: 'Angela Brooks', classification: 'HR Generalist', department: 'HR', hire_date: daysFromNow(-390) },
-    { employee_number: 'EMP-010', full_name: 'Thomas Wright', classification: 'Shop Manager', department: 'Shop Management', hire_date: daysFromNow(-1100) },
+    { employee_number: 'EMP-001', full_name: 'Sarah Mitchell', classification: 'Senior Estimator', department: 'Estimating', hire_date: daysFromNow(-1460), pay_type: 'salary', annual_salary_cents: 10500000, is_flsa_exempt: true },
+    { employee_number: 'EMP-002', full_name: 'David Chen', classification: 'Estimator', department: 'Estimating', hire_date: daysFromNow(-680), pay_type: 'salary', annual_salary_cents: 7800000, is_flsa_exempt: true },
+    { employee_number: 'EMP-003', full_name: 'Michael Torres', classification: 'Project Manager', department: 'Project Management', hire_date: daysFromNow(-1200), pay_type: 'salary', annual_salary_cents: 9200000, is_flsa_exempt: true },
+    { employee_number: 'EMP-004', full_name: 'James Anderson', classification: 'Fabricator', department: 'Shop/Fabrication', hire_date: daysFromNow(-540), pay_type: 'hourly', pay_rate_cents: 2850, is_flsa_exempt: false },
+    { employee_number: 'EMP-005', full_name: 'Robert Kim', classification: 'Welder', department: 'Shop/Fabrication', hire_date: daysFromNow(-980), pay_type: 'hourly', pay_rate_cents: 3200, is_flsa_exempt: false },
+    { employee_number: 'EMP-006', full_name: 'Carlos Ramirez', classification: 'Ironworker', department: 'Field/Erection', hire_date: daysFromNow(-410), pay_type: 'hourly', pay_rate_cents: 3450, is_flsa_exempt: false },
+    { employee_number: 'EMP-007', full_name: "Brian O'Connell", classification: 'Erection Foreman', department: 'Field/Erection', hire_date: daysFromNow(-1350), pay_type: 'hourly', pay_rate_cents: 4100, is_flsa_exempt: false },
+    { employee_number: 'EMP-008', full_name: 'Linda Parker', classification: 'Staff Accountant', department: 'Accounting', hire_date: daysFromNow(-860), pay_type: 'salary', annual_salary_cents: 6800000, is_flsa_exempt: true },
+    { employee_number: 'EMP-009', full_name: 'Angela Brooks', classification: 'HR Generalist', department: 'HR', hire_date: daysFromNow(-390), pay_type: 'salary', annual_salary_cents: 6600000, is_flsa_exempt: true },
+    { employee_number: 'EMP-010', full_name: 'Thomas Wright', classification: 'Shop Manager', department: 'Shop Management', hire_date: daysFromNow(-1100), pay_type: 'salary', annual_salary_cents: 8800000, is_flsa_exempt: true },
   ].map((e) => ({ ...e, is_active: true }));
 
   const employees = await db.entities.employees.bulkCreate(employeeSeeds);
@@ -1258,6 +1259,116 @@ export async function seedDemoData() {
     },
   ]);
 
+  // 32. Payroll — two biweekly pay periods spanning the same ~4 work-week
+  // window attendancePayloads covers (step 24). Register hours/OT are
+  // computed with the exact same attendanceMath.js split Payroll.jsx's own
+  // "Generate Register" button calls, so re-generating either period later
+  // reproduces these same numbers instead of drifting from separate math.
+  const PAYROLL_PERIODS_PER_YEAR = { weekly: 52, biweekly: 26, semimonthly: 24, monthly: 12 };
+
+  function computePayrollPeriodMinutes(employeeId, periodStart, periodEnd) {
+    const empPunches = attendancePayloads.filter((p) => p.employee_id === employeeId);
+    const startMs = new Date(`${periodStart}T00:00:00`).getTime();
+    const endMs = new Date(`${periodEnd}T23:59:59`).getTime();
+    let regularMinutes = 0;
+    let overtimeMinutes = 0;
+    let totalMinutes = 0;
+    const projectMinutes = {};
+    empPunches.filter((p) => p.punch_type === 'Clock_Out').forEach((p) => {
+      const t = new Date(p.punch_time).getTime();
+      if (t < startMs || t > endMs) return;
+      const { total_regular_minutes, total_overtime_minutes } = computeOvertimeForClockOut(employeeId, p.punch_time, empPunches);
+      regularMinutes += total_regular_minutes;
+      overtimeMinutes += total_overtime_minutes;
+      const shiftMinutes = total_regular_minutes + total_overtime_minutes;
+      totalMinutes += shiftMinutes;
+      const key = p.project_id || '';
+      projectMinutes[key] = (projectMinutes[key] || 0) + shiftMinutes;
+    });
+    return { regularMinutes, overtimeMinutes, totalMinutes, projectMinutes };
+  }
+
+  const [postedPeriod] = await db.entities.PayPeriod.bulkCreate([
+    { period_start: daysFromNow(-28), period_end: daysFromNow(-15), pay_date: daysFromNow(-12), frequency: 'biweekly', status: 'posted', locked_at: isoDaysFromNow(-13) },
+    { period_start: daysFromNow(-14), period_end: daysFromNow(-1), pay_date: daysFromNow(2), frequency: 'biweekly', status: 'open' },
+  ]);
+
+  const postedRegisterPayloads = employees.map((emp) => {
+    const { regularMinutes, overtimeMinutes } = computePayrollPeriodMinutes(emp.id, postedPeriod.period_start, postedPeriod.period_end);
+    const payType = emp.pay_type || 'hourly';
+    const exempt = !!emp.is_flsa_exempt;
+    const regularHours = Math.round((regularMinutes / 60) * 100) / 100;
+    let otHours = exempt ? 0 : Math.round((overtimeMinutes / 60) * 100) / 100;
+    let regularPayCents = 0;
+    let otPayCents = 0;
+    let grossPayCents = 0;
+    if (payType === 'salary') {
+      grossPayCents = Math.round((emp.annual_salary_cents || 0) / (PAYROLL_PERIODS_PER_YEAR[postedPeriod.frequency] || 26));
+      regularPayCents = grossPayCents;
+      otHours = 0;
+    } else {
+      const rate = emp.pay_rate_cents || 0;
+      regularPayCents = Math.round(regularHours * rate);
+      otPayCents = exempt ? 0 : Math.round(otHours * rate * 1.5);
+      grossPayCents = regularPayCents + otPayCents;
+    }
+    return {
+      pay_period_id: postedPeriod.id,
+      employee_id: emp.id,
+      employee_name: emp.full_name,
+      pay_type_snapshot: payType,
+      regular_hours: regularHours,
+      ot_hours: otHours,
+      regular_pay_cents: regularPayCents,
+      ot_pay_cents: otPayCents,
+      gross_pay_cents: grossPayCents,
+      posted_to_job_cost: false,
+      job_cost_entry_ids: [],
+    };
+  });
+  const postedRegisterLines = await db.entities.PayrollRegisterLine.bulkCreate(postedRegisterPayloads);
+
+  const payrollProjectTotals = {};
+  postedRegisterLines.forEach((line) => {
+    const emp = employees.find((e) => e.id === line.employee_id);
+    if (!emp) return;
+    const { totalMinutes, projectMinutes } = computePayrollPeriodMinutes(emp.id, postedPeriod.period_start, postedPeriod.period_end);
+    if (totalMinutes <= 0) return;
+    Object.entries(projectMinutes).forEach(([projectId, minutes]) => {
+      if (!projectId) return;
+      const share = minutes / totalMinutes;
+      const projDollars = (line.gross_pay_cents * share) / 100;
+      if (!payrollProjectTotals[projectId]) payrollProjectTotals[projectId] = { hours: 0, dollars: 0 };
+      payrollProjectTotals[projectId].hours += minutes / 60;
+      payrollProjectTotals[projectId].dollars += projDollars;
+    });
+  });
+
+  const payrollJobCostEntries = await db.entities.JobCostLedgerEntry.bulkCreate(
+    Object.entries(payrollProjectTotals).map(([projectId, v]) => ({
+      project_id: projectId,
+      cost_class: 'LAB',
+      cost_code: 'LAB-001',
+      amount: Math.round(v.dollars * 100) / 100,
+      transaction_date: postedPeriod.period_end,
+      source_type: 'labor',
+      source_id: postedPeriod.id,
+      description: `Payroll ${postedPeriod.period_start} to ${postedPeriod.period_end}`,
+    }))
+  );
+
+  const payrollEntryIdByProject = {};
+  Object.keys(payrollProjectTotals).forEach((projectId, i) => { payrollEntryIdByProject[projectId] = payrollJobCostEntries[i].id; });
+
+  await Promise.all(postedRegisterLines.map((line) => {
+    const emp = employees.find((e) => e.id === line.employee_id);
+    if (!emp) return null;
+    const { projectMinutes } = computePayrollPeriodMinutes(emp.id, postedPeriod.period_start, postedPeriod.period_end);
+    const relevantEntryIds = Object.keys(projectMinutes).filter((pid) => pid && payrollEntryIdByProject[pid]).map((pid) => payrollEntryIdByProject[pid]);
+    if (relevantEntryIds.length === 0) return null;
+    return db.entities.PayrollRegisterLine.update(line.id, { posted_to_job_cost: true, job_cost_entry_ids: relevantEntryIds });
+  }));
+
   return {
     skipped: false,
     counts: {
@@ -1294,6 +1405,9 @@ export async function seedDemoData() {
       subcontractPayApps: 4,
       lienWaivers: lienWaiverSeeds.length,
       certifiedPayrollSubmissions: 5,
+      payPeriods: 2,
+      payrollRegisterLines: postedRegisterLines.length,
+      payrollJobCostEntries: payrollJobCostEntries.length,
     },
   };
 }

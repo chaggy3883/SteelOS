@@ -26,6 +26,7 @@ const navGroups = [
       { icon: ShieldCheck, label: 'Admin Panel', path: '/admin' },
       { icon: Users, label: 'Users', path: '/users' },
       { icon: UserCog, label: 'Human Resources', path: '/human-resources' },
+      { icon: DollarSign, label: 'Payroll', path: '/payroll' },
       { icon: KeyRound, label: 'Employee Center', path: '/employee-center' },
       { icon: Settings, label: 'Settings', path: '/settings' },
       { icon: ShieldAlert, label: 'Super Admin', path: '/super-admin/dashboard' },

@@ -54,6 +54,7 @@ import FrontEndReview from '@/pages/FrontEndReview';
 import ShopFabrication from '@/pages/ShopFabrication';
 import ShopOperations from '@/pages/ShopOperations';
 import HumanResources from '@/pages/HumanResources';
+import Payroll from '@/pages/Payroll';
 import EmployeeCenter from '@/pages/EmployeeCenter';
 import SuperAdminDashboard from '@/pages/SuperAdminDashboard';
 import ExecutiveAnalytics from '@/pages/ExecutiveAnalytics';
@@ -144,6 +145,7 @@ const AuthenticatedApp = () => {
           <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={<Users />} />
           <Route path="/human-resources" element={<HumanResources />} />
+          <Route path="/payroll" element={<Payroll />} />
           <Route path="/employee-center" element={<EmployeeCenter />} />
           <Route path="/super-admin/dashboard" element={<SuperAdminDashboard />} />
           <Route path="/executive-analytics" element={<ExecutiveAnalytics />} />

@@ -338,7 +338,13 @@ export default function HumanResources() {
                             <Input defaultValue={emp.ssn_last4} onBlur={(e) => updateSsnLast4(emp, e.target.value)} placeholder="0000" className="h-7 w-20 text-xs font-mono" />
                           </td>
                         )}
-                        {isFullAccess && <td className="py-3 px-4 text-right font-mono">${((emp.pay_rate_cents || 0) / 100).toFixed(2)}/hr</td>}
+                        {isFullAccess && (
+                          <td className="py-3 px-4 text-right font-mono">
+                            {emp.pay_type === 'salary'
+                              ? `$${((emp.annual_salary_cents || 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}/yr`
+                              : `$${((emp.pay_rate_cents || 0) / 100).toFixed(2)}/hr`}
+                          </td>
+                        )}
                         <td className="py-3 px-4">
                           <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${emp.is_timeclock_locked ? 'bg-red-500/10 text-red-600' : 'bg-green-500/10 text-green-600'}`}>
                             {emp.is_timeclock_locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}

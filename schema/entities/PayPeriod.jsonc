@@ -1,0 +1,46 @@
+{
+  "name": "PayPeriod",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "period_start": {
+      "type": "string",
+      "format": "date"
+    },
+    "period_end": {
+      "type": "string",
+      "format": "date"
+    },
+    "pay_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "frequency": {
+      "type": "string",
+      "enum": ["weekly", "biweekly", "semimonthly", "monthly"],
+      "default": "biweekly"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "locked", "exported", "posted"],
+      "default": "open"
+    },
+    "locked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "exported_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "period_start",
+    "period_end"
+  ]
+}

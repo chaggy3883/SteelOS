@@ -1,0 +1,60 @@
+{
+  "name": "PayrollRegisterLine",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "pay_period_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "employee_name": {
+      "type": "string"
+    },
+    "pay_type_snapshot": {
+      "type": "string",
+      "description": "employee.pay_type at the time this line was generated, so a later change to the employee record doesn't rewrite history."
+    },
+    "regular_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "ot_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "regular_pay_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "ot_pay_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "gross_pay_cents": {
+      "type": "number",
+      "default": 0
+    },
+    "posted_to_job_cost": {
+      "type": "boolean",
+      "default": false
+    },
+    "job_cost_entry_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "pay_period_id",
+    "employee_id"
+  ]
+}

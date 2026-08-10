@@ -44,6 +44,25 @@
       "type": "number",
       "default": 0
     },
+    "pay_type": {
+      "type": "string",
+      "enum": ["hourly", "salary"],
+      "default": "hourly"
+    },
+    "annual_salary_cents": {
+      "type": "number",
+      "default": 0,
+      "description": "Used when pay_type is 'salary' — pay_rate_cents is ignored in that case."
+    },
+    "is_flsa_exempt": {
+      "type": "boolean",
+      "default": false,
+      "description": "Exempt employees earn no overtime, regardless of pay_type."
+    },
+    "ot_multiplier": {
+      "type": "number",
+      "default": 1.5
+    },
     "department": {
       "type": "string"
     },

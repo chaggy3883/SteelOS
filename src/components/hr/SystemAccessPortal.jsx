@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { KeyRound, Save } from 'lucide-react';
 
@@ -19,6 +20,9 @@ export default function SystemAccessPortal({ employee, roles, onUpdated }) {
   const [newPin, setNewPin] = useState('');
   const [saving, setSaving] = useState(false);
   const [wageInput, setWageInput] = useState(String(((employee.pay_rate_cents || 0) / 100).toFixed(2)));
+  const [payType, setPayType] = useState(employee.pay_type || 'hourly');
+  const [salaryInput, setSalaryInput] = useState(String(((employee.annual_salary_cents || 0) / 100).toFixed(2)));
+  const [isFlsaExempt, setIsFlsaExempt] = useState(employee.is_flsa_exempt || false);
   const [savingWage, setSavingWage] = useState(false);
   const canEditWage = (roles || []).some((r) => WAGE_EDIT_ROLES.includes(String(r).toLowerCase()));
 
@@ -45,16 +49,27 @@ export default function SystemAccessPortal({ employee, roles, onUpdated }) {
   };
 
   const handleSaveWage = async () => {
-    const dollars = Number(wageInput);
-    if (!Number.isFinite(dollars) || dollars < 0) {
-      toast({ title: 'Enter a valid hourly rate', variant: 'destructive' });
-      return;
+    const payload = { pay_type: payType, is_flsa_exempt: isFlsaExempt };
+    if (payType === 'salary') {
+      const dollars = Number(salaryInput);
+      if (!Number.isFinite(dollars) || dollars < 0) {
+        toast({ title: 'Enter a valid annual salary', variant: 'destructive' });
+        return;
+      }
+      payload.annual_salary_cents = Math.round(dollars * 100);
+    } else {
+      const dollars = Number(wageInput);
+      if (!Number.isFinite(dollars) || dollars < 0) {
+        toast({ title: 'Enter a valid hourly rate', variant: 'destructive' });
+        return;
+      }
+      payload.pay_rate_cents = Math.round(dollars * 100);
     }
     setSavingWage(true);
     try {
-      const updated = await db.entities.employees.update(employee.id, { pay_rate_cents: Math.round(dollars * 100) });
+      const updated = await db.entities.employees.update(employee.id, payload);
       onUpdated(updated);
-      toast({ title: 'Hourly pay rate updated' });
+      toast({ title: 'Pay information updated' });
     } finally {
       setSavingWage(false);
     }
@@ -81,22 +96,56 @@ export default function SystemAccessPortal({ employee, roles, onUpdated }) {
         </div>
 
         {canEditWage && (
-          <div className="mt-4 pt-4 border-t border-border">
-            <Label className="text-xs">Hourly Pay Rate ($)</Label>
-            <div className="flex gap-2 mt-1">
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={wageInput}
-                onChange={(e) => setWageInput(e.target.value)}
-                className="font-mono"
-              />
-              <Button onClick={handleSaveWage} disabled={savingWage} className="gap-1.5 steel-gradient text-white border-0 flex-shrink-0">
-                <Save className="w-3.5 h-3.5" />{savingWage ? 'Saving…' : 'Save Rate'}
-              </Button>
+          <div className="mt-4 pt-4 border-t border-border space-y-3">
+            <div>
+              <Label className="text-xs">Pay Type</Label>
+              <Select value={payType} onValueChange={setPayType}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="hourly">Hourly</SelectItem>
+                  <SelectItem value="salary">Salary</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <p className="text-xs text-muted-foreground mt-1.5">Visible only to Admin, Super Admin, and Payroll Admin roles.</p>
+
+            {payType === 'salary' ? (
+              <div>
+                <Label className="text-xs">Annual Salary ($)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={salaryInput}
+                  onChange={(e) => setSalaryInput(e.target.value)}
+                  className="mt-1 font-mono"
+                />
+              </div>
+            ) : (
+              <div>
+                <Label className="text-xs">Hourly Pay Rate ($)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={wageInput}
+                  onChange={(e) => setWageInput(e.target.value)}
+                  className="mt-1 font-mono"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div>
+                <p className="text-sm font-medium">FLSA Exempt</p>
+                <p className="text-xs text-muted-foreground">Exempt employees do not accrue overtime.</p>
+              </div>
+              <Switch checked={isFlsaExempt} onCheckedChange={setIsFlsaExempt} />
+            </div>
+
+            <Button onClick={handleSaveWage} disabled={savingWage} className="gap-1.5 steel-gradient text-white border-0 w-full">
+              <Save className="w-3.5 h-3.5" />{savingWage ? 'Saving…' : 'Save Pay Information'}
+            </Button>
+            <p className="text-xs text-muted-foreground">Visible only to Admin, Super Admin, and Payroll Admin roles.</p>
           </div>
         )}
 
