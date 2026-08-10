@@ -110,7 +110,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       const natural = p.getViewport({ scale: 1 });
       setPageSize({ width: natural.width, height: natural.height });
       onPageSizeChange?.({ width: natural.width, height: natural.height });
-      const containerWidth = viewportRef.current?.clientWidth || natural.width;
+      const containerWidth = viewportRef.current?.getBoundingClientRect()?.width || natural.width;
       const fit = Math.min(2, Math.max(0.1, (containerWidth - 32) / natural.width));
       resetTransform(fit);
     });
@@ -318,8 +318,12 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   };
 
   const handleFitToWidth = () => {
-    const containerWidth = viewportRef.current?.clientWidth || pageSize.width;
     if (!pageSize.width) return;
+    // Use getBoundingClientRect() instead of clientWidth — it forces a layout
+    // flush and returns the actual rendered size including flex expansion.
+    const rect = viewportRef.current?.getBoundingClientRect();
+    const containerWidth = rect?.width || pageSize.width;
+    if (containerWidth <= 0) return;
     resetTransform(Math.min(2, Math.max(0.1, (containerWidth - 32) / pageSize.width)));
   };
 
