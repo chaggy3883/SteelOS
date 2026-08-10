@@ -30,6 +30,28 @@ import MarkupsList from '@/components/estimating/MarkupsList';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
+// The 16ths commonly used when reading structural steel dimensions off a
+// drawing — calibration distance entry mirrors that feet-inches-fraction
+// convention instead of a plain decimal + unit toggle.
+const FRACTION_OPTIONS = [
+  { value: '0', label: '0' },
+  { value: '0.0625', label: '1/16' },
+  { value: '0.125', label: '1/8' },
+  { value: '0.1875', label: '3/16' },
+  { value: '0.25', label: '1/4' },
+  { value: '0.3125', label: '5/16' },
+  { value: '0.375', label: '3/8' },
+  { value: '0.4375', label: '7/16' },
+  { value: '0.5', label: '1/2' },
+  { value: '0.5625', label: '9/16' },
+  { value: '0.625', label: '5/8' },
+  { value: '0.6875', label: '11/16' },
+  { value: '0.75', label: '3/4' },
+  { value: '0.8125', label: '13/16' },
+  { value: '0.875', label: '7/8' },
+  { value: '0.9375', label: '15/16' },
+];
+
 const emptyRow = (overrides = {}) => ({
   _key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   page_number: 1,
@@ -159,8 +181,9 @@ export default function BlueprintTakeoff() {
   // on-screen pixel distance at the current zoom level.
   const [calibrationMode, setCalibrationMode] = useState(false);
   const [calibrationPoints, setCalibrationPoints] = useState([]);
-  const [calibrationRealDistance, setCalibrationRealDistance] = useState('');
-  const [calibrationUnit, setCalibrationUnit] = useState('ft');
+  const [calFeet, setCalFeet] = useState('');
+  const [calInches, setCalInches] = useState('');
+  const [calFraction, setCalFraction] = useState('0'); // string fraction value
   const [pxPerFt, setPxPerFt] = useState(null);
   const [canvasScale, setCanvasScale] = useState(1);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
@@ -370,8 +393,9 @@ export default function BlueprintTakeoff() {
     setReattachError(null);
     setCalibrationMode(false);
     setCalibrationPoints([]);
-    setCalibrationRealDistance('');
-    setCalibrationUnit('ft');
+    setCalFeet('');
+    setCalInches('');
+    setCalFraction('0');
     setPxPerFt(null);
     setActiveTool(null);
     setLengthPoints([]);
@@ -401,8 +425,9 @@ export default function BlueprintTakeoff() {
     setHasStoredPdf(Boolean(takeoff.has_stored_pdf));
     setCalibrationMode(false);
     setCalibrationPoints([]);
-    setCalibrationRealDistance('');
-    setCalibrationUnit(takeoff.calibration_unit || 'ft');
+    setCalFeet('');
+    setCalInches('');
+    setCalFraction('0');
     setPxPerFt(takeoff.px_per_ft ?? null);
     setActiveTool(null);
     setLengthPoints([]);
@@ -501,8 +526,9 @@ export default function BlueprintTakeoff() {
       setReattachError(null);
       setCalibrationMode(false);
       setCalibrationPoints([]);
-      setCalibrationRealDistance('');
-      setCalibrationUnit('ft');
+      setCalFeet('');
+      setCalInches('');
+      setCalFraction('0');
       setPxPerFt(null);
       setActiveTool(null);
       setLengthPoints([]);
@@ -595,13 +621,15 @@ export default function BlueprintTakeoff() {
     const [p1, p2] = calibrationPoints;
     if (!p1 || !p2) return;
 
-    const typedDistance = parseFloat(calibrationRealDistance);
-    const realFt = calibrationUnit === 'in' ? typedDistance / 12 : typedDistance;
+    const feet = parseFloat(calFeet) || 0;
+    const inches = parseFloat(calInches) || 0;
+    const fraction = parseFloat(calFraction) || 0;
+    const realFt = feet + (inches + fraction) / 12;
     const pxDist = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2) * canvasScale;
     const resolvedPxPerFt = pxDist / realFt;
 
     if (!(realFt > 0)) {
-      toast({ title: "Can't calibrate to zero distance", description: 'Enter a real-world distance greater than zero.', variant: 'destructive' });
+      toast({ title: 'Enter the dimension between your two points.', variant: 'destructive' });
       setCalibrationPoints([]);
       return;
     }
@@ -616,16 +644,18 @@ export default function BlueprintTakeoff() {
       return;
     }
 
+    const fractionLabel = FRACTION_OPTIONS.find((f) => f.value === calFraction)?.label;
+    const readableDistance = `${feet}'-${inches}${calFraction !== '0' && fractionLabel ? `-${fractionLabel}` : ''}"`;
+
     setPxPerFt(resolvedPxPerFt);
     setCalibrationMode(false);
-    setScaleReference(`${calibrationRealDistance}${calibrationUnit}`);
+    setScaleReference(readableDistance);
 
     if (takeoffId) {
       try {
         await db.entities.blueprint_takeoffs.update(takeoffId, {
           px_per_ft: resolvedPxPerFt,
-          calibration_unit: calibrationUnit,
-          scale_reference: `${calibrationRealDistance}${calibrationUnit}`,
+          scale_reference: readableDistance,
         });
       } catch (e) {
         console.error('Failed to persist calibration', e);
@@ -1087,41 +1117,54 @@ export default function BlueprintTakeoff() {
     </div>
   );
 
+  const calFractionLabel = FRACTION_OPTIONS.find((f) => f.value === calFraction)?.label;
+  const calShowPreview = (parseFloat(calFeet) || 0) > 0 || (parseFloat(calInches) || 0) > 0;
+  const calPreviewText = `${parseFloat(calFeet) || 0}'-${parseFloat(calInches) || 0}${calFraction !== '0' && calFractionLabel ? `-${calFractionLabel}` : ''}"`;
+  const calRealFtPreview = (parseFloat(calFeet) || 0) + ((parseFloat(calInches) || 0) + (parseFloat(calFraction) || 0)) / 12;
+
   const calibrationDistanceCard = calibrationMode && calibrationPoints.length === 2 && (
     <Card>
       <CardContent className="p-3 flex flex-wrap items-end gap-3">
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Real-world distance between the two points</label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              step="any"
-              value={calibrationRealDistance}
-              onChange={(e) => setCalibrationRealDistance(e.target.value)}
-              placeholder="e.g. 10"
-              className="w-28 h-8"
-              autoFocus
-            />
-            <div className="flex rounded-md border overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setCalibrationUnit('ft')}
-                className={`px-2.5 py-1 text-xs font-medium ${calibrationUnit === 'ft' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
-              >
-                ft
-              </button>
-              <button
-                type="button"
-                onClick={() => setCalibrationUnit('in')}
-                className={`px-2.5 py-1 text-xs font-medium border-l ${calibrationUnit === 'in' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
-              >
-                in
-              </button>
+          <div className="flex items-end gap-2">
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                min={0}
+                value={calFeet}
+                onChange={(e) => setCalFeet(e.target.value)}
+                placeholder="0"
+                className="w-[60px] h-8"
+                autoFocus
+              />
+              <span className="text-xs text-muted-foreground">ft</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                min={0}
+                max={11}
+                value={calInches}
+                onChange={(e) => setCalInches(e.target.value)}
+                placeholder="0"
+                className="w-[60px] h-8"
+              />
+              <span className="text-xs text-muted-foreground">in</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Select value={calFraction} onValueChange={setCalFraction}>
+                <SelectTrigger className="h-8 w-20 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {FRACTION_OPTIONS.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">&quot;</span>
             </div>
           </div>
+          {calShowPreview && <p className="text-xs text-muted-foreground">= {calPreviewText}</p>}
         </div>
-        <Button size="sm" onClick={handleConfirmCalibration} disabled={!calibrationRealDistance}>Confirm</Button>
+        <Button size="sm" onClick={handleConfirmCalibration} disabled={!(calRealFtPreview > 0)}>Confirm</Button>
         <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel</Button>
       </CardContent>
     </Card>
