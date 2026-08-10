@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
-import { computeOvertimeForClockOut } from '@/lib/attendanceMath';
+import { computePeriodMinutesForEmployee } from '@/lib/attendanceMath';
 import { exportPayrollRegisterCSV } from '@/lib/payrollExport';
 
 const ALLOWED_ROLES = ['admin', 'super_admin', 'payroll_admin', 'controller'];
@@ -28,36 +28,6 @@ const titleCase = (s) => (s ? String(s).replace(/_/g, ' ').replace(/\b\w/g, (c) 
 const dollars = (cents) => `$${((Number(cents) || 0) / 100).toFixed(2)}`;
 
 const emptyPeriodForm = () => ({ period_start: '', period_end: '', pay_date: '', frequency: 'biweekly' });
-
-// Sums a shift's regular/overtime minutes by re-running the shared daily
-// 8hr/weekly 40hr split (attendanceMath.js) against the employee's FULL
-// punch history for every Clock_Out that lands in the period — demo-seeded
-// punches hardcode total_regular_minutes with no OT ever applied, so this
-// can't just trust what's already stored on the punch.
-function computePeriodMinutesForEmployee(employeeId, allEmployeePunches, periodStart, periodEnd) {
-  const startMs = new Date(`${periodStart}T00:00:00`).getTime();
-  const endMs = new Date(`${periodEnd}T23:59:59`).getTime();
-  let regularMinutes = 0;
-  let overtimeMinutes = 0;
-  let totalMinutes = 0;
-  const projectMinutes = {};
-
-  allEmployeePunches
-    .filter((p) => p.punch_type === 'Clock_Out')
-    .forEach((p) => {
-      const t = new Date(p.punch_time).getTime();
-      if (Number.isNaN(t) || t < startMs || t > endMs) return;
-      const { total_regular_minutes, total_overtime_minutes } = computeOvertimeForClockOut(employeeId, p.punch_time, allEmployeePunches);
-      regularMinutes += total_regular_minutes;
-      overtimeMinutes += total_overtime_minutes;
-      const shiftMinutes = total_regular_minutes + total_overtime_minutes;
-      totalMinutes += shiftMinutes;
-      const key = p.project_id || '';
-      projectMinutes[key] = (projectMinutes[key] || 0) + shiftMinutes;
-    });
-
-  return { regularMinutes, overtimeMinutes, totalMinutes, projectMinutes };
-}
 
 export default function Payroll() {
   const { toast } = useToast();

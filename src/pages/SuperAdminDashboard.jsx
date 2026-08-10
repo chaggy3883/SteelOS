@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import LogoUploader from '@/components/admin/LogoUploader';
@@ -36,6 +37,18 @@ const PLAN_LABELS = {
 };
 const AI_PROVIDERS = ['local', 'claude', 'openai'];
 const AI_PROVIDER_LABELS = { local: 'Local / On-Prem', claude: 'Claude', openai: 'OpenAI' };
+
+// Module entitlement allowlist (Company.enabled_modules) — separate from
+// rbacConfig.jsx's per-role module visibility. This is "did the tenant buy
+// it," checked at the point of use via src/lib/moduleEntitlement.js's
+// hasModule(); this dashboard is the only place it's editable. An empty
+// array means everything is on (see hasModule), so unchecking every box
+// here is equivalent to leaving it untouched.
+const MODULE_ENTITLEMENTS = [
+  { key: 'payroll', label: 'Payroll' },
+  { key: 'equipment', label: 'Equipment Job Costing' },
+  { key: 'ironsight', label: 'IRONSIGHT' },
+];
 
 // Only counts an active session's actual elapsed time — a row with no
 // heartbeat yet, or one that (through clock skew or a bad write) ended up
@@ -128,6 +141,17 @@ export default function SuperAdminDashboard() {
     const updated = await db.entities.Company.update(company.id, { subscription_status: status });
     setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     toast({ title: `${updated.name} subscription set to ${status.replace('_', ' ')}`, description: 'Simulated webhook — no real Stripe integration exists.' });
+  };
+
+  const handleToggleModule = async (company, moduleKey, checked) => {
+    const current = company.enabled_modules || [];
+    // A tenant with an empty list has "everything on" (hasModule's default),
+    // so the first uncheck must seed the full allowlist minus that one key —
+    // otherwise it'd instantly look like every OTHER module got disabled too.
+    const baseline = current.length > 0 ? current : MODULE_ENTITLEMENTS.map((m) => m.key);
+    const next = checked ? Array.from(new Set([...baseline, moduleKey])) : baseline.filter((k) => k !== moduleKey);
+    const updated = await db.entities.Company.update(company.id, { enabled_modules: next });
+    setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
   };
 
   const handlePlanChange = async (company, plan) => {
@@ -323,6 +347,7 @@ export default function SuperAdminDashboard() {
               <th className="text-left py-3 px-4">Plan</th>
               <th className="text-left py-3 px-4">Subscription Status</th>
               <th className="text-left py-3 px-4">Simulate Webhook</th>
+              <th className="text-left py-3 px-4">Modules</th>
               <th className="text-left py-3 px-4">Logo</th>
               <th className="text-right py-3 px-4">Action</th>
             </tr>
@@ -350,6 +375,19 @@ export default function SuperAdminDashboard() {
                     >
                       {SUBSCRIPTION_PLANS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
                     </select>
+                  </div>
+                </td>
+                <td className="py-3 px-4">
+                  <div className="flex flex-col gap-1.5">
+                    {MODULE_ENTITLEMENTS.map((m) => {
+                      const isEnabled = !company.enabled_modules || company.enabled_modules.length === 0 || company.enabled_modules.includes(m.key);
+                      return (
+                        <label key={m.key} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                          <Checkbox checked={isEnabled} onCheckedChange={(c) => handleToggleModule(company, m.key, !!c)} />
+                          {m.label}
+                        </label>
+                      );
+                    })}
                   </div>
                 </td>
                 <td className="py-3 px-4">

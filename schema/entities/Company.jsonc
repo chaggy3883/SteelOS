@@ -95,6 +95,14 @@
     "tenant_local_url": {
       "type": "string",
       "default": "http://localhost:8080/v1"
+    },
+    "enabled_modules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Module entitlement allowlist, e.g. [\"equipment\",\"payroll\",\"ironsight\"]. Empty or missing means every module is on — see src/lib/moduleEntitlement.js's hasModule(), the only reader of this field. Editable only from Super Admin Dashboard."
     }
   },
   "required": [

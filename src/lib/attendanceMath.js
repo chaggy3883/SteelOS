@@ -7,7 +7,7 @@ const startOfDay = (date) => {
   return d;
 };
 
-const startOfWeek = (date) => {
+export const startOfWeek = (date) => {
   const d = startOfDay(date);
   const day = d.getDay();
   const diff = (day === 0 ? -6 : 1) - day; // Monday as week start
@@ -84,6 +84,36 @@ export function computeOvertimeForClockOut(employeeId, clockOutTime, allPunches)
   const priorToday = getPriorRegularMinutes(employeeId, clockOutTime, allPunches, true);
   const priorWeek = getPriorRegularMinutes(employeeId, clockOutTime, allPunches, false);
   return splitRegularOvertime(shiftMinutes, priorToday, priorWeek);
+}
+
+// Sums a date-range's regular/overtime minutes by re-running the shared
+// daily 8hr/weekly 40hr split above against the employee's FULL punch
+// history for every Clock_Out that lands in [periodStart, periodEnd] —
+// demo-seeded punches hardcode total_regular_minutes with no OT ever
+// applied, so this can't just trust what's already stored on the punch.
+export function computePeriodMinutesForEmployee(employeeId, allEmployeePunches, periodStart, periodEnd) {
+  const startMs = new Date(`${periodStart}T00:00:00`).getTime();
+  const endMs = new Date(`${periodEnd}T23:59:59`).getTime();
+  let regularMinutes = 0;
+  let overtimeMinutes = 0;
+  let totalMinutes = 0;
+  const projectMinutes = {};
+
+  allEmployeePunches
+    .filter((p) => p.punch_type === 'Clock_Out')
+    .forEach((p) => {
+      const t = new Date(p.punch_time).getTime();
+      if (Number.isNaN(t) || t < startMs || t > endMs) return;
+      const { total_regular_minutes, total_overtime_minutes } = computeOvertimeForClockOut(employeeId, p.punch_time, allEmployeePunches);
+      regularMinutes += total_regular_minutes;
+      overtimeMinutes += total_overtime_minutes;
+      const shiftMinutes = total_regular_minutes + total_overtime_minutes;
+      totalMinutes += shiftMinutes;
+      const key = p.project_id || '';
+      projectMinutes[key] = (projectMinutes[key] || 0) + shiftMinutes;
+    });
+
+  return { regularMinutes, overtimeMinutes, totalMinutes, projectMinutes };
 }
 
 // Multi-scale payroll rate matrix — Shop Fabrication and Field Erection

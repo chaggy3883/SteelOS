@@ -126,6 +126,7 @@ export const PERMISSION_CATALOG = [
     { key: 'tab:/human-resources:safety', label: 'Safety Radar' },
     { key: 'tab:/human-resources:terminal', label: 'Timeclock Terminal' },
   ] },
+  { key: 'module:/payroll/hours', label: 'Hours at a Glance' },
   { key: 'module:/payroll', label: 'Payroll', tabs: [
     { key: 'tab:/payroll:periods', label: 'Pay Periods' },
     { key: 'tab:/payroll:register', label: 'Register' },

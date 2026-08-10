@@ -16,7 +16,7 @@ import {
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
-  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2, Crosshair
+  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2, Crosshair, CalendarClock
 } from 'lucide-react';
 
 const navGroups = [
@@ -26,7 +26,6 @@ const navGroups = [
       { icon: ShieldCheck, label: 'Admin Panel', path: '/admin' },
       { icon: Users, label: 'Users', path: '/users' },
       { icon: UserCog, label: 'Human Resources', path: '/human-resources' },
-      { icon: DollarSign, label: 'Payroll', path: '/payroll' },
       { icon: KeyRound, label: 'Employee Center', path: '/employee-center' },
       { icon: Settings, label: 'Settings', path: '/settings' },
       { icon: ShieldAlert, label: 'Super Admin', path: '/super-admin/dashboard' },
@@ -52,13 +51,20 @@ const navGroups = [
       { icon: FolderKanban, label: 'Projects', path: '/projects' },
       { icon: FileEdit, label: 'Change Orders', path: '/projects/change-orders' },
       { icon: FileSignature, label: 'Subcontracts', path: '/subcontracts' },
-      { icon: FileCheck2, label: 'Certified Payroll', path: '/certified-payroll' },
       { icon: Factory, label: 'Production', path: '/production' },
       { icon: Truck, label: 'Shipping', path: '/shipping' },
       { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },
       { icon: Gauge, label: 'Shop Operations', path: '/shop-operations' },
       { icon: Gauge, label: 'Shop Efficiency', path: '/shop-efficiency' },
       { icon: HardHat, label: 'Field Operations', path: '/field-operations' },
+    ]
+  },
+  {
+    label: 'Payroll',
+    items: [
+      { icon: CalendarClock, label: 'Hours at a Glance', path: '/payroll/hours' },
+      { icon: DollarSign, label: 'Pay Periods & Register', path: '/payroll' },
+      { icon: FileCheck2, label: 'Certified Payroll', path: '/certified-payroll' },
     ]
   },
   {
