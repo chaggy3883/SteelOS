@@ -1,7 +1,8 @@
 import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Button } from '@/components/ui/button';
-import { Loader2, ZoomIn, ZoomOut, Maximize, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Loader2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCanvasTransform } from '@/hooks/useCanvasTransform';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href;
@@ -46,6 +47,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  const [pageInput, setPageInput] = useState('1');
 
   const { scale, pan, setPan, zoomIn, zoomOut, resetTransform } = useCanvasTransform(1);
 
@@ -167,6 +169,12 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   useEffect(() => {
     onScaleChange?.(scale);
   }, [scale, onScaleChange]);
+
+  // Keeps the page-jump input in sync when pageNum changes via the
+  // prev/next buttons (not just when the user types into the input itself).
+  useEffect(() => {
+    setPageInput(String(pageNum));
+  }, [pageNum]);
 
   // Draws calibration crosshairs, in-progress length points, and completed
   // count/length measurements on the overlay canvas. Runs after the sizing
@@ -334,11 +342,25 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     resetTransform(Math.min(2, Math.max(0.1, (containerWidth - 32) / pageSize.width)));
   };
 
+  const handleFitToPage = () => {
+    if (!pageSize.width || !pageSize.height) return;
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
+    const fit = Math.min((rect.width - 32) / pageSize.width, (rect.height - 32) / pageSize.height);
+    resetTransform(Math.min(2, Math.max(0.1, fit)));
+  };
+
+  const commitPageInput = () => {
+    const n = parseInt(pageInput, 10);
+    if (!Number.isFinite(n) || n < 1 || n > numPages) { setPageInput(String(pageNum)); return; }
+    setPageNum(n);
+  };
+
   if (!source) return null;
 
   return (
     <div className={fillHeight ? 'h-full w-full flex flex-col bg-muted/20' : 'border rounded-lg overflow-hidden bg-muted/20'}>
-      <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2 flex-shrink-0">
+      <div className={`flex items-center justify-between gap-2 border-b bg-muted/40 py-2 flex-shrink-0 ${fillHeight ? 'pl-3 pr-28' : 'px-3'}`}>
         <div className="flex items-center gap-1">
           <Button
             size="icon"
@@ -349,9 +371,17 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <span className="text-xs text-muted-foreground min-w-20 text-center">
-            Page {numPages ? pageNum : 0} of {numPages}
-          </span>
+          <Input
+            type="number"
+            min={1}
+            max={numPages}
+            value={pageInput}
+            onChange={(e) => setPageInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitPageInput(); }}
+            onBlur={commitPageInput}
+            className="w-14 h-7 text-center text-xs"
+          />
+          <span className="text-xs text-muted-foreground whitespace-nowrap">of {numPages}</span>
           <Button
             size="icon"
             variant="ghost"
@@ -370,8 +400,11 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => zoomIn(viewportCenter())}>
             <ZoomIn className="w-4 h-4" />
           </Button>
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleFitToWidth} title="Fit to width">
-            <Maximize className="w-4 h-4" />
+          <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={handleFitToWidth} title="Fit to width">
+            Fit W
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={handleFitToPage} title="Fit to page">
+            Fit Page
           </Button>
         </div>
       </div>

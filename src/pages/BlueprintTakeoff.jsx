@@ -157,7 +157,7 @@ export default function BlueprintTakeoff() {
   // mousedown (see handlePanelDragStart) rather than extra state, since the
   // listeners' own closures already carry the drag's start position.
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [floatingPanelPos, setFloatingPanelPos] = useState({ x: 16, y: 16 });
+  const [floatingPanelPos, setFloatingPanelPos] = useState({ x: 16, y: 72 });
 
   const handlePanelDragStart = (e) => {
     const startX = e.clientX;
