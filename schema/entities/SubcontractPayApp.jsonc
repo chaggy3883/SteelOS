@@ -1,0 +1,82 @@
+{
+  "name": "SubcontractPayApp",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "subcontract_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "pay_app_number": {
+      "type": "number"
+    },
+    "period_start": {
+      "type": "string",
+      "format": "date"
+    },
+    "period_end": {
+      "type": "string",
+      "format": "date"
+    },
+    "amount_requested": {
+      "type": "number",
+      "default": 0
+    },
+    "amount_approved": {
+      "type": "number",
+      "default": 0
+    },
+    "retention_held": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "received",
+        "under_review",
+        "approved",
+        "paid",
+        "disputed"
+      ],
+      "default": "received"
+    },
+    "date_received": {
+      "type": "string",
+      "format": "date"
+    },
+    "date_approved": {
+      "type": "string",
+      "format": "date"
+    },
+    "date_paid": {
+      "type": "string",
+      "format": "date"
+    },
+    "lien_waiver_received": {
+      "type": "boolean",
+      "default": false
+    },
+    "lien_waiver_type": {
+      "type": "string",
+      "enum": [
+        "conditional",
+        "unconditional",
+        "none"
+      ],
+      "default": "none"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "subcontract_id",
+    "project_id",
+    "pay_app_number"
+  ]
+}

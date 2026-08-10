@@ -4,7 +4,7 @@ import { db } from '@/api/apiClient';
 import {
   ArrowLeft, Brain, MessageSquare, Package,
   DollarSign, Edit,
-  AlertTriangle, Layers, Gavel
+  AlertTriangle, Layers, Gavel, FileSignature, ArrowRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -42,6 +42,7 @@ export default function ProjectDetail() {
   const [findings, setFindings] = useState([]);
   const [rfis, setRfis] = useState([]);
   const [pieces, setPieces] = useState([]);
+  const [subcontracts, setSubcontracts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [markingAwarded, setMarkingAwarded] = useState(false);
 
@@ -50,16 +51,18 @@ export default function ProjectDetail() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [proj, finds, rfiList, pieceList] = await Promise.all([
+      const [proj, finds, rfiList, pieceList, subcontractList] = await Promise.all([
         db.entities.Project.get(id),
         db.entities.AIFinding.filter({ project_id: id }, '-created_date', 50),
         db.entities.RFI.filter({ project_id: id }, '-created_date', 20),
         db.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 50),
+        db.entities.Subcontract.filter({ project_id: id }, '-created_date', 50),
       ]);
       setProject(proj);
       setFindings(finds);
       setRfis(rfiList);
       setPieces(pieceList);
+      setSubcontracts(subcontractList);
     } catch (e) {
       console.error(e);
     } finally {
@@ -248,6 +251,30 @@ export default function ProjectDetail() {
                     <span className="text-red-500 font-medium">{failFindings.length} fail</span>
                     <span className="text-yellow-500 font-medium">{warnFindings.length} warn</span>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Subcontracts */}
+            <div className="lg:col-span-3 steel-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <FileSignature className="w-4 h-4 text-primary" /> Subcontracts
+                </h3>
+                <Link to={`/subcontracts?project=${id}`} className="text-sm text-primary hover:underline flex items-center gap-1">
+                  View Subcontracts <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Active Subcontracts</p>
+                  <p className="text-lg font-bold">{subcontracts.filter((s) => s.status === 'active').length}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Total Committed Value</p>
+                  <p className="text-lg font-bold">
+                    ${subcontracts.filter((s) => s.status !== 'terminated').reduce((sum, s) => sum + (s.contract_value || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </p>
                 </div>
               </div>
             </div>

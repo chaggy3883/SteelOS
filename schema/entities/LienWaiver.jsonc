@@ -1,0 +1,64 @@
+{
+  "name": "LienWaiver",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "subcontract_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "pay_app_id": {
+      "type": "string"
+    },
+    "waiver_type": {
+      "type": "string",
+      "enum": [
+        "conditional_progress",
+        "unconditional_progress",
+        "conditional_final",
+        "unconditional_final"
+      ]
+    },
+    "amount": {
+      "type": "number",
+      "default": 0
+    },
+    "through_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "date_received": {
+      "type": "string",
+      "format": "date"
+    },
+    "date_notarized": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_notarized": {
+      "type": "boolean",
+      "default": false
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "received",
+        "verified",
+        "filed"
+      ],
+      "default": "pending"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "subcontract_id",
+    "waiver_type"
+  ]
+}

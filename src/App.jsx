@@ -23,6 +23,7 @@ import ProjectNew from '@/pages/ProjectNew';
 import ProjectDetail from '@/pages/ProjectDetail';
 import ProjectManagement from '@/pages/ProjectManagement';
 import ChangeOrders from '@/pages/ChangeOrders';
+import Subcontracts from '@/pages/Subcontracts';
 import Intelligence from '@/pages/Intelligence';
 import Production from '@/pages/Production';
 import Inventory from '@/pages/Inventory';
@@ -111,6 +112,7 @@ const AuthenticatedApp = () => {
           <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/projects/:id/management" element={<ProjectManagement />} />
           <Route path="/projects/change-orders" element={<ChangeOrders />} />
+          <Route path="/subcontracts" element={<Subcontracts />} />
           <Route path="/estimating" element={<Estimating />} />
           <Route path="/estimating/new" element={<BidNew />} />
           <Route path="/estimating/:id" element={<BidDetail />} />

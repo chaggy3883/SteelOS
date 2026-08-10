@@ -906,6 +906,170 @@ export async function seedDemoData() {
     );
   }
 
+  // 30. Subcontracts, Pay Apps, and Lien Waivers — on the erection project
+  // (costProjects[1]), covering the full scope-to-final-payment lifecycle:
+  // one fully-paid pay app (with both a conditional waiver at submission and
+  // an unconditional waiver once payment cleared — real lien-waiver practice
+  // issues both), one approved-but-unpaid pay app (conditional waiver only,
+  // since payment hasn't cleared yet), and one freshly-received pay app with
+  // no waiver yet, on purpose, so the compliance summary has nothing to flag
+  // for it. Superior Painting's single pay app is deliberately still
+  // unapproved so its subcontract's own insurance/W-9 gaps stay visible too.
+  const [midwestIronworkers, superiorPainting] = await db.entities.Vendor.bulkCreate([
+    { name: 'Midwest Ironworkers LLC', vendor_type: 'subcontractor', is_active: true },
+    { name: 'Superior Painting Co', vendor_type: 'subcontractor', is_active: true },
+  ]);
+
+  const [midwestSubcontract, superiorSubcontract] = await db.entities.Subcontract.bulkCreate([
+    {
+      project_id: costProjects[1].id,
+      vendor_id: midwestIronworkers.id,
+      subcontractor_name: 'Midwest Ironworkers LLC',
+      scope_description: 'Structural steel erection — full building frame, per approved erection drawings.',
+      subcontract_number: `SC-${currentYear}-001`,
+      contract_value: 285000,
+      executed_date: daysFromNow(-45),
+      start_date: daysFromNow(-30),
+      status: 'executed',
+      retention_pct: 0.10,
+      insurance_verified: true,
+      insurance_expiry_date: daysFromNow(300),
+      w9_on_file: true,
+      bonded: false,
+      scope_of_work: 'erection',
+    },
+    {
+      project_id: costProjects[1].id,
+      vendor_id: superiorPainting.id,
+      subcontractor_name: 'Superior Painting Co',
+      scope_description: 'Field touch-up painting for erected structural steel.',
+      subcontract_number: `SC-${currentYear}-002`,
+      contract_value: 42000,
+      executed_date: daysFromNow(-20),
+      start_date: daysFromNow(-10),
+      status: 'active',
+      retention_pct: 0.10,
+      insurance_verified: false,
+      w9_on_file: false,
+      bonded: false,
+      scope_of_work: 'painting',
+    },
+  ]);
+
+  const [midwestPayApp1, midwestPayApp2, midwestPayApp3] = await db.entities.SubcontractPayApp.bulkCreate([
+    {
+      subcontract_id: midwestSubcontract.id,
+      project_id: costProjects[1].id,
+      pay_app_number: 1,
+      period_start: daysFromNow(-28),
+      period_end: daysFromNow(-14),
+      amount_requested: 95000,
+      amount_approved: 95000,
+      retention_held: 9500,
+      status: 'paid',
+      date_received: daysFromNow(-12),
+      date_approved: daysFromNow(-9),
+      date_paid: daysFromNow(-5),
+      lien_waiver_received: true,
+      lien_waiver_type: 'unconditional',
+    },
+    {
+      subcontract_id: midwestSubcontract.id,
+      project_id: costProjects[1].id,
+      pay_app_number: 2,
+      period_start: daysFromNow(-14),
+      period_end: daysFromNow(-1),
+      amount_requested: 85000,
+      amount_approved: 85000,
+      retention_held: 8500,
+      status: 'approved',
+      date_received: daysFromNow(-6),
+      date_approved: daysFromNow(-2),
+      lien_waiver_received: true,
+      lien_waiver_type: 'conditional',
+    },
+    {
+      subcontract_id: midwestSubcontract.id,
+      project_id: costProjects[1].id,
+      pay_app_number: 3,
+      period_start: daysFromNow(-1),
+      period_end: daysFromNow(13),
+      amount_requested: 75000,
+      amount_approved: 0,
+      retention_held: 0,
+      status: 'received',
+      date_received: daysFromNow(0),
+      lien_waiver_received: false,
+      lien_waiver_type: 'none',
+    },
+  ]);
+
+  const superiorPayApp1 = await db.entities.SubcontractPayApp.create({
+    subcontract_id: superiorSubcontract.id,
+    project_id: costProjects[1].id,
+    pay_app_number: 1,
+    period_start: daysFromNow(-10),
+    period_end: daysFromNow(4),
+    amount_requested: 14000,
+    amount_approved: 0,
+    retention_held: 0,
+    status: 'received',
+    date_received: daysFromNow(-3),
+    lien_waiver_received: false,
+    lien_waiver_type: 'none',
+  });
+
+  const lienWaiverSeeds = [
+    {
+      subcontract_id: midwestSubcontract.id,
+      project_id: costProjects[1].id,
+      pay_app_id: midwestPayApp1.id,
+      waiver_type: 'conditional_progress',
+      amount: 95000,
+      through_date: daysFromNow(-14),
+      date_received: daysFromNow(-12),
+      is_notarized: false,
+      status: 'received',
+    },
+    {
+      subcontract_id: midwestSubcontract.id,
+      project_id: costProjects[1].id,
+      pay_app_id: midwestPayApp1.id,
+      waiver_type: 'unconditional_progress',
+      amount: 95000,
+      through_date: daysFromNow(-14),
+      date_received: daysFromNow(-5),
+      date_notarized: daysFromNow(-5),
+      is_notarized: true,
+      status: 'verified',
+    },
+    {
+      subcontract_id: midwestSubcontract.id,
+      project_id: costProjects[1].id,
+      pay_app_id: midwestPayApp2.id,
+      waiver_type: 'conditional_progress',
+      amount: 85000,
+      through_date: daysFromNow(-1),
+      date_received: daysFromNow(-2),
+      is_notarized: false,
+      status: 'received',
+    },
+  ];
+  await db.entities.LienWaiver.bulkCreate(lienWaiverSeeds);
+
+  // Mirrors what the Subcontracts page's "Mark Paid" action does automatically
+  // for Pay App #1, so the demo job cost ledger already reflects it.
+  await db.entities.JobCostLedgerEntry.create({
+    project_id: costProjects[1].id,
+    cost_code: midwestSubcontract.subcontract_number,
+    cost_class: 'SUB',
+    amount: midwestPayApp1.amount_approved,
+    transaction_date: midwestPayApp1.date_paid,
+    source_type: 'subcontract',
+    source_id: midwestPayApp1.id,
+    description: `Midwest Ironworkers LLC Pay App #${midwestPayApp1.pay_app_number}`,
+  });
+
   return {
     skipped: false,
     counts: {
@@ -936,6 +1100,9 @@ export async function seedDemoData() {
       historicalVariances: historicalVarianceSeeds.length,
       recurringCashItems: recurringCashSeeds.length,
       notifications: currentUser ? notificationSeeds.length : 0,
+      subcontracts: 2,
+      subcontractPayApps: 4,
+      lienWaivers: lienWaiverSeeds.length,
     },
   };
 }

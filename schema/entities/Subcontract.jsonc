@@ -1,0 +1,95 @@
+{
+  "name": "Subcontract",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "vendor_id": {
+      "type": "string",
+      "description": "Links to the CRM Vendor record for this subcontractor."
+    },
+    "subcontractor_name": {
+      "type": "string",
+      "description": "Denormalized for display — set from the linked vendor at creation time but editable independently."
+    },
+    "scope_description": {
+      "type": "string"
+    },
+    "subcontract_number": {
+      "type": "string"
+    },
+    "contract_value": {
+      "type": "number",
+      "default": 0
+    },
+    "executed_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "completion_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "executed",
+        "active",
+        "complete",
+        "terminated"
+      ],
+      "default": "draft"
+    },
+    "retention_pct": {
+      "type": "number",
+      "default": 0.10
+    },
+    "insurance_verified": {
+      "type": "boolean",
+      "default": false
+    },
+    "insurance_expiry_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "w9_on_file": {
+      "type": "boolean",
+      "default": false
+    },
+    "bonded": {
+      "type": "boolean",
+      "default": false
+    },
+    "bond_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "scope_of_work": {
+      "type": "string",
+      "enum": [
+        "erection",
+        "painting",
+        "fireproofing",
+        "concrete",
+        "misc"
+      ],
+      "default": "erection"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "subcontractor_name"
+  ]
+}
