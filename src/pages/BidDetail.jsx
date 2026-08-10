@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen } from 'lucide-react';
+import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2 } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import BidProposalPrintView from '@/components/estimating/BidProposalPrintView';
+import PdfViewerModal from '@/components/shared/PdfViewerModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -53,6 +54,9 @@ export default function BidDetail() {
   const [savingEstimate, setSavingEstimate] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [savingEstimator, setSavingEstimator] = useState(false);
+  const [certUploading, setCertUploading] = useState(false);
+  const [certViewerOpen, setCertViewerOpen] = useState(false);
+  const certFileInputRef = useRef(null);
   const takeoffRef = useRef(null);
   const materialRef = useRef(null);
 
@@ -255,6 +259,32 @@ export default function BidDetail() {
     }
   };
 
+  const handleCertFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      toast({ title: 'Please select a PDF file', variant: 'destructive' });
+      return;
+    }
+    setCertUploading(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await db.entities.Bid.update(id, { tax_exempt_certificate_uri: base64 });
+      toast({ title: 'Tax exemption certificate uploaded' });
+      loadBid();
+    } catch (e) {
+      toast({ title: 'Upload failed', description: e?.message || 'Please retry.', variant: 'destructive' });
+    } finally {
+      setCertUploading(false);
+    }
+  };
+
   const isEstimateDirty = () => baseInfoDirty || !!takeoffRef.current?.isDirty?.() || !!materialRef.current?.isDirty?.();
 
   const handleSaveEstimate = async () => {
@@ -429,6 +459,37 @@ export default function BidDetail() {
               <p className="text-xs text-muted-foreground mt-1">Ohio jobs default to 6.75% (Hancock County) when tax is enabled.</p>
             </div>
           )}
+          {!baseInfo.tax_enabled && (
+            <div className="md:col-span-2">
+              <Label>Tax Exemption Certificate</Label>
+              {bid.tax_exempt_certificate_uri ? (
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-600 border border-green-500/20">
+                    <FileCheck2 className="w-3.5 h-3.5" />Certificate on file
+                  </span>
+                  <Button size="sm" variant="outline" onClick={() => setCertViewerOpen(true)}>View</Button>
+                  <Button size="sm" variant="outline" onClick={() => certFileInputRef.current?.click()} disabled={certUploading}>
+                    {certUploading ? 'Uploading…' : 'Replace'}
+                  </Button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => !certUploading && certFileInputRef.current?.click()}
+                  className="mt-1 rounded-lg border-2 border-dashed border-border p-4 flex flex-col items-center justify-center gap-1 text-center cursor-pointer hover:bg-muted/30 transition-colors"
+                >
+                  {certUploading ? (
+                    <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                  ) : (
+                    <>
+                      <Upload className="w-5 h-5 text-muted-foreground" />
+                      <p className="text-xs text-muted-foreground">Click to upload the tax exemption certificate (PDF)</p>
+                    </>
+                  )}
+                </div>
+              )}
+              <input ref={certFileInputRef} type="file" accept="application/pdf" className="hidden" onChange={handleCertFileSelected} />
+            </div>
+          )}
           <div className="md:col-span-2">
             <Label>Joist and Deck Tax Rate (%)</Label>
             <div className="relative mt-1">
@@ -490,6 +551,13 @@ export default function BidDetail() {
         bidId={id}
         bidLabel={bid.job_name}
         onSaved={() => loadBid()}
+      />
+
+      <PdfViewerModal
+        open={certViewerOpen}
+        onOpenChange={setCertViewerOpen}
+        source={bid.tax_exempt_certificate_uri}
+        fileName="Tax Exemption Certificate.pdf"
       />
 
       {/* Tabs */}

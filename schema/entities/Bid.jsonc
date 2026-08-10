@@ -101,6 +101,15 @@
       "type": "number",
       "default": 0.0675
     },
+    "joist_deck_taxable": {
+      "type": "boolean",
+      "default": false,
+      "description": "Joist and deck line items are only taxed when this is explicitly enabled."
+    },
+    "tax_exempt_certificate_uri": {
+      "type": "string",
+      "description": "Uploaded tax exemption certificate file reference (base64 data URI), shown when the bid is tax exempt."
+    },
     "paint_gallons": {
       "type": "number",
       "default": 0

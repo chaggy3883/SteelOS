@@ -75,8 +75,9 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     umbrella: bid?.insurance_umbrella ?? '',
     professional_liability: bid?.insurance_professional_liability ?? '',
   });
-  const [insuranceEnabled, setInsuranceEnabled] = useState(bid?.insurance_enabled ?? true);
+  const [insuranceEnabled, setInsuranceEnabled] = useState(bid?.insurance_enabled ?? false);
   const [bondEnabled, setBondEnabled] = useState(bid?.bond_enabled ?? true);
+  const [joistDeckTaxable, setJoistDeckTaxable] = useState(bid?.joist_deck_taxable ?? false);
   const [dirty, setDirty] = useState(false);
   const [editingCoverageKey, setEditingCoverageKey] = useState(null);
   const [inclusions, setInclusions] = useState(bid?.inclusions || '');
@@ -165,6 +166,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
 
   const updateInsuranceEnabled = (checked) => { setInsuranceEnabled(checked); setDirty(true); };
   const updateBondEnabled = (checked) => { setBondEnabled(checked); setDirty(true); };
+  const updateJoistDeckTaxable = (checked) => { setJoistDeckTaxable(checked); setDirty(true); };
 
   const subtotal = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0), 0);
   const overrideTotal = ['insurance', 'bond', 'procore_pay', 'textura'].reduce((s, k) => s + (parseFloat(overrides[k]) || 0), 0);
@@ -176,7 +178,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     if (ERECTION_CATEGORIES.includes(categoryKey) || categoryKey === 'joist_deck') return sum;
     return sum + Number(line?.total_cost || 0) * calculatedTaxRate;
   }, 0);
-  const joistDeckTaxAmount = Number(lines['joist_deck']?.total_cost || 0) * joistDeckTaxRate;
+  const joistDeckTaxAmount = joistDeckTaxable ? Number(lines['joist_deck']?.total_cost || 0) * joistDeckTaxRate : 0;
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
   const bondAmount = (() => {
     const contractValue = Math.max(0, subtotal + overrideTotal);
@@ -185,7 +187,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     if (contractValue <= 5000000) return contractValue * 0.00486;
     return contractValue * 0.00432;
   })();
-  const insuranceAllocation = 3000 + (parseFloat(insuranceInputs.general_liability) || 0) + (parseFloat(insuranceInputs.umbrella) || 0) + (parseFloat(insuranceInputs.professional_liability) || 0);
+  const insuranceAllocation = (parseFloat(insuranceInputs.general_liability) || 0) + (parseFloat(insuranceInputs.umbrella) || 0) + (parseFloat(insuranceInputs.professional_liability) || 0);
   const includedBondAmount = bondEnabled ? bondAmount : 0;
   const includedInsuranceAllocation = insuranceEnabled ? insuranceAllocation : 0;
   const totalWithTax = grandTotal + taxAmount + includedBondAmount + includedInsuranceAllocation;
@@ -225,6 +227,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         insurance_professional_liability: parseFloat(insuranceInputs.professional_liability) || null,
         bond_override: parseFloat(overrides.bond) || null,
         bond_enabled: bondEnabled,
+        joist_deck_taxable: joistDeckTaxable,
         procore_pay_override: parseFloat(overrides.procore_pay) || null,
         textura_override: parseFloat(overrides.textura) || null,
         leed_level_override: overrides.leed_level || null,
@@ -380,7 +383,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       <div className="steel-card p-5">
         <h4 className="font-semibold mb-1">Administrative Overrides</h4>
         <p className="text-xs text-muted-foreground mb-4">Type over to override calculated values. Overridden cells are highlighted yellow.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
           <div className="flex items-center justify-between rounded-lg border border-border p-3">
             <div>
               <p className="text-sm font-medium">Insurance Allocation</p>
@@ -394,6 +397,13 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
               <p className="text-xs text-muted-foreground">Include bond estimate in Total Cost</p>
             </div>
             <Switch checked={bondEnabled} onCheckedChange={updateBondEnabled} />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <div>
+              <p className="text-sm font-medium">Joist &amp; Deck Taxable</p>
+              <p className="text-xs text-muted-foreground">{joistDeckTaxable ? `Taxed at ${(joistDeckTaxRate * 100).toFixed(2)}%` : 'Tax exempt — no joist/deck tax applied'}</p>
+            </div>
+            <Switch checked={joistDeckTaxable} onCheckedChange={updateJoistDeckTaxable} />
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -481,7 +491,14 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             <span className="font-mono">${includedInsuranceAllocation.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
           <div className="flex justify-between text-sm"><span>Hancock County Tax ({(calculatedTaxRate * 100).toFixed(2)}%)</span><span className="font-mono">${structuralTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
-          <div className="flex justify-between text-sm"><span>Joist &amp; Deck Tax ({(joistDeckTaxRate * 100).toFixed(2)}%)</span><span className="font-mono">${joistDeckTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
+          <div className="flex justify-between text-sm">
+            <span>Joist &amp; Deck Tax{joistDeckTaxable ? ` (${(joistDeckTaxRate * 100).toFixed(2)}%)` : ''}</span>
+            {joistDeckTaxable ? (
+              <span className="font-mono">${joistDeckTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            ) : (
+              <span className="text-xs text-muted-foreground">Tax Exempt</span>
+            )}
+          </div>
           <div className="flex justify-between items-center pt-2 mt-1 border-t border-border">
             <span className="font-bold text-lg">Total Cost</span>
             <span className="font-mono font-bold text-lg text-primary">${totalWithTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
