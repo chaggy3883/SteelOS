@@ -546,19 +546,21 @@ export default function BlueprintTakeoff() {
       setMarkupWeights({});
       setNewTakeoffLinkValue('');
 
-      try {
-        await savePdf(created.id, file);
-        await db.entities.blueprint_takeoffs.update(created.id, { has_stored_pdf: true });
-        setHasStoredPdf(true);
-      } catch (e) {
-        console.error('Failed to store PDF for offline resume', e);
-        setHasStoredPdf(false);
-        setNewSessionError('This session was created, but the PDF could not be stored on this device — reopening it later will restore measurements only, not the drawing.');
-      }
-
       setNewTakeoffName('');
       setMode('workspace');
       loadSessions();
+
+      // Open the workspace immediately — the PDF write to IndexedDB happens
+      // in the background so the user isn't stuck on the sessions screen
+      // waiting for it. has_stored_pdf/hasStoredPdf flip on once it lands.
+      savePdf(created.id, file)
+        .then(() => db.entities.blueprint_takeoffs.update(created.id, { has_stored_pdf: true }))
+        .then(() => setHasStoredPdf(true))
+        .catch((e) => {
+          console.error('Failed to store PDF for offline resume', e);
+          setHasStoredPdf(false);
+          setNewSessionError('This session was created, but the PDF could not be stored on this device — reopening it later will restore measurements only, not the drawing.');
+        });
     } catch (e) {
       console.error('Failed to create takeoff session', e);
       setNewSessionError('Could not create the takeoff session — see console for details.');
@@ -1353,6 +1355,12 @@ export default function BlueprintTakeoff() {
               </>
             )}
           </div>
+
+          {!hasStoredPdf && !newSessionError && !pdfMissingNotice && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="w-3 h-3 animate-spin" />Storing drawing for offline resume…
+            </div>
+          )}
 
           {pdfMissingNotice && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
