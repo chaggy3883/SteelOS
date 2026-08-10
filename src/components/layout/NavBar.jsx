@@ -16,7 +16,7 @@ import {
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
-  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2
+  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2, Crosshair
 } from 'lucide-react';
 
 const navGroups = [
@@ -38,7 +38,7 @@ const navGroups = [
       { icon: Calculator, label: 'Estimating', path: '/estimating' },
       { icon: BarChart3, label: 'Historical Analytics', path: '/estimating/analytics' },
       { icon: FileSearch, label: 'Front-End Spec Review', path: '/estimating/spec-review' },
-      { icon: PackageCheck, label: 'IRONSIGHT', path: '/estimating/blueprint-takeoff' },
+      { icon: Crosshair, label: 'IRONSIGHT', path: '/estimating/blueprint-takeoff' },
       { icon: Building2, label: 'CRM', path: '/crm' },
       { icon: Users, label: 'Relationship Manager', path: '/crm/directory' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
