@@ -7,13 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Truck, PackageCheck, Search } from 'lucide-react';
-
-const PO_STATUS_STYLES = {
-  'Fully Received': 'border-transparent bg-green-500/10 text-green-600',
-  'Partial Receipt': 'border-transparent bg-orange-500/10 text-orange-600',
-};
-const DEFAULT_PO_STATUS_STYLE = 'border-transparent bg-muted text-muted-foreground';
+import { Truck, PackageCheck, Search, Eye } from 'lucide-react';
+import PurchaseOrderDetailModal, { PO_STATUS_STYLES, DEFAULT_PO_STATUS_STYLE } from '@/components/purchasing/PurchaseOrderDetailModal';
 
 const CONDITIONS = ['Good', 'Damaged', 'Short Ship'];
 
@@ -31,6 +26,8 @@ export default function ReceivingKiosk() {
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [looked, setLooked] = useState(false);
+  const [reviewPoId, setReviewPoId] = useState(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const matchedPoRef = useRef(null);
 
   useEffect(() => { loadData(); }, []);
@@ -129,7 +126,6 @@ export default function ReceivingKiosk() {
 
   const totalOrdered = poLines.reduce((sum, l) => sum + (Number(l.quantity_ordered) || 0), 0);
   const totalReceived = poLines.reduce((sum, l) => sum + (Number(l.quantity_received) || 0), 0);
-  const totalLineCost = poLines.reduce((sum, l) => sum + (Number(l.line_total) || 0), 0);
   const progressPct = totalOrdered > 0 ? Math.round((totalReceived / totalOrdered) * 100) : 0;
   const hasReceiveQty = poLines.some(l => Number(lineInputs[l.id]?.receiveNow || 0) > 0);
 
@@ -250,12 +246,23 @@ export default function ReceivingKiosk() {
                     <p className="text-xs font-medium mb-1 text-right">{qtyReceived} of {qtyOrdered} received</p>
                     <Progress value={pct} className="h-1.5" />
                   </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 flex-shrink-0"
+                    title="Review PO"
+                    onClick={(e) => { e.stopPropagation(); setReviewPoId(po.id); setReviewOpen(true); }}
+                  >
+                    <Eye className="w-4 h-4" />
+                  </Button>
                 </div>
               );
             })}
           </div>
         )}
       </div>
+
+      <PurchaseOrderDetailModal open={reviewOpen} onOpenChange={setReviewOpen} poId={reviewPoId} showCosts={false} />
 
       <div className="steel-card p-6 mb-6 space-y-4">
         <div>
@@ -290,10 +297,6 @@ export default function ReceivingKiosk() {
               </div>
               <p className="text-sm text-muted-foreground">{matchedPo.vendor_name} · {project?.name || 'No project linked'}</p>
               <p className="text-sm text-muted-foreground">Payment Terms: {matchedPo.payment_terms || '—'}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">PO Total</p>
-              <p className="text-2xl font-bold">${totalLineCost.toLocaleString()}</p>
             </div>
           </div>
 

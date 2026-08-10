@@ -9,6 +9,7 @@ import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import { Plus, Truck, ClipboardCheck, FileText, DollarSign, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { generateQrPayload } from '@/lib/qrSerialization';
+import PurchaseOrderDetailModal from '@/components/purchasing/PurchaseOrderDetailModal';
 
 const AUTO_APPROVE_THRESHOLD = 5000;
 
@@ -29,6 +30,8 @@ export default function ProcurementModule() {
   const [receivingForm, setReceivingForm] = useState({ po_number: '', quantity_ordered: '', quantity_received: '', material_heat_number: '', delivery_status: 'Received Complete', verified: false });
   const [receivingFiles, setReceivingFiles] = useState([]);
   const [invoiceForm, setInvoiceForm] = useState({ invoice_number: '', po_id: '', invoice_amount: '', quantity_received: '', expected_cost: '', expected_quantity: '' });
+  const [detailPoId, setDetailPoId] = useState(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
@@ -251,7 +254,11 @@ export default function ProcurementModule() {
                 </thead>
                 <tbody>
                   {purchaseOrders.map((order) => (
-                    <tr key={order.id} className="border-b border-border/50">
+                    <tr
+                      key={order.id}
+                      className="border-b border-border/50 cursor-pointer hover:bg-muted/50"
+                      onClick={() => { setDetailPoId(order.id); setDetailOpen(true); }}
+                    >
                       <td className="py-3 px-4 font-medium">{order.po_number}</td>
                       <td className="py-3 px-4">{order.vendor_name}</td>
                       <td className="py-3 px-4">{order.material_category}</td>
@@ -361,8 +368,16 @@ export default function ProcurementModule() {
           </form>
 
           <div className="space-y-3">
-            {receivingLogs.map((item) => (
-              <div key={item.id} className="steel-card p-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            {receivingLogs.map((item) => {
+              // Older logs (e.g. created before po_id was tracked) only carry
+              // po_number — fall back to matching that against the loaded POs.
+              const resolvedPoId = item.po_id || purchaseOrders.find((po) => po.po_number === item.po_number)?.id || null;
+              return (
+              <div
+                key={item.id}
+                className={`steel-card p-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between ${resolvedPoId ? 'cursor-pointer hover:bg-muted/50' : ''}`}
+                onClick={resolvedPoId ? () => { setDetailPoId(resolvedPoId); setDetailOpen(true); } : undefined}
+              >
                 <div>
                   <p className="font-medium">{item.po_number}</p>
                   <p className="text-sm text-muted-foreground">Heat {item.material_heat_number || '—'} • {item.packing_list || 'Packing list pending'}</p>
@@ -373,7 +388,8 @@ export default function ProcurementModule() {
                   <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">{item.quantity_received}/{item.quantity_ordered} received</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </TabsContent>
 
@@ -428,6 +444,8 @@ export default function ProcurementModule() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <PurchaseOrderDetailModal open={detailOpen} onOpenChange={setDetailOpen} poId={detailPoId} showCosts />
     </div>
   );
 }
