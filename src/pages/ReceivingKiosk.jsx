@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,7 @@ export default function ReceivingKiosk() {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [allPoLines, setAllPoLines] = useState([]);
   const [recentLogs, setRecentLogs] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [poNumberInput, setPoNumberInput] = useState('');
   const [matchedPo, setMatchedPo] = useState(null);
   const [poLines, setPoLines] = useState([]);
@@ -30,19 +31,26 @@ export default function ReceivingKiosk() {
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [looked, setLooked] = useState(false);
+  const matchedPoRef = useRef(null);
 
   useEffect(() => { loadData(); }, []);
 
+  useEffect(() => {
+    if (matchedPo) matchedPoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [matchedPo]);
+
   const loadData = async () => {
     try {
-      const [poList, logList, lineList] = await Promise.all([
+      const [poList, logList, lineList, projectList] = await Promise.all([
         db.entities.purchase_orders.list('-created_date', 100),
         db.entities.receiving_logs.list('-created_date', 10),
         db.entities.purchase_order_lines.list('-created_date', 500),
+        db.entities.Project.filter({ is_archived: false }, 'name', 200),
       ]);
       setPurchaseOrders(poList);
       setRecentLogs(logList);
       setAllPoLines(lineList);
+      setProjects(projectList);
     } catch (e) {}
   };
 
@@ -53,6 +61,25 @@ export default function ReceivingKiosk() {
       inputs[line.id] = { receiveNow: remaining, heatNumber: '', condition: 'Good' };
     });
     return inputs;
+  };
+
+  // Shared by the exact-number lookup below and the Receiving Queue rows —
+  // both just need to land on the same matched-PO detail view once a PO is
+  // identified, whether that PO came from a typed number or a queue click.
+  const loadPo = async (po) => {
+    setMatchedPo(po);
+    try {
+      const [lines, proj] = await Promise.all([
+        db.entities.purchase_order_lines.filter({ po_id: po.id }, 'line_number', 200),
+        po.project_id ? db.entities.Project.get(po.project_id) : Promise.resolve(null),
+      ]);
+      setPoLines(lines);
+      setProject(proj);
+      setLineInputs(buildLineInputs(lines));
+    } catch (e) {
+      setPoLines([]);
+      setLineInputs({});
+    }
   };
 
   const handleLookup = async () => {
@@ -66,20 +93,35 @@ export default function ReceivingKiosk() {
       toast({ title: 'No matching PO found', variant: 'destructive' });
       return;
     }
-    setMatchedPo(match);
-    try {
-      const [lines, proj] = await Promise.all([
-        db.entities.purchase_order_lines.filter({ po_id: match.id }, 'line_number', 200),
-        match.project_id ? db.entities.Project.get(match.project_id) : Promise.resolve(null),
-      ]);
-      setPoLines(lines);
-      setProject(proj);
-      setLineInputs(buildLineInputs(lines));
-    } catch (e) {
-      setPoLines([]);
-      setLineInputs({});
-    }
+    await loadPo(match);
   };
+
+  // Grouped once here rather than re-filtering allPoLines per queue row.
+  const poLinesByPoId = useMemo(() => {
+    const map = {};
+    allPoLines.forEach((line) => {
+      if (!map[line.po_id]) map[line.po_id] = [];
+      map[line.po_id].push(line);
+    });
+    return map;
+  }, [allPoLines]);
+
+  const projectById = (id) => projects.find((p) => p.id === id);
+
+  // 'Partial Receipt' surfaces first (work already in progress), then
+  // 'Open', each group oldest-ordered first. No order_date field exists on
+  // purchase_orders, so created_date stands in for it.
+  const receivingQueue = useMemo(() => {
+    const STATUS_ORDER = { 'Partial Receipt': 0, Open: 1 };
+    return purchaseOrders
+      .filter((po) => (po.status || 'Open') !== 'Fully Received')
+      .sort((a, b) => {
+        const statusA = STATUS_ORDER[a.status || 'Open'] ?? 1;
+        const statusB = STATUS_ORDER[b.status || 'Open'] ?? 1;
+        if (statusA !== statusB) return statusA - statusB;
+        return new Date(a.created_date || 0) - new Date(b.created_date || 0);
+      });
+  }, [purchaseOrders]);
 
   const updateLineInput = (lineId, field, value) => {
     setLineInputs(prev => ({ ...prev, [lineId]: { ...prev[lineId], [field]: value } }));
@@ -176,6 +218,45 @@ export default function ReceivingKiosk() {
         </div>
       </div>
 
+      <div className="steel-card p-6 mb-6">
+        <h3 className="font-semibold mb-3 text-lg">Receiving Queue ({receivingQueue.length})</h3>
+        {receivingQueue.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No open purchase orders — everything is fully received.</p>
+        ) : (
+          <div className="space-y-2">
+            {receivingQueue.map((po) => {
+              const lines = poLinesByPoId[po.id] || [];
+              const qtyOrdered = lines.reduce((sum, l) => sum + (Number(l.quantity_ordered) || 0), 0);
+              const qtyReceived = lines.reduce((sum, l) => sum + (Number(l.quantity_received) || 0), 0);
+              const pct = qtyOrdered > 0 ? Math.round((qtyReceived / qtyOrdered) * 100) : 0;
+              const isActive = matchedPo?.id === po.id;
+              return (
+                <div
+                  key={po.id}
+                  onClick={() => loadPo(po)}
+                  className={`flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-muted/50 ${isActive ? 'ring-2 ring-primary bg-primary/5 border-transparent' : 'border-border'}`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold">{po.po_number}</p>
+                      <Badge className={PO_STATUS_STYLES[po.status] || DEFAULT_PO_STATUS_STYLE}>{po.status || 'Open'}</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {po.vendor_name || 'Unknown vendor'} · {projectById(po.project_id)?.name || 'No project linked'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Ordered {po.created_date ? new Date(po.created_date).toLocaleDateString() : '—'}</p>
+                  </div>
+                  <div className="w-full sm:w-44 flex-shrink-0">
+                    <p className="text-xs font-medium mb-1 text-right">{qtyReceived} of {qtyOrdered} received</p>
+                    <Progress value={pct} className="h-1.5" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="steel-card p-6 mb-6 space-y-4">
         <div>
           <Label className="text-base">PO Number</Label>
@@ -198,7 +279,7 @@ export default function ReceivingKiosk() {
       </div>
 
       {matchedPo && (
-        <div className="steel-card p-6 mb-6 space-y-5">
+        <div ref={matchedPoRef} className="steel-card p-6 mb-6 space-y-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 mb-1">
