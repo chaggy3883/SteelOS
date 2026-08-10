@@ -16,7 +16,7 @@ import {
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
-  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature
+  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2
 } from 'lucide-react';
 
 const navGroups = [
@@ -51,6 +51,7 @@ const navGroups = [
       { icon: FolderKanban, label: 'Projects', path: '/projects' },
       { icon: FileEdit, label: 'Change Orders', path: '/projects/change-orders' },
       { icon: FileSignature, label: 'Subcontracts', path: '/subcontracts' },
+      { icon: FileCheck2, label: 'Certified Payroll', path: '/certified-payroll' },
       { icon: Factory, label: 'Production', path: '/production' },
       { icon: Truck, label: 'Shipping', path: '/shipping' },
       { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },

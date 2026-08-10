@@ -159,6 +159,16 @@
     "local_server_path": {
       "type": "string",
       "default": ""
+    },
+    "is_prevailing_wage": {
+      "type": "boolean",
+      "default": false
+    },
+    "wage_determination_number": {
+      "type": "string"
+    },
+    "prevailing_wage_jurisdiction": {
+      "type": "string"
     }
   },
   "required": [

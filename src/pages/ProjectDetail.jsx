@@ -8,6 +8,10 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import StatusBadge from '@/components/ui/StatusBadge';
 import StatsCard from '@/components/ui/StatsCard';
 import FileExplorer from '@/components/documents/FileExplorer';
@@ -45,6 +49,9 @@ export default function ProjectDetail() {
   const [subcontracts, setSubcontracts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [markingAwarded, setMarkingAwarded] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => { if (id) loadAll(); }, [id]);
 
@@ -102,6 +109,29 @@ export default function ProjectDetail() {
     }
   };
 
+  const openEdit = () => {
+    setEditForm({
+      is_prevailing_wage: project.is_prevailing_wage || false,
+      wage_determination_number: project.wage_determination_number || '',
+      prevailing_wage_jurisdiction: project.prevailing_wage_jurisdiction || '',
+    });
+    setEditOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    setSavingEdit(true);
+    try {
+      const updated = await db.entities.Project.update(id, editForm);
+      setProject(updated);
+      setEditOpen(false);
+      toast({ title: 'Project updated' });
+    } catch (e) {
+      toast({ title: 'Unable to save changes', variant: 'destructive' });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -138,7 +168,12 @@ export default function ProjectDetail() {
             <StatusBadge status={project.status} />
             <StatusBadge status={project.risk_level || 'low'} />
           </div>
-          <h1 className="text-2xl font-bold">{project.name}</h1>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            {project.name}
+            {project.is_prevailing_wage && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-500/10 text-purple-600 border border-purple-500/20">Prevailing Wage</span>
+            )}
+          </h1>
           <p className="text-muted-foreground">{project.customer_name || 'No customer assigned'}</p>
         </div>
         <div className="flex gap-2">
@@ -157,7 +192,7 @@ export default function ProjectDetail() {
               <Gavel className="w-4 h-4" /> {markingAwarded ? 'Marking…' : 'Mark Awarded'}
             </Button>
           )}
-          <Button className="steel-gradient text-white border-0 gap-2">
+          <Button className="steel-gradient text-white border-0 gap-2" onClick={openEdit}>
             <Edit className="w-4 h-4" /> Edit
           </Button>
         </div>
@@ -400,6 +435,39 @@ export default function ProjectDetail() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Project — Prevailing Wage</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div>
+                <p className="text-sm font-medium">Prevailing Wage Project</p>
+                <p className="text-xs text-muted-foreground">Requires certified payroll (WH-347) from erection subcontractors</p>
+              </div>
+              <Switch checked={editForm.is_prevailing_wage} onCheckedChange={(c) => setEditForm((f) => ({ ...f, is_prevailing_wage: c }))} />
+            </div>
+            {editForm.is_prevailing_wage && (
+              <>
+                <div>
+                  <Label>Wage Determination Number</Label>
+                  <Input value={editForm.wage_determination_number} onChange={(e) => setEditForm((f) => ({ ...f, wage_determination_number: e.target.value }))} className="mt-1" placeholder="e.g. OH-2024-001" />
+                </div>
+                <div>
+                  <Label>Jurisdiction</Label>
+                  <Input value={editForm.prevailing_wage_jurisdiction} onChange={(e) => setEditForm((f) => ({ ...f, prevailing_wage_jurisdiction: e.target.value }))} className="mt-1" placeholder="e.g. Ohio" />
+                </div>
+              </>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+              <Button onClick={handleSaveEdit} disabled={savingEdit} className="steel-gradient text-white border-0">
+                {savingEdit ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

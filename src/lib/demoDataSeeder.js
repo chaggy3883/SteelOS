@@ -1110,6 +1110,84 @@ export async function seedDemoData() {
     description: `Midwest Ironworkers LLC Pay App #${midwestPayApp1.pay_app_number}`,
   });
 
+  // 31. Certified Payroll — the erection project (costProjects[1], already
+  // hosting Midwest/Superior above) is flagged prevailing wage so its WH-347
+  // submissions have somewhere real to line up against. Midwest's weeks 1-3
+  // land inside Pay App #1's period and are fully accepted/verified; week 4
+  // lands inside Pay App #2's period and is still just received (matching
+  // Pay App #2's own "approved but no lien waiver sync yet" incompleteness
+  // above). Superior's deficient submission falls inside its one pay app's
+  // period, so the Subcontracts page's CPR warning has a real case to catch.
+  await db.entities.Project.update(costProjects[1].id, {
+    is_prevailing_wage: true,
+    wage_determination_number: 'OH-2024-001',
+    prevailing_wage_jurisdiction: 'Ohio',
+  });
+
+  await db.entities.CertifiedPayrollSubmission.bulkCreate([
+    {
+      project_id: costProjects[1].id,
+      subcontract_id: midwestSubcontract.id,
+      subcontractor_name: 'Midwest Ironworkers LLC',
+      week_ending_date: daysFromNow(-23),
+      submission_number: 1,
+      date_received: daysFromNow(-20),
+      status: 'accepted',
+      fringe_benefits_verified: true,
+      classifications_verified: true,
+      hours_verified: true,
+    },
+    {
+      project_id: costProjects[1].id,
+      subcontract_id: midwestSubcontract.id,
+      subcontractor_name: 'Midwest Ironworkers LLC',
+      week_ending_date: daysFromNow(-16),
+      submission_number: 2,
+      date_received: daysFromNow(-13),
+      status: 'accepted',
+      fringe_benefits_verified: true,
+      classifications_verified: true,
+      hours_verified: true,
+    },
+    {
+      project_id: costProjects[1].id,
+      subcontract_id: midwestSubcontract.id,
+      subcontractor_name: 'Midwest Ironworkers LLC',
+      week_ending_date: daysFromNow(-9),
+      submission_number: 3,
+      date_received: daysFromNow(-6),
+      status: 'accepted',
+      fringe_benefits_verified: true,
+      classifications_verified: true,
+      hours_verified: true,
+    },
+    {
+      project_id: costProjects[1].id,
+      subcontract_id: midwestSubcontract.id,
+      subcontractor_name: 'Midwest Ironworkers LLC',
+      week_ending_date: daysFromNow(-2),
+      submission_number: 4,
+      date_received: daysFromNow(-1),
+      status: 'received',
+      fringe_benefits_verified: false,
+      classifications_verified: false,
+      hours_verified: false,
+    },
+    {
+      project_id: costProjects[1].id,
+      subcontract_id: superiorSubcontract.id,
+      subcontractor_name: 'Superior Painting Co',
+      week_ending_date: daysFromNow(-3),
+      submission_number: 1,
+      date_received: daysFromNow(-1),
+      status: 'deficient',
+      deficiency_notes: 'Missing fringe benefits documentation — resubmit with fringe benefit statement attached.',
+      fringe_benefits_verified: false,
+      classifications_verified: true,
+      hours_verified: true,
+    },
+  ]);
+
   return {
     skipped: false,
     counts: {
@@ -1144,6 +1222,7 @@ export async function seedDemoData() {
       subcontracts: 2,
       subcontractPayApps: 4,
       lienWaivers: lienWaiverSeeds.length,
+      certifiedPayrollSubmissions: 5,
     },
   };
 }

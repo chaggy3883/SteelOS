@@ -1,0 +1,68 @@
+{
+  "name": "CertifiedPayrollSubmission",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "subcontract_id": {
+      "type": "string"
+    },
+    "subcontractor_name": {
+      "type": "string"
+    },
+    "week_ending_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "submission_number": {
+      "type": "number",
+      "default": 1,
+      "description": "Sequential per subcontractor per project."
+    },
+    "date_received": {
+      "type": "string",
+      "format": "date"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "received",
+        "deficient",
+        "accepted",
+        "filed"
+      ],
+      "default": "pending"
+    },
+    "deficiency_notes": {
+      "type": "string"
+    },
+    "fringe_benefits_verified": {
+      "type": "boolean",
+      "default": false
+    },
+    "classifications_verified": {
+      "type": "boolean",
+      "default": false
+    },
+    "hours_verified": {
+      "type": "boolean",
+      "default": false
+    },
+    "document_uri": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "subcontractor_name",
+    "week_ending_date"
+  ]
+}

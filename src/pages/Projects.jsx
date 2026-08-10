@@ -157,7 +157,12 @@ export default function Projects() {
 
               {/* Project Name */}
               <Link to={`/projects/${project.id}`}>
-                <h3 className="font-semibold text-base mb-1 hover:text-primary transition-colors line-clamp-2">{project.name}</h3>
+                <h3 className="font-semibold text-base mb-1 hover:text-primary transition-colors line-clamp-2 flex items-center gap-1.5">
+                  {project.name}
+                  {project.is_prevailing_wage && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-600 border border-purple-500/20 flex-shrink-0">Prevailing Wage</span>
+                  )}
+                </h3>
               </Link>
               <p className="text-sm text-muted-foreground mb-3">{project.customer_name || 'No customer assigned'}</p>
 

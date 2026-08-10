@@ -69,6 +69,7 @@ export default function Subcontracts() {
   const [waivers, setWaivers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [certifiedPayrollSubmissions, setCertifiedPayrollSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadData(); }, []);
@@ -76,18 +77,20 @@ export default function Subcontracts() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [scList, paList, lwList, projList, vendorList] = await Promise.all([
+      const [scList, paList, lwList, projList, vendorList, cprList] = await Promise.all([
         db.entities.Subcontract.list('-created_date', 200),
         db.entities.SubcontractPayApp.list('-created_date', 500),
         db.entities.LienWaiver.list('-created_date', 500),
         db.entities.Project.filter({ is_archived: false }, 'name', 100),
         db.entities.Vendor.filter({ is_active: true }, 'name', 200),
+        db.entities.CertifiedPayrollSubmission.list('-week_ending_date', 1000),
       ]);
       setSubcontracts(scList);
       setPayApps(paList);
       setWaivers(lwList);
       setProjects(projList);
       setVendors(vendorList);
+      setCertifiedPayrollSubmissions(cprList);
     } catch (e) {
       console.error('Failed to load subcontract data', e);
     } finally {
@@ -97,6 +100,26 @@ export default function Subcontracts() {
 
   const projectById = (id) => projects.find((p) => p.id === id);
   const subcontractById = (id) => subcontracts.find((s) => s.id === id);
+
+  // Certified payroll (WH-347) is only a concept on prevailing wage projects.
+  // 'missing' — no submission overlaps this pay app's period; 'deficient' —
+  // one does but Hancock flagged it; 'ok' — a clean submission covers it.
+  const getCprStatus = (payApp) => {
+    const proj = projectById(payApp.project_id);
+    if (!proj?.is_prevailing_wage) return null;
+    const sc = subcontractById(payApp.subcontract_id);
+    const matches = certifiedPayrollSubmissions.filter((s) => {
+      if (s.project_id !== payApp.project_id) return false;
+      if (s.subcontract_id !== payApp.subcontract_id && s.subcontractor_name !== sc?.subcontractor_name) return false;
+      if (payApp.period_start && payApp.period_end) {
+        return s.week_ending_date >= payApp.period_start && s.week_ending_date <= payApp.period_end;
+      }
+      return true;
+    });
+    if (matches.length === 0) return 'missing';
+    if (matches.some((s) => s.status === 'deficient')) return 'deficient';
+    return 'ok';
+  };
 
   // ============ TAB 1 — Subcontracts ============
   const [scProjectFilter, setScProjectFilter] = useState(initialProjectFilter);
@@ -289,6 +312,15 @@ export default function Subcontracts() {
   };
 
   const handleQuickApprove = async (payApp) => {
+    const cprStatus = getCprStatus(payApp);
+    if (cprStatus === 'missing' || cprStatus === 'deficient') {
+      const proceed = window.confirm(
+        cprStatus === 'missing'
+          ? 'This is a prevailing wage project and no certified payroll (WH-347) submission is on file for this pay period. Approve anyway?'
+          : 'This is a prevailing wage project and the certified payroll submission for this pay period is marked deficient. Approve anyway?'
+      );
+      if (!proceed) return;
+    }
     setPayAppActionLoading(payApp.id);
     try {
       const updated = await db.entities.SubcontractPayApp.update(payApp.id, {
@@ -647,13 +679,15 @@ export default function Subcontracts() {
                   <th className="text-right py-2 px-3">Approved</th>
                   <th className="text-left py-2 px-3">Status</th>
                   <th className="text-left py-2 px-3">Lien Waiver</th>
+                  <th className="text-left py-2 px-3">CPR</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredPayApps.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-12 text-sm text-muted-foreground">No pay applications found</td></tr>
+                  <tr><td colSpan={9} className="text-center py-12 text-sm text-muted-foreground">No pay applications found</td></tr>
                 ) : filteredPayApps.map((p) => {
                   const sc = subcontractById(p.subcontract_id);
+                  const cprStatus = getCprStatus(p);
                   return (
                     <tr key={p.id} onClick={() => { setSelectedPayApp(p); setEditingPayApp(false); }} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
                       <td className="py-2 px-3 font-mono font-medium">{sc?.subcontract_number || '—'}</td>
@@ -668,6 +702,17 @@ export default function Subcontracts() {
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border bg-green-500/10 text-green-600 border-green-500/20"><CheckCircle2 className="w-3 h-3 mr-1" />{titleCase(p.lien_waiver_type)}</span>
                         ) : (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border bg-red-500/10 text-red-500 border-red-500/20"><XCircle className="w-3 h-3 mr-1" />None</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3">
+                        {cprStatus == null ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border bg-purple-500/10 text-purple-600 border-purple-500/20">CPR Required</span>
+                            {cprStatus === 'missing' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border bg-red-500/10 text-red-500 border-red-500/20"><AlertTriangle className="w-3 h-3" />Missing</span>}
+                            {cprStatus === 'deficient' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border bg-red-500/10 text-red-500 border-red-500/20"><AlertTriangle className="w-3 h-3" />Deficient</span>}
+                          </div>
                         )}
                       </td>
                     </tr>
