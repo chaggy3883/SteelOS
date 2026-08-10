@@ -4,6 +4,7 @@ import { Calculator, Gauge, Clock3, Save, Plus, Trash2, Minus, Download, FileDow
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { SHAPE_CLASSES, getShapeClass, estimateWeightPerFt } from '@/data/steelShapeSelector';
@@ -72,6 +73,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
           length_ft: r.length_ft ?? r.length_decimal_ft ?? '',
           quantity: r.quantity ?? '',
           coating_type: r.coating_type || 'No Coating',
+          source: r.source || 'manual',
         };
       }) : [emptyRow()]);
     } catch (e) {
@@ -227,6 +229,11 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
             const calc = calcs[idx];
             return (
               <div key={idx} className="grid grid-cols-12 gap-2 items-end rounded-lg border border-border p-2">
+                {row.source === 'ironsight' && (
+                  <div className="col-span-12">
+                    <Badge variant="outline" className="text-blue-600 border-blue-300 text-[10px]">IRONSIGHT</Badge>
+                  </div>
+                )}
                 <div className="col-span-6 sm:col-span-3">
                   <Label className="text-xs">Shape Classification Type</Label>
                   <Select value={row.shape_class} onValueChange={(v) => updateRow(idx, 'shape_class', v)}>

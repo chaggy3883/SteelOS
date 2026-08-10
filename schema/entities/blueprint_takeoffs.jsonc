@@ -151,6 +151,15 @@
           },
           "area_sq_ft": {
             "type": "number"
+          },
+          "pushed_to_estimate": {
+            "type": "boolean",
+            "default": false,
+            "description": "Set once this row's markup group has been pushed to a MaterialTakeoffLine record — drives the green checkmark / Re-push state in the Markups List."
+          },
+          "pushed_material_line_id": {
+            "type": "string",
+            "description": "id of the MaterialTakeoffLine record this row's markup group was pushed to. Re-pushing updates this record instead of creating a duplicate."
           }
         }
       }

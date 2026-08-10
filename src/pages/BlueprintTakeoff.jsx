@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useOutletContext, useParams } from 'react-router-dom';
+import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { db } from '@/api/apiClient';
 import { simulateAiBatchTakeoff } from '@/lib/aiIntelligenceEngine';
@@ -16,7 +16,7 @@ import {
   Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical, FileDown,
   Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
   MousePointer2, MousePointerClick, Wrench, ChevronDown, ChevronUp,
-  Shapes, ScanSearch, Check, X,
+  Shapes, ScanSearch, Check, X, Link2, ExternalLink, ListChecks, Grid3x3,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
@@ -24,6 +24,7 @@ import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 import { writeBidRecapCells, downloadWorkbook } from '@/lib/bidRecapXlsxExport';
 import { buildBidRecapWrites } from '@/lib/bidRecapMapping';
 import BlueprintCanvas from '@/components/estimating/BlueprintCanvas';
+import MarkupsList from '@/components/estimating/MarkupsList';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
@@ -76,6 +77,7 @@ const DEMO_ROWS = [
 export default function BlueprintTakeoff() {
   const { user } = useOutletContext() || {};
   const { id: bidId } = useParams();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [bid, setBid] = useState(null);
   const [estimatorFullName, setEstimatorFullName] = useState('');
@@ -105,6 +107,19 @@ export default function BlueprintTakeoff() {
   const [excelExportError, setExcelExportError] = useState(null);
   const [takeoffName, setTakeoffName] = useState('');
   const [hasStoredPdf, setHasStoredPdf] = useState(false);
+
+  // Part 3 — which Bid/Project (if any) the currently-open session is linked
+  // to. activeBids/activeProjects back every "link to a bid or project"
+  // picker in this file (sessions list, workspace header, new-takeoff form)
+  // and MarkupsList's own push-time link prompt.
+  const [sessionBidId, setSessionBidId] = useState(null);
+  const [sessionProjectId, setSessionProjectId] = useState(null);
+  const [activeBids, setActiveBids] = useState([]);
+  const [activeProjects, setActiveProjects] = useState([]);
+  const [newTakeoffLinkValue, setNewTakeoffLinkValue] = useState('');
+  const [sessionLinkDraft, setSessionLinkDraft] = useState({});
+  const [workspaceLinkDraft, setWorkspaceLinkDraft] = useState('');
+  const [gridView, setGridView] = useState('takeoff');
 
   // Two-point scale calibration. calibrationPoints are stored in PDF space
   // (scale=1) so they stay valid across zoom/pan; canvasScale mirrors
@@ -208,14 +223,17 @@ export default function BlueprintTakeoff() {
       });
       const withLabels = await Promise.all(sorted.map(async (t) => {
         let linkedLabel = '';
+        let linkedType = null;
         if (t.project_id) {
           const project = await db.entities.Project.get(t.project_id).catch(() => null);
           linkedLabel = project?.name || '';
+          linkedType = 'project';
         } else if (t.bid_id) {
           const linkedBid = await db.entities.Bid.get(t.bid_id).catch(() => null);
           linkedLabel = linkedBid?.job_name || (linkedBid?.bid_number ? `Bid ${linkedBid.bid_number}` : '');
+          linkedType = 'bid';
         }
-        return { ...t, _linkedLabel: linkedLabel };
+        return { ...t, _linkedLabel: linkedLabel, _linkedType: linkedType, _linkedId: t.project_id || t.bid_id || null };
       }));
       setSessions(withLabels);
     } catch (e) {
@@ -229,6 +247,71 @@ export default function BlueprintTakeoff() {
   useEffect(() => {
     loadSessions();
   }, [user?.company_id]);
+
+  const loadLinkTargets = async () => {
+    if (!user?.company_id) { setActiveBids([]); setActiveProjects([]); return; }
+    try {
+      const [bidsList, projectsList] = await Promise.all([
+        db.entities.Bid.filter({ company_id: user.company_id }, '-created_date', 500),
+        db.entities.Project.filter({ company_id: user.company_id }, '-created_date', 500),
+      ]);
+      setActiveBids(bidsList.filter((b) => !b.is_archived));
+      setActiveProjects(projectsList.filter((p) => !p.is_archived));
+    } catch (e) {
+      console.error('Failed to load bids/projects for linking', e);
+      setActiveBids([]);
+      setActiveProjects([]);
+    }
+  };
+
+  useEffect(() => {
+    loadLinkTargets();
+  }, [user?.company_id]);
+
+  // Persists a takeoff's bid_id/project_id link (mutually exclusive — linking
+  // to one clears the other) and, when it's the currently-open session,
+  // mirrors it into sessionBidId/sessionProjectId so the workspace header and
+  // MarkupsList see the new link immediately.
+  const persistTakeoffLink = async (targetTakeoffId, newBidId, newProjectId) => {
+    await db.entities.blueprint_takeoffs.update(targetTakeoffId, {
+      bid_id: newBidId || null,
+      project_id: newBidId ? null : (newProjectId || null),
+    });
+    if (targetTakeoffId === takeoffId) {
+      setSessionBidId(newBidId || null);
+      setSessionProjectId(newBidId ? null : (newProjectId || null));
+    }
+    await loadSessions();
+  };
+
+  const parseLinkValue = (value) => {
+    const [kind, id] = String(value || '').split(':');
+    return { bid_id: kind === 'bid' ? id : null, project_id: kind === 'project' ? id : null };
+  };
+
+  const handleLinkSessionNow = async (sessionId, value) => {
+    setSessionLinkDraft((prev) => ({ ...prev, [sessionId]: value }));
+    const { bid_id, project_id } = parseLinkValue(value);
+    if (!bid_id && !project_id) return;
+    try {
+      await persistTakeoffLink(sessionId, bid_id, project_id);
+    } catch (e) {
+      console.error('Failed to link takeoff session', e);
+      toast({ title: 'Failed to link takeoff', variant: 'destructive' });
+    }
+  };
+
+  const handleLinkWorkspaceNow = async (value) => {
+    setWorkspaceLinkDraft(value);
+    const { bid_id, project_id } = parseLinkValue(value);
+    if (!bid_id && !project_id) return;
+    try {
+      await persistTakeoffLink(takeoffId, bid_id, project_id);
+    } catch (e) {
+      console.error('Failed to link takeoff session', e);
+      toast({ title: 'Failed to link takeoff', variant: 'destructive' });
+    }
+  };
 
   // Debounced so rapid-fire "Add Preset" clicks (or the load-triggered set
   // right after openSession) don't each fire their own write — only the
@@ -268,6 +351,10 @@ export default function BlueprintTakeoff() {
     setCandidateSourceRow(null);
     setVisualSearchLoading(false);
     setVisualSearchError(null);
+    setSessionBidId(null);
+    setSessionProjectId(null);
+    setWorkspaceLinkDraft('');
+    setGridView('takeoff');
   };
 
   const openSession = async (takeoff) => {
@@ -294,6 +381,10 @@ export default function BlueprintTakeoff() {
     setCandidateSourceRow(null);
     setVisualSearchLoading(false);
     setVisualSearchError(null);
+    setSessionBidId(takeoff.bid_id || null);
+    setSessionProjectId(takeoff.bid_id ? null : (takeoff.project_id || null));
+    setWorkspaceLinkDraft('');
+    setGridView('takeoff');
 
     let url = null;
     if (takeoff.has_stored_pdf) {
@@ -349,9 +440,11 @@ export default function BlueprintTakeoff() {
     setCreatingSession(true);
     try {
       const { file_url } = await db.integrations.Core.UploadFile({ file });
+      const pickedLink = bidId ? { bid_id: null, project_id: null } : parseLinkValue(newTakeoffLinkValue);
       const created = await db.entities.blueprint_takeoffs.create({
         company_id: user?.company_id,
-        bid_id: bidId || undefined,
+        bid_id: bidId || pickedLink.bid_id || undefined,
+        project_id: bidId ? undefined : (pickedLink.project_id || undefined),
         takeoff_name: newTakeoffName.trim(),
         file_url,
         file_name: file.name,
@@ -387,6 +480,11 @@ export default function BlueprintTakeoff() {
       setCandidateSourceRow(null);
       setVisualSearchLoading(false);
       setVisualSearchError(null);
+      setSessionBidId(created.bid_id || null);
+      setSessionProjectId(created.bid_id ? null : (created.project_id || null));
+      setWorkspaceLinkDraft('');
+      setGridView('takeoff');
+      setNewTakeoffLinkValue('');
 
       try {
         await savePdf(created.id, file);
@@ -940,7 +1038,26 @@ export default function BlueprintTakeoff() {
                       <CardContent className="p-4 flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-semibold truncate">{s.takeoff_name || s.file_name || 'Untitled takeoff'}</p>
-                          {s._linkedLabel && <p className="text-xs text-primary truncate">{s._linkedLabel}</p>}
+                          {s._linkedLabel ? (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); navigate(s._linkedType === 'project' ? `/projects/${s._linkedId}` : `/estimating/${s._linkedId}`); }}
+                              className="text-xs text-primary truncate hover:underline flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-3 h-3 flex-shrink-0" />{s._linkedLabel}
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-1.5 mt-0.5" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-xs text-muted-foreground">Not linked</span>
+                              <Select value={sessionLinkDraft[s.id] || ''} onValueChange={(v) => handleLinkSessionNow(s.id, v)}>
+                                <SelectTrigger className="h-6 text-[11px] w-32"><SelectValue placeholder="Link now…" /></SelectTrigger>
+                                <SelectContent>
+                                  {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
+                                  {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {itemCount} item{itemCount === 1 ? '' : 's'} · {s.sheet_count || 1} sheet{(s.sheet_count || 1) === 1 ? '' : 's'}
                           </p>
@@ -968,6 +1085,18 @@ export default function BlueprintTakeoff() {
               value={newTakeoffName}
               onChange={(e) => setNewTakeoffName(e.target.value)}
             />
+            {!bidId && (
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Link to Bid or Project (optional)</label>
+                <Select value={newTakeoffLinkValue} onValueChange={setNewTakeoffLinkValue}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Not linked" /></SelectTrigger>
+                  <SelectContent>
+                    {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name} ({b.bid_number})</SelectItem>)}
+                    {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div
               onClick={handleNewDropzoneClick}
               onDrop={handleNewDrop}
@@ -987,6 +1116,32 @@ export default function BlueprintTakeoff() {
 
       {mode === 'workspace' && (
         <>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-semibold truncate">{takeoffName || fileName || 'Untitled takeoff'}</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-xs text-muted-foreground flex items-center gap-1"><Link2 className="w-3 h-3" />Linked to:</span>
+            {sessionBidId ? (
+              <button type="button" onClick={() => navigate(`/estimating/${sessionBidId}`)} className="text-xs text-primary hover:underline flex items-center gap-1">
+                <ExternalLink className="w-3 h-3" />{activeBids.find((b) => b.id === sessionBidId)?.job_name || 'Bid'}
+              </button>
+            ) : sessionProjectId ? (
+              <button type="button" onClick={() => navigate(`/projects/${sessionProjectId}`)} className="text-xs text-primary hover:underline flex items-center gap-1">
+                <ExternalLink className="w-3 h-3" />{activeProjects.find((p) => p.id === sessionProjectId)?.name || 'Project'}
+              </button>
+            ) : (
+              <>
+                <span className="text-xs text-muted-foreground">Not linked</span>
+                <Select value={workspaceLinkDraft} onValueChange={handleLinkWorkspaceNow}>
+                  <SelectTrigger className="h-7 text-xs w-40"><SelectValue placeholder="Link now…" /></SelectTrigger>
+                  <SelectContent>
+                    {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
+                    {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+          </div>
+
           {pdfMissingNotice && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm flex items-center gap-2">
@@ -1268,6 +1423,30 @@ export default function BlueprintTakeoff() {
                   <Button size="sm" variant="outline" onClick={addManualRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Row</Button>
                 </div>
               </div>
+
+              <div className="flex items-center gap-1.5 p-1.5 rounded-lg border bg-muted/20 w-fit">
+                <Button size="sm" variant={gridView === 'takeoff' ? 'default' : 'ghost'} onClick={() => setGridView('takeoff')}>
+                  <Grid3x3 className="w-3.5 h-3.5 mr-1.5" />Takeoff Grid
+                </Button>
+                <Button size="sm" variant={gridView === 'markups' ? 'default' : 'ghost'} onClick={() => setGridView('markups')}>
+                  <ListChecks className="w-3.5 h-3.5 mr-1.5" />Markups List
+                </Button>
+              </div>
+
+              {gridView === 'markups' ? (
+                <MarkupsList
+                  rows={rows}
+                  onRowsChange={(newRows) => { setRows(newRows); persist(newRows); }}
+                  takeoffId={takeoffId}
+                  takeoffName={takeoffName}
+                  fileName={fileName}
+                  companyId={user?.company_id}
+                  bidId={sessionBidId}
+                  projectId={sessionProjectId}
+                  onLink={(newBidId, newProjectId) => persistTakeoffLink(takeoffId, newBidId, newProjectId)}
+                />
+              ) : (
+              <>
               {rows.some((r) => r.is_demo) && (
                 <p className="text-xs font-medium text-amber-600 flex items-center gap-1.5">
                   <FlaskConical className="w-3.5 h-3.5" />Sample rows loaded for layout testing — these are not real blueprint detections and should not be used for an actual bid.
@@ -1394,6 +1573,8 @@ export default function BlueprintTakeoff() {
                   🪙 Total Galvanized Mass: {totalGalvanizedTons.toLocaleString(undefined, { maximumFractionDigits: 2 })} Tons
                 </p>
               </div>
+              </>
+              )}
             </div>
           )}
         </>

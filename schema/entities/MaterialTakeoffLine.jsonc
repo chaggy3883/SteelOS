@@ -8,6 +8,9 @@
     "bid_id": {
       "type": "string"
     },
+    "project_id": {
+      "type": "string"
+    },
     "material_type": {
       "type": "string"
     },
@@ -73,10 +76,22 @@
     },
     "notes": {
       "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "ironsight",
+        "ai_parsed"
+      ],
+      "default": "manual"
+    },
+    "pushed_from_takeoff_id": {
+      "type": "string",
+      "description": "Links back to the blueprint_takeoffs (IRONSIGHT) session this line was pushed from, when source is 'ironsight'."
     }
   },
   "required": [
-    "bid_id",
     "material_type"
   ]
 }
