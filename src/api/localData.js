@@ -1509,6 +1509,10 @@ let pendingSyncTimer = null;
 const SYNC_DEBOUNCE_MS = 250;
 
 const syncStoreToFile = (store) => {
+  // Dev-only: the /__db-sync endpoint is provided by the Vite dev-server
+  // middleware in vite.config.js and does not exist in any production build.
+  // Without this guard every write POSTs the entire store and 405s.
+  if (!import.meta.env?.DEV) return;
   if (typeof fetch !== 'function') return;
   pendingSyncStore = store;
   if (pendingSyncTimer) clearTimeout(pendingSyncTimer);
