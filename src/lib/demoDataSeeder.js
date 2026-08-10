@@ -1,5 +1,18 @@
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
+import { SHAPE_CATALOG } from '@/data/steelShapes';
+import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
+
+// shapeClass is accepted (and required by callers below for readability) but
+// unused here — SHAPE_CATALOG is keyed by material category (beams, columns,
+// hss, ...), not by MaterialTakeoffLine's own shape_class enum, so a lookup
+// by size_designation alone already disambiguates across every category.
+const lookupWeightPerFt = (shapeClass, sizeDesignation) => {
+  const entry = Object.values(SHAPE_CATALOG).find((cat) =>
+    cat.sizes?.some((s) => s.value === sizeDesignation?.toUpperCase())
+  );
+  return entry?.sizes?.find((s) => s.value === sizeDesignation?.toUpperCase())?.weightPerFt || 0;
+};
 
 // Same 10 standard close tasks MonthEndClosePanel.jsx seeds a new period
 // with — kept in lockstep with that list so demo closes look identical to
@@ -207,6 +220,63 @@ export async function seedDemoData() {
     );
   });
   await db.entities.JobCostLedgerEntry.bulkCreate(ledgerPayloads);
+
+  // 6b. Material Takeoff Lines — real weight/area/tonnage math (not
+  // hardcoded numbers) for the 3 won bids behind costProjects, via the same
+  // AISC catalog (steelShapes.js) and paint-area formula (steelShapeMath.js)
+  // FullTakeoff.jsx itself uses. Every size_designation below is verified
+  // against SHAPE_CATALOG's actual keys, not guessed.
+  const takeoffLineSeeds = [
+    { bid: wonBidsForProjects[0], shape_class: 'W-Beam', material_type: 'Wide Flange Beam', material_size: 'W18X35', grade: 'A992', quantity: 12, length_ft: 30, coating_type: 'No Coating' },
+    { bid: wonBidsForProjects[0], shape_class: 'W-Beam', material_type: 'Wide Flange Column', material_size: 'W14X30', grade: 'A992', quantity: 8, length_ft: 24, coating_type: 'No Coating' },
+    { bid: wonBidsForProjects[0], shape_class: 'HSS Tube', material_type: 'HSS Tube', material_size: 'HSS6X6X1/4', grade: 'A500', quantity: 20, length_ft: 14, coating_type: 'Paint' },
+    { bid: wonBidsForProjects[0], shape_class: 'C-Channel', material_type: 'C-Channel', material_size: 'C10X15.3', grade: 'A36', quantity: 6, length_ft: 18, coating_type: 'No Coating' },
+
+    { bid: wonBidsForProjects[1], shape_class: 'W-Beam', material_type: 'Wide Flange Beam', material_size: 'W16X36', grade: 'A992', quantity: 14, length_ft: 32, coating_type: 'No Coating' },
+    { bid: wonBidsForProjects[1], shape_class: 'W-Beam', material_type: 'Wide Flange Column', material_size: 'W14X61', grade: 'A992', quantity: 10, length_ft: 16, coating_type: 'No Coating' },
+    { bid: wonBidsForProjects[1], shape_class: 'HSS Tube', material_type: 'HSS Tube', material_size: 'HSS8X8X3/8', grade: 'A500', quantity: 16, length_ft: 12, coating_type: 'Paint' },
+    { bid: wonBidsForProjects[1], shape_class: 'L-Angle', material_type: 'L-Angle', material_size: 'L4X4X3/8', grade: 'A36', quantity: 24, length_ft: 8, coating_type: 'No Coating' },
+
+    { bid: wonBidsForProjects[2], shape_class: 'W-Beam', material_type: 'Wide Flange Beam', material_size: 'W21X44', grade: 'A992', quantity: 10, length_ft: 28, coating_type: 'No Coating' },
+    { bid: wonBidsForProjects[2], shape_class: 'W-Beam', material_type: 'Wide Flange Column', material_size: 'W12X40', grade: 'A992', quantity: 8, length_ft: 14, coating_type: 'No Coating' },
+    { bid: wonBidsForProjects[2], shape_class: 'HSS Tube', material_type: 'HSS Tube', material_size: 'HSS5X5X3/8', grade: 'A500', quantity: 18, length_ft: 10, coating_type: 'Paint' },
+    { bid: wonBidsForProjects[2], shape_class: 'C-Channel', material_type: 'C-Channel', material_size: 'C8X11.5', grade: 'A36', quantity: 12, length_ft: 16, coating_type: 'No Coating' },
+  ];
+
+  const takeoffLinePayloads = takeoffLineSeeds.map((seed) => {
+    const weightPerFt = lookupWeightPerFt(seed.shape_class, seed.material_size);
+    const tonsPerPiece = (seed.length_ft * weightPerFt) / 2000;
+    const totalTons = (seed.quantity * seed.length_ft * weightPerFt) / 2000;
+    const paintAreaSqIn = calculateSteelSurfaceArea(seed.material_size, seed.length_ft, seed.quantity, []);
+    return {
+      bid_id: seed.bid.id,
+      material_type: seed.material_type,
+      shape_class: seed.shape_class,
+      material_size: seed.material_size,
+      grade: seed.grade,
+      length_ft: seed.length_ft,
+      quantity: seed.quantity,
+      coating_type: seed.coating_type,
+      weight_per_ft: weightPerFt,
+      tons_per_piece: Math.round(tonsPerPiece * 1000) / 1000,
+      total_tons: Math.round(totalTons * 1000) / 1000,
+      paint_area_sq_in: Math.round(paintAreaSqIn),
+    };
+  });
+  await db.entities.MaterialTakeoffLine.bulkCreate(takeoffLinePayloads);
+
+  // Roll each bid's takeoff lines up into its (and its won project's) tonnage
+  // fields instead of leaving them hardcoded/unset — real sums, not guesses.
+  await Promise.all(
+    wonBidsForProjects.slice(0, 3).map(async (bid, i) => {
+      const bidTons = takeoffLinePayloads
+        .filter((l) => l.bid_id === bid.id)
+        .reduce((sum, l) => sum + l.total_tons, 0);
+      const roundedTons = Math.round(bidTons * 100) / 100;
+      await db.entities.Bid.update(bid.id, { estimated_tons: roundedTons, total_weight_tons: roundedTons });
+      await db.entities.Project.update(costProjects[i].id, { estimated_tons: roundedTons });
+    })
+  );
 
   // 7. Bank accounts
   const [operatingAccount, payrollAccount] = await db.entities.BankAccount.bulkCreate([
@@ -1195,6 +1265,7 @@ export async function seedDemoData() {
       bids: bids.length,
       projects: projects.length,
       jobCostEntries: ledgerPayloads.length,
+      materialTakeoffLines: takeoffLinePayloads.length,
       bankAccounts: 2,
       bankTransactions: bankTransactionPayloads.length,
       vendorBills: vendorBillSeeds.length,
