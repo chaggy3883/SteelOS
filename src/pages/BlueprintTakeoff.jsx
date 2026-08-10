@@ -296,8 +296,8 @@ export default function BlueprintTakeoff() {
   };
 
   useEffect(() => {
-    loadLinkTargets();
-  }, [user?.company_id]);
+    if (user?.company_id) loadLinkTargets();
+  }, [user]);
 
   // Persists a takeoff's bid_id/project_id link (mutually exclusive — linking
   // to one clears the other) and, when it's the currently-open session,
@@ -1041,6 +1041,11 @@ export default function BlueprintTakeoff() {
   const totalPaintAreaSqIn = acceptedRows.reduce((sum, r) => sum + rowPaintAreaSqIn(r, catalog), 0);
   const totalGalvanizedTons = acceptedRows.reduce((sum, r) => sum + rowGalvanizedTons(r), 0);
 
+  // Distinguishes "still loading" from "genuinely nothing to link to" so the
+  // link dropdowns don't look broken when a fresh company just has no bids
+  // or projects yet.
+  const noLinkTargets = !!user && activeBids.length === 0 && activeProjects.length === 0;
+
   // Shared between the normal inline toolbar and the floating panel shown in
   // fullscreen — same state/handlers either way, just a different container
   // around it, so there's exactly one place to edit the calibration status
@@ -1213,6 +1218,7 @@ export default function BlueprintTakeoff() {
                               <Select value={sessionLinkDraft[s.id] || ''} onValueChange={(v) => handleLinkSessionNow(s.id, v)}>
                                 <SelectTrigger className="h-6 text-[11px] w-32"><SelectValue placeholder="Link now…" /></SelectTrigger>
                                 <SelectContent>
+                                  {noLinkTargets && <SelectItem value="__none__" disabled>No bids or projects found — load demo data first</SelectItem>}
                                   {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
                                   {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
                                 </SelectContent>
@@ -1252,6 +1258,7 @@ export default function BlueprintTakeoff() {
                 <Select value={newTakeoffLinkValue} onValueChange={setNewTakeoffLinkValue}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Not linked" /></SelectTrigger>
                   <SelectContent>
+                    {noLinkTargets && <SelectItem value="__none__" disabled>No bids or projects found — load demo data first</SelectItem>}
                     {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name} ({b.bid_number})</SelectItem>)}
                     {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
                   </SelectContent>
@@ -1295,6 +1302,7 @@ export default function BlueprintTakeoff() {
                 <Select value={workspaceLinkDraft} onValueChange={handleLinkWorkspaceNow}>
                   <SelectTrigger className="h-7 text-xs w-40"><SelectValue placeholder="Link now…" /></SelectTrigger>
                   <SelectContent>
+                    {noLinkTargets && <SelectItem value="__none__" disabled>No bids or projects found — load demo data first</SelectItem>}
                     {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
                     {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
                   </SelectContent>
