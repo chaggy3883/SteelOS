@@ -38,7 +38,7 @@ const navGroups = [
       { icon: Calculator, label: 'Estimating', path: '/estimating' },
       { icon: BarChart3, label: 'Historical Analytics', path: '/estimating/analytics' },
       { icon: FileSearch, label: 'Front-End Spec Review', path: '/estimating/spec-review' },
-      { icon: PackageCheck, label: 'Blueprint Takeoff', path: '/estimating/blueprint-takeoff' },
+      { icon: PackageCheck, label: 'IRONSIGHT', path: '/estimating/blueprint-takeoff' },
       { icon: Building2, label: 'CRM', path: '/crm' },
       { icon: Users, label: 'Relationship Manager', path: '/crm/directory' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
