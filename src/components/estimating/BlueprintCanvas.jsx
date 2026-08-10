@@ -37,6 +37,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   pxPerFt = null,
   candidateMarkers = [],
   onCandidateToggle,
+  fillHeight = false,
 }, ref) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
@@ -283,6 +284,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     const pdfY = e.offsetY / scale;
 
     if (calibrationMode) {
+      console.warn('[IRONSIGHT] calibration click registered', { pdfX, pdfY, pointsSoFar: calibrationPoints.length });
       onCalibrationClick?.({ pdfX, pdfY });
       return;
     }
@@ -324,8 +326,8 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   if (!source) return null;
 
   return (
-    <div className="border rounded-lg overflow-hidden bg-muted/20">
-      <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
+    <div className={fillHeight ? 'h-full w-full flex flex-col bg-muted/20' : 'border rounded-lg overflow-hidden bg-muted/20'}>
+      <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2 flex-shrink-0">
         <div className="flex items-center gap-1">
           <Button
             size="icon"
@@ -365,8 +367,8 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
 
       <div
         ref={viewportRef}
-        className="relative overflow-hidden bg-neutral-700"
-        style={{ height: VIEWPORT_HEIGHT, cursor: dragRef.current ? 'grabbing' : 'grab' }}
+        className={`relative overflow-hidden bg-neutral-700 ${fillHeight ? 'flex-1 min-h-0' : ''}`}
+        style={{ height: fillHeight ? undefined : VIEWPORT_HEIGHT, cursor: dragRef.current ? 'grabbing' : 'grab' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -384,8 +386,8 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         )}
         {calibrationMode && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-red-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
-            {calibrationPoints.length === 0 && 'Click point 1 on a known dimension'}
-            {calibrationPoints.length === 1 && 'Click point 2'}
+            {calibrationPoints.length === 0 && 'Step 1 of 2 — Click point 1 on a known dimension'}
+            {calibrationPoints.length === 1 && 'Step 2 of 2 — Click point 2'}
             {calibrationPoints.length >= 2 && 'Points captured — enter the real-world distance below'}
           </div>
         )}
@@ -406,7 +408,11 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
           <canvas ref={baseCanvasRef} className="block shadow-lg" />
           <canvas
             ref={overlayCanvasRef}
-            className={(calibrationMode || activeTool === 'count' || activeTool === 'length') ? 'absolute inset-0 cursor-crosshair' : 'absolute inset-0 pointer-events-none'}
+            // Overlay must actually receive clicks whenever a tool (any tool,
+            // not just count/length) or calibration is live — pointer-events
+            // was previously scoped to only count/length, silently dropping
+            // clicks for Area and, if this list ever drifts again, calibration.
+            className={`absolute inset-0 ${(calibrationMode || activeTool != null) ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'}`}
             onClick={handleOverlayClick}
           />
         </div>

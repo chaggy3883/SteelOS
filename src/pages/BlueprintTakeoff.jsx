@@ -11,12 +11,14 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical, FileDown,
   Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
   MousePointer2, MousePointerClick, Wrench, ChevronDown, ChevronUp,
   Shapes, ScanSearch, Check, X, Link2, ExternalLink, ListChecks, Grid3x3,
+  Maximize2, HelpCircle, GripVertical,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
@@ -125,6 +127,30 @@ export default function BlueprintTakeoff() {
   // handed to MarkupsList as its seed; MarkupsList owns persisting edits
   // back via its own 800ms-debounced write to blueprint_takeoffs.
   const [markupWeights, setMarkupWeights] = useState({});
+
+  // Fullscreen drawing workspace — the canvas fills the viewport and the
+  // toolbar becomes a small floating, draggable panel instead of an inline
+  // row. floatingPanelPos tracks the panel's screen position; the drag
+  // itself is handled with document-level listeners registered on
+  // mousedown (see handlePanelDragStart) rather than extra state, since the
+  // listeners' own closures already carry the drag's start position.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [floatingPanelPos, setFloatingPanelPos] = useState({ x: 16, y: 16 });
+
+  const handlePanelDragStart = (e) => {
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startPos = floatingPanelPos;
+    const handleMove = (moveEvent) => {
+      setFloatingPanelPos({ x: startPos.x + (moveEvent.clientX - startX), y: startPos.y + (moveEvent.clientY - startY) });
+    };
+    const handleUp = () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+  };
 
   // Two-point scale calibration. calibrationPoints are stored in PDF space
   // (scale=1) so they stay valid across zoom/pan; canvasScale mirrors
@@ -852,6 +878,7 @@ export default function BlueprintTakeoff() {
         setActiveTool(null);
         setLengthPoints([]);
         setAreaPoints([]);
+        setIsFullscreen(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -1014,18 +1041,144 @@ export default function BlueprintTakeoff() {
   const totalPaintAreaSqIn = acceptedRows.reduce((sum, r) => sum + rowPaintAreaSqIn(r, catalog), 0);
   const totalGalvanizedTons = acceptedRows.reduce((sum, r) => sum + rowGalvanizedTons(r), 0);
 
+  // Shared between the normal inline toolbar and the floating panel shown in
+  // fullscreen — same state/handlers either way, just a different container
+  // around it, so there's exactly one place to edit the calibration status
+  // row, the calibration distance form, and the tool buttons.
+  const calibrationStatusRow = (
+    <div className="flex flex-wrap items-center gap-3">
+      {pxPerFt == null ? (
+        <Badge variant="outline" className="text-amber-600 border-amber-300">Not calibrated</Badge>
+      ) : (
+        <Badge variant="outline" className="text-green-700 border-green-300">Calibrated — 1 ft = {pxPerFt.toFixed(1)} px</Badge>
+      )}
+      {calibrationMode ? (
+        <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel Calibration</Button>
+      ) : (
+        <Button size="sm" variant="outline" onClick={handleStartCalibration} disabled={!fileUrl}>
+          <Ruler className="w-3.5 h-3.5 mr-1.5" />{pxPerFt == null ? 'Set Scale' : 'Recalibrate'}
+        </Button>
+      )}
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button size="icon" variant="ghost" className="h-7 w-7" title="How to calibrate">
+            <HelpCircle className="w-4 h-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="text-sm space-y-2">
+          <p className="font-semibold">How to calibrate</p>
+          <ol className="list-decimal list-inside space-y-1 text-xs text-muted-foreground">
+            <li>Click Set Scale to enter calibration mode</li>
+            <li>Click the first point on a known dimension (e.g. one end of a column spacing)</li>
+            <li>Click the second point at the other end of that dimension</li>
+            <li>Type the real-world distance between those two points</li>
+            <li>Click Confirm — the drawing is now calibrated</li>
+          </ol>
+          <p className="text-xs text-amber-600 pt-1 border-t border-border">
+            Tip: Use a grid dimension or column spacing marked on the drawing for best accuracy.
+          </p>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+
+  const calibrationDistanceCard = calibrationMode && calibrationPoints.length === 2 && (
+    <Card>
+      <CardContent className="p-3 flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Real-world distance between the two points</label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={0}
+              step="any"
+              value={calibrationRealDistance}
+              onChange={(e) => setCalibrationRealDistance(e.target.value)}
+              placeholder="e.g. 10"
+              className="w-28 h-8"
+              autoFocus
+            />
+            <div className="flex rounded-md border overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setCalibrationUnit('ft')}
+                className={`px-2.5 py-1 text-xs font-medium ${calibrationUnit === 'ft' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
+              >
+                ft
+              </button>
+              <button
+                type="button"
+                onClick={() => setCalibrationUnit('in')}
+                className={`px-2.5 py-1 text-xs font-medium border-l ${calibrationUnit === 'in' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
+              >
+                in
+              </button>
+            </div>
+          </div>
+        </div>
+        <Button size="sm" onClick={handleConfirmCalibration} disabled={!calibrationRealDistance}>Confirm</Button>
+        <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel</Button>
+      </CardContent>
+    </Card>
+  );
+
+  // Select/Count/Length/Area/Calibrate + fullscreen toggle. Escape (bound in
+  // an effect above) always drops back to Select and exits fullscreen, same
+  // as clicking through them manually.
+  const toolButtonsRow = (
+    <div className="flex items-center gap-1.5 p-1.5 rounded-lg border bg-muted/20 w-fit">
+      <Button size="sm" variant={activeTool === null && !calibrationMode ? 'default' : 'ghost'} onClick={handleSelectTool}>
+        <MousePointer2 className="w-3.5 h-3.5 mr-1.5" />Select
+      </Button>
+      <Button size="sm" variant={activeTool === 'count' ? 'default' : 'ghost'} onClick={() => handleActivateTool('count')} disabled={!fileUrl}>
+        <MousePointerClick className="w-3.5 h-3.5 mr-1.5" />Count
+      </Button>
+      <Button size="sm" variant={activeTool === 'length' ? 'default' : 'ghost'} onClick={() => handleActivateTool('length')} disabled={!fileUrl}>
+        <Ruler className="w-3.5 h-3.5 mr-1.5" />Length
+      </Button>
+      <Button size="sm" variant={activeTool === 'area' ? 'default' : 'ghost'} onClick={() => handleActivateTool('area')} disabled={!fileUrl}>
+        <Shapes className="w-3.5 h-3.5 mr-1.5" />Area
+      </Button>
+      <div className="w-px h-5 bg-border mx-1" />
+      <Button size="sm" variant={calibrationMode ? 'default' : 'ghost'} onClick={handleStartCalibration} disabled={!fileUrl}>
+        <Crosshair className="w-3.5 h-3.5 mr-1.5" />Calibrate
+      </Button>
+      <div className="w-px h-5 bg-border mx-1" />
+      <Button size="sm" variant={isFullscreen ? 'default' : 'ghost'} onClick={() => setIsFullscreen((f) => !f)} disabled={!fileUrl} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+        <Maximize2 className="w-3.5 h-3.5" />
+      </Button>
+    </div>
+  );
+
   return (
     <div className="p-6 w-full max-w-none space-y-4 animate-fade-in">
-      <PageHeader
-        title="IRONSIGHT"
-        subtitle="Drawing takeoff and measurement"
-        icon={Crosshair}
-        actions={mode === 'workspace' ? (
-          <Button variant="outline" size="sm" onClick={handleBackToSessions}>
-            <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />Back to sessions
-          </Button>
-        ) : undefined}
-      />
+      {mode === 'sessions' ? (
+        <div className="bg-slate-900 rounded-lg px-6 py-5 flex items-center gap-4">
+          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true" className="flex-shrink-0">
+            <circle cx="22" cy="22" r="16" stroke="#f59e0b" strokeWidth="2" />
+            <circle cx="22" cy="22" r="3" fill="#f59e0b" />
+            <line x1="22" y1="1" x2="22" y2="10" stroke="#f59e0b" strokeWidth="2" />
+            <line x1="22" y1="34" x2="22" y2="43" stroke="#f59e0b" strokeWidth="2" />
+            <line x1="1" y1="22" x2="10" y2="22" stroke="#f59e0b" strokeWidth="2" />
+            <line x1="34" y1="22" x2="43" y2="22" stroke="#f59e0b" strokeWidth="2" />
+          </svg>
+          <div>
+            <h1 className="text-3xl font-bold text-white tracking-tight leading-none">IRONSIGHT</h1>
+            <p className="text-sm text-slate-400 mt-1">Structural Steel Takeoff Platform</p>
+          </div>
+        </div>
+      ) : (
+        <PageHeader
+          title="IRONSIGHT"
+          subtitle="Drawing takeoff and measurement"
+          icon={Crosshair}
+          actions={
+            <Button variant="outline" size="sm" onClick={handleBackToSessions}>
+              <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />Back to sessions
+            </Button>
+          }
+        />
+      )}
 
       {mode === 'sessions' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1164,83 +1317,15 @@ export default function BlueprintTakeoff() {
           )}
           {reattachError && <p className="text-sm text-amber-600">{reattachError}</p>}
 
-          <div className="flex flex-col lg:flex-row gap-4 items-start">
-            <div className="flex-1 min-w-0 space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                {pxPerFt == null ? (
-                  <Badge variant="outline" className="text-amber-600 border-amber-300">Not calibrated</Badge>
-                ) : (
-                  <Badge variant="outline" className="text-green-700 border-green-300">Calibrated — 1 ft = {pxPerFt.toFixed(1)} px</Badge>
-                )}
-                {calibrationMode ? (
-                  <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel Calibration</Button>
-                ) : (
-                  <Button size="sm" variant="outline" onClick={handleStartCalibration} disabled={!fileUrl}>
-                    <Ruler className="w-3.5 h-3.5 mr-1.5" />{pxPerFt == null ? 'Set Scale' : 'Recalibrate'}
-                  </Button>
-                )}
-              </div>
-
-              {calibrationMode && calibrationPoints.length === 2 && (
-                <Card>
-                  <CardContent className="p-3 flex flex-wrap items-end gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs text-muted-foreground">Real-world distance between the two points</label>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={calibrationRealDistance}
-                          onChange={(e) => setCalibrationRealDistance(e.target.value)}
-                          placeholder="e.g. 10"
-                          className="w-28 h-8"
-                        />
-                        <div className="flex rounded-md border overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => setCalibrationUnit('ft')}
-                            className={`px-2.5 py-1 text-xs font-medium ${calibrationUnit === 'ft' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
-                          >
-                            ft
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setCalibrationUnit('in')}
-                            className={`px-2.5 py-1 text-xs font-medium border-l ${calibrationUnit === 'in' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted/50'}`}
-                          >
-                            in
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <Button size="sm" onClick={handleConfirmCalibration} disabled={!calibrationRealDistance}>Confirm</Button>
-                    <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel</Button>
-                  </CardContent>
-                </Card>
+          <div className={isFullscreen ? 'fixed inset-0 z-50 bg-black flex' : 'flex flex-col lg:flex-row gap-4 items-start'}>
+            <div className={isFullscreen ? 'flex-1 min-h-0 relative' : 'flex-1 min-w-0 space-y-3'}>
+              {!isFullscreen && (
+                <>
+                  {calibrationStatusRow}
+                  {calibrationDistanceCard}
+                  {toolButtonsRow}
+                </>
               )}
-
-              {/* Small horizontal toolbar — Select/Count/Length/Area/Calibrate.
-                  Escape (bound in an effect above) always drops back to
-                  Select, same as clicking it. */}
-              <div className="flex items-center gap-1.5 p-1.5 rounded-lg border bg-muted/20 w-fit">
-                <Button size="sm" variant={activeTool === null && !calibrationMode ? 'default' : 'ghost'} onClick={handleSelectTool}>
-                  <MousePointer2 className="w-3.5 h-3.5 mr-1.5" />Select
-                </Button>
-                <Button size="sm" variant={activeTool === 'count' ? 'default' : 'ghost'} onClick={() => handleActivateTool('count')} disabled={!fileUrl}>
-                  <MousePointerClick className="w-3.5 h-3.5 mr-1.5" />Count
-                </Button>
-                <Button size="sm" variant={activeTool === 'length' ? 'default' : 'ghost'} onClick={() => handleActivateTool('length')} disabled={!fileUrl}>
-                  <Ruler className="w-3.5 h-3.5 mr-1.5" />Length
-                </Button>
-                <Button size="sm" variant={activeTool === 'area' ? 'default' : 'ghost'} onClick={() => handleActivateTool('area')} disabled={!fileUrl}>
-                  <Shapes className="w-3.5 h-3.5 mr-1.5" />Area
-                </Button>
-                <div className="w-px h-5 bg-border mx-1" />
-                <Button size="sm" variant={calibrationMode ? 'default' : 'ghost'} onClick={handleStartCalibration} disabled={!fileUrl}>
-                  <Crosshair className="w-3.5 h-3.5 mr-1.5" />Calibrate
-                </Button>
-              </div>
 
               {(visualSearchLoading || visualSearchError || candidates.length > 0) && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 flex flex-wrap items-center justify-between gap-3">
@@ -1275,29 +1360,67 @@ export default function BlueprintTakeoff() {
 
               {/* Visual PDF viewer, plus scale calibration and the Count/
                   Length/Area measurement tools. Only rendered for actual PDF
-                  uploads; image uploads have nothing for pdfjs to open. */}
+                  uploads; image uploads have nothing for pdfjs to open. In
+                  fullscreen this wrapper is absolutely positioned to fill its
+                  fixed-inset-0 ancestor, and BlueprintCanvas itself switches
+                  to fillHeight so its viewport grows to match instead of
+                  staying capped at its normal ~640px height. */}
               {fileUrl && /\.pdf$/i.test(fileName || '') && (
-                <BlueprintCanvas
-                  ref={canvasRef}
-                  source={fileUrl}
-                  calibrationMode={calibrationMode}
-                  calibrationPoints={calibrationPoints}
-                  onCalibrationClick={handleCalibrationClick}
-                  onScaleChange={setCanvasScale}
-                  onPageSizeChange={setPageSize}
-                  activeTool={activeTool}
-                  lengthPoints={lengthPoints}
-                  areaPoints={areaPoints}
-                  onMeasurementClick={handleMeasurementClick}
-                  measurementItems={rows}
-                  pxPerFt={pxPerFt}
-                  candidateMarkers={candidates}
-                  onCandidateToggle={handleToggleCandidate}
-                />
+                <div className={isFullscreen ? 'absolute inset-0' : ''}>
+                  <BlueprintCanvas
+                    ref={canvasRef}
+                    source={fileUrl}
+                    calibrationMode={calibrationMode}
+                    calibrationPoints={calibrationPoints}
+                    onCalibrationClick={handleCalibrationClick}
+                    onScaleChange={setCanvasScale}
+                    onPageSizeChange={setPageSize}
+                    activeTool={activeTool}
+                    lengthPoints={lengthPoints}
+                    areaPoints={areaPoints}
+                    onMeasurementClick={handleMeasurementClick}
+                    measurementItems={rows}
+                    pxPerFt={pxPerFt}
+                    candidateMarkers={candidates}
+                    onCandidateToggle={handleToggleCandidate}
+                    fillHeight={isFullscreen}
+                  />
+                </div>
+              )}
+
+              {isFullscreen && (
+                <>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => setIsFullscreen(false)}
+                    title="Exit fullscreen (Esc)"
+                    className="fixed top-4 right-4 z-[60] bg-slate-900 text-white border-slate-700 hover:bg-slate-800 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+
+                  <div
+                    style={{ position: 'fixed', left: floatingPanelPos.x, top: floatingPanelPos.y }}
+                    className="z-[60] w-80 max-h-[85vh] overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 shadow-2xl"
+                  >
+                    <div
+                      onMouseDown={handlePanelDragStart}
+                      className="flex items-center gap-2 px-3 py-2 border-b border-slate-700 text-xs font-semibold uppercase tracking-wide text-slate-300 cursor-move select-none"
+                    >
+                      <GripVertical className="w-4 h-4" />IRONSIGHT Tools
+                    </div>
+                    <div className="p-3 space-y-3">
+                      {calibrationStatusRow}
+                      {calibrationDistanceCard}
+                      {toolButtonsRow}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
 
-            <div className="w-full lg:w-72 flex-shrink-0 border rounded-lg">
+            <div className={isFullscreen ? 'hidden' : 'w-full lg:w-72 flex-shrink-0 border rounded-lg'}>
               <button
                 type="button"
                 onClick={() => setToolChestOpen((o) => !o)}
