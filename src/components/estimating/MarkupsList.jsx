@@ -1,13 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { ToastAction } from '@/components/ui/toast';
 import { useToast } from '@/components/ui/use-toast';
-import { CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2 } from 'lucide-react';
+import { CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2, Clipboard, Scale } from 'lucide-react';
 import { getShapeClass } from '@/data/steelShapeSelector';
 import { SHAPE_CATALOG } from '@/data/steelShapes';
 
@@ -16,6 +17,18 @@ const TOOL_META = {
   length: { label: 'Length', icon: Ruler, unitLabel: 'lbs/ft' },
   area: { label: 'Area', icon: Shapes, unitLabel: 'lbs/sq ft' },
 };
+
+// Shape category used for the tonnage summary's breakdown — maps the
+// SHAPE_CLASSES taxonomy IRONSIGHT's own tool presets use (steelShapeSelector.js)
+// down to the coarser categories estimators think in.
+const CATEGORY_LABELS = {
+  'W-Beam': 'W-Beam',
+  'HSS Tube': 'HSS',
+  'C-Channel': 'Channel',
+  'L-Angle': 'Angle',
+  'PL-Plate': 'Plate',
+};
+const categoryFor = (shapeType) => CATEGORY_LABELS[shapeType] || shapeType || 'Custom';
 
 // steelShapes.js's SHAPE_CATALOG is keyed by material category (beams,
 // columns, hss, ...), not by the shape_class taxonomy IRONSIGHT's own tool
@@ -62,21 +75,59 @@ function buildGroups(rows) {
   });
 }
 
+const defaultSettingFor = (group) => {
+  const catalogWeight = lookupCatalogWeightPerFt(group.size_designation);
+  return {
+    multiplier: 1,
+    unitWeight: catalogWeight ?? '',
+    weightSource: catalogWeight != null ? 'aisc' : 'manual',
+    typicalLengthFt: 0,
+  };
+};
+
+// Restores Phase 4's persisted markup_weights (keyed the same way as
+// buildGroups' group.key) into the in-memory settings shape this component
+// works with. Groups with no persisted entry fall back to defaultSettingFor
+// at read time via getSetting, so this only needs to seed what was saved.
+function mapInitialWeights(weights) {
+  const result = {};
+  Object.entries(weights || {}).forEach(([key, w]) => {
+    result[key] = {
+      multiplier: 1,
+      unitWeight: w.unit_weight_lbs_per_ft ?? '',
+      weightSource: w.weight_source || 'manual',
+      typicalLengthFt: w.typical_length_ft || 0,
+    };
+  });
+  return result;
+}
+
+const WEIGHT_BADGES = {
+  aisc: { label: 'AISC', className: 'text-blue-600 border-blue-300' },
+  manual: { label: 'Manual', className: 'text-muted-foreground' },
+  override: { label: 'Override', className: 'text-amber-600 border-amber-300' },
+};
+
 // Part 1/2 — groups accepted Count/Length/Area rows by (tool, label) into a
-// review-and-push summary, and pushes each group to a single consolidated
-// MaterialTakeoffLine record (re-pushing updates that same record via
-// pushed_material_line_id rather than creating a duplicate every sync).
-export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName, fileName, companyId, bidId, projectId, onLink }) {
+// review-and-push summary, auto-resolves unit weight from the AISC catalog,
+// computes a weight/tonnage rollup, and pushes each group to a single
+// consolidated MaterialTakeoffLine record (re-pushing updates that same
+// record via pushed_material_line_id rather than creating a duplicate every
+// sync). Weight settings persist onto the blueprint_takeoffs session so they
+// survive a resume, mirroring tool_chest's own 800ms debounce.
+export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName, fileName, companyId, bidId, projectId, onLink, initialWeights }) {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [settings, setSettings] = useState({});
+  const [settings, setSettings] = useState(() => mapInitialWeights(initialWeights));
   const [bids, setBids] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [linkedBid, setLinkedBid] = useState(null);
   const [linkPromptOpen, setLinkPromptOpen] = useState(false);
   const [linkDraftValue, setLinkDraftValue] = useState('');
   const [pendingPushTarget, setPendingPushTarget] = useState(null);
   const [linking, setLinking] = useState(false);
   const [pushingKey, setPushingKey] = useState(null);
+  const weightsSaveTimerRef = useRef(null);
 
   useEffect(() => {
     if (!companyId) return;
@@ -89,23 +140,79 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
     }).catch(() => { setBids([]); setProjects([]); });
   }, [companyId]);
 
+  useEffect(() => {
+    if (!bidId) { setLinkedBid(null); return; }
+    db.entities.Bid.get(bidId).then(setLinkedBid).catch(() => setLinkedBid(null));
+  }, [bidId]);
+
+  // Part 4 — debounced persistence of weight settings onto the session, same
+  // 800ms-after-last-edit pattern BlueprintTakeoff.jsx already uses for
+  // tool_chest. Writes the whole settings map each time (small — one entry
+  // per markup group), keyed identically to buildGroups' group.key.
+  useEffect(() => {
+    if (!takeoffId) return;
+    if (weightsSaveTimerRef.current) clearTimeout(weightsSaveTimerRef.current);
+    weightsSaveTimerRef.current = setTimeout(() => {
+      const markup_weights = {};
+      Object.entries(settings).forEach(([key, s]) => {
+        markup_weights[key] = {
+          unit_weight_lbs_per_ft: Number(s.unitWeight) || 0,
+          typical_length_ft: Number(s.typicalLengthFt) || 0,
+          weight_source: s.weightSource || 'manual',
+        };
+      });
+      db.entities.blueprint_takeoffs.update(takeoffId, { markup_weights }).catch((e) => {
+        console.error('Failed to persist markup weights', e);
+      });
+    }, 800);
+    return () => clearTimeout(weightsSaveTimerRef.current);
+  }, [settings, takeoffId]);
+
   const groups = useMemo(() => buildGroups(rows), [rows]);
 
-  const getSetting = (group) => settings[group.key] || {
-    multiplier: 1,
-    unitWeight: group.tool === 'area' ? '' : (lookupCatalogWeightPerFt(group.size_designation) ?? ''),
+  const getSetting = (group) => settings[group.key] || defaultSettingFor(group);
+
+  const updateSetting = (group, field, value) => {
+    setSettings((prev) => ({ ...prev, [group.key]: { ...getSetting(group), [field]: value } }));
   };
 
-  const updateSetting = (key, group, field, value) => {
-    setSettings((prev) => ({ ...prev, [key]: { ...getSetting(group), [field]: value } }));
+  // Unit weight edits flip the badge to "Override" when they replace an
+  // AISC-sourced value — a value the estimator typed with no catalog match
+  // to begin with is still just "Manual", not an override of anything.
+  const updateUnitWeight = (group, value) => {
+    const current = getSetting(group);
+    const nextSource = current.weightSource === 'aisc' || current.weightSource === 'override' ? 'override' : 'manual';
+    setSettings((prev) => ({ ...prev, [group.key]: { ...current, unitWeight: value, weightSource: nextSource } }));
   };
 
+  // Part 2 — weight calculation engine. Count needs an assumed per-piece
+  // length (the tool itself never measures one); Length/Area already have a
+  // real physical total, so their est_lbs comes straight from that total ×
+  // unit weight. finalQuantity (count/length/area total × qty multiplier)
+  // still drives the pushed quantity/length_ft — see buildPayload — the
+  // multiplier is a piece-count concept that Phase 4's weight formulas don't
+  // apply to Length/Area totals.
   const calcGroup = (group) => {
-    const { multiplier, unitWeight } = getSetting(group);
+    const { multiplier, unitWeight, typicalLengthFt } = getSetting(group);
     const finalQuantity = group.totalMetric * (Number(multiplier) || 0);
     const weight = Number(unitWeight) || 0;
-    const estTons = (finalQuantity * weight) / 2000;
-    return { finalQuantity, weight, estTons };
+
+    let estLbs = 0;
+    let weightUnknown = false;
+    if (group.tool === 'count') {
+      const typicalLength = Number(typicalLengthFt) || 0;
+      if (typicalLength > 0) {
+        estLbs = finalQuantity * weight * typicalLength;
+      } else {
+        weightUnknown = true;
+      }
+    } else if (group.tool === 'length') {
+      estLbs = group.totalLengthFt * weight;
+    } else {
+      estLbs = group.totalAreaSqFt * weight;
+    }
+
+    return { finalQuantity, weight, estLbs, estTons: estLbs / 2000, weightUnknown };
   };
 
   const buildPayload = (group, linkOverride) => {
@@ -126,6 +233,7 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
       coating_type: 'No Coating',
       source: 'ironsight',
       pushed_from_takeoff_id: takeoffId,
+      weight_per_ft: weight,
     };
 
     if (group.tool === 'length') {
@@ -133,7 +241,6 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
         ...base,
         quantity: 1,
         length_ft: finalQuantity,
-        weight_per_ft: weight,
         tons_per_piece: estTons,
         total_tons: estTons,
         notes: `${noteBase} — Length group "${group.label}": ${group.totalLengthFt.toFixed(2)} ft × ${multiplier} multiplier`,
@@ -144,7 +251,6 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
         ...base,
         quantity: 1,
         length_ft: 0,
-        weight_per_ft: weight,
         tons_per_piece: estTons,
         total_tons: estTons,
         notes: `${noteBase} — Area group "${group.label}": ${group.totalAreaSqFt.toFixed(2)} sq ft × ${multiplier} multiplier`,
@@ -154,7 +260,6 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
       ...base,
       quantity: finalQuantity,
       length_ft: 0,
-      weight_per_ft: weight,
       tons_per_piece: finalQuantity ? estTons / finalQuantity : 0,
       total_tons: estTons,
       notes: `${noteBase} — Count group "${group.label}": ${group.totalCount} pieces × ${multiplier} multiplier`,
@@ -268,6 +373,46 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
     }
   };
 
+  // Part 3 — tonnage summary. Recomputed straight from groups/settings on
+  // every render rather than memoized — a handful of markup groups is cheap,
+  // and it avoids a stale-dependency footgun tying it to calcGroup's closure.
+  const categoryTotals = {};
+  groups.forEach((group) => {
+    const cat = categoryFor(group.shape_type);
+    const { estTons } = calcGroup(group);
+    categoryTotals[cat] = (categoryTotals[cat] || 0) + estTons;
+  });
+  const totalTons = Object.values(categoryTotals).reduce((sum, t) => sum + t, 0);
+
+  const bidTons = linkedBid?.total_weight_tons;
+  const variance = (bidTons != null && bidTons > 0)
+    ? (() => {
+      const deltaPct = ((totalTons - bidTons) / bidTons) * 100;
+      const absPct = Math.abs(deltaPct);
+      const tier = absPct <= 10 ? 'green' : absPct <= 20 ? 'yellow' : 'red';
+      return { deltaPct, tier };
+    })()
+    : null;
+
+  const VARIANCE_STYLES = {
+    green: 'text-green-700 border-green-300 bg-green-50',
+    yellow: 'text-amber-700 border-amber-300 bg-amber-50',
+    red: 'text-red-700 border-red-300 bg-red-50',
+  };
+
+  const handleCopySummary = async () => {
+    const dateStr = new Date().toLocaleDateString();
+    const parts = Object.entries(categoryTotals).map(([cat, tons]) => `${cat}: ${tons.toFixed(1)} tons`);
+    const text = `IRONSIGHT Takeoff Summary — ${takeoffName || fileName || 'Untitled takeoff'} — ${dateStr}: ${parts.join(', ')}, TOTAL: ${totalTons.toFixed(1)} tons`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: 'Summary copied to clipboard' });
+    } catch (e) {
+      console.error('Failed to copy takeoff summary', e);
+      toast({ title: 'Could not copy to clipboard', description: 'See console for details.', variant: 'destructive' });
+    }
+  };
+
   if (groups.length === 0) {
     return <p className="text-sm text-muted-foreground py-6 text-center">No Count, Length, or Area markups yet — place a measurement with the tools above to see it here.</p>;
   }
@@ -318,7 +463,8 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
             <div className="divide-y">
               {groupsByTool[tool].map((group) => {
                 const setting = getSetting(group);
-                const { finalQuantity, estTons } = calcGroup(group);
+                const { finalQuantity, estLbs, estTons, weightUnknown } = calcGroup(group);
+                const badge = WEIGHT_BADGES[setting.weightSource] || WEIGHT_BADGES.manual;
                 return (
                   <div key={group.key} className="p-3 flex flex-wrap items-end gap-3">
                     <div className="min-w-40">
@@ -341,27 +487,52 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
                         min={0}
                         step="any"
                         value={setting.multiplier}
-                        onChange={(e) => updateSetting(group.key, group, 'multiplier', e.target.value === '' ? '' : Number(e.target.value))}
+                        onChange={(e) => updateSetting(group, 'multiplier', e.target.value === '' ? '' : Number(e.target.value))}
                         className="h-8 text-xs"
                       />
                     </div>
 
-                    <div className="w-32">
-                      <label className="text-[10px] text-muted-foreground">Unit weight ({TOOL_META[tool].unitLabel})</label>
+                    {tool === 'count' && (
+                      <div className="w-28">
+                        <label className="text-[10px] text-muted-foreground">Typical length (ft)</label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={setting.typicalLengthFt}
+                          onChange={(e) => updateSetting(group, 'typicalLengthFt', e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="e.g. 20"
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    )}
+
+                    <div className="w-36">
+                      <label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        Unit weight ({TOOL_META[tool].unitLabel})
+                        <Badge variant="outline" className={`text-[9px] px-1 py-0 leading-4 ${badge.className}`}>{badge.label}</Badge>
+                      </label>
                       <Input
                         type="number"
                         min={0}
                         step="any"
                         value={setting.unitWeight}
-                        onChange={(e) => updateSetting(group.key, group, 'unitWeight', e.target.value === '' ? '' : Number(e.target.value))}
+                        onChange={(e) => updateUnitWeight(group, e.target.value === '' ? '' : Number(e.target.value))}
                         placeholder="manual entry"
                         className="h-8 text-xs"
                       />
                     </div>
 
-                    <div className="w-28">
-                      <label className="text-[10px] text-muted-foreground">Est. weight (tons)</label>
-                      <p className="h-8 flex items-center text-sm font-semibold">{estTons.toFixed(3)}</p>
+                    <div className="w-32">
+                      <label className="text-[10px] text-muted-foreground">Est. weight</label>
+                      {weightUnknown ? (
+                        <p className="h-8 flex items-center text-xs text-muted-foreground italic">weight unknown</p>
+                      ) : (
+                        <div className="h-8 flex flex-col justify-center leading-tight">
+                          <span className="text-sm font-semibold">{estLbs.toLocaleString(undefined, { maximumFractionDigits: 0 })} lbs</span>
+                          <span className="text-[10px] text-muted-foreground">{estTons.toFixed(2)} tons</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
@@ -383,6 +554,36 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
           </div>
         );
       })}
+
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h4 className="font-semibold text-sm flex items-center gap-2"><Scale className="w-4 h-4 text-primary" />Tonnage Summary</h4>
+            <Button size="sm" variant="outline" onClick={handleCopySummary}>
+              <Clipboard className="w-3.5 h-3.5 mr-1.5" />Copy Summary
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap gap-4">
+            {Object.entries(categoryTotals).map(([cat, tons]) => (
+              <div key={cat} className="min-w-24">
+                <p className="text-xs text-muted-foreground">{cat}</p>
+                <p className="text-lg font-bold">{tons.toFixed(1)} <span className="text-xs font-normal text-muted-foreground">tons</span></p>
+              </div>
+            ))}
+            <div className="min-w-24 border-l pl-4">
+              <p className="text-xs text-muted-foreground">TOTAL</p>
+              <p className="text-lg font-bold text-primary">{totalTons.toFixed(1)} <span className="text-xs font-normal text-muted-foreground">tons</span></p>
+            </div>
+          </div>
+
+          {variance && (
+            <div className={`rounded-md border px-3 py-2 text-xs font-medium ${VARIANCE_STYLES[variance.tier]}`}>
+              Variance vs. bid estimate ({bidTons.toFixed(1)} tons): {variance.deltaPct > 0 ? '+' : ''}{variance.deltaPct.toFixed(1)}%
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

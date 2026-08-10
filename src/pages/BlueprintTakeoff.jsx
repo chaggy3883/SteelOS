@@ -120,6 +120,11 @@ export default function BlueprintTakeoff() {
   const [sessionLinkDraft, setSessionLinkDraft] = useState({});
   const [workspaceLinkDraft, setWorkspaceLinkDraft] = useState('');
   const [gridView, setGridView] = useState('takeoff');
+  // Phase 4 — Markups List weight settings (unit weight, typical length,
+  // AISC/manual/override source), restored from the session on open and
+  // handed to MarkupsList as its seed; MarkupsList owns persisting edits
+  // back via its own 800ms-debounced write to blueprint_takeoffs.
+  const [markupWeights, setMarkupWeights] = useState({});
 
   // Two-point scale calibration. calibrationPoints are stored in PDF space
   // (scale=1) so they stay valid across zoom/pan; canvasScale mirrors
@@ -355,6 +360,7 @@ export default function BlueprintTakeoff() {
     setSessionProjectId(null);
     setWorkspaceLinkDraft('');
     setGridView('takeoff');
+    setMarkupWeights({});
   };
 
   const openSession = async (takeoff) => {
@@ -385,6 +391,7 @@ export default function BlueprintTakeoff() {
     setSessionProjectId(takeoff.bid_id ? null : (takeoff.project_id || null));
     setWorkspaceLinkDraft('');
     setGridView('takeoff');
+    setMarkupWeights(takeoff.markup_weights || {});
 
     let url = null;
     if (takeoff.has_stored_pdf) {
@@ -484,6 +491,7 @@ export default function BlueprintTakeoff() {
       setSessionProjectId(created.bid_id ? null : (created.project_id || null));
       setWorkspaceLinkDraft('');
       setGridView('takeoff');
+      setMarkupWeights({});
       setNewTakeoffLinkValue('');
 
       try {
@@ -1433,7 +1441,11 @@ export default function BlueprintTakeoff() {
                 </Button>
               </div>
 
-              {gridView === 'markups' ? (
+              {/* Both panels stay mounted (toggled via `hidden`) rather than a
+                  ternary — MarkupsList owns local edit state (qty
+                  multipliers, in-flight weight overrides) that a tab switch
+                  shouldn't silently reset before its own debounce saves. */}
+              <div className={gridView === 'markups' ? '' : 'hidden'}>
                 <MarkupsList
                   rows={rows}
                   onRowsChange={(newRows) => { setRows(newRows); persist(newRows); }}
@@ -1444,9 +1456,10 @@ export default function BlueprintTakeoff() {
                   bidId={sessionBidId}
                   projectId={sessionProjectId}
                   onLink={(newBidId, newProjectId) => persistTakeoffLink(takeoffId, newBidId, newProjectId)}
+                  initialWeights={markupWeights}
                 />
-              ) : (
-              <>
+              </div>
+              <div className={gridView === 'takeoff' ? '' : 'hidden'}>
               {rows.some((r) => r.is_demo) && (
                 <p className="text-xs font-medium text-amber-600 flex items-center gap-1.5">
                   <FlaskConical className="w-3.5 h-3.5" />Sample rows loaded for layout testing — these are not real blueprint detections and should not be used for an actual bid.
@@ -1573,8 +1586,7 @@ export default function BlueprintTakeoff() {
                   🪙 Total Galvanized Mass: {totalGalvanizedTons.toLocaleString(undefined, { maximumFractionDigits: 2 })} Tons
                 </p>
               </div>
-              </>
-              )}
+              </div>
             </div>
           )}
         </>

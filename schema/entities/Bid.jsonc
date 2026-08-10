@@ -81,6 +81,10 @@
       "type": "number",
       "default": 0
     },
+    "total_weight_tons": {
+      "type": "number",
+      "description": "The bid's official estimated tonnage (from the estimator's Full Takeoff / worksheet), used as the comparison baseline for IRONSIGHT's markup-vs-bid variance check. Optional — separate from estimated_tons so a variance check never silently compares against an unset baseline."
+    },
     "estimated_man_hours": {
       "type": "number",
       "default": 0

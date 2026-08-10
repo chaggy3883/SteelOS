@@ -56,6 +56,18 @@
         }
       }
     },
+    "markup_weights": {
+      "type": "object",
+      "description": "Markups List weight settings, keyed by markup group key (`${tool}::${label}`, matching MarkupsList.jsx's internal grouping) so a Count group and a Length group sharing the same label don't collide. Persisted 800ms after the estimator stops editing (same debounce as tool_chest) and restored into the Markups List on openSession().",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "unit_weight_lbs_per_ft": { "type": "number", "default": 0 },
+          "typical_length_ft": { "type": "number", "default": 0, "description": "Count groups only — an assumed per-piece length (e.g. column height) needed to turn a piece count into a weight, since the Count tool itself never measures length." },
+          "weight_source": { "type": "string", "enum": ["aisc", "manual", "override"], "default": "manual" }
+        }
+      }
+    },
     "accepted_items": {
       "type": "array",
       "items": {
