@@ -1,6 +1,17 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 
+// Single source of truth for the 6 shop-floor stations — station names and
+// heatmap colors are shared verbatim between ShopOperations.jsx's Bottleneck
+// Radar tab and the Shop Floor Command Center so the two views never drift
+// into a second naming/color convention for the same stations.
+export const STATIONS = [
+  { id: 1, name: 'Receiving' }, { id: 2, name: 'Shot Blaster' }, { id: 3, name: 'Iron Worker' },
+  { id: 4, name: 'Drill Line' }, { id: 5, name: 'Fab (Layout / Tack)' }, { id: 6, name: 'Paint' },
+];
+export const stationName = (id) => STATIONS.find((s) => s.id === Number(id))?.name || `Station ${id}`;
+export const HEATMAP_COLOR = { Green: 'bg-green-500/20 text-green-700', Yellow: 'bg-yellow-500/30 text-yellow-800', Red: 'bg-red-500/40 text-red-800' };
+
 const startOfWeek = (date) => {
   const d = new Date(date);
   const day = d.getDay();
@@ -65,6 +76,115 @@ export function getStationBottlenecks(pieces, threshold = 50) {
     count,
     isBottleneck: count > threshold,
   }));
+}
+
+// Dwell-time bottleneck signal, additive to the headcount signal above (that
+// function is left untouched — this is a second, independent read on the
+// same stations). avgTargetMinutes has no real per-station source today:
+// piece_production_logs (EmployeeCenter's manual self-timer) carries
+// target_minutes at the whole-piece level only, keyed by a free-text
+// piece_mark, with no piece_id or station_id — it is a separate, disconnected
+// timing system from the pieces/station_logs shop-floor pipeline these
+// stations belong to (there is no FK between them). This does a best-effort
+// match on piece_mark text (same convention already used by
+// getMaterialShortages for its PO-category match) to borrow a target where
+// the same piece_mark happens to appear in both systems. When no match
+// exists for a station's pieces in the window, avgTargetMinutes/
+// dwellVariancePct are left null for it and only the headcount signal (via
+// headcountBottlenecks) can flag that station — a real limitation of the
+// current data model, not a bug.
+//
+// headcountBottlenecks is the array returned by getStationBottlenecks —
+// passed in (rather than recomputed) so the two signals are merged into one
+// isBottleneck per station here, instead of ShopOperations.jsx and the Shop
+// Floor Command Center each reconciling two separate flags themselves.
+export function getStationDwellVariance(stationLogs, pieces, pieceProductionLogs, headcountBottlenecks = [], thresholdPct = 25, referenceDate = new Date()) {
+  const windowStart = referenceDate.getTime() - WEEK_MS;
+  const byStation = {};
+  stationLogs.forEach((log) => {
+    if (log.status !== 'Complete' || !log.end_time) return;
+    const endMs = new Date(log.end_time).getTime();
+    if (endMs < windowStart || endMs > referenceDate.getTime()) return;
+    const stationId = Number(log.station_id);
+    if (!byStation[stationId]) byStation[stationId] = { actualMinutesSum: 0, actualCount: 0, pieceMarks: new Set() };
+    const bucket = byStation[stationId];
+    bucket.actualMinutesSum += log.elapsed_minutes || 0;
+    bucket.actualCount += 1;
+    const piece = pieces.find((p) => p.id === log.piece_id);
+    if (piece?.piece_mark) bucket.pieceMarks.add(piece.piece_mark.trim().toLowerCase());
+  });
+
+  const targetsByPieceMark = {};
+  pieceProductionLogs.forEach((log) => {
+    if (log.status !== 'Complete' || !log.piece_mark) return;
+    const key = log.piece_mark.trim().toLowerCase();
+    if (!targetsByPieceMark[key]) targetsByPieceMark[key] = [];
+    targetsByPieceMark[key].push(log.target_minutes || 0);
+  });
+
+  const headcountByStation = {};
+  headcountBottlenecks.forEach((b) => { headcountByStation[b.stationId] = b; });
+
+  // Seeded from STATIONS (not just whatever ids happen to show up in the data)
+  // so a station with zero current pieces and zero recent completions still
+  // gets a result row — getStationBottlenecks only emits ids with count >= 1,
+  // which would otherwise make a quiet station vanish from the grid instead
+  // of showing as an empty/Green tile.
+  const stationIds = new Set([
+    ...STATIONS.map((s) => s.id),
+    ...Object.keys(byStation).map(Number),
+    ...headcountBottlenecks.map((b) => b.stationId),
+  ]);
+
+  return Array.from(stationIds).sort((a, b) => a - b).map((stationId) => {
+    const bucket = byStation[stationId];
+    const avgActualMinutes = bucket && bucket.actualCount > 0 ? bucket.actualMinutesSum / bucket.actualCount : null;
+
+    let avgTargetMinutes = null;
+    if (bucket) {
+      const targets = [];
+      bucket.pieceMarks.forEach((mark) => {
+        (targetsByPieceMark[mark] || []).forEach((t) => targets.push(t));
+      });
+      if (targets.length > 0) avgTargetMinutes = targets.reduce((sum, t) => sum + t, 0) / targets.length;
+    }
+
+    const dwellVariancePct = avgTargetMinutes > 0 && avgActualMinutes != null
+      ? ((avgActualMinutes - avgTargetMinutes) / avgTargetMinutes) * 100
+      : null;
+    const isDwellBottleneck = dwellVariancePct != null && dwellVariancePct > thresholdPct;
+
+    const headcount = headcountByStation[stationId];
+    const isHeadcountBottleneck = !!headcount?.isBottleneck;
+    const count = headcount?.count || 0;
+
+    let signal = 'None';
+    if (isHeadcountBottleneck && isDwellBottleneck) signal = 'Both';
+    else if (isHeadcountBottleneck) signal = 'Queue';
+    else if (isDwellBottleneck) signal = 'Dwell';
+
+    return {
+      stationId,
+      count,
+      avgActualMinutes,
+      avgTargetMinutes,
+      dwellVariancePct,
+      isHeadcountBottleneck,
+      isDwellBottleneck,
+      isBottleneck: isHeadcountBottleneck || isDwellBottleneck,
+      signal,
+    };
+  });
+}
+
+// The single ratio formula behind every efficiency number in the app
+// (ShopEfficiency.jsx's leaderboard/variance tables and the Shop Floor
+// Command Center's shop-wide figure alike) — callers aggregate
+// elapsed_minutes/target_minutes however makes sense for their grouping
+// (per employee, per material profile, per shop per day), then pass the
+// totals through here so the actual math lives in exactly one place.
+export function computeEfficiencyPct(actualMinutes, targetMinutes) {
+  return actualMinutes > 0 ? Math.round((targetMinutes / actualMinutes) * 100) : null;
 }
 
 // A Paused log is measured from when it was paused (end_time); an In_Progress

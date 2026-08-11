@@ -53,6 +53,7 @@ import EstimatingAnalytics from '@/pages/EstimatingAnalytics';
 import FrontEndReview from '@/pages/FrontEndReview';
 import ShopFabrication from '@/pages/ShopFabrication';
 import ShopOperations from '@/pages/ShopOperations';
+import ShopFloorCommandCenter from '@/pages/ShopFloorCommandCenter';
 import HumanResources from '@/pages/HumanResources';
 import Payroll from '@/pages/Payroll';
 import PayrollHours from '@/pages/PayrollHours';
@@ -141,6 +142,7 @@ const AuthenticatedApp = () => {
           <Route path="/purchasing/receiving-kiosk" element={<ReceivingKiosk />} />
           <Route path="/shop-fabrication" element={<ShopFabrication />} />
           <Route path="/shop-operations" element={<ShopOperations />} />
+          <Route path="/shop-floor-command-center" element={<ShopFloorCommandCenter />} />
           <Route path="/accounting" element={<Accounting />} />
           <Route path="/legal" element={<Legal />} />
           <Route path="/reports" element={<Reports />} />

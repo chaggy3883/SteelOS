@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
 import {
-  buildWeekColumns, buildCapacityMatrix, getStationBottlenecks, getStalePieces,
-  getEmployeeScorecards, getMaterialShortages,
+  buildWeekColumns, buildCapacityMatrix, getStationBottlenecks, getStationDwellVariance, getStalePieces,
+  getEmployeeScorecards, getMaterialShortages, stationName, HEATMAP_COLOR,
 } from '@/lib/shopOpsMetrics';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,13 +14,6 @@ import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import { AlertTriangle, Zap, Users, PackageX, Gauge, Plus, Printer } from 'lucide-react';
 import LabelPrintingPanel from '@/components/barcode-printing/LabelPrintingPanel';
-
-const STATIONS = [
-  { id: 1, name: 'Receiving' }, { id: 2, name: 'Shot Blaster' }, { id: 3, name: 'Iron Worker' },
-  { id: 4, name: 'Drill Line' }, { id: 5, name: 'Fab (Layout / Tack)' }, { id: 6, name: 'Paint' },
-];
-const stationName = (id) => STATIONS.find((s) => s.id === Number(id))?.name || `Station ${id}`;
-const HEATMAP_COLOR = { Green: 'bg-green-500/20 text-green-700', Yellow: 'bg-yellow-500/30 text-yellow-800', Red: 'bg-red-500/40 text-red-800' };
 
 const emptyOverrideForm = () => ({ piece_id: '', override_type: 'Expedite_Part', authorized_by_mgr_id: '' });
 
@@ -47,6 +40,7 @@ export default function ShopOperations() {
   // so the staging queue reflects the exact same tagging state.
   const [manifests, setManifests] = useState([]);
   const [printJobs, setPrintJobs] = useState([]);
+  const [pieceProductionLogs, setPieceProductionLogs] = useState([]);
 
   const [showOverrideForm, setShowOverrideForm] = useState(false);
   const [overrideForm, setOverrideForm] = useState(emptyOverrideForm());
@@ -57,7 +51,7 @@ export default function ShopOperations() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [projectData, pieceData, logsData, qaData, scheduleData, remnantData, overrideData, settingsRows, poData, receivingData, leaveData, manifestData, printJobData] = await Promise.all([
+      const [projectData, pieceData, logsData, qaData, scheduleData, remnantData, overrideData, settingsRows, poData, receivingData, leaveData, manifestData, printJobData, pieceProductionLogData] = await Promise.all([
         db.entities.Project.filter({ is_archived: false }, 'name', 50),
         db.entities.pieces.list('-created_date', 500),
         db.entities.station_logs.list('-created_date', 500),
@@ -71,6 +65,7 @@ export default function ShopOperations() {
         db.entities.time_off_requests.filter({ status: 'Approved' }, '-created_date', 200),
         db.entities.shipping_manifests.list('-created_date', 200),
         db.entities.print_label_jobs.list('-created_date', 500),
+        db.entities.piece_production_logs.filter({ status: 'Complete' }, '-created_date', 1000),
       ]);
       setProjects(projectData);
       setPieces(pieceData);
@@ -84,6 +79,7 @@ export default function ShopOperations() {
       setTimeOffRequests(leaveData);
       setManifests(manifestData);
       setPrintJobs(printJobData);
+      setPieceProductionLogs(pieceProductionLogData);
       let settingsRow = settingsRows[0];
       if (!settingsRow) {
         settingsRow = await db.entities.SystemSetting.create({ setting_group: 'production' });
@@ -128,6 +124,7 @@ export default function ShopOperations() {
   const maxCapacity = settings?.max_shop_capacity_tons_weekly || 150;
   const staleHours = settings?.stale_piece_alert_hours || 8;
   const bottleneckThreshold = settings?.station_bottleneck_threshold || 50;
+  const dwellThresholdPct = settings?.station_dwell_bottleneck_threshold_pct || 25;
 
   const capacityMatrix = useMemo(
     () => buildCapacityMatrix(schedules, projects, weekColumns, maxCapacity),
@@ -141,6 +138,10 @@ export default function ShopOperations() {
     [weekColumns, timeOffRequests]
   );
   const bottlenecks = useMemo(() => getStationBottlenecks(pieces, bottleneckThreshold), [pieces, bottleneckThreshold]);
+  const stationSignals = useMemo(
+    () => getStationDwellVariance(stationLogs, pieces, pieceProductionLogs, bottlenecks, dwellThresholdPct),
+    [stationLogs, pieces, pieceProductionLogs, bottlenecks, dwellThresholdPct]
+  );
   const stalePieces = useMemo(() => getStalePieces(stationLogs, staleHours), [stationLogs, staleHours]);
   const scorecards = useMemo(() => getEmployeeScorecards(stationLogs, qaInspections), [stationLogs, qaInspections]);
   const shortages = useMemo(() => getMaterialShortages(materialLines, purchaseOrders, receivingLogs), [materialLines, purchaseOrders, receivingLogs]);
@@ -249,12 +250,24 @@ export default function ShopOperations() {
 
         <TabsContent value="radar" className="space-y-4">
           <div className="steel-card p-4">
-            <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-red-600" />Station Bottleneck Alert (threshold: {bottleneckThreshold})</h4>
+            <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-red-600" />Station Bottleneck Alert (queue threshold: {bottleneckThreshold} • dwell threshold: +{dwellThresholdPct}%)</h4>
             <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-              {bottlenecks.map((b) => (
-                <div key={b.stationId} className={`rounded-lg border p-3 text-center ${b.isBottleneck ? 'border-red-500 bg-red-500/10 animate-pulse' : 'border-border'}`}>
-                  <p className="text-xs text-muted-foreground">{stationName(b.stationId)}</p>
-                  <p className={`text-xl font-bold ${b.isBottleneck ? 'text-red-600' : ''}`}>{b.count}</p>
+              {stationSignals.map((s) => (
+                <div key={s.stationId} className={`rounded-lg border p-3 text-center ${s.isBottleneck ? 'border-red-500 bg-red-500/10 animate-pulse' : 'border-border'}`}>
+                  <p className="text-xs text-muted-foreground">{stationName(s.stationId)}</p>
+                  <p className={`text-xl font-bold ${s.isBottleneck ? 'text-red-600' : ''}`}>{s.count}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {s.avgActualMinutes != null ? `${s.avgActualMinutes.toFixed(0)}m actual` : 'No dwell data'}
+                    {s.avgTargetMinutes != null && ` / ${s.avgTargetMinutes.toFixed(0)}m target`}
+                  </p>
+                  {s.dwellVariancePct != null && (
+                    <p className={`text-xs font-semibold ${s.dwellVariancePct > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {s.dwellVariancePct > 0 ? '+' : ''}{s.dwellVariancePct.toFixed(0)}% dwell
+                    </p>
+                  )}
+                  {s.isBottleneck && (
+                    <p className="text-[10px] font-semibold text-red-600 uppercase tracking-wide mt-1">{s.signal}</p>
+                  )}
                 </div>
               ))}
             </div>

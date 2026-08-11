@@ -3,6 +3,7 @@ import { db } from '@/api/apiClient';
 import { Loader2, Gauge } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { computeEfficiencyPct } from '@/lib/shopOpsMetrics';
 
 const efficiencyColor = (pct) => {
   if (pct >= 100) return 'text-emerald-600';
@@ -50,7 +51,7 @@ export default function ShopEfficiency() {
     }, {})
   ).map((row) => ({
     ...row,
-    efficiencyPct: row.actualMinutes > 0 ? Math.round((row.targetMinutes / row.actualMinutes) * 100) : null,
+    efficiencyPct: computeEfficiencyPct(row.actualMinutes, row.targetMinutes),
   })).sort((a, b) => (b.efficiencyPct || 0) - (a.efficiencyPct || 0));
 
   const varianceMatrix = Object.values(
