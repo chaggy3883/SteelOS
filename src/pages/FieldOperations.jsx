@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2, Gauge } from 'lucide-react';
+import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2, Gauge, PackageCheck } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
@@ -10,6 +10,7 @@ import HookProductionTerminal from '@/components/field-operations/HookProduction
 import RepairLedger from '@/components/field-operations/RepairLedger';
 import RiggingMatrix from '@/components/field-operations/RiggingMatrix';
 import EquipmentUsagePanel from '@/components/field-operations/EquipmentUsagePanel';
+import JobsiteReceiving from '@/components/field-operations/JobsiteReceiving';
 
 const FLEET_WRITE_ROLES = ['admin', 'super_admin', 'Maintenance_Manager'];
 const PO_MISMATCH_OVERRIDE_ROLES = ['controller', 'finance_department', 'admin', 'super_admin'];
@@ -102,6 +103,7 @@ export default function FieldOperations() {
           <TabsTrigger value="hooks" className="gap-1.5"><ArrowUpFromLine className="w-3.5 h-3.5" />Hook Production Terminal</TabsTrigger>
           <TabsTrigger value="repairs" className="gap-1.5"><Wrench className="w-3.5 h-3.5" />Repair Ledger</TabsTrigger>
           <TabsTrigger value="rigging" className="gap-1.5"><Link2 className="w-3.5 h-3.5" />Rigging Matrix</TabsTrigger>
+          <TabsTrigger value="jobsite-receiving" className="gap-1.5"><PackageCheck className="w-3.5 h-3.5" />Jobsite Receiving</TabsTrigger>
         </TabsList>
 
         <TabsContent value="fleet">
@@ -145,6 +147,10 @@ export default function FieldOperations() {
 
         <TabsContent value="rigging">
           <RiggingMatrix ledger={riggingLedger} canManageFleet={canManageFleet} onReload={loadAll} />
+        </TabsContent>
+
+        <TabsContent value="jobsite-receiving">
+          <JobsiteReceiving />
         </TabsContent>
       </Tabs>
     </div>
