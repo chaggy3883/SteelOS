@@ -33,7 +33,7 @@ export async function getEmployeeForRole(id, roles) {
   return hasFullAccess(roles) ? row : maskEmployee(row);
 }
 
-const nextEmployeeNumber = async () => {
+export const nextEmployeeNumber = async () => {
   const existing = await db.entities.employees.list('-created_date', 500);
   const max = existing.reduce((m, e) => {
     const n = parseInt(e.employee_number, 10);
@@ -75,6 +75,46 @@ export async function hireCandidate(candidateId) {
   });
 
   return employee;
+}
+
+// The "Add Employee" wizard's provisioning trigger — same shape as
+// hireCandidate above, but for employees onboarded directly without first
+// going through the ATS pipeline. Kept as a single call site for the same
+// reason hireCandidate is: so the formula-PIN + lockout defaults can never
+// be skipped by a UI path that forgets one of them.
+export async function provisionEmployee(formData) {
+  const employee_number = await nextEmployeeNumber();
+  const ssn_last4 = (formData.ssn_last4 || '').replace(/\D/g, '').slice(0, 4);
+
+  return db.entities.employees.create({
+    employee_number,
+    full_name: formData.full_name,
+    dob: formData.dob,
+    address_street: formData.address_street,
+    address_city: formData.address_city,
+    address_state: formData.address_state,
+    address_zip: formData.address_zip,
+    phone: formData.phone,
+    personal_email: formData.personal_email,
+    ssn_last4,
+    emergency_contact_name: formData.emergency_contact_name,
+    emergency_contact_phone: formData.emergency_contact_phone,
+    emergency_contact_relationship: formData.emergency_contact_relationship,
+    classification: formData.classification,
+    hire_date: formData.hire_date,
+    pay_type: formData.pay_type,
+    pay_rate_cents: formData.pay_type === 'salary' ? 0 : (Number(formData.pay_rate_cents) || 0),
+    annual_salary_cents: formData.pay_type === 'salary' ? (Number(formData.annual_salary_cents) || 0) : 0,
+    department: formData.department,
+    platform_role: formData.platform_role,
+    supervisor_name: formData.supervisor_name,
+    pin_encrypted: encodeFormulaPin({ employee_number, ssn_last4 }),
+    is_timeclock_locked: true,
+    has_w4_approved: false,
+    has_i9_approved: false,
+    is_active: true,
+    is_active_login: true,
+  });
 }
 
 // PIN-lockout auto-unlock rule: a locked timeclock terminal unlocks the

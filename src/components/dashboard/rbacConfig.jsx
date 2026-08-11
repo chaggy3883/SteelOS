@@ -1,4 +1,4 @@
-import { ListChecks, Calculator, TrendingUp, History, Plus, FolderKanban, FileEdit, Factory, Truck, DollarSign, Activity, PackageCheck } from 'lucide-react';
+import { ListChecks, Calculator, TrendingUp, History, Plus, FolderKanban, FileEdit, Factory, Truck, DollarSign, Activity, PackageCheck, CalendarClock } from 'lucide-react';
 import { db } from '@/api/apiClient';
 
 export const ALL_MODULES = [
@@ -61,6 +61,7 @@ export const WIDGET_LIBRARY = [
   { id: 'buyout_variance_widget', name: 'Buyout Financial Variance', category: 'pm', icon: DollarSign, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Budgeted vs actual procurement spend', route: '/purchasing/module' },
   { id: 'pending_requisition_approvals_widget', name: 'Pending Requisition Approvals', category: 'pm', icon: Activity, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Requisitions awaiting executive approval', route: '/purchasing/module' },
   { id: 'material_received_tracker_widget', name: 'Material Received Tracker', category: 'pm', icon: PackageCheck, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Recent receiving log status by PO', route: '/purchasing/receiving-kiosk' },
+  { id: 'interviews_calendar', name: 'Interviews', category: 'hr', icon: CalendarClock, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 3, description: 'Upcoming candidate interview schedule', route: '/human-resources' },
 ];
 
 export const BUILTIN_ROLES = [
@@ -71,8 +72,8 @@ export const BUILTIN_ROLES = [
   { name: 'shop_manager', label: 'Shop Manager', is_system: true, description: 'Production & quality oversight', allowed_modules: ['/', '/employee-center','/production', '/quality', '/safety', '/inventory', '/shop-operations', '/field-operations', '/payroll/hours'], allowed_widgets: ['fab_progress'] },
   { name: 'inspector', label: 'Inspector', is_system: true, description: 'Quality inspection', allowed_modules: ['/', '/employee-center','/quality', '/documents'], allowed_widgets: [] },
   { name: 'warehouse_clerk', label: 'Warehouse Clerk', is_system: true, description: 'Inventory & shipping', allowed_modules: ['/', '/employee-center','/inventory', '/shipping'], allowed_widgets: ['shipments_calendar'] },
-  { name: 'hr_admin', label: 'HR Admin', is_system: true, description: 'User management, accounting, and personnel records', allowed_modules: ['/', '/employee-center','/users', '/accounting', '/admin', '/human-resources', '/portal/login'], allowed_widgets: [] },
-  { name: 'payroll_admin', label: 'Payroll Admin', is_system: true, description: 'Payroll and personnel compensation records', allowed_modules: ['/', '/employee-center','/accounting', '/human-resources', '/payroll', '/payroll/hours', '/certified-payroll', '/portal/login'], allowed_widgets: [] },
+  { name: 'hr_admin', label: 'HR Admin', is_system: true, description: 'User management, accounting, and personnel records', allowed_modules: ['/', '/employee-center','/users', '/accounting', '/admin', '/human-resources', '/portal/login'], allowed_widgets: ['interviews_calendar'] },
+  { name: 'payroll_admin', label: 'Payroll Admin', is_system: true, description: 'Payroll and personnel compensation records', allowed_modules: ['/', '/employee-center','/accounting', '/human-resources', '/payroll', '/payroll/hours', '/certified-payroll', '/portal/login'], allowed_widgets: ['interviews_calendar'] },
   { name: 'president', label: 'President', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/employee-center','/estimating', '/estimating/analytics', '/estimating/spec-review', '/projects', '/crm', '/accounting', '/reports', '/executive-analytics', '/admin', '/legal', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining', 'pending_requisition_approvals_widget'] },
   { name: 'ceo', label: 'CEO', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/employee-center','/estimating', '/estimating/analytics', '/estimating/spec-review', '/projects', '/crm', '/accounting', '/reports', '/executive-analytics', '/admin', '/legal', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining', 'pending_requisition_approvals_widget'] },
   { name: 'finance_department', label: 'Finance Department', is_system: true, description: 'Financial review access', allowed_modules: ['/', '/employee-center','/accounting', '/estimating', '/estimating/analytics', '/estimating/spec-review', '/reports', '/executive-analytics', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'invoiced_vs_remaining'] },

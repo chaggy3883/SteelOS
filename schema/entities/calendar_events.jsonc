@@ -1,0 +1,41 @@
+{
+  "name": "calendar_events",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "Interview",
+        "Shipment",
+        "Meeting",
+        "Other"
+      ]
+    },
+    "candidate_id": {
+      "type": "string"
+    },
+    "candidate_name": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "interviewer": {
+      "type": "string"
+    },
+    "scheduled_datetime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_type",
+    "scheduled_datetime"
+  ]
+}

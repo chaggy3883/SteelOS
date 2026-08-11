@@ -1,0 +1,43 @@
+{
+  "name": "employee_disciplinary_files",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "incident_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "incident_type": {
+      "type": "string",
+      "enum": [
+        "Write-Up",
+        "Verbal Warning",
+        "Written Warning",
+        "Final Warning",
+        "Suspension",
+        "Termination Notice",
+        "Other"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "uploaded_by": {
+      "type": "string"
+    },
+    "file_blob_key": {
+      "type": "string",
+      "description": "IndexedDB key in pdfBlobStore.js, format hr_docs/{employeeId}/disciplinary/{recordId} — blank when no file was attached."
+    }
+  },
+  "required": [
+    "employee_id",
+    "incident_date",
+    "incident_type"
+  ]
+}

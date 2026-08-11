@@ -66,6 +66,31 @@
     "department": {
       "type": "string"
     },
+    "supervisor_name": {
+      "type": "string"
+    },
+    "dob": {
+      "type": "string",
+      "format": "date"
+    },
+    "address_street": {
+      "type": "string"
+    },
+    "address_city": {
+      "type": "string"
+    },
+    "address_state": {
+      "type": "string"
+    },
+    "address_zip": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "personal_email": {
+      "type": "string"
+    },
     "emergency_contact_name": {
       "type": "string"
     },

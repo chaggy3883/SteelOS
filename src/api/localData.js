@@ -1027,6 +1027,67 @@ const buildSeedData = () => {
         notes: 'Second interview scheduled with shop manager.',
         created_date: now,
         updated_date: now
+      },
+      {
+        id: 'candidate-2',
+        candidate_name: 'Priya Shah',
+        email: 'priya.shah@example.com',
+        phone: '419-555-0187',
+        position_applied: 'Welder',
+        status: 'Interviewing',
+        applied_date: '2026-07-15',
+        hired_employee_id: '',
+        notes: 'Strong welding certifications, first-round interview pending.',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'candidate-3',
+        candidate_name: 'Marcus Webb',
+        email: 'marcus.webb@example.com',
+        phone: '419-555-0142',
+        position_applied: 'Fabricator',
+        status: 'Interviewing',
+        applied_date: '2026-07-18',
+        hired_employee_id: '',
+        notes: 'Referred by Casey Nguyen.',
+        created_date: now,
+        updated_date: now
+      }
+    ],
+    calendar_events: [
+      {
+        id: 'calendar-event-1',
+        event_type: 'Interview',
+        candidate_id: 'candidate-1',
+        candidate_name: 'Jordan Blake',
+        interviewer: 'Casey Nguyen',
+        scheduled_datetime: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+        notes: 'Second-round interview — shop floor walkthrough.',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'calendar-event-2',
+        event_type: 'Interview',
+        candidate_id: 'candidate-2',
+        candidate_name: 'Priya Shah',
+        interviewer: 'Shop Manager',
+        scheduled_datetime: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(),
+        notes: 'First-round phone interview.',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'calendar-event-3',
+        event_type: 'Interview',
+        candidate_id: 'candidate-3',
+        candidate_name: 'Marcus Webb',
+        interviewer: 'HR Admin',
+        scheduled_datetime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        notes: 'On-site interview and shop tour.',
+        created_date: now,
+        updated_date: now
       }
     ],
     employees: [

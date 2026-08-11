@@ -16,8 +16,11 @@ import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import EmployeeProfileDialog from '@/components/hr/EmployeeProfileDialog';
 import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
+import AddEmployeeWizard from '@/components/hr/AddEmployeeWizard';
+import EmployeeFilesPanel from '@/components/hr/EmployeeFilesPanel';
+import CandidateApplicationDialog from '@/components/hr/CandidateApplicationDialog';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
-import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse } from 'lucide-react';
+import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse, CalendarPlus } from 'lucide-react';
 
 const POSITIONS = ['Ironworker', 'Welder', 'Fabricator', 'Painter', 'Shop Manager', 'Inspector', 'Office'];
 const CANDIDATE_STATUSES = ['Applied', 'Interviewing', 'Offer_Extended', 'Hired', 'Rejected'];
@@ -32,7 +35,11 @@ const HR_TABS = [
   { value: 'emergency', key: 'tab:/human-resources:emergency' },
   { value: 'safety', key: 'tab:/human-resources:safety' },
   { value: 'terminal', key: 'tab:/human-resources:terminal' },
+  { value: 'addemployee', key: 'tab:/human-resources:addemployee' },
+  { value: 'files', key: 'tab:/human-resources:files' },
 ];
+
+const emptyInterviewForm = () => ({ scheduled_datetime: '', interviewer: '', notes: '' });
 
 const emptyCandidateForm = () => ({ candidate_name: '', email: '', phone: '', position_applied: 'Ironworker' });
 
@@ -48,6 +55,11 @@ export default function HumanResources() {
   const [showCandidateForm, setShowCandidateForm] = useState(false);
   const [candidateForm, setCandidateForm] = useState(emptyCandidateForm());
   const [savingCandidate, setSavingCandidate] = useState(false);
+
+  const [schedulingCandidateId, setSchedulingCandidateId] = useState(null);
+  const [interviewForm, setInterviewForm] = useState(emptyInterviewForm());
+  const [savingInterview, setSavingInterview] = useState(false);
+  const [viewingCandidate, setViewingCandidate] = useState(null);
 
   const [terminalEmployeeNumber, setTerminalEmployeeNumber] = useState('');
   const [terminalPin, setTerminalPin] = useState('');
@@ -132,6 +144,42 @@ export default function HumanResources() {
     }
     const updated = await db.entities.candidate_profiles.update(candidate.id, { status });
     setCandidates((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+  };
+
+  const openInterviewScheduler = (candidate) => {
+    setSchedulingCandidateId(candidate.id);
+    setInterviewForm(emptyInterviewForm());
+  };
+
+  // Dashboard widgets calendar (widgetContent.jsx's InterviewsCalendarWidget)
+  // reads calendar_events directly — this is the only write path into it.
+  const saveInterview = async (candidate) => {
+    if (!interviewForm.scheduled_datetime) {
+      toast({ title: 'Interview date/time is required', variant: 'destructive' });
+      return;
+    }
+    setSavingInterview(true);
+    try {
+      await db.entities.calendar_events.create({
+        event_type: 'Interview',
+        candidate_id: candidate.id,
+        candidate_name: candidate.candidate_name,
+        interviewer: interviewForm.interviewer,
+        scheduled_datetime: new Date(interviewForm.scheduled_datetime).toISOString(),
+        notes: interviewForm.notes,
+      });
+      setSchedulingCandidateId(null);
+      setInterviewForm(emptyInterviewForm());
+      toast({ title: 'Interview scheduled', description: candidate.candidate_name });
+    } catch (e) {
+      toast({ title: 'Unable to schedule interview', variant: 'destructive' });
+    } finally {
+      setSavingInterview(false);
+    }
+  };
+
+  const handleEmployeeCreated = (employee) => {
+    setEmployees((prev) => [employee, ...prev]);
   };
 
   const toggleCompliance = async (employee, field, value) => {
@@ -257,6 +305,8 @@ export default function HumanResources() {
           {isFullAccess && isTabVisible('emergency') && <TabsTrigger value="emergency">Emergency Contacts</TabsTrigger>}
           {isTabVisible('safety') && <TabsTrigger value="safety">Safety Radar</TabsTrigger>}
           {isTabVisible('terminal') && <TabsTrigger value="terminal">Timeclock Terminal</TabsTrigger>}
+          {isFullAccess && isTabVisible('addemployee') && <TabsTrigger value="addemployee">Add Employee</TabsTrigger>}
+          {isFullAccess && isTabVisible('files') && <TabsTrigger value="files">Employee Files</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="ats" className="space-y-3">
@@ -268,18 +318,54 @@ export default function HumanResources() {
           {candidates.length === 0 ? (
             <p className="text-sm text-muted-foreground p-6 text-center">No candidates in the pipeline yet.</p>
           ) : candidates.map((candidate) => (
-            <div key={candidate.id} className="steel-card p-4 flex items-center justify-between gap-4 flex-wrap">
-              <div>
-                <p className="font-semibold">{candidate.candidate_name}</p>
-                <p className="text-xs text-muted-foreground">{candidate.position_applied} • {candidate.email}</p>
-                {candidate.hired_employee_id && <p className="text-xs text-green-600 mt-0.5">Provisioned as employee record</p>}
+            <div key={candidate.id} className="steel-card p-4 space-y-3">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <button onClick={() => setViewingCandidate(candidate)} className="font-semibold text-primary hover:underline text-left">
+                    {candidate.candidate_name}
+                  </button>
+                  <p className="text-xs text-muted-foreground">{candidate.position_applied} • {candidate.email}</p>
+                  {candidate.hired_employee_id && <p className="text-xs text-green-600 mt-0.5">Provisioned as employee record</p>}
+                </div>
+                <div className="flex items-center gap-2">
+                  {candidate.status === 'Interviewing' && (
+                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openInterviewScheduler(candidate)}>
+                      <CalendarPlus className="w-3.5 h-3.5" />Schedule Interview
+                    </Button>
+                  )}
+                  <Select value={candidate.status} onValueChange={(v) => handleStatusChange(candidate, v)}>
+                    <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {CANDIDATE_STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace('_', ' ')}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <Select value={candidate.status} onValueChange={(v) => handleStatusChange(candidate, v)}>
-                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {CANDIDATE_STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace('_', ' ')}</SelectItem>)}
-                </SelectContent>
-              </Select>
+
+              {schedulingCandidateId === candidate.id && (
+                <div className="rounded-lg border border-border p-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Date & Time</Label>
+                      <Input type="datetime-local" value={interviewForm.scheduled_datetime} onChange={(e) => setInterviewForm((f) => ({ ...f, scheduled_datetime: e.target.value }))} className="mt-1" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Interviewer</Label>
+                      <Input value={interviewForm.interviewer} onChange={(e) => setInterviewForm((f) => ({ ...f, interviewer: e.target.value }))} className="mt-1" />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Notes</Label>
+                    <Textarea value={interviewForm.notes} onChange={(e) => setInterviewForm((f) => ({ ...f, notes: e.target.value }))} rows={2} className="mt-1" />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setSchedulingCandidateId(null)}>Cancel</Button>
+                    <Button size="sm" onClick={() => saveInterview(candidate)} disabled={savingInterview} className="steel-gradient text-white border-0">
+                      {savingInterview ? 'Saving…' : 'Save Interview'}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </TabsContent>
@@ -486,6 +572,18 @@ export default function HumanResources() {
             <p className="text-xs text-muted-foreground">Terminal rejects the punch if the employee's timeclock is locked, regardless of PIN correctness.</p>
           </div>
         </TabsContent>
+
+        {isFullAccess && (
+          <TabsContent value="addemployee">
+            <AddEmployeeWizard positions={POSITIONS} allRoles={allRoles} onEmployeeCreated={handleEmployeeCreated} />
+          </TabsContent>
+        )}
+
+        {isFullAccess && (
+          <TabsContent value="files">
+            <EmployeeFilesPanel employees={employees} />
+          </TabsContent>
+        )}
       </Tabs>
 
       <Dialog open={showCandidateForm} onOpenChange={setShowCandidateForm}>
@@ -532,6 +630,12 @@ export default function HumanResources() {
           onEmployeeUpdated={handleProfileUpdated}
         />
       )}
+
+      <CandidateApplicationDialog
+        candidate={viewingCandidate}
+        open={!!viewingCandidate}
+        onOpenChange={(o) => { if (!o) setViewingCandidate(null); }}
+      />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Package } from 'lucide-react';
+import { Loader2, Package, CalendarClock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 function WidgetSkeleton({ lines = 4 }) {
@@ -242,6 +242,36 @@ function ShipmentsCalendarWidget() {
   ))}</div>;
 }
 
+function InterviewsCalendarWidget() {
+  const [interviews, setInterviews] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    db.entities.calendar_events.filter({ event_type: 'Interview' }, '-created_date', 200).then((events) => {
+      const upcoming = events
+        .filter((e) => e.scheduled_datetime && new Date(e.scheduled_datetime) >= new Date())
+        .sort((a, b) => new Date(a.scheduled_datetime) - new Date(b.scheduled_datetime))
+        .slice(0, 8);
+      setInterviews(upcoming);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+  if (loading) return <WidgetSkeleton lines={5} />;
+  if (interviews.length === 0) return <WidgetEmpty message="No upcoming interviews" />;
+  return <div className="space-y-1">{interviews.map((i) => (
+    <div key={i.id} className="flex items-center gap-2 p-1.5 rounded hover:bg-muted transition-colors">
+      <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex flex-col items-center justify-center flex-shrink-0">
+        <span className="text-[9px] font-bold text-purple-500">{new Date(i.scheduled_datetime).toLocaleDateString('en', { month: 'short' })}</span>
+        <span className="text-xs font-bold text-purple-500">{new Date(i.scheduled_datetime).getDate()}</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium truncate">{i.candidate_name}</p>
+        <p className="text-[10px] text-muted-foreground truncate">{i.interviewer || 'Interviewer TBD'}</p>
+      </div>
+      <CalendarClock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+    </div>
+  ))}</div>;
+}
+
 function InvoicedVsRemainingWidget() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -421,6 +451,7 @@ const WIDGET_RENDERERS = {
   bid_list: BidListWidget, active_bids_count: ActiveBidsCountWidget, bid_win_rate: BidWinRateWidget,
   bid_history: BidHistoryWidget, quick_add_bid: QuickAddBidWidget, active_projects: ActiveProjectsWidget,
   change_orders: ChangeOrdersWidget, fab_progress: FabProgressWidget, shipments_calendar: ShipmentsCalendarWidget,
+  interviews_calendar: InterviewsCalendarWidget,
   invoiced_vs_remaining: InvoicedVsRemainingWidget,
   project_health_summary: ProjectHealthSummaryWidget,
   change_order_pipeline: ChangeOrderPipelineWidget,
