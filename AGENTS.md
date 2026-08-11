@@ -6,6 +6,8 @@ This is a self-contained React/Vite SPA. Treat it as user-owned application code
 
 Start with `README.md` for local setup and how persistence works.
 
+At the start of every session, read the `steelos-dev` plugin's context directly — it does not auto-load in this environment. Read `.claude/steelos-dev/skills/steelos-context/SKILL.md`, `.claude/steelos-dev/skills/steelos-code-review/SKILL.md`, `.claude/steelos-dev/skills/steelos-architecture/SKILL.md`, `.claude/steelos-dev/agents/steelos-debugger.md`, and `.claude/steelos-dev/BACKLOG.md`, and follow their guidance for the session.
+
 ## Key Files
 
 - `src/`: frontend application source.

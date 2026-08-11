@@ -47,6 +47,7 @@
         "word_document",
         "vendor_quote",
         "vendor_invoice",
+        "mtr",
         "other"
       ]
     },

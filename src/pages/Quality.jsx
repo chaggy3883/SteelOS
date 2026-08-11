@@ -1,25 +1,80 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { CheckSquare, AlertTriangle, XCircle, FileText, Brain, CheckCircle2, Plus, Search, Clock } from 'lucide-react';
+import { CheckSquare, AlertTriangle, XCircle, FileText, Brain, CheckCircle2, Plus, Search, Clock, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+const QA_CATEGORIES = [
+  'AISC Certification', 'Welding Requirements', 'Inspection Hold Points',
+  'Material Traceability', 'Surface Preparation', 'Bolting Inspection',
+  'Third Party Inspection', 'NCR Procedures'
+];
+
+const emptyRecordForm = () => ({
+  project_id: '', category: QA_CATEGORIES[0], inspector_name: '',
+  inspection_date: new Date().toISOString().slice(0, 10), result: 'Pass', notes: '',
+});
+
 export default function Quality() {
+  const { toast } = useToast();
   const [findings, setFindings] = useState([]);
+  const [records, setRecords] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [showNewRecord, setShowNewRecord] = useState(false);
+  const [recordForm, setRecordForm] = useState(emptyRecordForm());
+  const [savingRecord, setSavingRecord] = useState(false);
+  const [detailRecord, setDetailRecord] = useState(null);
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await db.entities.AIFinding.filter({ review_package: 'quality_assurance' }, '-created_date', 100);
-      setFindings(data);
+      const [findingsData, recordsData, projectsData] = await Promise.all([
+        db.entities.AIFinding.filter({ review_package: 'quality_assurance' }, '-created_date', 100),
+        db.entities.quality_inspection_records.list('-created_date', 200),
+        db.entities.Project.list('-created_date', 200),
+      ]);
+      setFindings(findingsData);
+      setRecords(recordsData);
+      setProjects(projectsData);
     } catch (e) {} finally { setLoading(false); }
+  };
+
+  const projectName = (id) => projects.find(p => p.id === id)?.name || 'Unassigned';
+
+  const handleCreateRecord = async () => {
+    if (!recordForm.inspector_name.trim() || !recordForm.inspection_date) {
+      toast({ title: 'Inspector name and inspection date are required', variant: 'destructive' });
+      return;
+    }
+    setSavingRecord(true);
+    try {
+      await db.entities.quality_inspection_records.create({
+        project_id: recordForm.project_id,
+        category: recordForm.category,
+        inspector_name: recordForm.inspector_name.trim(),
+        inspection_date: recordForm.inspection_date,
+        result: recordForm.result,
+        notes: recordForm.notes.trim(),
+      });
+      await loadData();
+      setShowNewRecord(false);
+      setRecordForm(emptyRecordForm());
+      toast({ title: 'QA record saved' });
+    } finally {
+      setSavingRecord(false);
+    }
   };
 
   const filtered = findings.filter(f =>
@@ -34,19 +89,13 @@ export default function Quality() {
     pending: findings.filter(f => f.review_status === 'pending').length,
   };
 
-  const QA_CATEGORIES = [
-    'AISC Certification', 'Welding Requirements', 'Inspection Hold Points',
-    'Material Traceability', 'Surface Preparation', 'Bolting Inspection',
-    'Third Party Inspection', 'NCR Procedures'
-  ];
-
   return (
     <div className="p-6 animate-fade-in">
       <PageHeader
         title="Quality Assurance"
         subtitle="QA review findings, inspection records, and compliance tracking"
         actions={
-          <Button className="steel-gradient text-white border-0"><Plus className="w-4 h-4 mr-2" /> New QA Record</Button>
+          <Button className="steel-gradient text-white border-0" onClick={() => setShowNewRecord(true)}><Plus className="w-4 h-4 mr-2" /> New QA Record</Button>
         }
       />
 
@@ -72,6 +121,7 @@ export default function Quality() {
       <Tabs defaultValue="findings">
         <TabsList className="mb-4">
           <TabsTrigger value="findings">AI QA Findings</TabsTrigger>
+          <TabsTrigger value="records">Inspection Records</TabsTrigger>
           <TabsTrigger value="checklist">QA Checklist</TabsTrigger>
           <TabsTrigger value="certifications">Certifications</TabsTrigger>
         </TabsList>
@@ -112,6 +162,42 @@ export default function Quality() {
                       )}
                     </div>
                     <StatusBadge status={f.review_status} label={f.review_status?.replace('_', ' ')} />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="records">
+          <div className="space-y-3">
+            {records.length === 0 ? (
+              <div className="text-center py-16 steel-card">
+                <ClipboardList className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">No inspection records yet. Click "New QA Record" to log one.</p>
+              </div>
+            ) : (
+              records.map(r => (
+                <div
+                  key={r.id}
+                  onClick={() => setDetailRecord(r)}
+                  className={`steel-card p-4 border-l-4 cursor-pointer hover:bg-muted/40 transition-colors ${
+                    r.result === 'Fail' ? 'border-l-red-500' :
+                    r.result === 'Warning' ? 'border-l-yellow-500' : 'border-l-green-500'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <StatusBadge status={r.result?.toLowerCase()} label={r.result} />
+                        <span className="text-xs text-muted-foreground">{r.category}</span>
+                      </div>
+                      <p className="font-medium text-sm">{projectName(r.project_id)}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {r.inspector_name} • {r.inspection_date}
+                      </p>
+                      {r.notes && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{r.notes}</p>}
+                    </div>
                   </div>
                 </div>
               ))
@@ -172,6 +258,96 @@ export default function Quality() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={showNewRecord} onOpenChange={(open) => { setShowNewRecord(open); if (!open) setRecordForm(emptyRecordForm()); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>New QA Record</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Project</Label>
+              <Select value={recordForm.project_id} onValueChange={(v) => setRecordForm(f => ({ ...f, project_id: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                <SelectContent>{projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Category</Label>
+              <Select value={recordForm.category} onValueChange={(v) => setRecordForm(f => ({ ...f, category: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>{QA_CATEGORIES.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Inspector Name</Label>
+                <Input value={recordForm.inspector_name} onChange={(e) => setRecordForm(f => ({ ...f, inspector_name: e.target.value }))} className="mt-1" />
+              </div>
+              <div>
+                <Label>Inspection Date</Label>
+                <Input type="date" value={recordForm.inspection_date} onChange={(e) => setRecordForm(f => ({ ...f, inspection_date: e.target.value }))} className="mt-1" />
+              </div>
+            </div>
+            <div>
+              <Label>Result</Label>
+              <Select value={recordForm.result} onValueChange={(v) => setRecordForm(f => ({ ...f, result: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Pass">Pass</SelectItem>
+                  <SelectItem value="Fail">Fail</SelectItem>
+                  <SelectItem value="Warning">Warning</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea rows={3} value={recordForm.notes} onChange={(e) => setRecordForm(f => ({ ...f, notes: e.target.value }))} className="mt-1" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewRecord(false)}>Cancel</Button>
+            <Button onClick={handleCreateRecord} disabled={savingRecord} className="steel-gradient text-white border-0">
+              {savingRecord ? 'Saving…' : 'Save Record'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!detailRecord} onOpenChange={(open) => !open && setDetailRecord(null)}>
+        <DialogContent>
+          {detailRecord && (
+            <>
+              <DialogHeader><DialogTitle>QA Inspection Record</DialogTitle></DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={detailRecord.result?.toLowerCase()} label={detailRecord.result} />
+                  <span className="text-muted-foreground">{detailRecord.category}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Project</p>
+                    <p className="font-medium">{projectName(detailRecord.project_id)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Inspection Date</p>
+                    <p className="font-medium">{detailRecord.inspection_date}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Inspector</p>
+                    <p className="font-medium">{detailRecord.inspector_name}</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Notes</p>
+                  <p className="mt-1">{detailRecord.notes || '—'}</p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDetailRecord(null)}>Close</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

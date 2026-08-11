@@ -72,6 +72,11 @@ export default function Warehouse3D({ items = [] }) {
   const cameraRadius = useRef(35);
   const cameraTarget = useRef({ x: 0, y: 0, z: 0 });
   const dragMode = useRef('rotate');
+  // Read by handleClick for mouse-coordinate normalization — updated by both
+  // the initial setup effect and the fullscreen recalc effect below, so a
+  // click after toggling fullscreen normalizes against the current container
+  // size instead of the dimensions captured at mount.
+  const containerSizeRef = useRef({ W: 0, H: 0 });
 
   const [selectedZone, setSelectedZone] = useState(null);
   const [dbZones, setDbZones] = useState([]);
@@ -108,6 +113,7 @@ export default function Warehouse3D({ items = [] }) {
     if (!mountRef.current) return;
     const W = mountRef.current.clientWidth;
     const H = mountRef.current.clientHeight;
+    containerSizeRef.current = { W, H };
 
     // Computed here (not read from the render-scope `allZones`/`activeRacks`
     // above) so this effect's only real dependencies are dbZones/items, as
@@ -254,8 +260,9 @@ export default function Warehouse3D({ items = [] }) {
     const handleClick = (e) => {
       if (!mountRef.current) return;
       const rect = mountRef.current.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / W) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / H) * 2 + 1;
+      const { W: curW, H: curH } = containerSizeRef.current;
+      mouse.x = ((e.clientX - rect.left) / curW) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / curH) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(scene.children, false);
       const hit = intersects.find(i => i.object.userData?.type);
@@ -331,6 +338,7 @@ export default function Warehouse3D({ items = [] }) {
       if (!mountRef.current) return;
       const W2 = mountRef.current.clientWidth;
       const H2 = mountRef.current.clientHeight;
+      containerSizeRef.current = { W: W2, H: H2 };
       camera.aspect = W2 / H2;
       camera.updateProjectionMatrix();
       renderer.setSize(W2, H2);
@@ -364,6 +372,7 @@ export default function Warehouse3D({ items = [] }) {
       if (!mountRef.current || !cameraRef.current || !rendererRef.current) return;
       const W2 = mountRef.current.clientWidth;
       const H2 = mountRef.current.clientHeight;
+      containerSizeRef.current = { W: W2, H: H2 };
       cameraRef.current.aspect = W2 / H2;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(W2, H2);

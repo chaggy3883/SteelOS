@@ -1,0 +1,49 @@
+{
+  "name": "quality_inspection_records",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "AISC Certification",
+        "Welding Requirements",
+        "Inspection Hold Points",
+        "Material Traceability",
+        "Surface Preparation",
+        "Bolting Inspection",
+        "Third Party Inspection",
+        "NCR Procedures"
+      ]
+    },
+    "inspector_name": {
+      "type": "string"
+    },
+    "inspection_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "Pass",
+        "Fail",
+        "Warning"
+      ]
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "category",
+    "inspector_name",
+    "inspection_date",
+    "result"
+  ]
+}

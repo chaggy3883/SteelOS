@@ -1,0 +1,9 @@
+{
+  "name": "steelos-dev",
+  "version": "0.1.0",
+  "description": "Project context, code review discipline, architecture guidance, and debugging support for SteelOS development",
+  "author": {
+    "name": "Justin Chagnon"
+  },
+  "keywords": ["steelos", "structural-steel", "erp", "react"]
+}

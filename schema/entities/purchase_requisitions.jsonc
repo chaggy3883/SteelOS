@@ -1,0 +1,61 @@
+{
+  "name": "purchase_requisitions",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "job_number": {
+      "type": "string"
+    },
+    "item_description": {
+      "type": "string"
+    },
+    "required_on_site_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "urgency": {
+      "type": "string",
+      "enum": [
+        "Low",
+        "Medium",
+        "Critical"
+      ]
+    },
+    "requisition_total": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Exec_Review",
+        "Auto_Approved",
+        "Rejected",
+        "Pending Executive Approval"
+      ],
+      "description": "'Pending Executive Approval' is a legacy value present in older/seed records; new requisitions over the auto-approve threshold are created with 'Exec_Review'."
+    },
+    "requires_signature": {
+      "type": "boolean",
+      "default": false
+    },
+    "approved_by": {
+      "type": "string",
+      "description": "Set when an Approve action is taken — the approving user's id or email."
+    },
+    "approved_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rejection_reason": {
+      "type": "string",
+      "description": "Required (min 5 characters) when a Reject action is taken."
+    }
+  },
+  "required": [
+    "job_number",
+    "item_description"
+  ]
+}

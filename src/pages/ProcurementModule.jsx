@@ -3,13 +3,16 @@ import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import { Plus, Truck, ClipboardCheck, FileText, DollarSign, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { generateQrPayload } from '@/lib/qrSerialization';
 import PurchaseOrderDetailModal from '@/components/purchasing/PurchaseOrderDetailModal';
+import { REQUISITION_APPROVAL_ROLES } from '@/components/dashboard/widgetContent';
 
 const AUTO_APPROVE_THRESHOLD = 5000;
 
@@ -32,8 +35,22 @@ export default function ProcurementModule() {
   const [invoiceForm, setInvoiceForm] = useState({ invoice_number: '', po_id: '', invoice_amount: '', quantity_received: '', expected_cost: '', expected_quantity: '' });
   const [detailPoId, setDetailPoId] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [canApproveReq, setCanApproveReq] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [detailReq, setDetailReq] = useState(null);
+  const [rejectReq, setRejectReq] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [savingReqAction, setSavingReqAction] = useState(false);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+    db.auth.me()
+      .then((me) => {
+        setCurrentUser(me || null);
+        setCanApproveReq((me?.roles || []).some((r) => REQUISITION_APPROVAL_ROLES.includes(r)));
+      })
+      .catch(() => setCanApproveReq(false));
+  }, []);
 
   const loadData = async () => {
     setLoading(true);
@@ -93,6 +110,39 @@ export default function ProcurementModule() {
     setRequisitions([created, ...requisitions]);
     setReqForm({ job_number: '', item_description: '', required_on_site_date: '', urgency: 'Medium', requisition_total: '' });
     toast({ title: requiresSignature ? 'Requisition routed for approval' : 'Requisition approved' });
+  };
+
+  const handleApproveRequisition = async (item, event) => {
+    event.stopPropagation();
+    setSavingReqAction(true);
+    try {
+      const updated = await db.entities.purchase_requisitions.update(item.id, {
+        status: 'Auto_Approved',
+        approved_by: currentUser?.id || currentUser?.email || '',
+        approved_date: new Date().toISOString(),
+      });
+      setRequisitions((prev) => prev.map((r) => (r.id === item.id ? updated : r)));
+      toast({ title: `Requisition ${item.job_number} approved` });
+    } finally {
+      setSavingReqAction(false);
+    }
+  };
+
+  const confirmRejectRequisition = async () => {
+    if (!rejectReq || rejectReason.trim().length < 5) return;
+    setSavingReqAction(true);
+    try {
+      const updated = await db.entities.purchase_requisitions.update(rejectReq.id, {
+        status: 'Rejected',
+        rejection_reason: rejectReason.trim(),
+      });
+      setRequisitions((prev) => prev.map((r) => (r.id === rejectReq.id ? updated : r)));
+      toast({ title: `Requisition ${rejectReq.job_number} rejected` });
+      setRejectReq(null);
+      setRejectReason('');
+    } finally {
+      setSavingReqAction(false);
+    }
   };
 
   const createReceivingLog = async (event) => {
@@ -162,7 +212,7 @@ export default function ProcurementModule() {
   const stats = useMemo(() => {
     const budgeted = purchaseOrders.reduce((sum, item) => sum + Number(item.budgeted_cost || 0), 0);
     const actual = purchaseOrders.reduce((sum, item) => sum + Number(item.actual_cost || 0), 0);
-    const pendingApprovals = requisitions.filter((item) => item.requires_signature).length;
+    const pendingApprovals = requisitions.filter((item) => item.requires_signature && item.status !== 'Auto_Approved' && item.status !== 'Rejected').length;
     const partials = receivingLogs.filter((item) => item.delivery_status === 'Partial Delivery').length;
     return { budgeted, actual, variance: budgeted - actual, pendingApprovals, partials };
   }, [purchaseOrders, requisitions, receivingLogs]);
@@ -307,14 +357,24 @@ export default function ProcurementModule() {
 
           <div className="space-y-3">
             {requisitions.map((item) => (
-              <div key={item.id} className="steel-card p-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div
+                key={item.id}
+                onClick={() => setDetailReq(item)}
+                className="steel-card p-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between cursor-pointer hover:bg-muted/50"
+              >
                 <div>
                   <p className="font-medium">{item.item_description}</p>
                   <p className="text-sm text-muted-foreground">{item.job_number} • Required {item.required_on_site_date || 'ASAP'} • {item.urgency}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">${Number(item.requisition_total || 0).toLocaleString()}</span>
-                  <span className={`rounded-full px-2.5 py-1 text-xs ${item.status === 'Exec_Review' ? 'bg-orange-500/10 text-orange-600' : 'bg-green-500/10 text-green-600'}`}>{item.status?.replace(/_/g, ' ')}</span>
+                  <span className={`rounded-full px-2.5 py-1 text-xs ${item.status === 'Exec_Review' || item.status === 'Pending Executive Approval' ? 'bg-orange-500/10 text-orange-600' : item.status === 'Rejected' ? 'bg-red-500/10 text-red-600' : 'bg-green-500/10 text-green-600'}`}>{item.status?.replace(/_/g, ' ')}</span>
+                  {canApproveReq && item.requires_signature && item.status !== 'Auto_Approved' && item.status !== 'Rejected' && (
+                    <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <Button size="sm" variant="outline" onClick={(e) => handleApproveRequisition(item, e)} disabled={savingReqAction}>Approve</Button>
+                      <Button size="sm" variant="outline" className="border-red-500/40 text-red-600" onClick={(e) => { e.stopPropagation(); setRejectReq(item); setRejectReason(''); }} disabled={savingReqAction}>Reject</Button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -446,6 +506,58 @@ export default function ProcurementModule() {
       </Tabs>
 
       <PurchaseOrderDetailModal open={detailOpen} onOpenChange={setDetailOpen} poId={detailPoId} showCosts />
+
+      <Dialog open={!!detailReq} onOpenChange={(open) => !open && setDetailReq(null)}>
+        <DialogContent>
+          {detailReq && (
+            <>
+              <DialogHeader><DialogTitle>Requisition — {detailReq.job_number}</DialogTitle></DialogHeader>
+              <div className="space-y-2 text-sm">
+                <div className="grid grid-cols-2 gap-3">
+                  <div><p className="text-xs text-muted-foreground">Job Number</p><p className="font-medium">{detailReq.job_number}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Requisition Total</p><p className="font-medium">${Number(detailReq.requisition_total || 0).toLocaleString()}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Required On-Site</p><p className="font-medium">{detailReq.required_on_site_date || '—'}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Urgency</p><p className="font-medium">{detailReq.urgency || '—'}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Status</p><p className="font-medium">{detailReq.status?.replace(/_/g, ' ')}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Requires Signature</p><p className="font-medium">{detailReq.requires_signature ? 'Yes' : 'No'}</p></div>
+                </div>
+                <div><p className="text-xs text-muted-foreground">Item Description</p><p className="font-medium">{detailReq.item_description || '—'}</p></div>
+                {detailReq.approved_by && (
+                  <div><p className="text-xs text-muted-foreground">Approved By</p><p className="font-medium">{detailReq.approved_by} on {detailReq.approved_date ? new Date(detailReq.approved_date).toLocaleString() : '—'}</p></div>
+                )}
+                {detailReq.rejection_reason && (
+                  <div><p className="text-xs text-muted-foreground">Rejection Reason</p><p className="font-medium">{detailReq.rejection_reason}</p></div>
+                )}
+              </div>
+              <DialogFooter>
+                {canApproveReq && detailReq.requires_signature && detailReq.status !== 'Auto_Approved' && detailReq.status !== 'Rejected' && (
+                  <>
+                    <Button variant="outline" className="border-red-500/40 text-red-600" onClick={() => { setRejectReq(detailReq); setRejectReason(''); setDetailReq(null); }}>Reject</Button>
+                    <Button onClick={(e) => handleApproveRequisition(detailReq, e).then(() => setDetailReq(null))} disabled={savingReqAction} className="steel-gradient text-white border-0">Approve</Button>
+                  </>
+                )}
+                <Button variant="outline" onClick={() => setDetailReq(null)}>Close</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rejectReq} onOpenChange={(open) => { if (!open) { setRejectReq(null); setRejectReason(''); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reject Requisition — {rejectReq?.job_number}</DialogTitle></DialogHeader>
+          <div>
+            <Label>Rejection Reason (min 5 characters)</Label>
+            <Textarea rows={3} value={rejectReason} onChange={(event) => setRejectReason(event.target.value)} className="mt-1" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectReq(null); setRejectReason(''); }}>Cancel</Button>
+            <Button onClick={confirmRejectRequisition} disabled={rejectReason.trim().length < 5 || savingReqAction} className="bg-red-600 hover:bg-red-700 text-white border-0">
+              {savingReqAction ? 'Saving…' : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

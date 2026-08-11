@@ -25,6 +25,10 @@ export default function ReceivingKiosk() {
   const [lineInputs, setLineInputs] = useState({});
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [mtrLineId, setMtrLineId] = useState('');
+  const [mtrFile, setMtrFile] = useState(null);
+  const [parsingMtr, setParsingMtr] = useState(false);
+  const [mtrReads, setMtrReads] = useState({});
   const [looked, setLooked] = useState(false);
   const [reviewPoId, setReviewPoId] = useState(null);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -65,6 +69,9 @@ export default function ReceivingKiosk() {
   // identified, whether that PO came from a typed number or a queue click.
   const loadPo = async (po) => {
     setMatchedPo(po);
+    setMtrReads({});
+    setMtrLineId('');
+    setMtrFile(null);
     try {
       const [lines, proj] = await Promise.all([
         db.entities.purchase_order_lines.filter({ po_id: po.id }, 'line_number', 200),
@@ -87,6 +94,9 @@ export default function ReceivingKiosk() {
       setPoLines([]);
       setProject(null);
       setLineInputs({});
+      setMtrReads({});
+      setMtrLineId('');
+      setMtrFile(null);
       toast({ title: 'No matching PO found', variant: 'destructive' });
       return;
     }
@@ -122,6 +132,77 @@ export default function ReceivingKiosk() {
 
   const updateLineInput = (lineId, field, value) => {
     setLineInputs(prev => ({ ...prev, [lineId]: { ...prev[lineId], [field]: value } }));
+  };
+
+  const handleMtrFileSelected = (file) => {
+    if (!file) return;
+    setMtrFile(file);
+  };
+
+  // AI-assisted alternative to typing the heat number by hand — additive,
+  // not a replacement. Same InvokeLLM call shape as SmartFileDump.jsx's
+  // runAIParse (upload, then a single structured-extraction call). The
+  // extracted heat number lands in the same editable lineInputs field a
+  // manually typed one would, so it's reviewed and can be corrected before
+  // submitReceiving ever commits it.
+  const runMtrRead = async () => {
+    if (!mtrFile || !mtrLineId) {
+      toast({ title: 'Select a line and an MTR file first', variant: 'destructive' });
+      return;
+    }
+    setParsingMtr(true);
+    try {
+      const { file_url } = await db.integrations.Core.UploadFile({ file: mtrFile });
+
+      const response = await db.integrations.Core.InvokeLLM({
+        prompt: 'You are a structural steel receiving assistant. Parse the uploaded Mill Test Report (MTR) / material certification and extract the heat number, the material grade, and the mill name if present.',
+        file_urls: [file_url],
+        response_json_schema: {
+          type: 'object',
+          properties: {
+            heat_number: { type: 'string' },
+            material_grade: { type: 'string' },
+            mill_name: { type: 'string' },
+          },
+        },
+      });
+
+      const heatNumber = String(response?.heat_number || '').trim();
+      if (!heatNumber) {
+        toast({ title: 'AI could not read a heat number from this MTR', description: 'Enter it manually instead.', variant: 'destructive' });
+        return;
+      }
+
+      const document = await db.entities.Document.create({
+        project_id: project?.id || matchedPo?.project_id || '',
+        name: mtrFile.name,
+        file_url,
+        file_name: mtrFile.name,
+        file_size: mtrFile.size,
+        file_type: mtrFile.type,
+        document_type: 'mtr',
+        status: 'uploaded',
+        ai_processing_status: 'complete',
+        description: `Mill Test Report — Heat ${heatNumber}`,
+      });
+
+      updateLineInput(mtrLineId, 'heatNumber', heatNumber);
+      setMtrReads(prev => ({
+        ...prev,
+        [mtrLineId]: {
+          material_grade: String(response?.material_grade || ''),
+          mill_name: String(response?.mill_name || ''),
+          documentId: document.id,
+        },
+      }));
+
+      toast({ title: `Heat ${heatNumber} populated`, description: 'Review before submitting.' });
+      setMtrFile(null);
+    } catch (e) {
+      toast({ title: 'Unable to read MTR', description: e?.message || 'The AI read failed unexpectedly.', variant: 'destructive' });
+    } finally {
+      setParsingMtr(false);
+    }
   };
 
   // One-click shortcut for the common full-receipt case — reuses
@@ -198,6 +279,28 @@ export default function ReceivingKiosk() {
         updatedLines.push(updatedLine);
       }
 
+      // One MillTestReport per distinct heat number actually read in this
+      // batch (not per line) — keyed off the final, possibly hand-corrected
+      // heatNumber text at submit time, not the raw AI extraction.
+      const mtrByHeat = new Map();
+      linesToReceive.forEach((line) => {
+        const read = mtrReads[line.id];
+        if (!read) return;
+        const heat = (lineInputs[line.id]?.heatNumber || '').trim();
+        if (!heat || mtrByHeat.has(heat)) return;
+        mtrByHeat.set(heat, read);
+      });
+      for (const [heat, read] of mtrByHeat.entries()) {
+        await db.entities.MillTestReport.create({
+          po_id: matchedPo.id,
+          vendor_id: matchedPo.vendor_id || '',
+          heat_number: heat,
+          material_grade: read.material_grade || '',
+          cert_document_id: read.documentId || '',
+          submitted_date: new Date().toISOString().slice(0, 10),
+        });
+      }
+
       const mergedLines = poLines.map(l => updatedLines.find(u => u.id === l.id) || l);
       setPoLines(mergedLines);
 
@@ -219,6 +322,9 @@ export default function ReceivingKiosk() {
 
       setLineInputs(buildLineInputs(mergedLines));
       setFiles([]);
+      setMtrReads({});
+      setMtrLineId('');
+      setMtrFile(null);
       loadData();
     } catch (e) {
       toast({ title: 'Unable to log receiving', variant: 'destructive' });
@@ -398,6 +504,11 @@ export default function ReceivingKiosk() {
                           placeholder="HT-4412"
                           className="w-28 h-9"
                         />
+                        {mtrReads[line.id]?.material_grade && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5 whitespace-nowrap">
+                            Grade: {mtrReads[line.id].material_grade}{mtrReads[line.id].mill_name ? ` · ${mtrReads[line.id].mill_name}` : ''}
+                          </p>
+                        )}
                       </td>
                       <td className="py-2 pr-3">
                         <Select value={input.condition} onValueChange={(v) => updateLineInput(line.id, 'condition', v)} disabled={remaining === 0}>
@@ -423,6 +534,26 @@ export default function ReceivingKiosk() {
               className="mt-2 block w-full text-sm file:mr-3 file:py-3 file:px-5 file:rounded-md file:border-0 file:bg-primary file:text-primary-foreground file:text-sm"
             />
             {files.length > 0 && <p className="text-sm text-muted-foreground mt-1">{files.length} file(s) selected</p>}
+          </div>
+
+          <div className="rounded-lg border border-dashed border-border p-3">
+            <Label className="text-base">Attach MTR (AI Read)</Label>
+            <p className="text-xs text-muted-foreground mt-1">Upload a Mill Test Report to auto-fill a line's heat number — review before submitting.</p>
+            <div className="flex flex-col sm:flex-row gap-2 mt-2">
+              <Select value={mtrLineId} onValueChange={setMtrLineId}>
+                <SelectTrigger className="sm:w-64"><SelectValue placeholder="Apply to line…" /></SelectTrigger>
+                <SelectContent>
+                  {poLines.map(line => <SelectItem key={line.id} value={line.id}>Line {line.line_number} — {line.description}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <label className="flex-1 flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2 cursor-pointer hover:bg-muted/50">
+                <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => handleMtrFileSelected(e.target.files?.[0])} />
+                <span className="truncate text-muted-foreground">{mtrFile ? mtrFile.name : 'Choose MTR file (PDF or image)'}</span>
+              </label>
+              <Button variant="outline" onClick={runMtrRead} disabled={parsingMtr || !mtrFile || !mtrLineId}>
+                {parsingMtr ? 'Reading…' : 'Read MTR'}
+              </Button>
+            </div>
           </div>
 
           <Button

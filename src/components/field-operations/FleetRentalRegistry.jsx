@@ -79,6 +79,9 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
   const [showPoDetail, setShowPoDetail] = useState(false);
   const [viewingRepair, setViewingRepair] = useState(null);
   const [showRepairDetail, setShowRepairDetail] = useState(false);
+  const [confirmingReturn, setConfirmingReturn] = useState(null);
+  const [returnDate, setReturnDate] = useState('');
+  const [savingReturn, setSavingReturn] = useState(false);
 
   const rentalVendors = useMemo(() => vendors.filter((v) => v.vendor_type === 'equipment_rental'), [vendors]);
 
@@ -275,6 +278,29 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
     }
   };
 
+  const openConfirmReturn = (asset) => {
+    setConfirmingReturn(asset);
+    setReturnDate(new Date().toISOString().slice(0, 10));
+  };
+
+  const handleConfirmReturn = async () => {
+    if (!confirmingReturn || !returnDate) return;
+    setSavingReturn(true);
+    try {
+      const updated = await db.entities.erection_fleet_assets.update(confirmingReturn.id, {
+        ...buildOwnershipFields({ status: 'Internal_Owned' }),
+        last_returned_date: returnDate,
+      });
+      await onReload();
+      if (detailAsset?.id === confirmingReturn.id) setDetailAsset(updated);
+      setConfirmingReturn(null);
+      setReturnDate('');
+      toast({ title: `${confirmingReturn.asset_name} confirmed returned` });
+    } finally {
+      setSavingReturn(false);
+    }
+  };
+
   const openPoDetail = (poId) => {
     if (!poId) return;
     setDetailPoId(poId);
@@ -422,9 +448,16 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
                         </Badge>
                       )}
                       {asset.is_marked_ready_for_pickup ? (
-                        <Badge className="bg-amber-500 text-black border-0 gap-1 animate-pulse">
-                          <AlertTriangle className="w-3 h-3" />OFF-RENT TRIGGERED — CALL FOR PICKUP
-                        </Badge>
+                        <>
+                          <Badge className="bg-amber-500 text-black border-0 gap-1 animate-pulse">
+                            <AlertTriangle className="w-3 h-3" />OFF-RENT TRIGGERED — CALL FOR PICKUP
+                          </Badge>
+                          {canManageFleet && (
+                            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openConfirmReturn(asset); }}>
+                              Equipment Called Off
+                            </Button>
+                          )}
+                        </>
                       ) : isRented && canManageFleet ? (
                         <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onTogglePickup(asset); }}>Mark Ready for Pickup</Button>
                       ) : (
@@ -834,6 +867,25 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
               )}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!confirmingReturn} onOpenChange={(open) => { if (!open) { setConfirmingReturn(null); setReturnDate(''); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Confirm Equipment Return — {confirmingReturn?.asset_name}</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Confirms the vendor has actually retrieved this asset. This clears its rental assignment, PO link, and off-rent tracking, and returns it to Internal Owned status in the registry.
+          </p>
+          <div>
+            <Label>Actual Pickup Date</Label>
+            <Input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="mt-1" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setConfirmingReturn(null); setReturnDate(''); }}>Cancel</Button>
+            <Button onClick={handleConfirmReturn} disabled={savingReturn || !returnDate} className="steel-gradient text-white border-0">
+              {savingReturn ? 'Saving…' : 'Confirm Return'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

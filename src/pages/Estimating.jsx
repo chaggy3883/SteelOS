@@ -25,6 +25,7 @@ const WIDGETS = [
 export default function Estimating() {
   const { toast } = useToast();
   const [bids, setBids] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [widgetConfig, setWidgetConfig] = useState({
     bidList: true, activeCount: true, frontEndReview: true, winRate: true, bidHistory: true,
@@ -44,10 +45,16 @@ export default function Estimating() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await db.entities.Bid.list('-bid_due_date', 200);
+      const [data, employeeList] = await Promise.all([
+        db.entities.Bid.list('-bid_due_date', 200),
+        db.entities.employees.list('full_name', 500),
+      ]);
       setBids(data);
+      setEmployees(employeeList);
     } catch (e) {} finally { setLoading(false); }
   };
+
+  const estimatorName = (id) => employees.find(e => e.id === id)?.full_name || 'Unassigned';
 
   const startEditBid = (bid) => {
     setEditingBid(bid);
@@ -178,6 +185,7 @@ export default function Estimating() {
                   <th className="text-left py-3 px-4">Bid #</th>
                   <th className="text-left py-3 px-4">Job</th>
                   <th className="text-left py-3 px-4">Customer</th>
+                  <th className="text-left py-3 px-4">Assigned To</th>
                   <th className="text-left py-3 px-4">Due Date</th>
                   <th className="text-right py-3 px-4">Bid Total</th>
                   <th className="text-left py-3 px-4">Status</th>
@@ -187,10 +195,10 @@ export default function Estimating() {
               <tbody>
                 {loading ? (
                   Array.from({ length: 4 }).map((_, i) => (
-                    <tr key={i}><td colSpan={7} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
+                    <tr key={i}><td colSpan={8} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
                   ))
                 ) : activeBids.length === 0 ? (
-                  <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">No active bids. Click "Add Bid" to create one.</td></tr>
+                  <tr><td colSpan={8} className="py-12 text-center text-muted-foreground">No active bids. Click "Add Bid" to create one.</td></tr>
                 ) : (
                   activeBids.map(b => (
                     <tr key={b.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
@@ -198,6 +206,7 @@ export default function Estimating() {
                       <td className="py-3 px-4 font-mono font-bold text-primary">{b.bid_number}</td>
                       <td className="py-3 px-4 font-medium">{b.job_name}</td>
                       <td className="py-3 px-4 text-muted-foreground">{b.customer_name}</td>
+                      <td className="py-3 px-4 text-muted-foreground">{estimatorName(b.estimator_id)}</td>
                       <td className="py-3 px-4 text-xs">{b.bid_due_date || '—'}</td>
                       <td className="py-3 px-4 text-right font-mono font-bold">{b.bid_total_cost ? `$${b.bid_total_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}</td>
                       <td className="py-3 px-4"><StatusBadge status={b.status} /></td>
@@ -231,6 +240,7 @@ export default function Estimating() {
                   <th className="text-left py-3 px-4">Bid #</th>
                   <th className="text-left py-3 px-4">Job</th>
                   <th className="text-left py-3 px-4">GC</th>
+                  <th className="text-left py-3 px-4">Assigned To</th>
                   <th className="text-right py-3 px-4">Quoted Price</th>
                   <th className="text-right py-3 px-4">Margin %</th>
                   <th className="text-left py-3 px-4">Result</th>
@@ -240,10 +250,10 @@ export default function Estimating() {
               <tbody>
                 {loading ? (
                   Array.from({ length: 3 }).map((_, i) => (
-                    <tr key={i}><td colSpan={7} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
+                    <tr key={i}><td colSpan={8} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
                   ))
                 ) : (wonBids.length + lostBids.length) === 0 ? (
-                  <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">No bid history yet.</td></tr>
+                  <tr><td colSpan={8} className="py-12 text-center text-muted-foreground">No bid history yet.</td></tr>
                 ) : (
                   [...wonBids, ...lostBids].map(b => (
                     <tr key={b.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
@@ -251,6 +261,7 @@ export default function Estimating() {
                       <td className="py-3 px-4 font-mono font-bold text-primary">{b.bid_number}</td>
                       <td className="py-3 px-4 font-medium">{b.job_name}</td>
                       <td className="py-3 px-4 text-muted-foreground">{b.general_contractor_name || '—'}</td>
+                      <td className="py-3 px-4 text-muted-foreground">{estimatorName(b.estimator_id)}</td>
                       <td className="py-3 px-4 text-right font-mono">{b.bid_quoted_price ? `$${b.bid_quoted_price.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}</td>
                       <td className="py-3 px-4 text-right font-mono">{b.margin_percentage ? `${b.margin_percentage}%` : '—'}</td>
                       <td className="py-3 px-4">
@@ -283,13 +294,14 @@ export default function Estimating() {
                   <th className="text-left py-3 px-4">Bid #</th>
                   <th className="text-left py-3 px-4">Job</th>
                   <th className="text-left py-3 px-4">Customer</th>
+                  <th className="text-left py-3 px-4">Assigned To</th>
                   <th className="text-left py-3 px-4">Reason</th>
                   <th className="text-left py-3 px-4">Notes</th>
                 </tr>
               </thead>
               <tbody>
                 {dnbBids.length === 0 ? (
-                  <tr><td colSpan={5} className="py-12 text-center text-muted-foreground">No bids marked Did Not Bid yet.</td></tr>
+                  <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">No bids marked Did Not Bid yet.</td></tr>
                 ) : (
                   dnbBids.map(b => (
                     <tr key={b.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
@@ -297,6 +309,7 @@ export default function Estimating() {
                       <td className="py-3 px-4 font-mono font-bold text-primary">{b.bid_number}</td>
                       <td className="py-3 px-4 font-medium">{b.job_name}</td>
                       <td className="py-3 px-4 text-muted-foreground">{b.customer_name}</td>
+                      <td className="py-3 px-4 text-muted-foreground">{estimatorName(b.estimator_id)}</td>
                       <td className="py-3 px-4 text-xs">{b.dnb_reason ? b.dnb_reason.replace(/_/g, ' ') : '—'}</td>
                       <td className="py-3 px-4 text-xs text-muted-foreground">{b.dnb_reason_notes || '—'}</td>
                     </tr>

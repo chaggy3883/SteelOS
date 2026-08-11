@@ -4,9 +4,14 @@ import { db } from '@/api/apiClient';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, Package, CalendarClock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+
+export const REQUISITION_APPROVAL_ROLES = ['controller', 'finance_department', 'admin', 'super_admin'];
 
 function WidgetSkeleton({ lines = 4 }) {
   return <div className="space-y-2">{Array.from({ length: lines }).map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div>;
@@ -412,21 +417,125 @@ function BuyoutVarianceWidget() {
 }
 
 function PendingRequisitionApprovalsWidget() {
+  const { toast } = useToast();
   const [items, setItems] = useState([]);
+  const [canApprove, setCanApprove] = useState(false);
+  const [detailItem, setDetailItem] = useState(null);
+  const [rejectItem, setRejectItem] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const loadItems = () => {
+    db.entities.purchase_requisitions.list('-created_date', 10).then((result) => setItems(result.filter((item) => item.requires_signature && item.status !== 'Rejected' && item.status !== 'Auto_Approved'))).catch(() => setItems([]));
+  };
+
   useEffect(() => {
-    db.entities.purchase_requisitions.list('-created_date', 10).then((result) => setItems(result.filter((item) => item.requires_signature))).catch(() => setItems([]));
+    loadItems();
+    db.auth.me()
+      .then((me) => setCanApprove((me?.roles || []).some((r) => REQUISITION_APPROVAL_ROLES.includes(r))))
+      .catch(() => setCanApprove(false));
   }, []);
 
+  const handleApprove = async (item, e) => {
+    e.stopPropagation();
+    setSaving(true);
+    try {
+      const me = await db.auth.me().catch(() => null);
+      await db.entities.purchase_requisitions.update(item.id, {
+        status: 'Auto_Approved',
+        approved_by: me?.id || me?.email || '',
+        approved_date: new Date().toISOString(),
+      });
+      loadItems();
+      toast({ title: `Requisition ${item.job_number} approved` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmReject = async () => {
+    if (!rejectItem || rejectReason.trim().length < 5) return;
+    setSaving(true);
+    try {
+      await db.entities.purchase_requisitions.update(rejectItem.id, {
+        status: 'Rejected',
+        rejection_reason: rejectReason.trim(),
+      });
+      loadItems();
+      setRejectItem(null);
+      setRejectReason('');
+      toast({ title: `Requisition ${rejectItem.job_number} rejected` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (items.length === 0) return <WidgetEmpty message="No pending approvals" />;
-  return <div className="space-y-2">{items.map((item) => (
-    <div key={item.id} className="rounded-lg border border-border px-2.5 py-2 text-xs">
-      <div className="flex items-center justify-between">
-        <span className="font-medium">{item.job_number}</span>
-        <span className="text-muted-foreground">${Number(item.requisition_total || 0).toLocaleString()}</span>
-      </div>
-      <p className="text-muted-foreground">{item.item_description}</p>
-    </div>
-  ))}</div>;
+  return (
+    <>
+      <div className="space-y-2">{items.map((item) => (
+        <div key={item.id} onClick={() => setDetailItem(item)} className="rounded-lg border border-border px-2.5 py-2 text-xs cursor-pointer hover:bg-muted/50 transition-colors">
+          <div className="flex items-center justify-between">
+            <span className="font-medium">{item.job_number}</span>
+            <span className="text-muted-foreground">${Number(item.requisition_total || 0).toLocaleString()}</span>
+          </div>
+          <p className="text-muted-foreground">{item.item_description}</p>
+          {canApprove && (
+            <div className="flex gap-1.5 mt-1.5">
+              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" disabled={saving} onClick={(e) => handleApprove(item, e)}>Approve</Button>
+              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] border-red-500/40 text-red-600" disabled={saving} onClick={(e) => { e.stopPropagation(); setRejectItem(item); setRejectReason(''); }}>Reject</Button>
+            </div>
+          )}
+        </div>
+      ))}</div>
+
+      <Dialog open={!!detailItem} onOpenChange={(open) => !open && setDetailItem(null)}>
+        <DialogContent>
+          {detailItem && (
+            <>
+              <DialogHeader><DialogTitle>Requisition — {detailItem.job_number}</DialogTitle></DialogHeader>
+              <div className="space-y-2 text-sm">
+                <div className="grid grid-cols-2 gap-3">
+                  <div><p className="text-xs text-muted-foreground">Job Number</p><p className="font-medium">{detailItem.job_number}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Requisition Total</p><p className="font-medium">${Number(detailItem.requisition_total || 0).toLocaleString()}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Required On-Site</p><p className="font-medium">{detailItem.required_on_site_date || '—'}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Urgency</p><p className="font-medium">{detailItem.urgency || '—'}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Status</p><p className="font-medium">{detailItem.status?.replace(/_/g, ' ')}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Requires Signature</p><p className="font-medium">{detailItem.requires_signature ? 'Yes' : 'No'}</p></div>
+                </div>
+                <div><p className="text-xs text-muted-foreground">Item Description</p><p className="font-medium">{detailItem.item_description || '—'}</p></div>
+                {detailItem.approved_by && (
+                  <div><p className="text-xs text-muted-foreground">Approved By</p><p className="font-medium">{detailItem.approved_by} on {detailItem.approved_date ? new Date(detailItem.approved_date).toLocaleString() : '—'}</p></div>
+                )}
+                {detailItem.rejection_reason && (
+                  <div><p className="text-xs text-muted-foreground">Rejection Reason</p><p className="font-medium">{detailItem.rejection_reason}</p></div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDetailItem(null)}>Close</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rejectItem} onOpenChange={(open) => { if (!open) { setRejectItem(null); setRejectReason(''); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reject Requisition — {rejectItem?.job_number}</DialogTitle></DialogHeader>
+          <div>
+            <Label>Rejection Reason (min 5 characters)</Label>
+            <Textarea rows={3} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} className="mt-1" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectItem(null); setRejectReason(''); }}>Cancel</Button>
+            <Button onClick={confirmReject} disabled={rejectReason.trim().length < 5 || saving} className="bg-red-600 hover:bg-red-700 text-white border-0">
+              {saving ? 'Saving…' : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function MaterialReceivedTrackerWidget() {

@@ -78,6 +78,7 @@ const createLocalApi = () => ({
     pieces: createEntityApi('pieces'),
     station_logs: createEntityApi('station_logs'),
     qa_inspections: createEntityApi('qa_inspections'),
+    quality_inspection_records: createEntityApi('quality_inspection_records'),
     Project: createEntityApi('Project'),
     ProjectJobCostSummary: createEntityApi('ProjectJobCostSummary'),
     projects: createEntityApi('projects'),

@@ -82,6 +82,11 @@
     "po_vendor_mismatch_overridden_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "last_returned_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Set when 'Equipment Called Off' confirms an actual pickup/return, separate from rental_target_off_rent_date (the date it was supposed to leave by)."
     }
   },
   "required": [
