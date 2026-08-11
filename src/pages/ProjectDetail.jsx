@@ -3,12 +3,13 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
   ArrowLeft, Brain, MessageSquare, Package,
-  DollarSign, Edit,
+  DollarSign, Edit, Plus,
   AlertTriangle, Layers, Gavel, FileSignature, ArrowRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -17,6 +18,12 @@ import StatsCard from '@/components/ui/StatsCard';
 import FileExplorer from '@/components/documents/FileExplorer';
 import { useToast } from '@/components/ui/use-toast';
 import { getStatutoryDeadline } from '@/lib/lienStatutes';
+
+const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
+const emptyPartForm = () => ({
+  item_type: 'Loose_Part', part_number: '', description: '', quantity: '1', phase: '', sequence: '',
+  bolt_size: '', bolt_grade: '', stock_material_description: '', parts_per_stock: '', stock_qty_required: '',
+});
 
 const HealthRing = ({ score }) => {
   const color = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : '#ef4444';
@@ -52,6 +59,12 @@ export default function ProjectDetail() {
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [savingEdit, setSavingEdit] = useState(false);
+
+  const [showPartForm, setShowPartForm] = useState(false);
+  const [partForm, setPartForm] = useState(emptyPartForm());
+  const [stockQtyTouched, setStockQtyTouched] = useState(false);
+  const [savingPart, setSavingPart] = useState(false);
+  const [viewingPart, setViewingPart] = useState(null);
 
   useEffect(() => { if (id) loadAll(); }, [id]);
 
@@ -132,6 +145,83 @@ export default function ProjectDetail() {
     }
   };
 
+  const openAddPart = () => {
+    setPartForm(emptyPartForm());
+    setStockQtyTouched(false);
+    setShowPartForm(true);
+  };
+
+  // parts_per_stock and quantity are the only drivers of the auto-computed
+  // stock_qty_required — the moment the operator types directly into that
+  // field, stockQtyTouched locks it so further quantity/parts_per_stock
+  // edits stop clobbering their override.
+  const recomputeStockQty = (quantity, partsPerStock) => {
+    const pps = Number(partsPerStock) || 0;
+    const qty = Number(quantity) || 0;
+    return pps > 0 ? String(Math.ceil(qty / pps)) : '';
+  };
+
+  const handleQuantityChange = (value) => {
+    setPartForm((f) => {
+      const next = { ...f, quantity: value };
+      if (!stockQtyTouched && Number(f.parts_per_stock) > 0) {
+        next.stock_qty_required = recomputeStockQty(value, f.parts_per_stock);
+      }
+      return next;
+    });
+  };
+
+  const handlePartsPerStockChange = (value) => {
+    setPartForm((f) => {
+      const next = { ...f, parts_per_stock: value };
+      if (!stockQtyTouched && Number(value) > 0) {
+        next.stock_qty_required = recomputeStockQty(f.quantity, value);
+      }
+      return next;
+    });
+  };
+
+  const handleStockQtyOverride = (value) => {
+    setStockQtyTouched(true);
+    setPartForm((f) => ({ ...f, stock_qty_required: value }));
+  };
+
+  const handleSavePart = async () => {
+    if (!partForm.part_number.trim()) {
+      toast({ title: 'Part number is required', variant: 'destructive' });
+      return;
+    }
+    setSavingPart(true);
+    try {
+      const isBolt = partForm.item_type === 'Bolt';
+      const created = await db.entities.PieceMark.create({
+        project_id: id,
+        piece_mark: partForm.part_number.trim(),
+        item_type: partForm.item_type,
+        part_number: partForm.part_number.trim(),
+        description: partForm.description.trim(),
+        quantity: Number(partForm.quantity) || 1,
+        phase: partForm.phase,
+        sequence: partForm.sequence,
+        bolt_size: isBolt ? partForm.bolt_size : '',
+        bolt_grade: isBolt ? partForm.bolt_grade : '',
+        stock_material_description: isBolt ? '' : partForm.stock_material_description,
+        parts_per_stock: isBolt ? 0 : (Number(partForm.parts_per_stock) || 0),
+        stock_qty_required: Number(partForm.stock_qty_required) || 0,
+        status: 'not_started',
+      });
+      setPieces((prev) => [...prev, created]);
+      setShowPartForm(false);
+      setPartForm(emptyPartForm());
+      setStockQtyTouched(false);
+      toast({ title: 'Part/hardware added' });
+    } catch (e) {
+      toast({ title: 'Unable to add part', variant: 'destructive' });
+    } finally {
+      setSavingPart(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -152,6 +242,18 @@ export default function ProjectDetail() {
   const pendingFindings = findings.filter(f => f.review_status === 'pending');
   const failFindings = findings.filter(f => f.status === 'fail');
   const warnFindings = findings.filter(f => f.status === 'warning');
+
+  const parts = pieces.filter((p) => (p.item_type || 'Piece_Mark') !== 'Piece_Mark');
+  const partCountByType = parts.reduce((acc, p) => {
+    const type = p.item_type || 'Loose_Part';
+    acc[type] = (acc[type] || 0) + (Number(p.quantity) || 0);
+    return acc;
+  }, {});
+  const stockLengthsByMaterial = parts.reduce((acc, p) => {
+    if (!p.stock_material_description) return acc;
+    acc[p.stock_material_description] = (acc[p.stock_material_description] || 0) + (Number(p.stock_qty_required) || 0);
+    return acc;
+  }, {});
 
   return (
     <div className="p-6 animate-fade-in">
@@ -433,6 +535,149 @@ export default function ProjectDetail() {
               </div>
             )}
           </div>
+
+          <div className="steel-card p-5 mt-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold">Parts &amp; Hardware</h3>
+              <Button size="sm" variant="outline" className="gap-2" onClick={openAddPart}>
+                <Plus className="w-4 h-4" /> Add Part / Hardware
+              </Button>
+            </div>
+
+            {showPartForm && (
+              <div className="rounded-lg border border-border p-4 mb-4 space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs">Item Type</Label>
+                    <Select value={partForm.item_type} onValueChange={(v) => setPartForm((f) => ({ ...f, item_type: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {PART_ITEM_TYPES.map((t) => <SelectItem key={t} value={t}>{t.replace(/_/g, ' ')}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Part Number</Label>
+                    <Input value={partForm.part_number} onChange={(e) => setPartForm((f) => ({ ...f, part_number: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Description</Label>
+                    <Input value={partForm.description} onChange={(e) => setPartForm((f) => ({ ...f, description: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Quantity</Label>
+                    <Input type="number" value={partForm.quantity} onChange={(e) => handleQuantityChange(e.target.value)} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Phase</Label>
+                    <Input value={partForm.phase} onChange={(e) => setPartForm((f) => ({ ...f, phase: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Sequence</Label>
+                    <Input value={partForm.sequence} onChange={(e) => setPartForm((f) => ({ ...f, sequence: e.target.value }))} className="mt-1" />
+                  </div>
+
+                  {partForm.item_type === 'Bolt' ? (
+                    <>
+                      <div>
+                        <Label className="text-xs">Bolt Size</Label>
+                        <Input value={partForm.bolt_size} onChange={(e) => setPartForm((f) => ({ ...f, bolt_size: e.target.value }))} className="mt-1" placeholder='3/4 x 2-1/2' />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Bolt Grade</Label>
+                        <Input value={partForm.bolt_grade} onChange={(e) => setPartForm((f) => ({ ...f, bolt_grade: e.target.value }))} className="mt-1" placeholder="A325" />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <Label className="text-xs">Stock Material Description</Label>
+                        <Input value={partForm.stock_material_description} onChange={(e) => setPartForm((f) => ({ ...f, stock_material_description: e.target.value }))} className="mt-1" placeholder={`L4x4x1/4 x 20'-0"`} />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Parts per Stock Length</Label>
+                        <Input type="number" value={partForm.parts_per_stock} onChange={(e) => handlePartsPerStockChange(e.target.value)} className="mt-1" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Stock Qty Required{!stockQtyTouched && Number(partForm.parts_per_stock) > 0 ? ' (auto)' : ''}</Label>
+                        <Input type="number" value={partForm.stock_qty_required} onChange={(e) => handleStockQtyOverride(e.target.value)} className="mt-1" />
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setShowPartForm(false)}>Cancel</Button>
+                  <Button onClick={handleSavePart} disabled={savingPart} className="steel-gradient text-white border-0">
+                    {savingPart ? 'Saving…' : 'Add'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {parts.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">No parts or hardware added yet.</p>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                        <th className="text-left py-2 px-3">Type</th>
+                        <th className="text-left py-2 px-3">Part #</th>
+                        <th className="text-left py-2 px-3">Description</th>
+                        <th className="text-right py-2 px-3">Qty</th>
+                        <th className="text-left py-2 px-3">Stock / Bolt Spec</th>
+                        <th className="text-right py-2 px-3">Parts/Stock</th>
+                        <th className="text-right py-2 px-3">Stock Qty Req'd</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parts.map((p) => (
+                        <tr key={p.id} onClick={() => setViewingPart(p)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                          <td className="py-2 px-3">{(p.item_type || 'Loose_Part').replace(/_/g, ' ')}</td>
+                          <td className="py-2 px-3 font-mono font-medium">{p.part_number || '—'}</td>
+                          <td className="py-2 px-3 text-muted-foreground">{p.description || '—'}</td>
+                          <td className="py-2 px-3 text-right">{p.quantity || 0}</td>
+                          <td className="py-2 px-3 text-xs">
+                            {p.item_type === 'Bolt' ? `${p.bolt_size || '—'} ${p.bolt_grade || ''}`.trim() : (p.stock_material_description || '—')}
+                          </td>
+                          <td className="py-2 px-3 text-right">{p.parts_per_stock || '—'}</td>
+                          <td className="py-2 px-3 text-right font-mono">{p.stock_qty_required || 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div className="rounded-lg border border-border p-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Total Parts by Type</p>
+                    <div className="space-y-1">
+                      {Object.entries(partCountByType).map(([type, count]) => (
+                        <div key={type} className="flex items-center justify-between text-sm">
+                          <span>{type.replace(/_/g, ' ')}</span>
+                          <span className="font-mono font-medium">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border p-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Stock Lengths Required</p>
+                    <div className="space-y-1">
+                      {Object.keys(stockLengthsByMaterial).length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No stock material requirements.</p>
+                      ) : Object.entries(stockLengthsByMaterial).map(([material, qty]) => (
+                        <div key={material} className="flex items-center justify-between text-sm gap-2">
+                          <span className="truncate">{material}</span>
+                          <span className="font-mono font-medium flex-shrink-0">{qty}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -466,6 +711,43 @@ export default function ProjectDetail() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingPart} onOpenChange={(o) => !o && setViewingPart(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{viewingPart?.part_number || viewingPart?.piece_mark}</DialogTitle></DialogHeader>
+          {viewingPart && (
+            <div className="space-y-2">
+              {[
+                ['Item Type', (viewingPart.item_type || 'Loose_Part').replace(/_/g, ' ')],
+                ['Part Number', viewingPart.part_number],
+                ['Description', viewingPart.description],
+                ['Quantity', viewingPart.quantity],
+                ['Phase', viewingPart.phase],
+                ['Sequence', viewingPart.sequence],
+                ...(viewingPart.item_type === 'Bolt' ? [
+                  ['Bolt Size', viewingPart.bolt_size],
+                  ['Bolt Grade', viewingPart.bolt_grade],
+                ] : [
+                  ['Stock Material Description', viewingPart.stock_material_description],
+                  ['Parts per Stock Length', viewingPart.parts_per_stock],
+                ]),
+                ['Stock Qty Required', viewingPart.stock_qty_required],
+                ['Actual Parts Yielded', viewingPart.actual_parts_yielded],
+                ['Scrap Qty', viewingPart.scrap_qty],
+                ['Status', viewingPart.status],
+              ].map(([label, value]) => (
+                <div key={label} className="grid grid-cols-3 gap-2 text-sm border-b border-border/50 pb-2">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="col-span-2 font-medium">{value || value === 0 ? value : '—'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingPart(null)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

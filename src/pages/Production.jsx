@@ -1,38 +1,71 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
 import {
-  Package, Search, QrCode, Plus
+  Package, Search, QrCode, Plus, AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import StatusBadge from '@/components/ui/StatusBadge';
 import PageHeader from '@/components/ui/PageHeader';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const STATUS_OPTIONS = ['all', 'not_started', 'in_fabrication', 'fabricated', 'inspected', 'painted', 'shipped', 'erected'];
 
+// Theoretical yield is always derived from operator-entered stock_qty_required
+// * parts_per_stock — never a hardcoded rule. Variance color bands: green at
+// or above theoretical, amber within 10% under, red beyond that.
+const getYieldVariance = (piece) => {
+  const theoretical = (Number(piece.stock_qty_required) || 0) * (Number(piece.parts_per_stock) || 0);
+  const actual = Number(piece.actual_parts_yielded) || 0;
+  const variance = actual - theoretical;
+  const pct = theoretical > 0 ? Math.round((variance / theoretical) * 100) : 0;
+  return { theoretical, actual, variance, pct };
+};
+
+const varianceColorClass = ({ theoretical, variance, pct }) => {
+  if (theoretical === 0) return 'text-muted-foreground';
+  if (variance >= 0) return 'text-green-600';
+  if (pct >= -10) return 'text-amber-600';
+  return 'text-red-600';
+};
+
 export default function Production() {
   const [pieces, setPieces] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [boltInventory, setBoltInventory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
+  const [viewingPiece, setViewingPiece] = useState(null);
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [pieceData, projectData] = await Promise.all([
+      const [pieceData, projectData, boltData] = await Promise.all([
         db.entities.PieceMark.list('-created_date', 200),
         db.entities.Project.filter({ is_archived: false }, 'name', 50),
+        db.entities.InventoryItem.filter({ category: 'bolt' }, '-created_date', 200),
       ]);
       setPieces(pieceData);
       setProjects(projectData);
+      setBoltInventory(boltData);
     } catch (e) {} finally { setLoading(false); }
   };
+
+  const handleYieldFieldUpdate = async (piece, field, value) => {
+    const updated = await db.entities.PieceMark.update(piece.id, { [field]: Number(value) || 0 });
+    setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+  };
+
+  const boltStockFor = (boltSize) => boltInventory.find((inv) => inv.size === boltSize);
+
+  const projectName = (id) => projects.find((p) => p.id === id)?.name || '—';
 
   const filtered = pieces.filter(p => {
     const matchSearch = !search || p.piece_mark?.toLowerCase().includes(search.toLowerCase()) || p.assembly?.toLowerCase().includes(search.toLowerCase());
@@ -64,6 +97,19 @@ export default function Production() {
       shippedPct: pct(p => ['shipped', 'erected'].includes(p.status)),
     };
   }).filter(p => p.total > 0);
+
+  const yieldParts = pieces.filter((p) => (Number(p.parts_per_stock) || 0) > 0);
+  const yieldRollupsByProject = projects.map((proj) => {
+    const projParts = yieldParts.filter((p) => p.project_id === proj.id);
+    if (projParts.length === 0) return null;
+    const withVariance = projParts.map((p) => ({ part: p, ...getYieldVariance(p) }));
+    const totalTheoretical = withVariance.reduce((s, x) => s + x.theoretical, 0);
+    const totalActual = withVariance.reduce((s, x) => s + x.actual, 0);
+    const worst = [...withVariance].sort((a, b) => a.variance - b.variance).slice(0, 3);
+    return { project: proj, totalTheoretical, totalActual, worst };
+  }).filter(Boolean);
+
+  const bolts = pieces.filter((p) => p.item_type === 'Bolt');
 
   return (
     <div className="p-6 animate-fade-in">
@@ -120,6 +166,157 @@ export default function Production() {
                 ))}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Yield Rollup */}
+      {yieldRollupsByProject.length > 0 && (
+        <div className="mb-6">
+          <h3 className="font-semibold mb-3">Parts Yield Rollup</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {yieldRollupsByProject.map((r) => {
+              const totalVariance = r.totalActual - r.totalTheoretical;
+              return (
+                <div key={r.project.id} className="steel-card p-4">
+                  <p className="font-medium text-sm truncate">{r.project.name}</p>
+                  <p className="text-xs text-muted-foreground font-mono mb-3">{r.project.project_number}</p>
+                  <div className="flex justify-between text-sm mb-1.5">
+                    <span className="text-muted-foreground">Theoretical</span>
+                    <span className="font-mono">{r.totalTheoretical.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mb-1.5">
+                    <span className="text-muted-foreground">Actual</span>
+                    <span className="font-mono">{r.totalActual.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mb-3">
+                    <span className="text-muted-foreground">Variance</span>
+                    <span className={`font-mono font-semibold ${totalVariance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {totalVariance >= 0 ? '+' : ''}{totalVariance.toLocaleString()}
+                    </span>
+                  </div>
+                  {r.worst.length > 0 && (
+                    <div className="pt-2 border-t border-border/50 space-y-0.5">
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">Worst Variance</p>
+                      {r.worst.map(({ part, variance, pct, theoretical, actual }) => (
+                        <button
+                          key={part.id}
+                          onClick={() => setViewingPiece(part)}
+                          className={`flex items-center justify-between w-full text-xs py-1 px-1 rounded hover:bg-muted/50 ${varianceColorClass({ theoretical, variance, pct })}`}
+                        >
+                          <span className="truncate text-foreground">{part.part_number || part.piece_mark}</span>
+                          <span className="font-mono flex-shrink-0">{variance >= 0 ? '+' : ''}{variance} ({pct}%)</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Yield Tracking */}
+      {yieldParts.length > 0 && (
+        <div className="steel-card overflow-hidden mb-6">
+          <div className="p-4 border-b border-border">
+            <h3 className="font-semibold">Yield Actuals</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Parts with an operator-entered parts-per-stock ratio. Enter actual parts yielded and scrap as they come off the shop floor.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                  <th className="text-left py-3 px-4">Part</th>
+                  <th className="text-left py-3 px-4">Project</th>
+                  <th className="text-right py-3 px-4">Theoretical</th>
+                  <th className="text-right py-3 px-4">Actual Yielded</th>
+                  <th className="text-right py-3 px-4">Scrap Qty</th>
+                  <th className="text-right py-3 px-4">Variance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {yieldParts.map((p) => {
+                  const v = getYieldVariance(p);
+                  const colorClass = varianceColorClass(v);
+                  return (
+                    <tr key={p.id} onClick={() => setViewingPiece(p)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
+                      <td className="py-3 px-4 font-mono font-medium text-primary">{p.part_number || p.piece_mark}</td>
+                      <td className="py-3 px-4 text-muted-foreground">{projectName(p.project_id)}</td>
+                      <td className="py-3 px-4 text-right font-mono">{v.theoretical.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right">
+                        <Input
+                          type="number"
+                          defaultValue={p.actual_parts_yielded || 0}
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => handleYieldFieldUpdate(p, 'actual_parts_yielded', e.target.value)}
+                          className="h-7 w-24 text-right ml-auto"
+                        />
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <Input
+                          type="number"
+                          defaultValue={p.scrap_qty || 0}
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => handleYieldFieldUpdate(p, 'scrap_qty', e.target.value)}
+                          className="h-7 w-24 text-right ml-auto"
+                        />
+                      </td>
+                      <td className={`py-3 px-4 text-right font-mono font-semibold ${colorClass}`}>
+                        {v.variance >= 0 ? '+' : ''}{v.variance} ({v.pct}%)
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Bolt Requirements vs Inventory */}
+      {bolts.length > 0 && (
+        <div className="steel-card overflow-hidden mb-6">
+          <div className="p-4 border-b border-border">
+            <h3 className="font-semibold">Bolt Requirements vs Inventory</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Read-only comparison against InventoryItem bolt stock — matched on bolt size.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                  <th className="text-left py-3 px-4">Bolt</th>
+                  <th className="text-left py-3 px-4">Project</th>
+                  <th className="text-right py-3 px-4">Required Qty</th>
+                  <th className="text-right py-3 px-4">On Hand</th>
+                  <th className="text-right py-3 px-4">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bolts.map((p) => {
+                  const stock = boltStockFor(p.bolt_size);
+                  const onHand = stock?.quantity_on_hand || 0;
+                  const required = Number(p.quantity) || 0;
+                  const isShort = onHand < required;
+                  return (
+                    <tr key={p.id} onClick={() => setViewingPiece(p)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
+                      <td className="py-3 px-4 font-mono font-medium text-primary">{p.bolt_size || '—'} {p.bolt_grade || ''}</td>
+                      <td className="py-3 px-4 text-muted-foreground">{projectName(p.project_id)}</td>
+                      <td className="py-3 px-4 text-right font-mono">{required.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right font-mono">{stock ? onHand.toLocaleString() : '—'}</td>
+                      <td className="py-3 px-4 text-right">
+                        {isShort ? (
+                          <Badge variant="destructive" className="gap-1 text-[10px]"><AlertTriangle className="w-3 h-3" />Short</Badge>
+                        ) : (
+                          <span className="text-xs text-green-600">OK</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -226,6 +423,50 @@ export default function Production() {
           </table>
         </div>
       </div>
+
+      <Dialog open={!!viewingPiece} onOpenChange={(o) => !o && setViewingPiece(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{viewingPiece?.part_number || viewingPiece?.piece_mark}</DialogTitle></DialogHeader>
+          {viewingPiece && (() => {
+            const v = getYieldVariance(viewingPiece);
+            const stock = viewingPiece.item_type === 'Bolt' ? boltStockFor(viewingPiece.bolt_size) : null;
+            const rows = [
+              ['Item Type', (viewingPiece.item_type || 'Loose_Part').replace(/_/g, ' ')],
+              ['Project', projectName(viewingPiece.project_id)],
+              ['Part Number', viewingPiece.part_number],
+              ['Description', viewingPiece.description],
+              ['Quantity', viewingPiece.quantity],
+              ['Status', viewingPiece.status],
+              ...(viewingPiece.item_type === 'Bolt' ? [
+                ['Bolt Size', viewingPiece.bolt_size],
+                ['Bolt Grade', viewingPiece.bolt_grade],
+                ['Qty On Hand', stock ? stock.quantity_on_hand : 'No matching inventory'],
+              ] : [
+                ['Stock Material Description', viewingPiece.stock_material_description],
+                ['Parts per Stock Length', viewingPiece.parts_per_stock],
+                ['Stock Qty Required', viewingPiece.stock_qty_required],
+                ['Theoretical Yield', v.theoretical],
+                ['Actual Parts Yielded', viewingPiece.actual_parts_yielded],
+                ['Scrap Qty', viewingPiece.scrap_qty],
+                ['Variance', `${v.variance >= 0 ? '+' : ''}${v.variance} (${v.pct}%)`],
+              ]),
+            ];
+            return (
+              <div className="space-y-2">
+                {rows.map(([label, value]) => (
+                  <div key={label} className="grid grid-cols-3 gap-2 text-sm border-b border-border/50 pb-2">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="col-span-2 font-medium">{value || value === 0 ? value : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingPiece(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

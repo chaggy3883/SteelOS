@@ -709,7 +709,18 @@ export async function seedDemoData() {
   // seedStatus below is our own bookkeeping label, mapped to those real
   // fields, and kept alongside (not stored) so later sections know which
   // pieces need QA records / loads.
-  function buildProjectPieces(projectId, statusPlan) {
+  // piece_mark_id is the bridge back to the office PieceMark list — looked
+  // up by project_id + piece_mark string so shop-floor scanning can resolve
+  // to the office record wherever one already exists. Left blank when there
+  // is no matching PieceMark (as is the case for this seed data today).
+  async function loadPieceMarkLookup(projectId) {
+    const marks = await db.entities.PieceMark.filter({ project_id: projectId }, '-created_date', 500);
+    const lookup = new Map();
+    marks.forEach((m) => { if (m.piece_mark) lookup.set(m.piece_mark, m.id); });
+    return lookup;
+  }
+
+  function buildProjectPieces(projectId, statusPlan, pieceMarkLookup = new Map()) {
     const shapeGroups = [
       { prefix: 'W', count: 6, shape: 'W-Beam', dims: ['W14x90', 'W18x35', 'W12x26', 'W16x40', 'W10x22', 'W14x30'], weights: [1980, 1240, 980, 1580, 720, 1080] },
       { prefix: 'C', count: 4, shape: 'C-Channel', dims: ['C10x20', 'C12x25', 'C9x15', 'C10x20'], weights: [640, 820, 460, 640] },
@@ -728,9 +739,11 @@ export async function seedDemoData() {
     shapeGroups.forEach((group) => {
       for (let i = 1; i <= group.count; i++) {
         const seedStatus = statusPlan[idx];
+        const pieceMark = `${group.prefix}${i}`;
         payloads.push({
           project_id: projectId,
-          piece_mark: `${group.prefix}${i}`,
+          piece_mark: pieceMark,
+          piece_mark_id: pieceMarkLookup.get(pieceMark) || '',
           material_shape: group.shape,
           dimensions: group.dims[i - 1],
           weight: group.weights[i - 1],
@@ -746,8 +759,13 @@ export async function seedDemoData() {
   const fabricationStatusPlan = [...Array(8).fill('fabricated'), ...Array(4).fill('in_fab'), ...Array(3).fill('pending')];
   const erectionStatusPlan = Array(15).fill('shipped');
 
-  const { payloads: fabricationPiecePayloads, statuses: fabricationStatuses } = buildProjectPieces(costProjects[2].id, fabricationStatusPlan);
-  const { payloads: erectionPiecePayloads } = buildProjectPieces(costProjects[1].id, erectionStatusPlan);
+  const [fabricationPieceMarkLookup, erectionPieceMarkLookup] = await Promise.all([
+    loadPieceMarkLookup(costProjects[2].id),
+    loadPieceMarkLookup(costProjects[1].id),
+  ]);
+
+  const { payloads: fabricationPiecePayloads, statuses: fabricationStatuses } = buildProjectPieces(costProjects[2].id, fabricationStatusPlan, fabricationPieceMarkLookup);
+  const { payloads: erectionPiecePayloads } = buildProjectPieces(costProjects[1].id, erectionStatusPlan, erectionPieceMarkLookup);
 
   const fabricationPieces = await db.entities.pieces.bulkCreate(fabricationPiecePayloads);
   const erectionPieces = await db.entities.pieces.bulkCreate(erectionPiecePayloads);

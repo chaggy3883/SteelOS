@@ -11,6 +11,10 @@
     "piece_mark": {
       "type": "string"
     },
+    "piece_mark_id": {
+      "type": "string",
+      "description": "FK back to the PieceMark record this shop-floor row represents — the bridge between the office piece list and shop floor scanning. Populated at creation time when a PieceMark with a matching project_id + piece_mark exists; blank otherwise."
+    },
     "material_shape": {
       "type": "string"
     },

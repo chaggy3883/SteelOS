@@ -96,6 +96,44 @@
     },
     "shipping_load_id": {
       "type": "string"
+    },
+    "item_type": {
+      "type": "string",
+      "enum": ["Piece_Mark", "Loose_Part", "Bolt", "Embed", "Misc_Metal"],
+      "default": "Piece_Mark"
+    },
+    "part_number": {
+      "type": "string"
+    },
+    "bolt_size": {
+      "type": "string",
+      "description": "Free text, e.g. \"3/4 x 2-1/2\"."
+    },
+    "bolt_grade": {
+      "type": "string",
+      "description": "Free text, e.g. \"A325\", \"A490\"."
+    },
+    "stock_material_description": {
+      "type": "string",
+      "description": "e.g. \"L4x4x1/4 x 20'-0\"\"."
+    },
+    "parts_per_stock": {
+      "type": "number",
+      "default": 0,
+      "description": "How many finished parts come out of one stock length. Always operator-entered — never derived from material dimensions or a lookup table. 0 means not applicable."
+    },
+    "stock_qty_required": {
+      "type": "number",
+      "default": 0,
+      "description": "How many stock lengths to buy. Auto-computed as ceil(quantity / parts_per_stock) when parts_per_stock > 0, but an operator override always wins."
+    },
+    "actual_parts_yielded": {
+      "type": "number",
+      "default": 0
+    },
+    "scrap_qty": {
+      "type": "number",
+      "default": 0
     }
   },
   "required": [
