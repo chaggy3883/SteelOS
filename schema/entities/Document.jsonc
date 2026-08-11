@@ -7,6 +7,10 @@
     "project_id": {
       "type": "string"
     },
+    "po_id": {
+      "type": "string",
+      "description": "Links to purchase_orders — set when this Document is the source quote/attachment for a PO (e.g. document_type 'vendor_quote')."
+    },
     "name": {
       "type": "string"
     },
@@ -37,6 +41,7 @@
         "submittal",
         "excel_file",
         "word_document",
+        "vendor_quote",
         "other"
       ]
     },

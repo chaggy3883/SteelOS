@@ -124,6 +124,29 @@ export default function ReceivingKiosk() {
     setLineInputs(prev => ({ ...prev, [lineId]: { ...prev[lineId], [field]: value } }));
   };
 
+  // One-click shortcut for the common full-receipt case — reuses
+  // updateLineInput so it behaves exactly like typing the full remaining
+  // quantity by hand. Never touches heat number, which stays editable.
+  const toggleLineFullyReceived = (line, checked) => {
+    const remaining = Math.max(0, (Number(line.quantity_ordered) || 0) - (Number(line.quantity_received) || 0));
+    if (checked) {
+      updateLineInput(line.id, 'receiveNow', remaining);
+      updateLineInput(line.id, 'condition', 'Good');
+    } else {
+      updateLineInput(line.id, 'receiveNow', 0);
+    }
+  };
+
+  const checkAllRemaining = () => {
+    poLines.forEach((line) => {
+      const remaining = Math.max(0, (Number(line.quantity_ordered) || 0) - (Number(line.quantity_received) || 0));
+      if (remaining > 0) {
+        updateLineInput(line.id, 'receiveNow', remaining);
+        updateLineInput(line.id, 'condition', 'Good');
+      }
+    });
+  };
+
   const totalOrdered = poLines.reduce((sum, l) => sum + (Number(l.quantity_ordered) || 0), 0);
   const totalReceived = poLines.reduce((sum, l) => sum + (Number(l.quantity_received) || 0), 0);
   const progressPct = totalOrdered > 0 ? Math.round((totalReceived / totalOrdered) * 100) : 0;
@@ -308,10 +331,23 @@ export default function ReceivingKiosk() {
             <Progress value={progressPct} className="h-3" />
           </div>
 
+          <div className="flex items-center justify-between">
+            <Label className="text-base">Line Items</Label>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={checkAllRemaining}
+              disabled={!poLines.some(l => Math.max(0, (Number(l.quantity_ordered) || 0) - (Number(l.quantity_received) || 0)) > 0)}
+            >
+              Check All
+            </Button>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-muted-foreground uppercase tracking-wide border-b border-border">
+                  <th className="py-2 pr-3">Full</th>
                   <th className="py-2 pr-3">Line</th>
                   <th className="py-2 pr-3">Description</th>
                   <th className="py-2 pr-3">Qty Ordered</th>
@@ -326,8 +362,18 @@ export default function ReceivingKiosk() {
                 {poLines.map(line => {
                   const remaining = Math.max(0, (Number(line.quantity_ordered) || 0) - (Number(line.quantity_received) || 0));
                   const input = lineInputs[line.id] || { receiveNow: remaining, heatNumber: '', condition: 'Good' };
+                  const isFullyChecked = remaining > 0 && Number(input.receiveNow) === remaining;
                   return (
                     <tr key={line.id} className="border-b border-border/60">
+                      <td className="py-2 pr-3">
+                        <input
+                          type="checkbox"
+                          checked={isFullyChecked}
+                          disabled={remaining === 0}
+                          onChange={(e) => toggleLineFullyReceived(line, e.target.checked)}
+                          className="w-4 h-4"
+                        />
+                      </td>
                       <td className="py-2 pr-3">{line.line_number}</td>
                       <td className="py-2 pr-3">{line.description}</td>
                       <td className="py-2 pr-3">{line.quantity_ordered} {line.unit_of_measure}</td>
