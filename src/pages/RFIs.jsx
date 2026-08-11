@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2, FileWarning } from 'lucide-react';
+import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2, FileWarning, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -11,6 +11,25 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { generateDelayImpactNoticePDF } from '@/lib/delayNoticePdf';
+
+// Mirrors Intelligence.jsx's STEEL_SYSTEM_PROMPT verbatim — same
+// structural-steel-expert persona for every AI call in this app, not a
+// generic one invented for this feature.
+const STEEL_SYSTEM_PROMPT = `You are an expert Senior Structural Steel Estimator and ERP specialist with 25+ years of experience reviewing structural steel fabrication contracts and specifications.
+
+You have deep expertise in:
+- AISC standards and certifications
+- AWS D1.1 and D1.5 Structural Welding Codes
+- CSI Division 05 (Metals) specifications
+- SSPC/AMPP surface preparation standards
+- OSHA construction safety regulations
+- Structural steel fabrication processes (fit-up, welding, painting, galvanizing)
+- Contract risk analysis for steel fabricators
+- Material traceability (MTRs, heat numbers, charpy testing)
+- Inspection hold points, witness points, third-party inspection
+- Erection, temporary bracing, and connection design
+
+When reviewing documents, you reason through them EXACTLY as an experienced structural steel professional would.`;
 
 export default function RFIs() {
   const { toast } = useToast();
@@ -29,6 +48,8 @@ export default function RFIs() {
   const [editingRfi, setEditingRfi] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [savingEdit, setSavingEdit] = useState(false);
+  const [draftingResponse, setDraftingResponse] = useState(false);
+  const [aiDraftUsed, setAiDraftUsed] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
@@ -140,6 +161,7 @@ export default function RFIs() {
       schedule_impact: selectedRfi.schedule_impact || 'none',
       notes: selectedRfi.notes || '',
     });
+    setAiDraftUsed(false);
     setEditingRfi(true);
   };
 
@@ -160,13 +182,68 @@ export default function RFIs() {
       schedule_impact: selectedRfi.schedule_impact || 'none',
       notes: selectedRfi.notes || '',
     });
+    setAiDraftUsed(false);
+  };
+
+  // Drafting assistance only — extracts nothing, changes nothing, submits
+  // nothing. The model just proposes text into editForm.response exactly
+  // like the user typing it themselves; the human still reviews, can edit
+  // freely, and still clicks Save.
+  const handleDraftAiResponse = async () => {
+    if (!selectedRfi) return;
+    setDraftingResponse(true);
+    try {
+      const prompt = `${STEEL_SYSTEM_PROMPT}
+
+You are drafting a response to a Request for Information (RFI) on a structural steel project. Draft a professional, technically precise RFI response addressing the question raised. Cite the relevant drawing and/or spec references back if they were given. If you cannot determine a confident, technically sound answer from the information provided, say so plainly in the response instead of guessing — recommend who should weigh in (e.g. the Engineer of Record or the detailer) rather than fabricating a technical answer.
+
+PROJECT: ${selectedRfiProject?.name || 'Unknown'} (${selectedRfiProject?.project_number || ''})
+RFI SUBJECT: ${selectedRfi.subject || 'Not specified'}
+RFI DESCRIPTION: ${selectedRfi.description || 'No description provided.'}
+CSI SECTION: ${selectedRfi.csi_section || 'Not specified'}
+DRAWING REFERENCE: ${selectedRfi.drawing_reference || 'Not specified'}
+SPEC REFERENCE: ${selectedRfi.spec_reference || 'Not specified'}
+
+Draft the response now.`;
+
+      const response = await db.integrations.Core.InvokeLLM({
+        prompt,
+        response_json_schema: {
+          type: 'object',
+          properties: {
+            draft_response: { type: 'string' },
+            confident: { type: 'boolean' },
+          },
+        },
+      });
+
+      const draftText = String(response?.draft_response || '').trim();
+      if (!draftText) {
+        toast({ title: 'AI did not return a draft', description: 'Try again, or draft the response manually.', variant: 'destructive' });
+        return;
+      }
+
+      setEditForm(f => ({ ...f, response: draftText }));
+      setAiDraftUsed(true);
+      toast({
+        title: 'Draft response ready',
+        description: response?.confident === false ? 'AI flagged low confidence in this draft — review carefully before saving.' : 'Review and edit before saving.',
+      });
+    } catch (e) {
+      toast({ title: 'Unable to draft response', description: e?.message || 'The AI draft failed unexpectedly.', variant: 'destructive' });
+    } finally {
+      setDraftingResponse(false);
+    }
   };
 
   const handleSaveRfiEdit = async () => {
     if (!selectedRfi) return;
     setSavingEdit(true);
     try {
-      const updated = await db.entities.RFI.update(selectedRfi.id, editForm);
+      // Transparency flag, not an accuracy claim — sticks whether the user
+      // saves the draft verbatim or edits it first; either way AI assisted.
+      const payload = aiDraftUsed ? { ...editForm, ai_generated: true } : editForm;
+      const updated = await db.entities.RFI.update(selectedRfi.id, payload);
       setRfis(prev => prev.map(r => r.id === selectedRfi.id ? updated : r));
       setSelectedRfi(updated);
       setEditingRfi(false);
@@ -325,7 +402,7 @@ export default function RFIs() {
         )}
       </div>
 
-      <Dialog open={!!selectedRfi} onOpenChange={(o) => { if (!o) { setSelectedRfi(null); setEditingRfi(false); } }}>
+      <Dialog open={!!selectedRfi} onOpenChange={(o) => { if (!o) { setSelectedRfi(null); setEditingRfi(false); setAiDraftUsed(false); } }}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           {selectedRfi && !editingRfi && (
             <>
@@ -463,7 +540,20 @@ export default function RFIs() {
                 </div>
 
                 <div>
-                  <Label>Response</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Response</Label>
+                    {['submitted', 'under_review'].includes(selectedRfi.status) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        onClick={handleDraftAiResponse}
+                        disabled={draftingResponse}
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />{draftingResponse ? 'Drafting…' : 'Draft Response with AI'}
+                      </Button>
+                    )}
+                  </div>
                   <Textarea value={editForm.response} onChange={e => setEditForm(f => ({ ...f, response: e.target.value }))} className="mt-1" rows={3} />
                 </div>
                 <div>
