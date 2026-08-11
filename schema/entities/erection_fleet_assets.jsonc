@@ -62,6 +62,26 @@
     "default_cost_code": {
       "type": "string",
       "default": "EQP-001"
+    },
+    "last_pm_runtime_hours": {
+      "type": "number",
+      "default": 0,
+      "description": "runtime_hours at the time of the most recent Routine_PM repair — PM Due is (runtime_hours - last_pm_runtime_hours) >= maintenance_threshold_hours, so logging a PM actually clears the badge instead of it staying lit forever."
+    },
+    "po_vendor_mismatch_override": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set when Accounting force-saves a Third_Party_Rented asset whose linked_po_id vendor doesn't match rental_vendor_id."
+    },
+    "po_vendor_mismatch_reason": {
+      "type": "string"
+    },
+    "po_vendor_mismatch_overridden_by": {
+      "type": "string"
+    },
+    "po_vendor_mismatch_overridden_at": {
+      "type": "string",
+      "format": "date-time"
     }
   },
   "required": [

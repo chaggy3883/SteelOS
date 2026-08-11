@@ -30,6 +30,26 @@
     "created_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "vendor_id": {
+      "type": "string"
+    },
+    "posted_to_job_cost": {
+      "type": "boolean",
+      "default": false
+    },
+    "job_cost_entry_id": {
+      "type": "string"
+    },
+    "vendor_bill_id": {
+      "type": "string"
+    },
+    "cost_code": {
+      "type": "string",
+      "default": "EQP-001"
     }
   },
   "required": [

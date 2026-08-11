@@ -12,6 +12,7 @@ import RiggingMatrix from '@/components/field-operations/RiggingMatrix';
 import EquipmentUsagePanel from '@/components/field-operations/EquipmentUsagePanel';
 
 const FLEET_WRITE_ROLES = ['admin', 'super_admin', 'Maintenance_Manager'];
+const PO_MISMATCH_OVERRIDE_ROLES = ['controller', 'finance_department', 'admin', 'super_admin'];
 
 export default function FieldOperations() {
   const { toast } = useToast();
@@ -27,6 +28,8 @@ export default function FieldOperations() {
   const [employees, setEmployees] = useState([]);
   const [usageLogs, setUsageLogs] = useState([]);
   const [canManageFleet, setCanManageFleet] = useState(false);
+  const [canOverridePoMismatch, setCanOverridePoMismatch] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const loadAll = useCallback(async () => {
@@ -39,7 +42,7 @@ export default function FieldOperations() {
         db.entities.rigging_inventory_ledger.list('-created_date', 200),
         db.entities.Project.filter({ is_archived: false }, 'name', 100),
         db.entities.pieces.list('-created_date', 500),
-        db.entities.Vendor.filter({ vendor_type: 'equipment_rental', is_active: true }, 'name', 50),
+        db.entities.Vendor.filter({ is_active: true }, 'name', 200),
         db.entities.purchase_orders.filter({ status: 'Open' }, '-created_date', 200),
         db.entities.employees.list('full_name', 500),
         db.entities.EquipmentUsageLog.list('-usage_date', 500),
@@ -65,8 +68,16 @@ export default function FieldOperations() {
   useEffect(() => {
     loadAll();
     db.auth.me()
-      .then((me) => setCanManageFleet((me?.roles || []).some((r) => FLEET_WRITE_ROLES.includes(r))))
-      .catch(() => setCanManageFleet(false));
+      .then((me) => {
+        setCurrentUser(me || null);
+        const roles = me?.roles || [];
+        setCanManageFleet(roles.some((r) => FLEET_WRITE_ROLES.includes(r)));
+        setCanOverridePoMismatch(roles.some((r) => PO_MISMATCH_OVERRIDE_ROLES.includes(r)));
+      })
+      .catch(() => {
+        setCanManageFleet(false);
+        setCanOverridePoMismatch(false);
+      });
   }, [loadAll]);
 
   const handleTogglePickup = async (asset) => {
@@ -94,7 +105,19 @@ export default function FieldOperations() {
         </TabsList>
 
         <TabsContent value="fleet">
-          <FleetRentalRegistry assets={assets} projects={projects} vendors={vendors} purchaseOrders={purchaseOrders} usageLogs={usageLogs} canManageFleet={canManageFleet} onTogglePickup={handleTogglePickup} onReload={loadAll} />
+          <FleetRentalRegistry
+            assets={assets}
+            projects={projects}
+            vendors={vendors}
+            purchaseOrders={purchaseOrders}
+            usageLogs={usageLogs}
+            repairLogs={repairLogs}
+            canManageFleet={canManageFleet}
+            canOverridePoMismatch={canOverridePoMismatch}
+            currentUser={currentUser}
+            onTogglePickup={handleTogglePickup}
+            onReload={loadAll}
+          />
         </TabsContent>
 
         <TabsContent value="usage">
@@ -117,7 +140,7 @@ export default function FieldOperations() {
         </TabsContent>
 
         <TabsContent value="repairs">
-          <RepairLedger assets={assets} repairLogs={repairLogs} canManageFleet={canManageFleet} onReload={loadAll} />
+          <RepairLedger assets={assets} repairLogs={repairLogs} projects={projects} vendors={vendors} canManageFleet={canManageFleet} onReload={loadAll} />
         </TabsContent>
 
         <TabsContent value="rigging">
