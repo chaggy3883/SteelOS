@@ -285,11 +285,17 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems]);
 
   const handleOverlayClick = (e) => {
-    // offsetX/offsetY are already in canvas pixel space (the CSS translate
-    // moves the whole wrapper div, not the canvas element itself, so these
-    // are canvas-local coordinates — do NOT subtract pan here).
-    const pdfX = e.offsetX / scale;
-    const pdfY = e.offsetY / scale;
+    // React's SyntheticEvent doesn't carry offsetX/offsetY (they're not in
+    // its copied MouseEvent property list), so e.offsetX here is always
+    // undefined — derive it from clientX/clientY and the canvas's own
+    // bounding rect instead. These are still canvas-local coordinates (the
+    // CSS translate moves the whole wrapper div, not the canvas element
+    // itself) — do NOT subtract pan here.
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+    const pdfX = offsetX / scale;
+    const pdfY = offsetY / scale;
 
     if (calibrationMode) {
       console.warn('[IRONSIGHT] calibration click registered', { pdfX, pdfY, pointsSoFar: calibrationPoints.length });

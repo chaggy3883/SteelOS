@@ -4,7 +4,7 @@ import { Building2, Plus, Search, Phone, Mail, Pencil, Trash2, UserPlus } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/ui/PageHeader';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
@@ -16,10 +16,12 @@ const TYPE_COLORS = {
   architect: 'bg-orange-500/10 text-orange-500',
   government: 'bg-red-500/10 text-red-500',
   fabricator_subcontractor: 'bg-cyan-500/10 text-cyan-500',
+  detailer: 'bg-indigo-500/10 text-indigo-500',
+  erector: 'bg-pink-500/10 text-pink-500',
   other: 'bg-gray-500/10 text-gray-500',
 };
 
-const DISCIPLINE_OPTIONS = ['general_contractor', 'owner', 'engineer', 'architect', 'government', 'fabricator_subcontractor', 'other'];
+const DISCIPLINE_OPTIONS = ['general_contractor', 'owner', 'engineer', 'architect', 'government', 'fabricator_subcontractor', 'detailer', 'erector', 'other'];
 const DISCIPLINE_LABELS = { fabricator_subcontractor: 'Fabricator/Subcontractor' };
 const disciplineLabel = (t) => DISCIPLINE_LABELS[t] || t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -40,6 +42,7 @@ export default function CRM() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
+  const [viewingCustomer, setViewingCustomer] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [form, setForm] = useState({ name: '', customer_type: 'general_contractor', is_customer: true, is_vendor: false, phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '', portal_enabled: false, portal_email: '', portal_password: '' });
   const [contacts, setContacts] = useState([]);
@@ -257,13 +260,13 @@ export default function CRM() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(c => (
-            <div key={c.id} className="steel-card p-5 hover:shadow-lg transition-all">
+            <div key={c.id} onClick={() => setViewingCustomer(c)} className="steel-card p-5 hover:shadow-lg transition-all cursor-pointer">
               <div className="flex items-start justify-between mb-3">
                 <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
                   <Building2 className="w-5 h-5 text-blue-500" />
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => startEdit(c)} className="text-muted-foreground hover:text-primary"><Pencil className="w-4 h-4" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); startEdit(c); }} className="text-muted-foreground hover:text-primary"><Pencil className="w-4 h-4" /></button>
                   <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_COLORS[c.customer_type] || TYPE_COLORS.other}`}>
                     {c.customer_type ? disciplineLabel(c.customer_type) : ''}
                   </span>
@@ -279,6 +282,65 @@ export default function CRM() {
           ))}
         </div>
       )}
+
+      <Dialog open={!!viewingCustomer} onOpenChange={(next) => !next && setViewingCustomer(null)}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          {viewingCustomer && (
+            <>
+              <DialogHeader><DialogTitle>{viewingCustomer.name}</DialogTitle></DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_COLORS[viewingCustomer.customer_type] || TYPE_COLORS.other}`}>
+                    {viewingCustomer.customer_type ? disciplineLabel(viewingCustomer.customer_type) : '—'}
+                  </span>
+                  {viewingCustomer.relationship_type && (
+                    <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-muted text-muted-foreground capitalize">
+                      {viewingCustomer.relationship_type}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Address</p>
+                    <p className="font-medium">{[viewingCustomer.city, viewingCustomer.state].filter(Boolean).join(', ') || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Phone</p>
+                    <p className="font-medium">{viewingCustomer.phone || '—'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground">Email</p>
+                    <p className="font-medium">{viewingCustomer.email || '—'}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border p-3 space-y-2">
+                  <h4 className="text-sm font-semibold">Contacts</h4>
+                  {!Array.isArray(viewingCustomer.contacts) || viewingCustomer.contacts.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No contacts on file.</p>
+                  ) : (
+                    viewingCustomer.contacts.map(contact => (
+                      <div key={contact.id} className="rounded border border-border p-2 text-xs">
+                        <p className="font-medium">{contact.name}</p>
+                        <p className="text-muted-foreground">{contact.title || 'Contact'} • {contact.email || '—'} • {contact.phone || '—'}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setViewingCustomer(null)}>Close</Button>
+                <Button
+                  className="steel-gradient text-white border-0"
+                  onClick={() => { const customer = viewingCustomer; setViewingCustomer(null); startEdit(customer); }}
+                >
+                  <Pencil className="w-3.5 h-3.5 mr-1.5" />Edit
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
