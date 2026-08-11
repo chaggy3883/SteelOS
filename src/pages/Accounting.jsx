@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -91,6 +91,15 @@ export default function Accounting() {
   const [editingBill, setEditingBill] = useState(null);
   const [billForm, setBillForm] = useState(emptyBillForm());
   const [savingBill, setSavingBill] = useState(false);
+
+  // --- AI Invoice Reader — extraction only, review before save. Matching
+  // (runThreeWayMatch) stays a fully separate, deterministic step the user
+  // triggers afterward via the existing "Run Match" button. ---
+  const [invoiceFile, setInvoiceFile] = useState(null);
+  const [invoiceFileUrl, setInvoiceFileUrl] = useState('');
+  const [parsingInvoice, setParsingInvoice] = useState(false);
+  const [invoiceParseError, setInvoiceParseError] = useState('');
+  const [aiInvoice, setAiInvoice] = useState(null);
 
   // --- AR / Billings ---
   const [sovLines, setSovLines] = useState([]);
@@ -238,7 +247,15 @@ export default function Accounting() {
     }
   };
 
-  const startAddBill = () => { setEditingBill('new'); setBillForm(emptyBillForm()); };
+  const resetInvoiceAiState = () => {
+    setInvoiceFile(null);
+    setInvoiceFileUrl('');
+    setParsingInvoice(false);
+    setInvoiceParseError('');
+    setAiInvoice(null);
+  };
+
+  const startAddBill = () => { setEditingBill('new'); setBillForm(emptyBillForm()); resetInvoiceAiState(); };
   const startEditBill = (bill) => {
     setEditingBill(bill);
     setBillForm({
@@ -246,6 +263,89 @@ export default function Accounting() {
       invoice_date: bill.invoice_date || '', due_date: bill.due_date || '', gross_amount: bill.gross_amount || 0,
       conditional_waiver_signed: !!bill.conditional_waiver_signed, unconditional_waiver_received: !!bill.unconditional_waiver_received,
     });
+    resetInvoiceAiState();
+  };
+
+  const handleInvoiceFileSelected = (file) => {
+    if (!file) return;
+    setInvoiceFile(file);
+    setInvoiceFileUrl('');
+    setAiInvoice(null);
+    setInvoiceParseError('');
+  };
+
+  // Same InvokeLLM call shape (upload first, single structured-extraction
+  // call, identical try/catch) as SmartFileDump.jsx's runAIParse. Extraction
+  // only — nothing here approves or matches anything.
+  const runInvoiceParse = async () => {
+    if (!invoiceFile) return;
+    setParsingInvoice(true);
+    setInvoiceParseError('');
+    try {
+      const { file_url } = await db.integrations.Core.UploadFile({ file: invoiceFile });
+      setInvoiceFileUrl(file_url);
+
+      const response = await db.integrations.Core.InvokeLLM({
+        prompt: 'You are an accounts-payable assistant. Parse the uploaded vendor invoice and extract the vendor name, invoice number, invoice date, due date, gross amount, the purchase order number if one is referenced on the invoice, and every itemized line (description, quantity, unit cost) if the invoice itemizes.',
+        file_urls: [file_url],
+        response_json_schema: {
+          type: 'object',
+          properties: {
+            vendor_name: { type: 'string' },
+            invoice_number: { type: 'string' },
+            invoice_date: { type: 'string' },
+            due_date: { type: 'string' },
+            gross_amount: { type: 'number' },
+            po_number: { type: 'string' },
+            line_items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  description: { type: 'string' },
+                  quantity: { type: 'number' },
+                  unit_cost: { type: 'number' }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      setAiInvoice(response);
+
+      const matchedVendor = vendors.find(v => v.name?.trim().toLowerCase() === (response.vendor_name || '').trim().toLowerCase());
+
+      // Vendor + PO number together, not vendor alone, once a PO number is
+      // on the invoice — narrows rather than guesses. Anything short of
+      // exactly one match leaves po_id blank for manual selection.
+      let matchedPoId = '';
+      if (matchedVendor) {
+        let candidates = purchaseOrders.filter(po => po.vendor_id === matchedVendor.id);
+        if (response.po_number) {
+          candidates = candidates.filter(po => po.po_number?.trim().toLowerCase() === response.po_number.trim().toLowerCase());
+        }
+        if (candidates.length === 1) matchedPoId = candidates[0].id;
+      }
+
+      setBillForm(f => ({
+        ...f,
+        vendor_id: matchedVendor ? matchedVendor.id : f.vendor_id,
+        po_id: matchedPoId || f.po_id,
+        invoice_number: response.invoice_number || f.invoice_number,
+        invoice_date: response.invoice_date || f.invoice_date,
+        due_date: response.due_date || f.due_date,
+        gross_amount: typeof response.gross_amount === 'number' ? response.gross_amount : f.gross_amount,
+      }));
+
+      toast({ title: 'Invoice parsed', description: 'Review the extracted fields before saving.' });
+    } catch (e) {
+      const message = e?.message || 'The AI parse failed unexpectedly.';
+      setInvoiceParseError(message);
+      toast({ title: 'AI parsing failed', description: message, variant: 'destructive' });
+    } finally {
+      setParsingInvoice(false);
+    }
   };
 
   const handleSaveBill = async () => {
@@ -254,13 +354,32 @@ export default function Accounting() {
     try {
       const po = purchaseOrders.find(p => p.id === billForm.po_id);
       const payload = { ...billForm, project_id: selectedProjectId };
+      let savedBill;
       if (editingBill && editingBill !== 'new') {
-        await db.entities.VendorBill.update(editingBill.id, payload);
+        savedBill = await db.entities.VendorBill.update(editingBill.id, payload);
       } else {
-        await db.entities.VendorBill.create(payload);
+        savedBill = await db.entities.VendorBill.create(payload);
       }
+
+      if (invoiceFileUrl) {
+        await db.entities.Document.create({
+          project_id: selectedProjectId,
+          vendor_bill_id: savedBill.id,
+          name: invoiceFile?.name || `Invoice — ${billForm.invoice_number || savedBill.id}`,
+          file_url: invoiceFileUrl,
+          file_name: invoiceFile?.name || '',
+          file_size: invoiceFile?.size || 0,
+          file_type: invoiceFile?.type || '',
+          document_type: 'vendor_invoice',
+          status: 'uploaded',
+          ai_processing_status: 'complete',
+          description: `Source vendor invoice for ${billForm.invoice_number || savedBill.id}`,
+        });
+      }
+
       toast({ title: 'Vendor bill saved', description: po ? undefined : 'No matching PO found for match calculations.' });
       setEditingBill(null);
+      resetInvoiceAiState();
       loadData();
     } catch (e) {
       toast({ title: 'Unable to save vendor bill', variant: 'destructive' });
@@ -967,57 +1086,101 @@ export default function Accounting() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editingBill} onOpenChange={(open) => !open && setEditingBill(null)}>
-        <DialogContent>
+      <Dialog open={!!editingBill} onOpenChange={(open) => { if (!open) { setEditingBill(null); resetInvoiceAiState(); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editingBill === 'new' ? 'Add Vendor Bill' : 'Edit Vendor Bill'}</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Vendor</Label>
-              <Select value={billForm.vendor_id} onValueChange={(v) => setBillForm(f => ({ ...f, vendor_id: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select vendor" /></SelectTrigger>
-                <SelectContent>
-                  {vendors.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+
+          <div className="rounded-lg border border-dashed border-border p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-sm flex items-center gap-1.5"><Brain className="w-4 h-4 text-primary" />Read Invoice (AI)</Label>
+              {invoiceFile && (
+                <Button size="sm" onClick={runInvoiceParse} disabled={parsingInvoice} className="steel-gradient text-white border-0">
+                  {parsingInvoice ? <><RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Parsing…</> : <><Brain className="w-3.5 h-3.5 mr-1.5" />Parse Invoice</>}
+                </Button>
+              )}
             </div>
-            <div>
-              <Label>Purchase Order</Label>
-              <Select value={billForm.po_id} onValueChange={(v) => setBillForm(f => ({ ...f, po_id: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select PO" /></SelectTrigger>
-                <SelectContent>
-                  {purchaseOrders.map(po => <SelectItem key={po.id} value={po.id}>{po.po_number} — ${(po.budgeted_cost || 0).toLocaleString()}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Invoice Number</Label>
-              <Input value={billForm.invoice_number} onChange={(e) => setBillForm(f => ({ ...f, invoice_number: e.target.value }))} className="mt-1" />
-            </div>
-            <div>
-              <Label>Invoice Date</Label>
-              <Input type="date" value={billForm.invoice_date} onChange={(e) => setBillForm(f => ({ ...f, invoice_date: e.target.value }))} className="mt-1" />
-            </div>
-            <div>
-              <Label>Due Date</Label>
-              <Input type="date" value={billForm.due_date} onChange={(e) => setBillForm(f => ({ ...f, due_date: e.target.value }))} className="mt-1" />
-            </div>
-            <div>
-              <Label>Gross Amount ($)</Label>
-              <Input type="number" value={billForm.gross_amount} onChange={(e) => setBillForm(f => ({ ...f, gross_amount: parseFloat(e.target.value) || 0 }))} className="mt-1" />
-            </div>
-            <div className="col-span-2 flex items-center gap-6 mt-2">
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={billForm.conditional_waiver_signed} onCheckedChange={(v) => setBillForm(f => ({ ...f, conditional_waiver_signed: !!v }))} />
-                Conditional Waiver Signed
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={billForm.unconditional_waiver_received} onCheckedChange={(v) => setBillForm(f => ({ ...f, unconditional_waiver_received: !!v }))} />
-                Unconditional Waiver Received
-              </label>
-            </div>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+              <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => handleInvoiceFileSelected(e.target.files?.[0])} />
+              <UploadCloud className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{invoiceFile ? invoiceFile.name : 'Upload a vendor invoice (PDF or image) to auto-fill this form'}</span>
+            </label>
+            {invoiceParseError && (
+              <div className="flex items-center justify-between gap-2 text-xs text-red-600 dark:text-red-400">
+                <span>{invoiceParseError}</span>
+                <Button size="sm" variant="outline" onClick={runInvoiceParse}>Retry</Button>
+              </div>
+            )}
+            {aiInvoice && !billForm.vendor_id && (
+              <p className="text-xs text-amber-600">Extracted vendor "{aiInvoice.vendor_name || 'unknown'}" — no exact match found. Select the vendor manually below.</p>
+            )}
           </div>
+
+          <div className={aiInvoice?.line_items?.length > 0 ? 'grid grid-cols-[1fr_240px] gap-4' : ''}>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Vendor</Label>
+                <Select value={billForm.vendor_id} onValueChange={(v) => setBillForm(f => ({ ...f, vendor_id: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select vendor" /></SelectTrigger>
+                  <SelectContent>
+                    {vendors.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Purchase Order</Label>
+                <Select value={billForm.po_id} onValueChange={(v) => setBillForm(f => ({ ...f, po_id: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select PO" /></SelectTrigger>
+                  <SelectContent>
+                    {purchaseOrders.map(po => <SelectItem key={po.id} value={po.id}>{po.po_number} — ${(po.budgeted_cost || 0).toLocaleString()}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Invoice Number</Label>
+                <Input value={billForm.invoice_number} onChange={(e) => setBillForm(f => ({ ...f, invoice_number: e.target.value }))} className="mt-1" />
+              </div>
+              <div>
+                <Label>Invoice Date</Label>
+                <Input type="date" value={billForm.invoice_date} onChange={(e) => setBillForm(f => ({ ...f, invoice_date: e.target.value }))} className="mt-1" />
+              </div>
+              <div>
+                <Label>Due Date</Label>
+                <Input type="date" value={billForm.due_date} onChange={(e) => setBillForm(f => ({ ...f, due_date: e.target.value }))} className="mt-1" />
+              </div>
+              <div>
+                <Label>Gross Amount ($)</Label>
+                <Input type="number" value={billForm.gross_amount} onChange={(e) => setBillForm(f => ({ ...f, gross_amount: parseFloat(e.target.value) || 0 }))} className="mt-1" />
+              </div>
+              <div className="col-span-2 flex items-center gap-6 mt-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={billForm.conditional_waiver_signed} onCheckedChange={(v) => setBillForm(f => ({ ...f, conditional_waiver_signed: !!v }))} />
+                  Conditional Waiver Signed
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={billForm.unconditional_waiver_received} onCheckedChange={(v) => setBillForm(f => ({ ...f, unconditional_waiver_received: !!v }))} />
+                  Unconditional Waiver Received
+                </label>
+              </div>
+            </div>
+
+            {aiInvoice?.line_items?.length > 0 && (
+              <div className="rounded-lg border border-border p-3 max-h-72 overflow-y-auto">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Itemized Lines (from invoice)</p>
+                <div className="space-y-2">
+                  {aiInvoice.line_items.map((li, i) => (
+                    <div key={i} className="text-xs border-b border-border/50 pb-1.5">
+                      <p className="font-medium">{li.description || '—'}</p>
+                      <p className="text-muted-foreground">{li.quantity ?? '—'} × ${Number(li.unit_cost || 0).toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2">Reference only — not saved as line records.</p>
+              </div>
+            )}
+          </div>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingBill(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setEditingBill(null); resetInvoiceAiState(); }}>Cancel</Button>
             <Button onClick={handleSaveBill} disabled={savingBill} className="steel-gradient text-white border-0">{savingBill ? 'Saving…' : 'Save'}</Button>
           </DialogFooter>
         </DialogContent>

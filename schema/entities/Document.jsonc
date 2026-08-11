@@ -11,6 +11,10 @@
       "type": "string",
       "description": "Links to purchase_orders — set when this Document is the source quote/attachment for a PO (e.g. document_type 'vendor_quote')."
     },
+    "vendor_bill_id": {
+      "type": "string",
+      "description": "Links to VendorBill — set when this Document is the source invoice for a vendor bill (document_type 'vendor_invoice')."
+    },
     "name": {
       "type": "string"
     },
@@ -42,6 +46,7 @@
         "excel_file",
         "word_document",
         "vendor_quote",
+        "vendor_invoice",
         "other"
       ]
     },
