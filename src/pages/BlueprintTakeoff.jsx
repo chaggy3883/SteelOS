@@ -616,7 +616,15 @@ export default function BlueprintTakeoff() {
   };
 
   const handleCalibrationClick = ({ pdfX, pdfY }) => {
-    setCalibrationPoints((prev) => (prev.length >= 2 ? prev : [...prev, { pdfX, pdfY }]));
+    setCalibrationPoints((prev) => {
+      if (prev.length >= 2) {
+        console.warn('[CALIBRATION DEBUG] handleCalibrationClick — click ignored, already have 2 points', { pdfX, pdfY, prev });
+        return prev;
+      }
+      const next = [...prev, { pdfX, pdfY }];
+      console.warn('[CALIBRATION DEBUG] handleCalibrationClick', { pdfX, pdfY, prevLength: prev.length, nextLength: next.length, points: next });
+      return next;
+    });
   };
 
   const handleConfirmCalibration = async () => {
@@ -635,6 +643,16 @@ export default function BlueprintTakeoff() {
       setCalibrationPoints([]);
       return;
     }
+
+    console.warn('[CALIBRATION DEBUG] handleConfirmCalibration', {
+      p1,
+      p2,
+      canvasScale,
+      rawPdfDistance: Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2),
+      pxDist,
+      devicePixelRatio: window.devicePixelRatio,
+    });
+
     if (!(pxDist > 10)) {
       toast({ title: 'Points are too close together', description: 'Click two clearly separated points on the drawing.', variant: 'destructive' });
       setCalibrationPoints([]);
