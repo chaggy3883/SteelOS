@@ -56,12 +56,14 @@
       "items": {
         "type": "object",
         "properties": {
-          "file_blob_key": { "type": "string" },
-          "file_name": { "type": "string" },
-          "file_type": { "type": "string" }
+          "id": { "type": "string" },
+          "filename": { "type": "string" },
+          "mimetype": { "type": "string" },
+          "size": { "type": "number" },
+          "uploadDate": { "type": "string", "format": "date-time" }
         }
       },
-      "description": "Photos/PDFs stored in the browser's IndexedDB via src/lib/pdfBlobStore.js, keyed by file_blob_key (format rigging_inspections/{recordId}/{index}-{fileName})."
+      "description": "Lightweight refs only — the actual blobs live in IndexedDB via src/lib/inspectionDocumentStore.js under key inspection_documents_{id}, matched to these refs by id."
     }
   },
   "required": ["inspection_date", "inspector_name", "inspection_type", "equipment_id"]

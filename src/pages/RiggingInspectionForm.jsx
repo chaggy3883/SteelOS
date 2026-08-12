@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { savePdf } from '@/lib/pdfBlobStore';
+import { saveDocumentRecords } from '@/lib/inspectionDocumentStore';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { canAccessRiggingInspection } from '@/lib/planGating';
 import { cn } from '@/lib/utils';
 import {
   ArrowLeft, ClipboardCheck, Link2, Wrench, AlertTriangle, Paperclip,
-  ChevronDown, Trash2, ShieldAlert, Loader2, FileCheck2,
+  ChevronDown, ShieldAlert, Loader2,
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import FileDropzone from '@/components/ui/FileDropzone';
+import InspectionDocumentUpload from '@/components/shared/InspectionDocumentUpload';
 import { useToast } from '@/components/ui/use-toast';
 
 const INSPECTION_TYPES = [
@@ -51,6 +51,8 @@ const DISPOSAL_ACTIONS = [
   { value: 'Requires_Repair', label: 'Requires Repair' },
   { value: 'Removed_From_Service', label: 'Immediately Removed From Service' },
 ];
+
+const toDocumentRef = ({ id, filename, mimetype, size, uploadDate }) => ({ id, filename, mimetype, size, uploadDate });
 
 const buildSlingFindings = (slingType) =>
   (SLING_CHECKLIST_BY_TYPE[slingType] || []).map((item) => ({ item, checked: false, notes: '' }));
@@ -117,6 +119,8 @@ export default function RiggingInspectionForm() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [form, setForm] = useState(emptyForm());
   const [pendingFiles, setPendingFiles] = useState([]);
+  const [savedDocuments, setSavedDocuments] = useState([]);
+  const [lastSavedId, setLastSavedId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [openSections, setOpenSections] = useState({ admin: true, slings: true, hardware: true, disposal: true, attachments: true });
 
@@ -138,10 +142,15 @@ export default function RiggingInspectionForm() {
     setForm((f) => ({ ...f, hardware_findings: f.hardware_findings.map((it, i) => (i === index ? { ...it, ...patch } : it)) }));
   };
 
-  const addPendingFile = (file) => setPendingFiles((prev) => [...prev, file]);
-  const removePendingFile = (index) => setPendingFiles((prev) => prev.filter((_, i) => i !== index));
-
   const requiresDisposalNotes = form.disposal_action === 'Requires_Repair' || form.disposal_action === 'Removed_From_Service';
+
+  const handleDeleteSavedDocument = async (docId) => {
+    if (!lastSavedId) return;
+    const nextDocs = savedDocuments.filter((d) => d.id !== docId);
+    await saveDocumentRecords(`inspection_documents_${lastSavedId}`, nextDocs);
+    await db.entities.RiggingInspection.update(lastSavedId, { documents: nextDocs.map(toDocumentRef) });
+    setSavedDocuments(nextDocs);
+  };
 
   const handleSave = async () => {
     if (!form.equipment_id.trim()) {
@@ -177,15 +186,15 @@ export default function RiggingInspectionForm() {
       });
 
       if (pendingFiles.length > 0) {
-        const documents = [];
-        for (let i = 0; i < pendingFiles.length; i++) {
-          const file = pendingFiles[i];
-          const key = `rigging_inspections/${created.id}/${i}-${file.name}`;
-          await savePdf(key, file);
-          documents.push({ file_blob_key: key, file_name: file.name, file_type: file.type });
-        }
-        await db.entities.RiggingInspection.update(created.id, { documents });
+        const storageKey = `inspection_documents_${created.id}`;
+        const documents = pendingFiles.map((f) => ({ ...f, uploadDate: new Date().toISOString() }));
+        await saveDocumentRecords(storageKey, documents);
+        await db.entities.RiggingInspection.update(created.id, { documents: documents.map(toDocumentRef) });
+        setSavedDocuments(documents);
+      } else {
+        setSavedDocuments([]);
       }
+      setLastSavedId(created.id);
 
       toast({ title: 'Rigging inspection saved' });
       setForm(emptyForm());
@@ -324,20 +333,14 @@ export default function RiggingInspectionForm() {
         )}
       </Section>
 
-      <Section title="Photos & Documents" icon={Paperclip} open={openSections.attachments} onToggle={() => toggleSection('attachments')}>
-        <FileDropzone accept="image/*,application/pdf" label="Drag & drop a photo or PDF here, or click to browse" onFileSelected={addPendingFile} />
-        {pendingFiles.length > 0 && (
-          <div className="space-y-1.5">
-            {pendingFiles.map((file, i) => (
-              <div key={`${file.name}-${i}`} className="flex items-center justify-between gap-2 rounded-lg border border-border p-2 text-xs">
-                <span className="flex items-center gap-1.5 truncate text-green-600"><FileCheck2 className="w-3.5 h-3.5 flex-shrink-0" />{file.name}</span>
-                <button onClick={() => removePendingFile(i)} className="text-muted-foreground hover:text-destructive flex-shrink-0">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+      <Section title="Attach Documents" icon={Paperclip} open={openSections.attachments} onToggle={() => toggleSection('attachments')}>
+        <InspectionDocumentUpload
+          pendingFiles={pendingFiles}
+          onPendingFilesChange={setPendingFiles}
+          savedDocuments={savedDocuments}
+          onDeleteSaved={lastSavedId ? handleDeleteSavedDocument : undefined}
+          disabled={saving}
+        />
       </Section>
 
       <div className="flex justify-end">
