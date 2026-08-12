@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Building2, Plus, Search, Phone, Mail, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -39,9 +40,10 @@ const deriveRelationshipType = (isCustomer, isVendor) => {
 
 export default function CRM() {
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
   const [open, setOpen] = useState(false);
   const [viewingCustomer, setViewingCustomer] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
@@ -51,6 +53,13 @@ export default function CRM() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { loadData(); }, []);
+
+  useEffect(() => {
+    const customerId = searchParams.get('customer');
+    if (!customerId || customers.length === 0) return;
+    const match = customers.find(c => c.id === customerId);
+    if (match) setViewingCustomer(match);
+  }, [searchParams, customers]);
 
   const loadData = async () => {
     setLoading(true);

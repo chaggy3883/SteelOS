@@ -42,6 +42,11 @@ export default function Projects() {
     loadProjects();
   };
 
+  const goToCustomer = (project) => {
+    if (project.customer_id) navigate(`/crm?customer=${project.customer_id}`);
+    else navigate(`/crm?search=${encodeURIComponent(project.customer_name)}`);
+  };
+
   const filtered = projects.filter(p => {
     const matchSearch = !search ||
       p.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -120,14 +125,21 @@ export default function Projects() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map(project => (
-            <div key={project.id} className="steel-card p-5 hover:shadow-lg transition-all group">
+            <div
+              key={project.id}
+              onClick={() => navigate(`/projects/${project.id}`)}
+              className="steel-card p-5 hover:shadow-lg transition-all group cursor-pointer"
+            >
               {/* Card Header */}
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
                   {project.is_pinned && <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />}
                   <span className="text-xs text-muted-foreground font-mono">{project.project_number}</span>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div
+                  className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button onClick={() => togglePin(project)} className="p-1 rounded hover:bg-muted">
                     {project.is_pinned
                       ? <StarOff className="w-3.5 h-3.5 text-muted-foreground" />
@@ -164,25 +176,34 @@ export default function Projects() {
                   )}
                 </h3>
               </Link>
-              <p className="text-sm text-muted-foreground mb-3">{project.customer_name || 'No customer assigned'}</p>
+              {project.customer_name ? (
+                <p
+                  onClick={(e) => { e.stopPropagation(); goToCustomer(project); }}
+                  className="text-sm text-muted-foreground mb-3 hover:text-primary hover:underline transition-colors inline-block"
+                >
+                  {project.customer_name}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground mb-3">No customer assigned</p>
+              )}
 
               {/* Stats */}
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
+                <div onClick={() => navigate(`/projects/${project.id}`)} className="cursor-pointer">
                   <p className="text-xs text-muted-foreground">Contract Value</p>
                   <p className="text-sm font-semibold">
                     {project.contract_value ? `$${(project.contract_value / 1000).toFixed(0)}K` : '—'}
                   </p>
                 </div>
-                <div>
+                <div onClick={() => navigate(`/projects/${project.id}`)} className="cursor-pointer">
                   <p className="text-xs text-muted-foreground">Estimated Tons</p>
                   <p className="text-sm font-semibold">{project.estimated_tons ? `${project.estimated_tons}T` : '—'}</p>
                 </div>
-                <div>
+                <div onClick={() => navigate(`/projects/${project.id}`)} className="cursor-pointer">
                   <p className="text-xs text-muted-foreground">Completion</p>
                   <p className="text-sm font-semibold">{project.completion_date || '—'}</p>
                 </div>
-                <div>
+                <div onClick={() => navigate(`/projects/${project.id}`)} className="cursor-pointer">
                   <p className="text-xs text-muted-foreground">Health Score</p>
                   <p className={`text-sm font-bold ${healthColor(project.health_score || 100)}`}>
                     {project.health_score || 100}%
