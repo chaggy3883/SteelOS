@@ -23,7 +23,7 @@ const TABS = [
   { id: 'tax', label: 'Tax Zone Lookup', icon: MapPin, Component: TaxZoneLookup },
   { id: 'crm', label: 'CRM Sync', icon: Database, Component: CRMSync },
   { id: 'integrations', label: 'Integrations', icon: Plug, Component: IntegrationsGateway },
-  { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck, Component: RoleManager },
+  { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck, Component: RoleManager, roles: ['admin', 'super_admin', 'hr_admin'] },
   { id: 'shopfloor', label: '3D Shop Floor Layout', icon: Boxes, Component: ShopFloorLayoutEditor },
   { id: 'branding', label: 'Company Settings', icon: Palette, Component: CompanyBrandingPanel },
   { id: 'form-report-settings', label: 'Form & Report Settings', icon: LayoutTemplate, Component: FormReportSettingsPanel },
@@ -32,7 +32,7 @@ const TABS = [
 
 export default function Admin() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'users';
+  const requestedTab = searchParams.get('tab') || 'users';
   const setActiveTab = (id) => setSearchParams({ tab: id });
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -48,9 +48,16 @@ export default function Admin() {
   );
 
   const userRoles = currentUser?.roles || [];
+  const normalizedRoles = userRoles.map(r => String(r).toLowerCase());
   const isAdmin = userRoles.includes('admin') || userRoles.includes('system_administrator') || userRoles.includes('super_admin') || currentUser?.is_admin === true || userRoles.includes('Demo Admin') || userRoles.includes('Admin');
 
-  if (!isAdmin) return (
+  // Most tabs require full admin access. A tab can opt into a narrower
+  // `roles` allowlist (case-insensitive) to also admit users who aren't
+  // full admins — e.g. hr_admin viewing only "Roles & Permissions".
+  const hasTabAccess = (tab) => isAdmin || (tab.roles || []).some(r => normalizedRoles.includes(r.toLowerCase()));
+  const visibleTabs = TABS.filter(hasTabAccess);
+
+  if (visibleTabs.length === 0) return (
     <div className="flex flex-col items-center justify-center h-96 gap-3">
       <ShieldCheck className="w-12 h-12 text-muted-foreground" />
       <h2 className="text-lg font-semibold">Admin Access Required</h2>
@@ -58,18 +65,19 @@ export default function Admin() {
     </div>
   );
 
-  const Active = TABS.find(t => t.id === activeTab)?.Component;
+  const activeTabObj = visibleTabs.find(t => t.id === requestedTab) || visibleTabs[0];
+  const Active = activeTabObj.Component;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <PageHeader title="Admin & System Configuration" subtitle="Centralized master control panel for SteelOS" />
       <div className="flex gap-1 border-b border-border mb-6 overflow-x-auto scrollbar-thin">
-        {TABS.map(tab => {
+        {visibleTabs.map(tab => {
           const Icon = tab.icon;
           return (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
-                activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+                activeTabObj.id === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}>
               <Icon className="w-4 h-4" />{tab.label}
             </button>
           );

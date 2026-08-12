@@ -5,9 +5,38 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, Edit2, Trash2, Loader2, Shield, Lock } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { Plus, Edit2, Trash2, Loader2, Shield, Lock, Eye } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { BUILTIN_ROLES, ALL_MODULES, WIDGET_LIBRARY } from '@/components/dashboard/rbacConfig';
+
+const moduleLabel = (path) => ALL_MODULES.find(m => m.path === path)?.label || path;
+const widgetName = (id) => WIDGET_LIBRARY.find(w => w.id === id)?.name || id;
+
+function AccessSummary({ list, allLabel, unit }) {
+  if ((list || []).includes('*')) {
+    return <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium whitespace-nowrap">{allLabel}</span>;
+  }
+  return <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium whitespace-nowrap">{(list || []).length} {unit}</span>;
+}
+
+function AccessDetail({ list, allLabel, items, nameOf }) {
+  if ((list || []).includes('*')) {
+    return <span className="text-xs px-2 py-1 rounded bg-primary/10 text-primary font-medium">{allLabel}</span>;
+  }
+  if (!list || list.length === 0) return <span className="text-xs text-muted-foreground">None</span>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {list.map(id => (
+        <span key={id} className="text-xs px-2 py-1 rounded bg-muted text-foreground">{nameOf(id)}</span>
+      ))}
+    </div>
+  );
+}
+
+const EMPTY_FORM = { role_name: '', label: '', description: '', allowed_modules: [], allowed_widgets: [] };
 
 export default function RoleManager() {
   const { toast } = useToast();
@@ -16,7 +45,9 @@ export default function RoleManager() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ role_name: '', label: '', description: '', allowed_modules: [], allowed_widgets: [] });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [viewingBuiltin, setViewingBuiltin] = useState(null);
+  const [viewingCustom, setViewingCustom] = useState(null);
 
   useEffect(() => {
     loadRoles();
@@ -28,7 +59,7 @@ export default function RoleManager() {
   // accounts; a future one would hook in here (and in
   // `UserManagement.jsx`'s assignableRoles) rather than restoring it to
   // this list.
-  const visibleBuiltinRoles = BUILTIN_ROLES.filter((r) => r.name !== 'user' && r.name !== 'super_admin');
+  const visibleBuiltinRoles = BUILTIN_ROLES.filter((r) => r.name !== 'super_admin');
 
   const loadRoles = async () => {
     setLoading(true);
@@ -36,6 +67,8 @@ export default function RoleManager() {
     catch (e) {}
     finally { setLoading(false); }
   };
+
+  const openCreate = () => { setEditing(null); setForm(EMPTY_FORM); setShowForm(true); };
 
   const handleSave = async () => {
     if (!form.role_name || !form.label) return;
@@ -50,12 +83,13 @@ export default function RoleManager() {
       }
       loadRoles();
       setShowForm(false); setEditing(null);
-      setForm({ role_name: '', label: '', description: '', allowed_modules: [], allowed_widgets: [] });
+      setForm(EMPTY_FORM);
     } catch (e) { toast({ title: 'Failed to save role', variant: 'destructive' }); }
     finally { setSaving(false); }
   };
 
   const handleEdit = (role) => {
+    setViewingCustom(null);
     setEditing(role);
     setForm({ role_name: role.role_name, label: role.label, description: role.description || '', allowed_modules: role.allowed_modules || [], allowed_widgets: role.allowed_widgets || [] });
     setShowForm(true);
@@ -63,8 +97,21 @@ export default function RoleManager() {
 
   const handleDelete = async (role) => {
     if (!confirm(`Delete role "${role.label}"? Users with this role will lose access.`)) return;
-    try { await db.entities.CustomRole.delete(role.id); toast({ title: 'Role deleted' }); loadRoles(); }
-    catch (e) { toast({ title: 'Failed to delete role', variant: 'destructive' }); }
+    try {
+      await db.entities.CustomRole.delete(role.id);
+      toast({ title: 'Role deleted' });
+      setViewingCustom(null);
+      loadRoles();
+    } catch (e) { toast({ title: 'Failed to delete role', variant: 'destructive' }); }
+  };
+
+  const handleToggleActive = async (role) => {
+    try {
+      await db.entities.CustomRole.update(role.id, { is_active: !role.is_active });
+      toast({ title: role.is_active ? 'Role deactivated' : 'Role activated' });
+      setViewingCustom(null);
+      loadRoles();
+    } catch (e) { toast({ title: 'Failed to update role', variant: 'destructive' }); }
   };
 
   const toggleModule = (path) => {
@@ -76,39 +123,48 @@ export default function RoleManager() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Built-in Roles */}
       <div>
         <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Shield className="w-4 h-4 text-primary" />Built-in Roles</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {visibleBuiltinRoles.map(role => (
-            <div key={role.name} className="steel-card p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="font-medium text-sm">{role.label}</p>
-                <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-              </div>
-              <p className="text-xs text-muted-foreground mb-3">{role.description}</p>
-              <div className="flex items-center gap-2 flex-wrap">
-                {role.allowed_modules.includes('*') ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">All Modules</span>
-                ) : (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 font-medium">{role.allowed_modules.length} modules</span>
-                )}
-                {role.allowed_widgets.includes('*') ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">All Widgets</span>
-                ) : (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-500 font-medium">{role.allowed_widgets.length} widgets</span>
-                )}
-              </div>
-            </div>
-          ))}
+        <div className="steel-card overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Role Name</TableHead>
+                <TableHead>Label</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Allowed Modules</TableHead>
+                <TableHead>Allowed Widgets</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleBuiltinRoles.map(role => (
+                <TableRow key={role.name} onClick={() => setViewingBuiltin(role)} className="cursor-pointer">
+                  <TableCell className="font-mono text-xs">{role.name}</TableCell>
+                  <TableCell className="font-medium">{role.label}</TableCell>
+                  <TableCell className="text-muted-foreground text-xs max-w-xs truncate">{role.description}</TableCell>
+                  <TableCell><AccessSummary list={role.allowed_modules} allLabel="All Modules" unit="modules" /></TableCell>
+                  <TableCell><AccessSummary list={role.allowed_widgets} allLabel="All Widgets" unit="widgets" /></TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setViewingBuiltin(role); }}>
+                      <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       </div>
 
+      {/* Custom Roles */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold flex items-center gap-2"><Plus className="w-4 h-4 text-primary" />Custom Roles</h3>
-          <Button size="sm" onClick={() => { setEditing(null); setForm({ role_name: '', label: '', description: '', allowed_modules: [], allowed_widgets: [] }); setShowForm(true); }} className="steel-gradient text-white border-0">
-            <Plus className="w-3.5 h-3.5" />Create Role
+          <Button size="sm" onClick={openCreate} className="steel-gradient text-white border-0">
+            <Plus className="w-3.5 h-3.5" />Add Custom Role
           </Button>
         </div>
         {loading ? (
@@ -118,30 +174,118 @@ export default function RoleManager() {
             <p className="text-sm text-muted-foreground">No custom roles yet. Create one to define granular access permissions.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {customRoles.map(role => (
-              <div key={role.id} className="steel-card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <p className="font-medium text-sm">{role.label}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono">{role.role_name}</p>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(role)}><Edit2 className="w-3 h-3" /></Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(role)}><Trash2 className="w-3 h-3 text-destructive" /></Button>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground mb-3">{role.description || 'No description'}</p>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-500 font-medium">{role.allowed_modules?.length || 0} modules</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-500 font-medium">{role.allowed_widgets?.length || 0} widgets</span>
-                </div>
-              </div>
-            ))}
+          <div className="steel-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Role Name</TableHead>
+                  <TableHead>Label</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Allowed Modules</TableHead>
+                  <TableHead>Allowed Widgets</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {customRoles.map(role => (
+                  <TableRow key={role.id} onClick={() => setViewingCustom(role)} className={`cursor-pointer ${role.is_active === false ? 'opacity-60' : ''}`}>
+                    <TableCell className="font-mono text-xs">{role.role_name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        {role.label}
+                        {role.is_active === false && <Badge variant="outline" className="text-[10px]">Inactive</Badge>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-xs max-w-xs truncate">{role.description || 'No description'}</TableCell>
+                    <TableCell><AccessSummary list={role.allowed_modules} allLabel="All Modules" unit="modules" /></TableCell>
+                    <TableCell><AccessSummary list={role.allowed_widgets} allLabel="All Widgets" unit="widgets" /></TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Switch checked={role.is_active !== false} onCheckedChange={() => handleToggleActive(role)} />
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(role)}><Edit2 className="w-3.5 h-3.5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(role)}><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>
 
+      {/* Built-in role detail modal — read-only */}
+      <Dialog open={!!viewingBuiltin} onOpenChange={(next) => !next && setViewingBuiltin(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          {viewingBuiltin && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-muted-foreground" />{viewingBuiltin.label}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2 text-sm">
+                <div><span className="text-xs text-muted-foreground font-mono">{viewingBuiltin.name}</span></div>
+                <p className="text-muted-foreground">{viewingBuiltin.description}</p>
+                <div>
+                  <Label className="mb-2 block">Allowed Modules</Label>
+                  <AccessDetail list={viewingBuiltin.allowed_modules} allLabel="All Modules" nameOf={moduleLabel} />
+                </div>
+                <div>
+                  <Label className="mb-2 block">Allowed Widgets</Label>
+                  <AccessDetail list={viewingBuiltin.allowed_widgets} allLabel="All Widgets" nameOf={widgetName} />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setViewingBuiltin(null)}>Close</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom role detail modal — edit/delete/toggle-active */}
+      <Dialog open={!!viewingCustom} onOpenChange={(next) => !next && setViewingCustom(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          {viewingCustom && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  {viewingCustom.label}
+                  {viewingCustom.is_active === false && <Badge variant="outline" className="text-[10px]">Inactive</Badge>}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2 text-sm">
+                <div><span className="text-xs text-muted-foreground font-mono">{viewingCustom.role_name}</span></div>
+                <p className="text-muted-foreground">{viewingCustom.description || 'No description'}</p>
+                <div>
+                  <Label className="mb-2 block">Allowed Modules</Label>
+                  <AccessDetail list={viewingCustom.allowed_modules} allLabel="All Modules" nameOf={moduleLabel} />
+                </div>
+                <div>
+                  <Label className="mb-2 block">Allowed Widgets</Label>
+                  <AccessDetail list={viewingCustom.allowed_widgets} allLabel="All Widgets" nameOf={widgetName} />
+                </div>
+                <div className="flex items-center gap-2 pt-2 border-t border-border">
+                  <Switch checked={viewingCustom.is_active !== false} onCheckedChange={() => handleToggleActive(viewingCustom)} />
+                  <span className="text-xs text-muted-foreground">{viewingCustom.is_active === false ? 'Inactive — cannot be assigned to new users' : 'Active'}</span>
+                </div>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" className="text-destructive" onClick={() => handleDelete(viewingCustom)}>
+                  <Trash2 className="w-3.5 h-3.5 mr-1.5" />Delete
+                </Button>
+                <Button variant="outline" onClick={() => handleEdit(viewingCustom)}>
+                  <Edit2 className="w-3.5 h-3.5 mr-1.5" />Edit
+                </Button>
+                <Button onClick={() => setViewingCustom(null)} className="steel-gradient text-white border-0">Close</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Create / edit form */}
       {showForm && (
         <Dialog open onOpenChange={() => { setShowForm(false); setEditing(null); }}>
           <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
