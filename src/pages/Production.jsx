@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
   Package, Search, QrCode, Plus, AlertTriangle
@@ -32,7 +33,49 @@ const varianceColorClass = ({ theoretical, variance, pct }) => {
   return 'text-red-600';
 };
 
+const STATUS_ROW_TINT = {
+  in_fabrication: 'bg-orange-500/5',
+  fabricated: 'bg-blue-500/5',
+  inspected: 'bg-purple-500/5',
+  painted: 'bg-teal-500/5',
+  shipped: 'bg-green-500/5',
+  erected: 'bg-green-600/5',
+  rejected: 'bg-red-500/5',
+};
+
+const formatDate = (d) => d ? new Date(d).toLocaleDateString() : null;
+
+// Explains why a piece sits in its current status using the date fields that
+// were actually set for it — no separate status-history log exists.
+const statusExplanation = (piece) => {
+  switch (piece.status) {
+    case 'not_started': return 'Fabrication has not started yet.';
+    case 'in_fabrication': {
+      const d = formatDate(piece.fab_start_date);
+      return d ? `In fabrication since ${d}.` : 'Currently in fabrication.';
+    }
+    case 'fabricated': {
+      const d = formatDate(piece.fab_complete_date);
+      return d ? `Fabrication completed ${d}.` : 'Fabrication complete, awaiting next step.';
+    }
+    case 'inspected': return 'Passed quality inspection.';
+    case 'painted': return 'Painting/finish complete.';
+    case 'shipped': {
+      const d = formatDate(piece.ship_date);
+      return d ? `Shipped ${d}.` : 'Shipped to the job site.';
+    }
+    case 'erected': {
+      const d = formatDate(piece.erect_date);
+      return d ? `Erected on site ${d}.` : 'Erected on site.';
+    }
+    case 'rejected': return 'On hold — flagged for quality or rework.';
+    default: return null;
+  }
+};
+
 export default function Production() {
+  const navigate = useNavigate();
+  const tableRef = useRef(null);
   const [pieces, setPieces] = useState([]);
   const [projects, setProjects] = useState([]);
   const [boltInventory, setBoltInventory] = useState([]);
@@ -44,6 +87,16 @@ export default function Production() {
   const [viewingPiece, setViewingPiece] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+
+  const goToProject = (projectId, e) => {
+    e?.stopPropagation();
+    if (projectId) navigate(`/projects/${projectId}`);
+  };
+
+  const filterByStatus = (status) => {
+    setStatusFilter(status);
+    tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -84,6 +137,7 @@ export default function Production() {
   });
 
   const statusCounts = STATUS_OPTIONS.slice(1).map(s => ({
+    status: s,
     name: s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()),
     count: pieces.filter(p => p.status === s).length,
   }));
@@ -136,16 +190,21 @@ export default function Production() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {[
-          { label: 'Total Pieces', value: pieces.length, color: 'text-blue-500' },
-          { label: 'In Fabrication', value: pieces.filter(p => p.status === 'in_fabrication').length, color: 'text-orange-500' },
-          { label: 'Fabricated', value: pieces.filter(p => p.status === 'fabricated').length, color: 'text-blue-400' },
-          { label: 'Shipped', value: pieces.filter(p => p.status === 'shipped').length, color: 'text-green-500' },
-          { label: 'On Hold', value: pieces.filter(p => p.status === 'rejected').length, color: 'text-red-500' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Total Pieces', value: pieces.length, color: 'text-blue-500', status: 'all' },
+          { label: 'In Fabrication', value: pieces.filter(p => p.status === 'in_fabrication').length, color: 'text-orange-500', status: 'in_fabrication' },
+          { label: 'Fabricated', value: pieces.filter(p => p.status === 'fabricated').length, color: 'text-blue-400', status: 'fabricated' },
+          { label: 'Shipped', value: pieces.filter(p => p.status === 'shipped').length, color: 'text-green-500', status: 'shipped' },
+          { label: 'On Hold', value: pieces.filter(p => p.status === 'rejected').length, color: 'text-red-500', status: 'rejected' },
+        ].map(({ label, value, color, status }) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => filterByStatus(status)}
+            className="steel-card p-4 text-left hover:ring-1 hover:ring-primary/40 transition-shadow"
+          >
             <p className="text-xs text-muted-foreground mb-1">{label}</p>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -155,7 +214,11 @@ export default function Production() {
           <h3 className="font-semibold mb-3">Project Progress</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {projectProgress.map(p => (
-              <div key={p.id} className="steel-card p-4">
+              <div
+                key={p.id}
+                onClick={() => navigate(`/projects/${p.id}`)}
+                className="steel-card p-4 cursor-pointer hover:ring-1 hover:ring-primary/40 transition-shadow"
+              >
                 <p className="font-medium text-sm truncate" title={p.name}>{p.name}</p>
                 <p className="text-xs text-muted-foreground font-mono mb-3">{p.project_number} · {p.total} pieces</p>
                 {[
@@ -187,7 +250,11 @@ export default function Production() {
             {yieldRollupsByProject.map((r) => {
               const totalVariance = r.totalActual - r.totalTheoretical;
               return (
-                <div key={r.project.id} className="steel-card p-4">
+                <div
+                  key={r.project.id}
+                  onClick={() => navigate(`/projects/${r.project.id}`)}
+                  className="steel-card p-4 cursor-pointer hover:ring-1 hover:ring-primary/40 transition-shadow"
+                >
                   <p className="font-medium text-sm truncate" title={r.project.name}>{r.project.name}</p>
                   <p className="text-xs text-muted-foreground font-mono mb-3">{r.project.project_number}</p>
                   <div className="flex justify-between text-sm mb-1.5">
@@ -210,7 +277,7 @@ export default function Production() {
                       {r.worst.map(({ part, variance, pct, theoretical, actual }) => (
                         <button
                           key={part.id}
-                          onClick={() => setViewingPiece(part)}
+                          onClick={(e) => { e.stopPropagation(); setViewingPiece(part); }}
                           className={`flex items-center justify-between w-full text-xs py-1 px-1 rounded hover:bg-muted/50 ${varianceColorClass({ theoretical, variance, pct })}`}
                         >
                           <span className="truncate text-foreground">{part.part_number || part.piece_mark}</span>
@@ -252,7 +319,11 @@ export default function Production() {
                   return (
                     <tr key={p.id} onClick={() => setViewingPiece(p)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
                       <td className="py-3 px-4 font-mono font-medium text-primary">{p.part_number || p.piece_mark}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{projectName(p.project_id)}</td>
+                      <td className="py-3 px-4">
+                        <button onClick={(e) => goToProject(p.project_id, e)} className="text-muted-foreground hover:text-primary hover:underline text-left">
+                          {projectName(p.project_id)}
+                        </button>
+                      </td>
                       <td className="py-3 px-4 text-right font-mono">{v.theoretical.toLocaleString()}</td>
                       <td className="py-3 px-4 text-right">
                         <Input
@@ -311,7 +382,11 @@ export default function Production() {
                   return (
                     <tr key={p.id} onClick={() => setViewingPiece(p)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
                       <td className="py-3 px-4 font-mono font-medium text-primary">{p.bolt_size || '—'} {p.bolt_grade || ''}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{projectName(p.project_id)}</td>
+                      <td className="py-3 px-4">
+                        <button onClick={(e) => goToProject(p.project_id, e)} className="text-muted-foreground hover:text-primary hover:underline text-left">
+                          {projectName(p.project_id)}
+                        </button>
+                      </td>
                       <td className="py-3 px-4 text-right font-mono">{required.toLocaleString()}</td>
                       <td className="py-3 px-4 text-right font-mono">{stock ? onHand.toLocaleString() : '—'}</td>
                       <td className="py-3 px-4 text-right">
@@ -356,13 +431,19 @@ export default function Production() {
             <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
             <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} />
-            <Bar dataKey="count" fill="hsl(213 94% 45%)" radius={[4, 4, 0, 0]} />
+            <Bar
+              dataKey="count"
+              fill="hsl(213 94% 45%)"
+              radius={[4, 4, 0, 0]}
+              cursor="pointer"
+              onClick={(data) => filterByStatus(data.status)}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+      <div ref={tableRef} className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Search piece marks..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
@@ -402,6 +483,7 @@ export default function Production() {
             <thead>
               <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
                 <th className="text-left py-3 px-4">Piece Mark</th>
+                <th className="text-left py-3 px-4">Project</th>
                 <th className="text-left py-3 px-4">Assembly</th>
                 <th className="text-left py-3 px-4">Grade</th>
                 <th className="text-right py-3 px-4">Qty</th>
@@ -415,19 +497,28 @@ export default function Production() {
             <tbody>
               {loading ? (
                 Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i}><td colSpan={9} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
+                  <tr key={i}><td colSpan={10} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
                 ))
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-16 text-center">
+                  <td colSpan={10} className="py-16 text-center">
                     <Package className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                     <p className="text-sm text-muted-foreground">No pieces found</p>
                   </td>
                 </tr>
               ) : (
                 filtered.map(p => (
-                  <tr key={p.id} onClick={() => setViewingPiece(p)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
+                  <tr
+                    key={p.id}
+                    onClick={() => setViewingPiece(p)}
+                    className={`border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer ${STATUS_ROW_TINT[p.status] || ''}`}
+                  >
                     <td className="py-3 px-4 font-mono font-bold text-primary">{p.piece_mark}</td>
+                    <td className="py-3 px-4">
+                      <button onClick={(e) => goToProject(p.project_id, e)} className="text-muted-foreground hover:text-primary hover:underline text-left">
+                        {projectName(p.project_id)}
+                      </button>
+                    </td>
                     <td className="py-3 px-4 text-muted-foreground">{p.assembly || '—'}</td>
                     <td className="py-3 px-4">{p.material_grade || '—'}</td>
                     <td className="py-3 px-4 text-right">{p.quantity || 1}</td>
@@ -435,7 +526,11 @@ export default function Production() {
                     <td className="py-3 px-4 text-xs font-mono text-muted-foreground">{p.warehouse_zone || '—'}</td>
                     <td className="py-3 px-4 text-xs font-mono text-muted-foreground">{p.drawing_number || '—'}</td>
                     <td className="py-3 px-4 text-xs text-muted-foreground">{piecePhaseKey(p)}</td>
-                    <td className="py-3 px-4"><StatusBadge status={p.status} /></td>
+                    <td className="py-3 px-4">
+                      <button onClick={(e) => { e.stopPropagation(); setViewingPiece(p); }}>
+                        <StatusBadge status={p.status} />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -453,10 +548,24 @@ export default function Production() {
             const rows = [
               ['Item Type', (viewingPiece.item_type || 'Loose_Part').replace(/_/g, ' ')],
               ['Project', projectName(viewingPiece.project_id)],
+              ['Piece Mark', viewingPiece.piece_mark],
+              ['Assembly', viewingPiece.assembly],
               ['Part Number', viewingPiece.part_number],
               ['Description', viewingPiece.description],
               ['Quantity', viewingPiece.quantity],
+              ['Weight (lbs)', viewingPiece.weight_lbs?.toLocaleString()],
+              ['Material Grade', viewingPiece.material_grade],
+              ['Phase', piecePhaseKey(viewingPiece)],
               ['Status', viewingPiece.status],
+              ['Status Detail', statusExplanation(viewingPiece)],
+              ['Warehouse Zone / Rack', [viewingPiece.warehouse_zone, viewingPiece.warehouse_rack].filter(Boolean).join(' / ')],
+              ['Drawing Number', viewingPiece.drawing_number],
+              ['Heat Number', viewingPiece.heat_number],
+              ['Fab Start Date', formatDate(viewingPiece.fab_start_date)],
+              ['Fab Complete Date', formatDate(viewingPiece.fab_complete_date)],
+              ['Ship Date', formatDate(viewingPiece.ship_date)],
+              ['Erect Date', formatDate(viewingPiece.erect_date)],
+              ['Detailing Complete', viewingPiece.detailing_complete ? `Yes (${formatDate(viewingPiece.detailing_complete_date) || 'no date'})` : 'No'],
               ...(viewingPiece.item_type === 'Bolt' ? [
                 ['Bolt Size', viewingPiece.bolt_size],
                 ['Bolt Grade', viewingPiece.bolt_grade],
@@ -470,13 +579,14 @@ export default function Production() {
                 ['Scrap Qty', viewingPiece.scrap_qty],
                 ['Variance', `${v.variance >= 0 ? '+' : ''}${v.variance} (${v.pct}%)`],
               ]),
+              ['Notes', viewingPiece.notes],
             ];
             return (
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
                 {rows.map(([label, value]) => (
                   <div key={label} className="grid grid-cols-3 gap-2 text-sm border-b border-border/50 pb-2">
                     <span className="text-muted-foreground">{label}</span>
-                    <span className="col-span-2 font-medium">{value || value === 0 ? value : '—'}</span>
+                    <span className="col-span-2 font-medium whitespace-pre-wrap break-words">{value || value === 0 ? value : '—'}</span>
                   </div>
                 ))}
               </div>
@@ -484,6 +594,14 @@ export default function Production() {
           })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setViewingPiece(null)}>Close</Button>
+            {viewingPiece?.project_id && (
+              <Button
+                className="steel-gradient text-white border-0"
+                onClick={() => { const id = viewingPiece.project_id; setViewingPiece(null); navigate(`/projects/${id}`); }}
+              >
+                View Project
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
