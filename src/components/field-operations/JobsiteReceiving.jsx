@@ -128,9 +128,21 @@ export default function JobsiteReceiving() {
   const handlePhaseScan = async (phase, rows) => {
     const value = (scanValues[phase] || '').trim();
     if (!value) return;
-    const match = rows.find((pm) => pm.piece_mark === value || pm.part_number === value || pieceByPieceMarkId.get(pm.id)?.qr_payload_string === value);
+    const normValue = value.toLowerCase();
+    const matchesValue = (pm) =>
+      pm.piece_mark?.toLowerCase() === normValue ||
+      pm.part_number?.toLowerCase() === normValue ||
+      pieceByPieceMarkId.get(pm.id)?.qr_payload_string?.toLowerCase() === normValue;
+
+    const match = rows.find(matchesValue);
     if (!match) {
-      toast({ title: 'No matching item found in this phase', variant: 'destructive' });
+      const elsewhere = pieceMarks.find(matchesValue);
+      if (elsewhere) {
+        const elsewherePhase = elsewhere.phase?.trim() || 'Unassigned';
+        toast({ title: `${elsewhere.piece_mark || elsewhere.part_number} found in ${elsewherePhase} — scan there instead`, variant: 'destructive' });
+      } else {
+        toast({ title: 'No matching item found in this phase', variant: 'destructive' });
+      }
       return;
     }
     const linked = pieceByPieceMarkId.get(match.id);
