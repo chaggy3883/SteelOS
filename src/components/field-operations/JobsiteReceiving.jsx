@@ -128,7 +128,7 @@ export default function JobsiteReceiving() {
   const handlePhaseScan = async (phase, rows) => {
     const value = (scanValues[phase] || '').trim();
     if (!value) return;
-    const match = rows.find((pm) => pm.piece_mark === value || pieceByPieceMarkId.get(pm.id)?.qr_payload_string === value);
+    const match = rows.find((pm) => pm.piece_mark === value || pm.part_number === value || pieceByPieceMarkId.get(pm.id)?.qr_payload_string === value);
     if (!match) {
       toast({ title: 'No matching item found in this phase', variant: 'destructive' });
       return;

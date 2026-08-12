@@ -899,6 +899,7 @@ const buildSeedData = () => {
         project_id: 'project-harbor',
         company_id: 'company-hancock',
         piece_mark: 'PM-100',
+        piece_mark_id: 'piece-1',
         material_shape: 'W12x26',
         dimensions: '32ft x 12in',
         weight: 1840,
@@ -906,6 +907,7 @@ const buildSeedData = () => {
         qr_payload_string: 'QR-PM-100',
         current_station_id: 6,
         workflow_status: 'Paint_Unlocked',
+        field_status: 'In_Shop',
         created_date: now,
         updated_date: now
       },
