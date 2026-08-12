@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '@/api/apiClient';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, Settings2, Calculator, TrendingUp, CheckCircle2, XCircle, Archive, ListChecks, Eye, EyeOff, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,8 @@ import DNBReasonModal from '@/components/estimating/DNBReasonModal';
 
 const BID_STATUSES = ['draft', 'in_progress', 'submitted', 'won', 'lost', 'cancelled', 'Did_Not_Bid'];
 
+const formatDate = (d) => d ? new Date(d).toLocaleDateString() : null;
+
 const WIDGETS = [
   { key: 'bidList', label: 'Bid List', icon: ListChecks, description: 'Active bids table' },
   { key: 'activeCount', label: 'Active Bids', icon: Calculator, description: 'Count of in-progress bids' },
@@ -24,6 +26,9 @@ const WIDGETS = [
 
 export default function Estimating() {
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const bidListRef = useRef(null);
+  const bidHistoryRef = useRef(null);
   const [bids, setBids] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +40,7 @@ export default function Estimating() {
   const [editForm, setEditForm] = useState({ job_name: '', customer_name: '', bid_due_date: '', status: 'draft', tags: '' });
   const [savingEdit, setSavingEdit] = useState(false);
   const [showDnbModal, setShowDnbModal] = useState(false);
+  const [statusBid, setStatusBid] = useState(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('estimating_widgets');
@@ -55,6 +61,18 @@ export default function Estimating() {
   };
 
   const estimatorName = (id) => employees.find(e => e.id === id)?.full_name || 'Unassigned';
+
+  const goToCompany = (companyId, e) => {
+    e?.stopPropagation();
+    if (companyId) navigate(`/crm?customer=${companyId}`);
+  };
+
+  const goToBidFinancials = (bidId, e) => {
+    e?.stopPropagation();
+    navigate(`/estimating/${bidId}`, { state: { tab: 'fulltakeoff' } });
+  };
+
+  const scrollToRef = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const startEditBid = (bid) => {
     setEditingBid(bid);
@@ -145,21 +163,33 @@ export default function Estimating() {
       {/* Top row: count widgets */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {widgetConfig.activeCount && (
-          <div className="steel-card p-5">
+          <button
+            type="button"
+            onClick={() => scrollToRef(bidListRef)}
+            className="steel-card p-5 text-left hover:ring-1 hover:ring-primary/40 transition-shadow"
+          >
             <div className="flex items-center gap-2 mb-2"><Calculator className="w-4 h-4 text-blue-500" /><p className="text-xs text-muted-foreground">Active Bids</p></div>
             <p className="text-3xl font-bold text-blue-500">{loading ? '—' : activeBids.length}</p>
             <p className="text-xs text-muted-foreground mt-1">{bids.length} total bids in system</p>
-          </div>
+          </button>
         )}
         {widgetConfig.winRate && (
-          <div className="steel-card p-5">
+          <button
+            type="button"
+            onClick={() => scrollToRef(bidHistoryRef)}
+            className="steel-card p-5 text-left hover:ring-1 hover:ring-primary/40 transition-shadow"
+          >
             <div className="flex items-center gap-2 mb-2"><TrendingUp className="w-4 h-4 text-green-500" /><p className="text-xs text-muted-foreground">Bid Win %</p></div>
             <p className="text-3xl font-bold text-green-500">{loading ? '—' : `${winRate.toFixed(0)}%`}</p>
             <p className="text-xs text-muted-foreground mt-1">{wonBids.length} won / {decidedBids} decided</p>
-          </div>
+          </button>
         )}
         {widgetConfig.frontEndReview && (
-          <div className="steel-card p-5">
+          <button
+            type="button"
+            onClick={() => navigate('/estimating/spec-review')}
+            className="steel-card p-5 text-left hover:ring-1 hover:ring-primary/40 transition-shadow"
+          >
             <div className="flex items-center gap-2 mb-2"><Eye className="w-4 h-4 text-purple-500" /><p className="text-xs text-muted-foreground">Front End Reviews</p></div>
             <div className="flex items-center gap-3 mt-1 flex-wrap">
               <span className="text-xs flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-400"></span>{frontEndStats.not_started} N/A</span>
@@ -167,13 +197,13 @@ export default function Estimating() {
               <span className="text-xs flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>{frontEndStats.approved} OK</span>
               <span className="text-xs flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span>{frontEndStats.flagged} Flag</span>
             </div>
-          </div>
+          </button>
         )}
       </div>
 
       {/* Bid List widget */}
       {widgetConfig.bidList && (
-        <div className="steel-card overflow-hidden mb-6">
+        <div ref={bidListRef} className="steel-card overflow-hidden mb-6">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary" />Bid List — Active</h3>
             <Link to="/estimating/new" className="text-xs text-primary hover:underline">+ New Bid</Link>
@@ -202,14 +232,41 @@ export default function Estimating() {
                 ) : (
                   activeBids.map(b => (
                     <tr key={b.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
-                      onClick={() => window.location.href = `/estimating/${b.id}`}>
+                      onClick={() => navigate(`/estimating/${b.id}`)}>
                       <td className="py-3 px-4 font-mono font-bold text-primary">{b.bid_number}</td>
                       <td className="py-3 px-4 font-medium">{b.job_name}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{b.customer_name}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{estimatorName(b.estimator_id)}</td>
-                      <td className="py-3 px-4 text-xs">{b.bid_due_date || '—'}</td>
-                      <td className="py-3 px-4 text-right font-mono font-bold">{b.bid_total_cost ? `$${b.bid_total_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}</td>
-                      <td className="py-3 px-4"><StatusBadge status={b.status} /></td>
+                      <td className="py-3 px-4">
+                        {b.customer_id ? (
+                          <button onClick={(e) => goToCompany(b.customer_id, e)} className="text-muted-foreground hover:text-primary hover:underline text-left">
+                            {b.customer_name}
+                          </button>
+                        ) : (
+                          <span className="text-muted-foreground">{b.customer_name}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); navigate('/human-resources'); }}
+                          className="text-muted-foreground hover:text-primary hover:underline text-left"
+                        >
+                          {estimatorName(b.estimator_id)}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4 text-xs">
+                        <button onClick={(e) => { e.stopPropagation(); navigate(`/estimating/${b.id}`); }} className="hover:text-primary hover:underline">
+                          {b.bid_due_date || '—'}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button onClick={(e) => goToBidFinancials(b.id, e)} className="font-mono font-bold hover:text-primary hover:underline">
+                          {b.bid_total_cost ? `$${b.bid_total_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4">
+                        <button onClick={(e) => { e.stopPropagation(); setStatusBid(b); }}>
+                          <StatusBadge status={b.status} />
+                        </button>
+                      </td>
                       <td className="py-3 px-4 text-right">
                         <button
                           onClick={(e) => { e.stopPropagation(); startEditBid(b); }}
@@ -229,7 +286,7 @@ export default function Estimating() {
 
       {/* Bid History widget */}
       {widgetConfig.bidHistory && (
-        <div className="steel-card overflow-hidden">
+        <div ref={bidHistoryRef} className="steel-card overflow-hidden">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><Archive className="w-4 h-4 text-muted-foreground" />Bid History — Won & Lost</h3>
           </div>
@@ -257,20 +314,43 @@ export default function Estimating() {
                 ) : (
                   [...wonBids, ...lostBids].map(b => (
                     <tr key={b.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
-                      onClick={() => window.location.href = `/estimating/${b.id}`}>
+                      onClick={() => navigate(`/estimating/${b.id}`)}>
                       <td className="py-3 px-4 font-mono font-bold text-primary">{b.bid_number}</td>
                       <td className="py-3 px-4 font-medium">{b.job_name}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{b.general_contractor_name || '—'}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{estimatorName(b.estimator_id)}</td>
-                      <td className="py-3 px-4 text-right font-mono">{b.bid_quoted_price ? `$${b.bid_quoted_price.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}</td>
+                      <td className="py-3 px-4">
+                        {b.general_contractor_id ? (
+                          <button onClick={(e) => goToCompany(b.general_contractor_id, e)} className="text-muted-foreground hover:text-primary hover:underline text-left">
+                            {b.general_contractor_name || '—'}
+                          </button>
+                        ) : (
+                          <span className="text-muted-foreground">{b.general_contractor_name || '—'}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); navigate('/human-resources'); }}
+                          className="text-muted-foreground hover:text-primary hover:underline text-left"
+                        >
+                          {estimatorName(b.estimator_id)}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button onClick={(e) => goToBidFinancials(b.id, e)} className="font-mono hover:text-primary hover:underline">
+                          {b.bid_quoted_price ? `$${b.bid_quoted_price.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+                        </button>
+                      </td>
                       <td className="py-3 px-4 text-right font-mono">{b.margin_percentage ? `${b.margin_percentage}%` : '—'}</td>
                       <td className="py-3 px-4">
-                        {b.status === 'won'
-                          ? <span className="inline-flex items-center gap-1 text-green-500 text-xs font-medium"><CheckCircle2 className="w-3.5 h-3.5" />Won</span>
-                          : <span className="inline-flex items-center gap-1 text-red-500 text-xs font-medium"><XCircle className="w-3.5 h-3.5" />Lost</span>}
+                        <button onClick={(e) => { e.stopPropagation(); setStatusBid(b); }}>
+                          {b.status === 'won'
+                            ? <span className="inline-flex items-center gap-1 text-green-500 text-xs font-medium hover:underline"><CheckCircle2 className="w-3.5 h-3.5" />Won</span>
+                            : <span className="inline-flex items-center gap-1 text-red-500 text-xs font-medium hover:underline"><XCircle className="w-3.5 h-3.5" />Lost</span>}
+                        </button>
                       </td>
                       <td className="py-3 px-4 text-xs text-muted-foreground">
-                        {b.loss_reason ? b.loss_reason.replace(/_/g, ' ') : '—'}
+                        <button onClick={(e) => { e.stopPropagation(); setStatusBid(b); }} className="hover:text-primary hover:underline text-left">
+                          {b.loss_reason ? b.loss_reason.replace(/_/g, ' ') : '—'}
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -305,12 +385,31 @@ export default function Estimating() {
                 ) : (
                   dnbBids.map(b => (
                     <tr key={b.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
-                      onClick={() => window.location.href = `/estimating/${b.id}`}>
+                      onClick={() => navigate(`/estimating/${b.id}`)}>
                       <td className="py-3 px-4 font-mono font-bold text-primary">{b.bid_number}</td>
                       <td className="py-3 px-4 font-medium">{b.job_name}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{b.customer_name}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{estimatorName(b.estimator_id)}</td>
-                      <td className="py-3 px-4 text-xs">{b.dnb_reason ? b.dnb_reason.replace(/_/g, ' ') : '—'}</td>
+                      <td className="py-3 px-4">
+                        {b.customer_id ? (
+                          <button onClick={(e) => goToCompany(b.customer_id, e)} className="text-muted-foreground hover:text-primary hover:underline text-left">
+                            {b.customer_name}
+                          </button>
+                        ) : (
+                          <span className="text-muted-foreground">{b.customer_name}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); navigate('/human-resources'); }}
+                          className="text-muted-foreground hover:text-primary hover:underline text-left"
+                        >
+                          {estimatorName(b.estimator_id)}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4 text-xs">
+                        <button onClick={(e) => { e.stopPropagation(); setStatusBid(b); }} className="hover:text-primary hover:underline text-left">
+                          {b.dnb_reason ? b.dnb_reason.replace(/_/g, ' ') : '—'}
+                        </button>
+                      </td>
                       <td className="py-3 px-4 text-xs text-muted-foreground">{b.dnb_reason_notes || '—'}</td>
                     </tr>
                   ))
@@ -374,6 +473,60 @@ export default function Estimating() {
             <Button variant="outline" onClick={() => setEditingBid(null)}>Cancel</Button>
             <Button onClick={handleSaveBidEdit} disabled={savingEdit} className="steel-gradient text-white border-0">
               {savingEdit ? 'Saving…' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!statusBid} onOpenChange={(open) => !open && setStatusBid(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bid Status — {statusBid?.bid_number}</DialogTitle>
+          </DialogHeader>
+          {statusBid && (() => {
+            const rows = [
+              ['Status', statusBid.status.replace(/_/g, ' ')],
+              ['Created', formatDate(statusBid.created_date)],
+              ['Bid Due Date', formatDate(statusBid.bid_due_date)],
+              ['Front End Review', statusBid.front_end_review_status?.replace(/_/g, ' ')],
+              ...(statusBid.status === 'lost' ? [
+                ['Loss Reason', statusBid.loss_reason?.replace(/_/g, ' ')],
+                ['Loss Notes', statusBid.loss_reason_notes],
+                ['Competitor', statusBid.competitor_name],
+              ] : []),
+              ...(statusBid.status === 'Did_Not_Bid' ? [
+                ['DNB Reason', statusBid.dnb_reason?.replace(/_/g, ' ')],
+                ['DNB Notes', statusBid.dnb_reason_notes],
+              ] : []),
+              ['Notes', statusBid.notes],
+            ];
+            return (
+              <div className="space-y-2">
+                {rows.map(([label, value]) => (
+                  <div key={label} className="grid grid-cols-3 gap-2 text-sm border-b border-border/50 pb-2">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="col-span-2 font-medium whitespace-pre-wrap break-words">{value || '—'}</span>
+                  </div>
+                ))}
+                {statusBid.status === 'won' && statusBid.won_project_id && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => { const id = statusBid.won_project_id; setStatusBid(null); navigate(`/projects/${id}`); }}
+                  >
+                    View Won Project
+                  </Button>
+                )}
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusBid(null)}>Close</Button>
+            <Button
+              className="steel-gradient text-white border-0"
+              onClick={() => { const id = statusBid.id; setStatusBid(null); navigate(`/estimating/${id}`); }}
+            >
+              View Full Bid
             </Button>
           </DialogFooter>
         </DialogContent>
