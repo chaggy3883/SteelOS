@@ -9,6 +9,30 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 
 const VIEWPORT_HEIGHT = 640;
 
+// Status color for a measurement marker — green once it's a saved takeoff
+// row, blue while its confirmation modal is still open (see
+// BlueprintTakeoff's pendingMeasurementMarker), red once the estimator has
+// explicitly flagged it as a same-spot duplicate kept separate from an
+// existing row. Falls back to blue (pending/unclassified) for any item that
+// somehow has no marker_color rather than guessing green or red.
+const MARKER_STATUS_COLORS = { green: '#22c55e', blue: '#3b82f6', red: '#ef4444' };
+
+// Screen-space (canvas-local, scale-applied) point a marker is centered on
+// — the click point for Count/Area, or a spot above the midpoint for Length
+// so its status circle doesn't sit on top of the line's own ft/in label.
+// Shared between the draw effect and the hover hit-test below so both
+// agree on exactly where a marker is.
+const itemScreenAnchor = (item, scale) => {
+  if (item.tool === 'length' && item.point1 && item.point2) {
+    return {
+      x: ((item.point1.pdfX + item.point2.pdfX) / 2) * scale,
+      y: ((item.point1.pdfY + item.point2.pdfY) / 2) * scale - 26,
+    };
+  }
+  if (item.pdfX != null && item.pdfY != null) return { x: item.pdfX * scale, y: item.pdfY * scale };
+  return null;
+};
+
 // Phase 1: visual PDF viewer only — page render, page nav, zoom, and pan.
 // Phase 2 added the first measurement tool: two-point scale calibration.
 // Phase 3 adds Count and Length, the two tools estimators use most — both
@@ -58,6 +82,12 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   const [loadError, setLoadError] = useState(null);
   const [pageInput, setPageInput] = useState('1');
   const [spacePressed, setSpacePressed] = useState(false);
+  // "Shape | Size | Phase | Area" tooltip for whichever measurement marker
+  // (if any) is currently under the cursor — hoverPos is canvas-local
+  // (pan-space) so the tooltip div, rendered inside the same pan-translated
+  // wrapper as the canvases, tracks the marker correctly at any pan offset.
+  const [hoveredItem, setHoveredItem] = useState(null);
+  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
 
   const { scale, pan, setPan, zoomIn, zoomOut, resetTransform } = useCanvasTransform(1);
 
@@ -221,6 +251,14 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     setPageInput(String(pageNum));
   }, [pageNum]);
 
+  // A stale tooltip pinned to a marker's old screen position would be
+  // actively misleading after a zoom/page change moves that marker —
+  // clearing it here just means the estimator's next mousemove re-hits
+  // whatever's actually under the cursor now.
+  useEffect(() => {
+    setHoveredItem(null);
+  }, [pageNum, scale]);
+
   // Lets BlueprintTakeoff's Page Notes panel track which page is current
   // without owning any of this component's own page-navigation state.
   useEffect(() => {
@@ -339,32 +377,42 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       ctx.fillText(name, centerX, centerY + 0.5);
     });
 
-    const countByLabel = {};
+    // Filled status circle (green=saved, blue=pending confirmation,
+    // red=kept-separate duplicate) shared by Count/Length/Area markers —
+    // 75% opacity fill so overlapping markers stay distinguishable, full-
+    // opacity white outline and quantity label on top so those never wash
+    // out under the translucent fill.
+    const drawStatusMarker = (x, y, item) => {
+      const fillColor = MARKER_STATUS_COLORS[item.marker_color] || MARKER_STATUS_COLORS.blue;
+      const radius = 10;
+
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`x${item.quantity || 1}`, x, y + 0.5);
+    };
+
     measurementItems.filter((item) => item.source === 'measurement').forEach((item) => {
-      if (item.tool === 'count') {
-        const key = item.label || 'Count';
-        countByLabel[key] = (countByLabel[key] || 0) + 1;
-        const x = item.pdfX * scale;
-        const y = item.pdfY * scale;
-        const color = item.color || '#ef4444';
-
-        ctx.beginPath();
-        ctx.fillStyle = color;
-        ctx.arc(x, y, 8, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 10px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(countByLabel[key]), x, y + 0.5);
+      if (item.tool === 'count' && item.pdfX != null && item.pdfY != null) {
+        drawStatusMarker(item.pdfX * scale, item.pdfY * scale, item);
       } else if (item.tool === 'length' && item.point1 && item.point2) {
         const p1 = { x: item.point1.pdfX * scale, y: item.point1.pdfY * scale };
         const p2 = { x: item.point2.pdfX * scale, y: item.point2.pdfY * scale };
-        const color = item.color || '#3b82f6';
+        const statusColor = MARKER_STATUS_COLORS[item.marker_color] || MARKER_STATUS_COLORS.blue;
 
         ctx.save();
-        ctx.strokeStyle = color;
+        ctx.strokeStyle = statusColor;
         ctx.lineWidth = 2;
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -387,6 +435,15 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(label, midX, midY + 0.5);
+
+        // Status circle sits above the length label instead of on top of
+        // it — same anchor itemScreenAnchor uses for the hover hit-test.
+        drawStatusMarker(midX, midY - 26, item);
+      } else if (item.tool === 'area' && item.pdfX != null && item.pdfY != null) {
+        // The named zone itself (fill/outline/label) is drawn separately
+        // above from `areas` — this is only the takeoff-row status circle
+        // for that same closed shape, centered on its centroid.
+        drawStatusMarker(item.pdfX * scale, item.pdfY * scale, item);
       }
     });
   }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems, areaPoints, areas, pageNum]);
@@ -423,6 +480,30 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       onMeasurementClick?.({ tool: 'area', pdfX, pdfY, isClosingClick });
     }
   };
+
+  // Hover tooltip for whichever marker (if any) is under the cursor right
+  // now — meant to work in plain select mode as much as while a tool's
+  // active, so it doesn't gate on calibrationMode/activeTool the way
+  // handleOverlayClick does. Skipped mid-drag so a pan doesn't also spam
+  // hit-tests every frame.
+  const handleOverlayMouseMove = (e) => {
+    if (dragRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+
+    const hit = measurementItems
+      .filter((item) => item.source === 'measurement')
+      .find((item) => {
+        const anchor = itemScreenAnchor(item, scale);
+        return anchor && Math.hypot(offsetX - anchor.x, offsetY - anchor.y) <= 11;
+      });
+
+    setHoveredItem(hit || null);
+    setHoverPos({ x: offsetX, y: offsetY });
+  };
+
+  const handleOverlayMouseLeave = () => setHoveredItem(null);
 
   // Select mode (no tool) always pans on click-drag, same as before. With a
   // tool active, pan is only allowed via the Space+drag hand tool, and only
@@ -583,13 +664,24 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
           <canvas ref={baseCanvasRef} className="block shadow-lg" />
           <canvas
             ref={overlayCanvasRef}
-            // Overlay must actually receive clicks whenever a tool (any tool,
-            // not just count/length) or calibration is live — pointer-events
-            // was previously scoped to only count/length, silently dropping
-            // clicks for Area and, if this list ever drifts again, calibration.
-            className={`absolute inset-0 ${(calibrationMode || activeTool != null) ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'}`}
+            // Always pointer-events-auto now, not just while a tool/
+            // calibration is live — the marker hover tooltip needs to work
+            // in plain select mode too, and handleOverlayClick already
+            // no-ops on its own when neither is active, so this doesn't
+            // change click behavior, only which mode hover works in.
+            className={`absolute inset-0 pointer-events-auto ${(calibrationMode || activeTool != null) ? 'cursor-crosshair' : ''}`}
             onClick={handleOverlayClick}
+            onMouseMove={handleOverlayMouseMove}
+            onMouseLeave={handleOverlayMouseLeave}
           />
+          {hoveredItem && (
+            <div
+              className="absolute z-20 pointer-events-none rounded bg-black/80 text-white text-[11px] px-2 py-1 whitespace-nowrap"
+              style={{ left: hoverPos.x + 14, top: hoverPos.y + 14 }}
+            >
+              {[hoveredItem.shape_type, hoveredItem.size_designation, hoveredItem.phase, hoveredItem.area].filter(Boolean).join(' | ') || 'Measurement'}
+            </div>
+          )}
         </div>
       </div>
     </div>

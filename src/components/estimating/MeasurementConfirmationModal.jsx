@@ -20,6 +20,8 @@ export default function MeasurementConfirmationModal({
   areas = {},
   onCountSimilar,
   onConfirm,
+  onMergeDuplicate,
+  onKeepSeparate,
   onCancel,
 }) {
   const [pos, setPos] = useState({ x: 320, y: 140 });
@@ -29,6 +31,10 @@ export default function MeasurementConfirmationModal({
   const [quantity, setQuantity] = useState(1);
   const [similarLoading, setSimilarLoading] = useState(false);
   const [similarCount, setSimilarCount] = useState(null);
+  // Set only when onConfirm reports an existing row already covers this
+  // same spot/shape/size/phase — swaps the footer for a merge-or-keep-
+  // separate prompt instead of adding the row right away.
+  const [duplicateRow, setDuplicateRow] = useState(null);
 
   const shapeKeys = Object.keys(steelCatalog || {});
   const sizeOptions = steelCatalog?.[shape] || [];
@@ -47,6 +53,7 @@ export default function MeasurementConfirmationModal({
     setQuantity(1);
     setSimilarCount(null);
     setSimilarLoading(false);
+    setDuplicateRow(null);
   }, [open, pendingMeasurement]);
 
   useEffect(() => {
@@ -78,6 +85,11 @@ export default function MeasurementConfirmationModal({
     } finally {
       setSimilarLoading(false);
     }
+  };
+
+  const handleAddToTakeoffClick = () => {
+    const result = onConfirm?.({ shape, size, quantity, phaseArea });
+    if (result?.duplicate) setDuplicateRow(result.duplicate);
   };
 
   if (!open || !pendingMeasurement) return null;
@@ -172,16 +184,37 @@ export default function MeasurementConfirmationModal({
         )}
       </div>
 
-      <div className="flex items-center justify-end gap-2 px-3 py-2 border-t">
-        <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
-        <Button
-          size="sm"
-          onClick={() => onConfirm({ shape, size, quantity, phaseArea })}
-          disabled={!phaseArea || !shape}
-        >
-          Add to Takeoff
-        </Button>
-      </div>
+      {duplicateRow ? (
+        <div className="px-3 py-2 border-t bg-amber-500/5 space-y-2">
+          <p className="text-xs text-amber-700">
+            Looks like a duplicate of an existing row here — {duplicateRow.shape_type} {duplicateRow.size_designation} (qty {duplicateRow.quantity}) already logged at this spot. Merge into that row, or keep this as a separate row?
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1"
+              onClick={() => onKeepSeparate?.({ shape, size, quantity, phaseArea, existingRowKey: duplicateRow._key })}
+            >
+              Keep Separate
+            </Button>
+            <Button
+              size="sm"
+              className="flex-1"
+              onClick={() => onMergeDuplicate?.(duplicateRow._key, quantity)}
+            >
+              Merge (+{quantity})
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-end gap-2 px-3 py-2 border-t">
+          <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+          <Button size="sm" onClick={handleAddToTakeoffClick} disabled={!phaseArea || !shape}>
+            Add to Takeoff
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

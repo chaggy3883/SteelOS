@@ -110,6 +110,41 @@ const polygonCentroid = (polygon) => ({
   pdfY: polygon.reduce((s, p) => s + p.pdfY, 0) / polygon.length,
 });
 
+// A single PDF-space (scale=1) point representing "where this measurement
+// is" — the click point for Count, the midpoint for Length, the centroid
+// for Area — used only to flag accidental same-spot duplicates, not for
+// rendering.
+const measurementAnchorFromPending = (m) => {
+  if (m.tool === 'count') return { pdfX: m.pdfX, pdfY: m.pdfY };
+  if (m.tool === 'length') return { pdfX: (m.point1.pdfX + m.point2.pdfX) / 2, pdfY: (m.point1.pdfY + m.point2.pdfY) / 2 };
+  return { pdfX: m.centroid.pdfX, pdfY: m.centroid.pdfY };
+};
+
+const measurementAnchorFromRow = (r) => {
+  if (r.tool === 'length' && r.point1 && r.point2) {
+    return { pdfX: (r.point1.pdfX + r.point2.pdfX) / 2, pdfY: (r.point1.pdfY + r.point2.pdfY) / 2 };
+  }
+  if (r.pdfX != null && r.pdfY != null) return { pdfX: r.pdfX, pdfY: r.pdfY };
+  return null;
+};
+
+// "Same spot" is deliberately generous (50 PDF-space units, roughly a
+// finger's width on a typical drawing scale) — this is meant to catch an
+// accidental re-click of the same piece, not to flag two genuinely distinct
+// W14x90 columns elsewhere on the sheet as duplicates.
+const DUPLICATE_SPOT_THRESHOLD_PDF = 50;
+
+const findDuplicateRow = (existingRows, tool, shape, size, phaseArea, anchor) => {
+  if (!anchor) return null;
+  return existingRows.find((r) => {
+    if (r.tool !== tool || r.shape_type !== shape || r.size_designation !== size) return false;
+    if ((r.phase || '') !== (phaseArea || '')) return false;
+    const rAnchor = measurementAnchorFromRow(r);
+    if (!rAnchor) return false;
+    return Math.hypot(rAnchor.pdfX - anchor.pdfX, rAnchor.pdfY - anchor.pdfY) <= DUPLICATE_SPOT_THRESHOLD_PDF;
+  }) || null;
+};
+
 // Explicit, clearly-labeled sample rows for checking the spreadsheet layout
 // without a local VLM connected — NOT a substitute for the honest "no model
 // reachable" state. These only ever load when a user clicks the dedicated
@@ -935,19 +970,23 @@ export default function BlueprintTakeoff() {
     return matches.length;
   };
 
-  const handleCancelMeasurement = () => {
+  const finishMeasurementModal = () => {
+    if (pendingMeasurement?.tool === 'length') setLengthPoints([]);
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
-    setLengthPoints([]);
   };
 
-  const handleConfirmMeasurement = ({ shape, size, quantity, phaseArea }) => {
-    if (!pendingMeasurement) return;
-    const id = crypto.randomUUID();
-    const qty = Math.max(1, Number(quantity) || 1);
+  const handleCancelMeasurement = () => {
+    finishMeasurementModal();
+  };
+
+  // markerColor is always 'green' for a fresh, non-duplicate row, or 'red'
+  // when the estimator explicitly chose "Keep Separate" on a duplicate
+  // prompt — `color` is kept in sync with it since MarkupsList's own group
+  // swatches still read the hex field, not marker_color.
+  const buildMeasurementRow = (shape, size, qty, phaseArea, markerColor) => {
     const base = {
-      id,
-      _key: id,
+      id: crypto.randomUUID(),
       source: 'measurement',
       tool: pendingMeasurement.tool,
       page_number: pageInfo.pageNum,
@@ -955,8 +994,8 @@ export default function BlueprintTakeoff() {
       size_designation: size,
       label: [shape, size].filter(Boolean).join(' ')
         || (pendingMeasurement.tool === 'count' ? 'Count' : pendingMeasurement.tool === 'length' ? 'Length' : 'Area'),
-      color: '#22c55e',
-      marker_color: 'green',
+      color: markerColor === 'red' ? '#ef4444' : '#22c55e',
+      marker_color: markerColor,
       quantity: qty,
       phase: phaseArea,
       area: phaseArea,
@@ -966,25 +1005,55 @@ export default function BlueprintTakeoff() {
       unit_weight_lbs_per_ft: 0,
       length_ft: pendingMeasurement.tool === 'length' ? pendingMeasurement.length_ft : 0,
     };
+    base._key = base.id;
 
-    const newRow = pendingMeasurement.tool === 'count'
-      ? { ...base, pdfX: pendingMeasurement.pdfX, pdfY: pendingMeasurement.pdfY }
-      : pendingMeasurement.tool === 'length'
-        ? { ...base, point1: pendingMeasurement.point1, point2: pendingMeasurement.point2 }
-        : {
-          ...base,
-          pdfX: pendingMeasurement.centroid.pdfX,
-          pdfY: pendingMeasurement.centroid.pdfY,
-          area_sq_ft: pendingMeasurement.area_sq_ft,
-        };
+    if (pendingMeasurement.tool === 'count') return { ...base, pdfX: pendingMeasurement.pdfX, pdfY: pendingMeasurement.pdfY };
+    if (pendingMeasurement.tool === 'length') return { ...base, point1: pendingMeasurement.point1, point2: pendingMeasurement.point2 };
+    return {
+      ...base,
+      pdfX: pendingMeasurement.centroid.pdfX,
+      pdfY: pendingMeasurement.centroid.pdfY,
+      area_sq_ft: pendingMeasurement.area_sq_ft,
+    };
+  };
 
-    const updated = [...rows, newRow];
+  // Returns { added: true } once the row is in, or { duplicate: <row> } if
+  // an existing row already covers this same spot/shape/size/phase —
+  // nothing is written to `rows` in that case; the modal shows a
+  // merge-or-keep-separate prompt and calls handleMergeDuplicate/
+  // handleKeepSeparateMeasurement with the estimator's choice instead.
+  const handleConfirmMeasurement = ({ shape, size, quantity, phaseArea }) => {
+    if (!pendingMeasurement) return { added: false };
+    const qty = Math.max(1, Number(quantity) || 1);
+    const anchor = measurementAnchorFromPending(pendingMeasurement);
+    const duplicate = findDuplicateRow(rows, pendingMeasurement.tool, shape, size, phaseArea, anchor);
+    if (duplicate) return { duplicate };
+
+    const updated = [...rows, buildMeasurementRow(shape, size, qty, phaseArea, 'green')];
     setRows(updated);
     persist(updated);
+    finishMeasurementModal();
+    return { added: true };
+  };
 
-    if (pendingMeasurement.tool === 'length') setLengthPoints([]);
-    setMeasurementModalOpen(false);
-    setPendingMeasurement(null);
+  const handleMergeDuplicate = (existingRowKey, additionalQty) => {
+    const addQty = Math.max(1, Number(additionalQty) || 1);
+    const updated = rows.map((r) => (r._key === existingRowKey ? { ...r, quantity: (r.quantity || 0) + addQty } : r));
+    setRows(updated);
+    persist(updated);
+    finishMeasurementModal();
+  };
+
+  const handleKeepSeparateMeasurement = ({ shape, size, quantity, phaseArea, existingRowKey }) => {
+    if (!pendingMeasurement) return;
+    const qty = Math.max(1, Number(quantity) || 1);
+    const newRow = buildMeasurementRow(shape, size, qty, phaseArea, 'red');
+    const updated = rows
+      .map((r) => (r._key === existingRowKey ? { ...r, marker_color: 'red', color: '#ef4444' } : r))
+      .concat(newRow);
+    setRows(updated);
+    persist(updated);
+    finishMeasurementModal();
   };
 
   const handleSelectPreset = (preset) => {
@@ -1275,6 +1344,25 @@ export default function BlueprintTakeoff() {
   const totalWeight = acceptedRows.reduce((sum, r) => sum + (r.quantity || 0) * (r.unit_weight_lbs_per_ft || 0) * (r.length_ft || 0), 0);
   const totalPaintAreaSqIn = acceptedRows.reduce((sum, r) => sum + rowPaintAreaSqIn(r, catalog), 0);
   const totalGalvanizedTons = acceptedRows.reduce((sum, r) => sum + rowGalvanizedTons(r), 0);
+
+  // A not-yet-confirmed measurement gets its own BLUE marker on the canvas
+  // for as long as the confirmation modal is open, without ever touching
+  // `rows` — it's appended to whatever's passed as measurementItems rather
+  // than replacing it, so it draws alongside every already-saved marker.
+  const pendingMeasurementMarker = measurementModalOpen && pendingMeasurement ? {
+    source: 'measurement',
+    tool: pendingMeasurement.tool,
+    marker_color: 'blue',
+    quantity: 1,
+    shape_type: '',
+    size_designation: '',
+    phase: '',
+    area: '',
+    ...(pendingMeasurement.tool === 'count' ? { pdfX: pendingMeasurement.pdfX, pdfY: pendingMeasurement.pdfY }
+      : pendingMeasurement.tool === 'length' ? { point1: pendingMeasurement.point1, point2: pendingMeasurement.point2 }
+      : { pdfX: pendingMeasurement.centroid.pdfX, pdfY: pendingMeasurement.centroid.pdfY }),
+  } : null;
+  const measurementItemsForCanvas = pendingMeasurementMarker ? [...rows, pendingMeasurementMarker] : rows;
 
   // Distinguishes "still loading" from "genuinely nothing to link to" so the
   // link dropdowns don't look broken when a fresh company just has no bids
@@ -1658,7 +1746,7 @@ export default function BlueprintTakeoff() {
                     lengthPoints={lengthPoints}
                     areaPoints={areaPoints}
                     onMeasurementClick={handleMeasurementClick}
-                    measurementItems={rows}
+                    measurementItems={measurementItemsForCanvas}
                     pxPerFt={pxPerFt}
                     candidateMarkers={candidates}
                     onCandidateToggle={handleToggleCandidate}
@@ -2032,6 +2120,8 @@ export default function BlueprintTakeoff() {
         areas={areas}
         onCountSimilar={handleCountSimilarForModal}
         onConfirm={handleConfirmMeasurement}
+        onMergeDuplicate={handleMergeDuplicate}
+        onKeepSeparate={handleKeepSeparateMeasurement}
         onCancel={handleCancelMeasurement}
       />
     </div>
