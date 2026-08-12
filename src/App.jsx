@@ -65,6 +65,7 @@ import ExecutiveAnalytics from '@/pages/ExecutiveAnalytics';
 import SystemIntegrations from '@/pages/SystemIntegrations';
 import FieldOperations from '@/pages/FieldOperations';
 import RiggingInspectionForm from '@/pages/RiggingInspectionForm';
+import EquipmentServiceForm from '@/pages/EquipmentServiceForm';
 
 // External Portal pages
 import PortalLogin from '@/pages/portal/PortalLogin';
@@ -134,6 +135,7 @@ const AuthenticatedApp = () => {
           <Route path="/shipping" element={<Shipping />} />
           <Route path="/field-operations" element={<FieldOperations />} />
           <Route path="/field-operations/rigging-inspection" element={<RiggingInspectionForm />} />
+          <Route path="/field-operations/equipment-service" element={<EquipmentServiceForm />} />
           <Route path="/rfis" element={<RFIs />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/crm" element={<CRM />} />

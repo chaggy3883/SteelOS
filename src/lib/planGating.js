@@ -6,10 +6,15 @@ export function isErectPlan(company) {
   return company?.subscription_plan === 'SteelOS_Erect';
 }
 
-// Rigging Inspection is an erection-site workflow — gated to the Erector
-// pack and to Enterprise Connect (which bundles every pack), not to Fab.
-const RIGGING_INSPECTION_PLANS = ['SteelOS_Erect', 'Enterprise_Connect'];
+// Erection-site Field Operations workflows (rigging, fleet/equipment
+// service) — gated to the Erector pack and to Enterprise Connect (which
+// bundles every pack), not to Fab.
+const ERECTOR_ENTERPRISE_PLANS = ['SteelOS_Erect', 'Enterprise_Connect'];
 
 export function canAccessRiggingInspection(company) {
-  return RIGGING_INSPECTION_PLANS.includes(company?.subscription_plan);
+  return ERECTOR_ENTERPRISE_PLANS.includes(company?.subscription_plan);
+}
+
+export function canAccessEquipmentService(company) {
+  return ERECTOR_ENTERPRISE_PLANS.includes(company?.subscription_plan);
 }

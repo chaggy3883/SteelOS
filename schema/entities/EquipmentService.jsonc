@@ -1,0 +1,121 @@
+{
+  "name": "EquipmentService",
+  "type": "object",
+  "properties": {
+    "company_id": { "type": "string" },
+    "service_date": { "type": "string", "format": "date" },
+    "service_type": {
+      "type": "string",
+      "enum": ["Daily", "Monthly", "Annual", "DOT_Inspection"],
+      "default": "Daily"
+    },
+    "equipment_id": { "type": "string", "description": "Free-text ID/tag number of the equipment being serviced, not a foreign key." },
+    "equipment_description": { "type": "string" },
+    "inspector_name": { "type": "string" },
+    "cab_engine_section": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": { "type": "string" },
+              "checked": { "type": "boolean" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      },
+      "description": "Fluid levels, warning lights/horn/wipers, seat belts/mirrors, battery terminals, belt/hose condition — checklist set in src/pages/EquipmentServiceForm.jsx."
+    },
+    "brakes_steering_section": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": { "type": "string" },
+              "checked": { "type": "boolean" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      },
+      "description": "Brake wear, brake line condition, parking brake, steering linkage/ball joints/tie rods."
+    },
+    "tires_suspension_section": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": { "type": "string" },
+              "checked": { "type": "boolean" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      },
+      "description": "Tire tread/pressure, lug nuts, leaf springs/air bags/shocks."
+    },
+    "trailer_section": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": { "type": "string" },
+              "checked": { "type": "boolean" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      },
+      "description": "Kingpin/fifth wheel, breakaway system, landing gear, trailer lights/7-way plug."
+    },
+    "hydraulics_section": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": { "type": "string" },
+              "checked": { "type": "boolean" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      },
+      "description": "Hydraulic fluid/hose leaks, lift cylinders/pins/bushings, safety guards/shut-offs, zerk fittings."
+    },
+    "deficiencies": { "type": "string" },
+    "service_action": {
+      "type": "string",
+      "enum": ["Pass", "Requires_Repair", "Schedule_Followup"],
+      "default": "Pass"
+    },
+    "service_action_notes": { "type": "string", "description": "Only relevant when service_action is Requires_Repair or Schedule_Followup." },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file_blob_key": { "type": "string" },
+          "file_name": { "type": "string" },
+          "file_type": { "type": "string" }
+        }
+      },
+      "description": "Photos/PDFs stored in the browser's IndexedDB via src/lib/pdfBlobStore.js, keyed by file_blob_key (format equipment_service/{recordId}/{index}-{fileName})."
+    }
+  },
+  "required": ["service_date", "inspector_name", "service_type", "equipment_id"]
+}

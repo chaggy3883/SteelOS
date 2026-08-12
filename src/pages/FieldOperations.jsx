@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2, Gauge, PackageCheck, ClipboardCheck } from 'lucide-react';
+import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2, Gauge, PackageCheck, ClipboardCheck, ClipboardList } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
-import { canAccessRiggingInspection } from '@/lib/planGating';
+import { canAccessRiggingInspection, canAccessEquipmentService } from '@/lib/planGating';
 import FleetRentalRegistry from '@/components/field-operations/FleetRentalRegistry';
 import InspectionRadar from '@/components/field-operations/InspectionRadar';
 import HookProductionTerminal from '@/components/field-operations/HookProductionTerminal';
@@ -35,6 +35,7 @@ export default function FieldOperations() {
   const [canManageFleet, setCanManageFleet] = useState(false);
   const [canOverridePoMismatch, setCanOverridePoMismatch] = useState(false);
   const [canAccessRigging, setCanAccessRigging] = useState(false);
+  const [canAccessEquipmentSvc, setCanAccessEquipmentSvc] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -84,7 +85,15 @@ export default function FieldOperations() {
         setCanManageFleet(false);
         setCanOverridePoMismatch(false);
       });
-    getEffectiveCompany().then((company) => setCanAccessRigging(canAccessRiggingInspection(company))).catch(() => setCanAccessRigging(false));
+    getEffectiveCompany()
+      .then((company) => {
+        setCanAccessRigging(canAccessRiggingInspection(company));
+        setCanAccessEquipmentSvc(canAccessEquipmentService(company));
+      })
+      .catch(() => {
+        setCanAccessRigging(false);
+        setCanAccessEquipmentSvc(false);
+      });
   }, [loadAll]);
 
   const handleTogglePickup = async (asset) => {
@@ -94,7 +103,9 @@ export default function FieldOperations() {
   };
 
   const cranes = assets.filter((a) => a.asset_type === 'Crane');
-  const showRiggingInspectionLink = canAccessRigging || (isSuperAdmin(currentUser) && !isImpersonating());
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showRiggingInspectionLink = canAccessRigging || isPlatformOperatorView;
+  const showEquipmentServiceLink = canAccessEquipmentSvc || isPlatformOperatorView;
 
   if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
 
@@ -103,10 +114,19 @@ export default function FieldOperations() {
       <PageHeader
         title="Field Operations"
         subtitle="Fleet & rental registry, OSHA/DOT inspection radar, crane hook production, repair ledger, and rigging matrix"
-        actions={showRiggingInspectionLink && (
-          <Link to="/field-operations/rigging-inspection">
-            <Button size="sm" className="gap-1.5 steel-gradient text-white border-0"><ClipboardCheck className="w-3.5 h-3.5" />New Rigging Inspection</Button>
-          </Link>
+        actions={(showRiggingInspectionLink || showEquipmentServiceLink) && (
+          <div className="flex items-center gap-2">
+            {showEquipmentServiceLink && (
+              <Link to="/field-operations/equipment-service">
+                <Button size="sm" variant="outline" className="gap-1.5"><ClipboardList className="w-3.5 h-3.5" />New Equipment Service</Button>
+              </Link>
+            )}
+            {showRiggingInspectionLink && (
+              <Link to="/field-operations/rigging-inspection">
+                <Button size="sm" className="gap-1.5 steel-gradient text-white border-0"><ClipboardCheck className="w-3.5 h-3.5" />New Rigging Inspection</Button>
+              </Link>
+            )}
+          </div>
         )}
       />
 
