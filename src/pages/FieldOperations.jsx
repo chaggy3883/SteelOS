@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2, Gauge, PackageCheck } from 'lucide-react';
+import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2, Gauge, PackageCheck, ClipboardCheck } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { canAccessRiggingInspection } from '@/lib/planGating';
 import FleetRentalRegistry from '@/components/field-operations/FleetRentalRegistry';
 import InspectionRadar from '@/components/field-operations/InspectionRadar';
 import HookProductionTerminal from '@/components/field-operations/HookProductionTerminal';
@@ -30,6 +34,7 @@ export default function FieldOperations() {
   const [usageLogs, setUsageLogs] = useState([]);
   const [canManageFleet, setCanManageFleet] = useState(false);
   const [canOverridePoMismatch, setCanOverridePoMismatch] = useState(false);
+  const [canAccessRigging, setCanAccessRigging] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -79,6 +84,7 @@ export default function FieldOperations() {
         setCanManageFleet(false);
         setCanOverridePoMismatch(false);
       });
+    getEffectiveCompany().then((company) => setCanAccessRigging(canAccessRiggingInspection(company))).catch(() => setCanAccessRigging(false));
   }, [loadAll]);
 
   const handleTogglePickup = async (asset) => {
@@ -88,12 +94,21 @@ export default function FieldOperations() {
   };
 
   const cranes = assets.filter((a) => a.asset_type === 'Crane');
+  const showRiggingInspectionLink = canAccessRigging || (isSuperAdmin(currentUser) && !isImpersonating());
 
   if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
 
   return (
     <div className="p-4 md:p-6 space-y-4 animate-fade-in">
-      <PageHeader title="Field Operations" subtitle="Fleet & rental registry, OSHA/DOT inspection radar, crane hook production, repair ledger, and rigging matrix" />
+      <PageHeader
+        title="Field Operations"
+        subtitle="Fleet & rental registry, OSHA/DOT inspection radar, crane hook production, repair ledger, and rigging matrix"
+        actions={showRiggingInspectionLink && (
+          <Link to="/field-operations/rigging-inspection">
+            <Button size="sm" className="gap-1.5 steel-gradient text-white border-0"><ClipboardCheck className="w-3.5 h-3.5" />New Rigging Inspection</Button>
+          </Link>
+        )}
+      />
 
       <Tabs defaultValue="fleet">
         <TabsList className="mb-4 max-w-full overflow-x-auto justify-start">

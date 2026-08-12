@@ -64,6 +64,7 @@ import SuperAdminDashboard from '@/pages/SuperAdminDashboard';
 import ExecutiveAnalytics from '@/pages/ExecutiveAnalytics';
 import SystemIntegrations from '@/pages/SystemIntegrations';
 import FieldOperations from '@/pages/FieldOperations';
+import RiggingInspectionForm from '@/pages/RiggingInspectionForm';
 
 // External Portal pages
 import PortalLogin from '@/pages/portal/PortalLogin';
@@ -132,6 +133,7 @@ const AuthenticatedApp = () => {
           <Route path="/safety" element={<Safety />} />
           <Route path="/shipping" element={<Shipping />} />
           <Route path="/field-operations" element={<FieldOperations />} />
+          <Route path="/field-operations/rigging-inspection" element={<RiggingInspectionForm />} />
           <Route path="/rfis" element={<RFIs />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/crm" element={<CRM />} />

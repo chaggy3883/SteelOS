@@ -1,0 +1,68 @@
+{
+  "name": "RiggingInspection",
+  "type": "object",
+  "properties": {
+    "company_id": { "type": "string" },
+    "inspection_date": { "type": "string", "format": "date" },
+    "inspector_name": { "type": "string" },
+    "inspection_type": {
+      "type": "string",
+      "enum": ["Daily", "Monthly", "Annual", "Initial", "Idle_Equipment"],
+      "default": "Daily"
+    },
+    "equipment_id": { "type": "string", "description": "Free-text ID/tag number of the rigging gear being inspected, not a foreign key." },
+    "equipment_description": { "type": "string" },
+    "tag_legible": { "type": "boolean", "default": false, "description": "Manufacturer tags present and readable." },
+    "wll_readable": { "type": "boolean", "default": false, "description": "Working Load Limit clearly marked." },
+    "sling_type": {
+      "type": "string",
+      "enum": ["Wire_Rope", "Synthetic_Web", "Chain"],
+      "default": "Wire_Rope"
+    },
+    "sling_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "item": { "type": "string" },
+          "checked": { "type": "boolean" },
+          "notes": { "type": "string" }
+        }
+      },
+      "description": "Per-item checklist results for the selected sling_type, from the OSHA 29 CFR 1926.251 / ASME B30.9 checklist set in src/components/field-operations/RiggingInspectionForm.jsx."
+    },
+    "hardware_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "subsection": { "type": "string", "enum": ["Shackles_Pins", "Hooks", "Spreader_Bars"] },
+          "item": { "type": "string" },
+          "checked": { "type": "boolean" },
+          "notes": { "type": "string" }
+        }
+      },
+      "description": "Per-item checklist results across the Shackles/Pins, Hooks, and Spreader Bars hardware subsections."
+    },
+    "deficiencies": { "type": "string" },
+    "disposal_action": {
+      "type": "string",
+      "enum": ["Pass", "Requires_Repair", "Removed_From_Service"],
+      "default": "Pass"
+    },
+    "disposal_notes": { "type": "string", "description": "Repair/removal notes — only relevant when disposal_action is Requires_Repair or Removed_From_Service." },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file_blob_key": { "type": "string" },
+          "file_name": { "type": "string" },
+          "file_type": { "type": "string" }
+        }
+      },
+      "description": "Photos/PDFs stored in the browser's IndexedDB via src/lib/pdfBlobStore.js, keyed by file_blob_key (format rigging_inspections/{recordId}/{index}-{fileName})."
+    }
+  },
+  "required": ["inspection_date", "inspector_name", "inspection_type", "equipment_id"]
+}
