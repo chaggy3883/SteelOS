@@ -140,6 +140,7 @@ export default function BlueprintTakeoff() {
   const [sessionProjectId, setSessionProjectId] = useState(null);
   const [activeBids, setActiveBids] = useState([]);
   const [activeProjects, setActiveProjects] = useState([]);
+  const [loadingLinkTargets, setLoadingLinkTargets] = useState(true);
   const [newTakeoffLinkValue, setNewTakeoffLinkValue] = useState('');
   const [sessionLinkDraft, setSessionLinkDraft] = useState({});
   const [workspaceLinkDraft, setWorkspaceLinkDraft] = useState('');
@@ -303,11 +304,23 @@ export default function BlueprintTakeoff() {
   }, [user?.company_id]);
 
   const loadLinkTargets = async () => {
-    if (!user?.company_id) { setActiveBids([]); setActiveProjects([]); return; }
+    if (!user) { setActiveBids([]); setActiveProjects([]); return; }
+    // A company_id-less account (a real, observed state — some accounts get
+    // created without one) used to permanently no-op here, since the caller
+    // never even invoked this function. Falling back to an unfiltered load
+    // instead mirrors localData.js's own applyTenantScope, which already
+    // "fails open" when there's no resolvable tenant — so this stays
+    // consistent with how the rest of the app already treats that case,
+    // rather than leaving the picker empty with no path to recovery.
+    if (!user.company_id) {
+      console.warn(`BlueprintTakeoff: user ${user.email || user.id || '(unknown)'} has no company_id — loading all bids/projects unfiltered for the link picker.`);
+    }
+    setLoadingLinkTargets(true);
     try {
+      const companyFilter = user.company_id ? { company_id: user.company_id } : {};
       const [bidsList, projectsList] = await Promise.all([
-        db.entities.Bid.filter({ company_id: user.company_id }, '-created_date', 500),
-        db.entities.Project.filter({ company_id: user.company_id }, '-created_date', 500),
+        db.entities.Bid.filter(companyFilter, '-created_date', 500),
+        db.entities.Project.filter(companyFilter, '-created_date', 500),
       ]);
       setActiveBids(bidsList.filter((b) => !b.is_archived));
       setActiveProjects(projectsList.filter((p) => !p.is_archived));
@@ -315,11 +328,13 @@ export default function BlueprintTakeoff() {
       console.error('Failed to load bids/projects for linking', e);
       setActiveBids([]);
       setActiveProjects([]);
+    } finally {
+      setLoadingLinkTargets(false);
     }
   };
 
   useEffect(() => {
-    if (user?.company_id) loadLinkTargets();
+    loadLinkTargets();
   }, [user]);
 
   // Persists a takeoff's bid_id/project_id link (mutually exclusive — linking
@@ -1077,7 +1092,15 @@ export default function BlueprintTakeoff() {
   // Distinguishes "still loading" from "genuinely nothing to link to" so the
   // link dropdowns don't look broken when a fresh company just has no bids
   // or projects yet.
-  const noLinkTargets = !!user && activeBids.length === 0 && activeProjects.length === 0;
+  const noLinkTargets = !!user && !loadingLinkTargets && activeBids.length === 0 && activeProjects.length === 0;
+  // "Load demo data first" is only the right message when the user's
+  // company really does have zero bids/projects. When the account itself
+  // has no company_id, that's the actual cause — real bids/projects likely
+  // exist but can't be tenant-matched to this account — so say that
+  // instead of pointing someone at demo data that won't fix anything.
+  const noLinkTargetsMessage = !user?.company_id
+    ? 'Your account has no company assigned — contact an admin before linking a bid or project'
+    : 'No bids or projects found — load demo data first';
 
   // Shared between the normal inline toolbar and the floating panel shown in
   // fullscreen — same state/handlers either way, just a different container
@@ -1264,7 +1287,7 @@ export default function BlueprintTakeoff() {
                               <Select value={sessionLinkDraft[s.id] || ''} onValueChange={(v) => handleLinkSessionNow(s.id, v)}>
                                 <SelectTrigger className="h-6 text-[11px] w-32"><SelectValue placeholder="Link now…" /></SelectTrigger>
                                 <SelectContent>
-                                  {noLinkTargets && <SelectItem value="__none__" disabled>No bids or projects found — load demo data first</SelectItem>}
+                                  {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
                                   {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
                                   {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
                                 </SelectContent>
@@ -1304,7 +1327,7 @@ export default function BlueprintTakeoff() {
                 <Select value={newTakeoffLinkValue} onValueChange={setNewTakeoffLinkValue}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Not linked" /></SelectTrigger>
                   <SelectContent>
-                    {noLinkTargets && <SelectItem value="__none__" disabled>No bids or projects found — load demo data first</SelectItem>}
+                    {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
                     {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name} ({b.bid_number})</SelectItem>)}
                     {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
                   </SelectContent>
@@ -1348,7 +1371,7 @@ export default function BlueprintTakeoff() {
                 <Select value={workspaceLinkDraft} onValueChange={handleLinkWorkspaceNow}>
                   <SelectTrigger className="h-7 text-xs w-40"><SelectValue placeholder="Link now…" /></SelectTrigger>
                   <SelectContent>
-                    {noLinkTargets && <SelectItem value="__none__" disabled>No bids or projects found — load demo data first</SelectItem>}
+                    {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
                     {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
                     {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
                   </SelectContent>
