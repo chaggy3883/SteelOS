@@ -18,7 +18,7 @@ import {
   Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
   MousePointer2, MousePointerClick, Wrench, ChevronDown, ChevronUp,
   Shapes, ScanSearch, Check, X, Link2, ExternalLink, ListChecks, Grid3x3,
-  Maximize2, HelpCircle, GripVertical,
+  Maximize2, HelpCircle, GripVertical, StickyNote,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
@@ -189,6 +189,15 @@ export default function BlueprintTakeoff() {
   const [canvasScale, setCanvasScale] = useState(1);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
+  // Page Notes — free-form text per PDF page number, e.g. { 1: "note", 2:
+  // "note" }. pageInfo mirrors BlueprintCanvas's own page-navigation state
+  // (reported via onPageChange) so this panel always shows/edits the note
+  // for whatever page the estimator is currently looking at, without this
+  // component owning any of the page-turning logic itself.
+  const [pageNotes, setPageNotes] = useState({});
+  const [pageInfo, setPageInfo] = useState({ pageNum: 1, numPages: 1 });
+  const [notesPanelOpen, setNotesPanelOpen] = useState(true);
+
   // Count/Length/Area measurement tools. All write straight into `rows`,
   // same as any other accepted_items row — source: 'measurement' is what
   // marks them as tool-placed (vs. AI-detected/manual/demo) for redraw +
@@ -221,6 +230,7 @@ export default function BlueprintTakeoff() {
   const reattachInputRef = useRef(null);
   const activePdfUrlRef = useRef(null);
   const toolChestSaveTimerRef = useRef(null);
+  const pageNotesSaveTimerRef = useRef(null);
   const canvasRef = useRef(null);
 
   const selectedPreset = toolChest.find((p) => p.id === selectedPresetId) || null;
@@ -396,6 +406,19 @@ export default function BlueprintTakeoff() {
     return () => clearTimeout(toolChestSaveTimerRef.current);
   }, [toolChest, takeoffId]);
 
+  // Same 800ms-debounced pattern as tool_chest above — page notes save
+  // shortly after the estimator stops typing rather than on every keystroke.
+  useEffect(() => {
+    if (!takeoffId) return;
+    if (pageNotesSaveTimerRef.current) clearTimeout(pageNotesSaveTimerRef.current);
+    pageNotesSaveTimerRef.current = setTimeout(() => {
+      db.entities.blueprint_takeoffs.update(takeoffId, { page_notes: pageNotes }).catch((e) => {
+        console.error('Failed to persist page notes', e);
+      });
+    }, 800);
+    return () => clearTimeout(pageNotesSaveTimerRef.current);
+  }, [pageNotes, takeoffId]);
+
   const resetWorkspaceState = () => {
     setTakeoffId(null);
     setActivePdfUrl(null);
@@ -426,6 +449,8 @@ export default function BlueprintTakeoff() {
     setWorkspaceLinkDraft('');
     setGridView('takeoff');
     setMarkupWeights({});
+    setPageNotes({});
+    setPageInfo({ pageNum: 1, numPages: 1 });
   };
 
   const openSession = async (takeoff) => {
@@ -458,6 +483,8 @@ export default function BlueprintTakeoff() {
     setWorkspaceLinkDraft('');
     setGridView('takeoff');
     setMarkupWeights(takeoff.markup_weights || {});
+    setPageNotes(takeoff.page_notes || {});
+    setPageInfo({ pageNum: 1, numPages: 1 });
 
     let url = null;
     if (takeoff.has_stored_pdf) {
@@ -559,6 +586,8 @@ export default function BlueprintTakeoff() {
       setWorkspaceLinkDraft('');
       setGridView('takeoff');
       setMarkupWeights({});
+      setPageNotes({});
+      setPageInfo({ pageNum: 1, numPages: 1 });
       setNewTakeoffLinkValue('');
 
       setNewTakeoffName('');
@@ -837,6 +866,10 @@ export default function BlueprintTakeoff() {
     setToolChest((prev) => [...prev, preset]);
     setNewPresetLabel('');
     setNewPresetSize('');
+  };
+
+  const handlePageNoteChange = (value) => {
+    setPageNotes((prev) => ({ ...prev, [pageInfo.pageNum]: value }));
   };
 
   // Crops a small region around a Count row's marker, captures the current
@@ -1218,6 +1251,10 @@ export default function BlueprintTakeoff() {
         <Crosshair className="w-3.5 h-3.5 mr-1.5" />Calibrate
       </Button>
       <div className="w-px h-5 bg-border mx-1" />
+      <Button size="sm" variant={notesPanelOpen ? 'default' : 'ghost'} onClick={() => setNotesPanelOpen((o) => !o)} title={notesPanelOpen ? 'Hide page notes' : 'Show page notes'}>
+        <StickyNote className="w-3.5 h-3.5" />
+      </Button>
+      <div className="w-px h-5 bg-border mx-1" />
       <Button size="sm" variant={isFullscreen ? 'default' : 'ghost'} onClick={() => setIsFullscreen((f) => !f)} disabled={!fileUrl} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
         <Maximize2 className="w-3.5 h-3.5" />
       </Button>
@@ -1458,6 +1495,7 @@ export default function BlueprintTakeoff() {
                     onCalibrationClick={handleCalibrationClick}
                     onScaleChange={setCanvasScale}
                     onPageSizeChange={setPageSize}
+                    onPageChange={setPageInfo}
                     activeTool={activeTool}
                     lengthPoints={lengthPoints}
                     areaPoints={areaPoints}
@@ -1503,7 +1541,25 @@ export default function BlueprintTakeoff() {
               )}
             </div>
 
-            <div className={isFullscreen ? 'hidden' : 'w-full lg:w-72 flex-shrink-0 border rounded-lg'}>
+            <div className={isFullscreen ? 'hidden' : 'w-full lg:w-72 flex-shrink-0 space-y-4'}>
+            {notesPanelOpen && (
+              <div className="border rounded-lg">
+                <div className="flex items-center gap-2 px-3 py-2 text-sm font-semibold border-b">
+                  <StickyNote className="w-4 h-4" />
+                  Page Notes — Page {pageInfo.pageNum} of {pageInfo.numPages || 1}
+                </div>
+                <div className="p-3">
+                  <textarea
+                    key={pageInfo.pageNum}
+                    value={pageNotes[pageInfo.pageNum] || ''}
+                    onChange={(e) => handlePageNoteChange(e.target.value)}
+                    placeholder="Notes for this page…"
+                    className="w-full h-32 rounded-md border border-input bg-background px-2 py-1.5 text-sm resize-y"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="border rounded-lg">
               <button
                 type="button"
                 onClick={() => setToolChestOpen((o) => !o)}
@@ -1589,6 +1645,7 @@ export default function BlueprintTakeoff() {
                   </div>
                 </div>
               )}
+            </div>
             </div>
           </div>
 

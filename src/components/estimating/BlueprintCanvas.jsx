@@ -30,6 +30,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   onCalibrationClick,
   onScaleChange,
   onPageSizeChange,
+  onPageChange,
   activeTool = null,
   lengthPoints = [],
   areaPoints = [],
@@ -48,6 +49,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [pageInput, setPageInput] = useState('1');
+  const [spacePressed, setSpacePressed] = useState(false);
 
   const { scale, pan, setPan, zoomIn, zoomOut, resetTransform } = useCanvasTransform(1);
 
@@ -170,11 +172,47 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     onScaleChange?.(scale);
   }, [scale, onScaleChange]);
 
+  // Adobe-style hand tool: holding Space enables drag-to-pan even while a
+  // measurement tool is active (see handlePointerDown's panAllowedNow),
+  // without stealing the tool's own click behavior once Space is released.
+  // Ignored while typing into an input/textarea, and while calibrating —
+  // calibration's two-click sequence should never be interrupted by a pan.
+  useEffect(() => {
+    const isTypingTarget = (t) => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    const handleKeyDown = (e) => {
+      if (e.code !== 'Space' || e.repeat || calibrationMode || isTypingTarget(e.target)) return;
+      e.preventDefault();
+      setSpacePressed(true);
+    };
+    const handleKeyUp = (e) => {
+      if (e.code !== 'Space') return;
+      setSpacePressed(false);
+      // Mid-drag release: end the pan immediately rather than waiting for
+      // pointerup, so the very next click is treated as a tool click again.
+      if (dragRef.current?.viaSpace) {
+        try { viewportRef.current?.releasePointerCapture(dragRef.current.pointerId); } catch { /* already released */ }
+        dragRef.current = null;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [calibrationMode]);
+
   // Keeps the page-jump input in sync when pageNum changes via the
   // prev/next buttons (not just when the user types into the input itself).
   useEffect(() => {
     setPageInput(String(pageNum));
   }, [pageNum]);
+
+  // Lets BlueprintTakeoff's Page Notes panel track which page is current
+  // without owning any of this component's own page-navigation state.
+  useEffect(() => {
+    onPageChange?.({ pageNum, numPages });
+  }, [pageNum, numPages, onPageChange]);
 
   // Draws calibration crosshairs, in-progress length points, and completed
   // count/length measurements on the overlay canvas. Runs after the sizing
@@ -309,25 +347,30 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     }
   };
 
+  // Select mode (no tool) always pans on click-drag, same as before. With a
+  // tool active, pan is only allowed via the Space+drag hand tool, and only
+  // once zoomed past fit (scale > 1) — below that the whole page is already
+  // visible, so a bare click there still means "place a measurement point".
+  // Calibration never allows panning, regardless of Space.
+  const panAllowedNow = !calibrationMode && (activeTool == null || (spacePressed && scale > 1));
+
   const handlePointerDown = (e) => {
     // setPointerCapture on the viewport redirects the subsequent click event
     // to the viewport div, so the overlay canvas's own onClick never fires —
-    // pan/drag must stay off whenever calibration or a tool is live, or
-    // clicks meant for calibration/measurement get swallowed here instead.
-    if (calibrationMode || activeTool != null) return;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, startPan: pan };
+    // this is what keeps a Space-held pan from also registering as a tool
+    // click once the pointer comes back up.
+    if (!panAllowedNow) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startPan: pan, pointerId: e.pointerId, viaSpace: activeTool != null };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e) => {
-    if (calibrationMode || activeTool != null) return;
     if (!dragRef.current) return;
     const { startX, startY, startPan } = dragRef.current;
     setPan({ x: startPan.x + (e.clientX - startX), y: startPan.y + (e.clientY - startY) });
   };
 
   const handlePointerUp = (e) => {
-    if (calibrationMode || activeTool != null) return;
     dragRef.current = null;
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
@@ -418,7 +461,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       <div
         ref={viewportRef}
         className={`relative overflow-hidden bg-neutral-700 ${fillHeight ? 'flex-1 min-h-0' : ''}`}
-        style={{ height: fillHeight ? undefined : VIEWPORT_HEIGHT, cursor: (calibrationMode || activeTool != null) ? 'crosshair' : (dragRef.current ? 'grabbing' : 'grab') }}
+        style={{ height: fillHeight ? undefined : VIEWPORT_HEIGHT, cursor: (calibrationMode || (activeTool != null && !panAllowedNow)) ? 'crosshair' : (dragRef.current ? 'grabbing' : 'grab') }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

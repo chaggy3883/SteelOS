@@ -56,6 +56,13 @@
         }
       }
     },
+    "page_notes": {
+      "type": "object",
+      "description": "Free-form notes keyed by PDF page number (e.g. { \"1\": \"note text\" }). Persisted 800ms after the estimator stops typing (same debounce as tool_chest) and restored into the Page Notes panel on openSession(); the panel swaps content to match whichever page is current as the estimator pages through the document.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
     "markup_weights": {
       "type": "object",
       "description": "Markups List weight settings, keyed by markup group key (`${tool}::${label}`, matching MarkupsList.jsx's internal grouping) so a Count group and a Length group sharing the same label don't collide. Persisted 800ms after the estimator stops editing (same debounce as tool_chest) and restored into the Markups List on openSession().",
