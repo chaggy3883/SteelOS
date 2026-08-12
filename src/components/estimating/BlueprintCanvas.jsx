@@ -18,11 +18,11 @@ const VIEWPORT_HEIGHT = 640;
 // a marker. The overlay canvas is sized and positioned pixel-identical to
 // the base canvas on every render/zoom/pan so tools can keep drawing on it
 // without touching this file's layout math again.
-// Phase 4 adds Area (unlimited-vertex polygon, closed by double-click or by
-// clicking back near the first vertex) and VisualSearch candidate review
-// markers. ref exposes getFullPageDataUrl/getCropDataUrl so BlueprintTakeoff
-// can hand the local VLM the images it needs without this component knowing
-// anything about VisualSearch itself.
+// Phase 4 adds Area (unlimited-vertex polygon, closed by double-click — see
+// lastAreaClickAtRef) and VisualSearch candidate review markers. A closed
+// polygon isn't placed automatically: BlueprintTakeoff pops a naming modal
+// and only adds it to `areas` (rendered here with its name centered in the
+// shape) once the estimator saves a name for it.
 const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   source,
   calibrationMode = false,
@@ -40,6 +40,14 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   candidateMarkers = [],
   onCandidateToggle,
   fillHeight = false,
+  // steelCatalog — reserved for a future size-aware area tool; accepted here
+  // so BlueprintTakeoff can start threading it through without this
+  // component needing to know its shape yet.
+  steelCatalog = {},
+  // Named polygon regions (Area tool, once named via the Name This Area
+  // modal) — keyed by name, each holding { polygon, pageNumber }. Only the
+  // ones matching the current page are ever drawn (see the overlay effect).
+  areas = {},
 }, ref) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
@@ -58,6 +66,11 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   const overlayCanvasRef = useRef(null);
   const renderTaskRef = useRef(null);
   const dragRef = useRef(null);
+  // Closes an in-progress Area polygon on a real double-click without
+  // relying on the browser's native dblclick event, which fires in addition
+  // to (not instead of) the two ordinary click events that make it up —
+  // using it directly would add two stray vertices right before closing.
+  const lastAreaClickAtRef = useRef(0);
 
   // Loads the document whenever `source` changes (a URL string, or a
   // File/Blob — both accepted so this can be wired directly to the same
@@ -270,6 +283,62 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       drawCrosshair(lengthPoints[0].pdfX * scale, lengthPoints[0].pdfY * scale, '#3b82f6');
     }
 
+    // In-progress Area polygon — vertices placed so far, plus the segments
+    // already closed between them. The final closing segment only appears
+    // once the polygon is actually committed (drawn below from `areas`),
+    // since until then it isn't a shape yet, just a run of clicks.
+    if (activeTool === 'area' && areaPoints.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      areaPoints.forEach((p, i) => {
+        const x = p.pdfX * scale, y = p.pdfY * scale;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.fillStyle = '#22c55e';
+      areaPoints.forEach((p) => {
+        ctx.beginPath();
+        ctx.arc(p.pdfX * scale, p.pdfY * scale, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+
+    // Named areas (Area tool, closed + saved via the Name This Area modal)
+    // — only the ones on the page currently being viewed, since a polygon's
+    // pdfX/pdfY are only meaningful relative to the page it was drawn on.
+    Object.entries(areas).filter(([, a]) => a.pageNumber === pageNum).forEach(([name, a]) => {
+      const pts = (a.polygon || []).map((p) => ({ x: p.pdfX * scale, y: p.pdfY * scale }));
+      if (pts.length < 3) return;
+
+      ctx.save();
+      ctx.beginPath();
+      pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.15)';
+      ctx.fill();
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.stroke();
+      ctx.restore();
+
+      const centerX = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
+      const centerY = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+
+      ctx.font = 'bold 11px sans-serif';
+      const textWidth = ctx.measureText(name).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(centerX - textWidth / 2 - 4, centerY - 9, textWidth + 8, 18);
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(name, centerX, centerY + 0.5);
+    });
+
     const countByLabel = {};
     measurementItems.filter((item) => item.source === 'measurement').forEach((item) => {
       if (item.tool === 'count') {
@@ -320,7 +389,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         ctx.fillText(label, midX, midY + 0.5);
       }
     });
-  }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems]);
+  }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems, areaPoints, areas, pageNum]);
 
   const handleOverlayClick = (e) => {
     // React's SyntheticEvent doesn't carry offsetX/offsetY (they're not in
@@ -344,6 +413,14 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     if (activeTool === 'count' || activeTool === 'length') {
       if (pxPerFt == null) return;
       onMeasurementClick?.({ tool: activeTool, pdfX, pdfY });
+    }
+
+    if (activeTool === 'area') {
+      if (pxPerFt == null) return;
+      const now = Date.now();
+      const isClosingClick = areaPoints.length > 0 && now - lastAreaClickAtRef.current < 400;
+      lastAreaClickAtRef.current = now;
+      onMeasurementClick?.({ tool: 'area', pdfX, pdfY, isClosingClick });
     }
   };
 
@@ -492,6 +569,11 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         {!calibrationMode && activeTool === 'count' && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-red-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
             Click each piece to count it
+          </div>
+        )}
+        {!calibrationMode && activeTool === 'area' && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-green-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
+            {areaPoints.length === 0 ? 'Click each corner of the area' : 'Double-click to close the shape'}
           </div>
         )}
         <div

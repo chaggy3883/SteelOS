@@ -25,8 +25,13 @@ import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 import { writeBidRecapCells, downloadWorkbook } from '@/lib/bidRecapXlsxExport';
 import { buildBidRecapWrites } from '@/lib/bidRecapMapping';
+import * as XLSX from 'xlsx';
+import steelSizesXlsxUrl from '@/assets/steel-sizes.xlsx?url';
+import { parseSteelCatalogWorkbook, FALLBACK_STEEL_CATALOG } from '@/lib/steelCatalogXlsx';
 import BlueprintCanvas from '@/components/estimating/BlueprintCanvas';
 import MarkupsList from '@/components/estimating/MarkupsList';
+import SteelCatalogEditor from '@/components/estimating/SteelCatalogEditor';
+import AreaNameModal from '@/components/estimating/AreaNameModal';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
@@ -125,6 +130,22 @@ export default function BlueprintTakeoff() {
   const [scanError, setScanError] = useState(null);
   const [rows, setRows] = useState([]);
   const [catalog, setCatalog] = useState([]);
+  // Steel Sizes workbook (src/assets/steel-sizes.xlsx), parsed client-side
+  // into { shapeType: [sizes] } — separate from the steel_catalog entity
+  // above; this is the raw AISC size list the workbook ships with, not the
+  // estimator-curated/custom catalog. steelCatalogEditorOpen toggles the
+  // modal that lets an estimator add/remove shapes and sizes on top of it.
+  const [steelCatalog, setSteelCatalog] = useState({});
+  const [steelCatalogEditorOpen, setSteelCatalogEditorOpen] = useState(false);
+  // Named polygon regions an estimator can drop on the drawing (e.g. a deck
+  // pour area) — keyed by name, each holding its own point list + id. Scoped
+  // to whichever PDF is currently loaded — reset alongside pxPerFt/rows any
+  // time a different file is opened/uploaded, never persisted server-side.
+  const [areas, setAreas] = useState({});
+  // Closed-but-unnamed polygon awaiting the Name This Area modal — cleared
+  // (with no entry added to `areas`) if the estimator cancels instead.
+  const [pendingAreaPolygon, setPendingAreaPolygon] = useState(null);
+  const [areaNameModalOpen, setAreaNameModalOpen] = useState(false);
   const [takeoffId, setTakeoffId] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
@@ -186,6 +207,11 @@ export default function BlueprintTakeoff() {
   const [calInches, setCalInches] = useState('');
   const [calFraction, setCalFraction] = useState('0'); // string fraction value
   const [pxPerFt, setPxPerFt] = useState(null);
+  // Raw inputs behind the current pxPerFt, kept for reference/debugging —
+  // pxPerFt itself is always derived back into PDF space (screenDistance /
+  // calibrationScale) so it stays correct at any zoom level, not just the
+  // zoom that was active at calibration time.
+  const [calibrationData, setCalibrationData] = useState(null);
   const [canvasScale, setCanvasScale] = useState(1);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
@@ -237,6 +263,24 @@ export default function BlueprintTakeoff() {
 
   useEffect(() => {
     db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(steelSizesXlsxUrl);
+        if (!res.ok) throw new Error(`Steel sizes fetch failed: ${res.status}`);
+        const buffer = await res.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const grouped = parseSteelCatalogWorkbook(workbook);
+        if (!cancelled) setSteelCatalog(grouped);
+      } catch (e) {
+        console.error('Failed to load Steel sizes workbook, falling back to seed sizes', e);
+        if (!cancelled) setSteelCatalog(FALLBACK_STEEL_CATALOG);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // Only present when this page is reached as /estimating/blueprint-takeoff/:id
@@ -435,9 +479,13 @@ export default function BlueprintTakeoff() {
     setCalInches('');
     setCalFraction('0');
     setPxPerFt(null);
+    setCalibrationData(null);
     setActiveTool(null);
     setLengthPoints([]);
     setAreaPoints([]);
+    setAreas({});
+    setPendingAreaPolygon(null);
+    setAreaNameModalOpen(false);
     setToolChest([]);
     setSelectedPresetId(null);
     setCandidates([]);
@@ -469,9 +517,13 @@ export default function BlueprintTakeoff() {
     setCalInches('');
     setCalFraction('0');
     setPxPerFt(takeoff.px_per_ft ?? null);
+    setCalibrationData(null);
     setActiveTool(null);
     setLengthPoints([]);
     setAreaPoints([]);
+    setAreas({});
+    setPendingAreaPolygon(null);
+    setAreaNameModalOpen(false);
     setToolChest(takeoff.tool_chest || []);
     setSelectedPresetId(null);
     setCandidates([]);
@@ -572,9 +624,13 @@ export default function BlueprintTakeoff() {
       setCalInches('');
       setCalFraction('0');
       setPxPerFt(null);
+      setCalibrationData(null);
       setActiveTool(null);
       setLengthPoints([]);
       setAreaPoints([]);
+      setAreas({});
+      setPendingAreaPolygon(null);
+      setAreaNameModalOpen(false);
       setToolChest([]);
       setSelectedPresetId(null);
       setCandidates([]);
@@ -671,8 +727,18 @@ export default function BlueprintTakeoff() {
     const inches = parseFloat(calInches) || 0;
     const fraction = parseFloat(calFraction) || 0;
     const realFt = feet + (inches + fraction) / 12;
-    const pxDist = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2) * canvasScale;
-    const resolvedPxPerFt = pxDist / realFt;
+
+    // p1/p2 are already in PDF space (scale=1) — screenDistance/calibrationScale
+    // is recorded here only so the PDF-space distance can be recovered the
+    // same way regardless of what zoom level this calibration happened at.
+    // pxPerFt is a PDF-space ratio and must never be multiplied by whatever
+    // scale happens to be live when a later Length/Area click uses it —
+    // that's what let this drift every time the estimator zoomed between
+    // calibrating and measuring.
+    const calibrationScale = canvasScale;
+    const screenDistance = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2) * calibrationScale;
+    const pdfPixelDistance = screenDistance / calibrationScale;
+    const resolvedPxPerFt = pdfPixelDistance / realFt;
 
     if (!(realFt > 0)) {
       toast({ title: 'Enter the dimension between your two points.', variant: 'destructive' });
@@ -680,7 +746,7 @@ export default function BlueprintTakeoff() {
       return;
     }
 
-    if (!(pxDist > 10)) {
+    if (!(screenDistance > 10)) {
       toast({ title: 'Points are too close together', description: 'Click two clearly separated points on the drawing.', variant: 'destructive' });
       setCalibrationPoints([]);
       return;
@@ -695,6 +761,7 @@ export default function BlueprintTakeoff() {
     const readableDistance = `${feet}'-${inches}${calFraction !== '0' && fractionLabel ? `-${fractionLabel}` : ''}"`;
 
     setPxPerFt(resolvedPxPerFt);
+    setCalibrationData({ pdfX1: p1.pdfX, pdfY1: p1.pdfY, pdfX2: p2.pdfX, pdfY2: p2.pdfY, screenDistance, calibrationScale });
     setCalibrationMode(false);
     setScaleReference(readableDistance);
 
@@ -765,7 +832,10 @@ export default function BlueprintTakeoff() {
 
       const p1 = lengthPoints[0];
       const p2 = { pdfX, pdfY };
-      const pxDist = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2) * canvasScale;
+      // Both points and pxPerFt live in PDF space — no canvasScale factor
+      // here, or this drifts the instant the estimator zooms in/out between
+      // calibrating and clicking a length (see handleConfirmCalibration).
+      const pxDist = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2);
       const lengthFt = pxDist / pxPerFt;
       const preset = selectedPreset;
       const newRow = {
@@ -797,42 +867,34 @@ export default function BlueprintTakeoff() {
         // collecting points.
         if (areaPoints.length < 3) return;
 
-        const points = areaPoints;
-        // Shoelace formula on PDF-space (scale=1) points, then rescaled by
-        // canvasScale squared — area scales with the square of the linear
-        // scale factor, unlike Length's linear pxDist * canvasScale above.
-        const pxArea = Math.abs(points.reduce((sum, p, i) => {
-          const next = points[(i + 1) % points.length];
-          return sum + (p.pdfX * next.pdfY - next.pdfX * p.pdfY);
-        }, 0)) / 2;
-        const scaledPxArea = pxArea * (canvasScale ** 2);
-        const areaSqFt = scaledPxArea / (pxPerFt ** 2);
-
-        const preset = selectedPreset;
-        const newRow = {
-          _key: crypto.randomUUID(),
-          source: 'measurement',
-          tool: 'area',
-          shape_type: preset?.shapeClass || 'Custom',
-          size_designation: preset?.sizeDesignation || '',
-          label: preset?.label || 'Area',
-          color: preset?.color || '#22c55e',
-          polygon_points: points,
-          quantity: 1,
-          area_sq_ft: Math.round(areaSqFt * 100) / 100,
-          length_ft: 0,
-          unit_weight_lbs_per_ft: 0,
-          is_accepted: true,
-        };
-        const updated = [...rows, newRow];
-        setRows(updated);
-        persist(updated);
-        setAreaPoints([]);
+        // Don't auto-place anything here — hand the closed polygon to the
+        // Name This Area modal instead, and only commit it to `areas` once
+        // the estimator saves a name for it (see handleSaveAreaName).
+        setPendingAreaPolygon(areaPoints);
+        setAreaNameModalOpen(true);
         return;
       }
 
       setAreaPoints((prev) => [...prev, { pdfX, pdfY }]);
     }
+  };
+
+  const handleSaveAreaName = (name) => {
+    if (pendingAreaPolygon) {
+      setAreas((prev) => ({
+        ...prev,
+        [name]: { id: crypto.randomUUID(), polygon: pendingAreaPolygon, pageNumber: pageInfo.pageNum },
+      }));
+    }
+    setPendingAreaPolygon(null);
+    setAreaPoints([]);
+    setAreaNameModalOpen(false);
+  };
+
+  const handleCancelAreaName = () => {
+    setPendingAreaPolygon(null);
+    setAreaPoints([]);
+    setAreaNameModalOpen(false);
   };
 
   const handleSelectPreset = (preset) => {
@@ -1255,6 +1317,10 @@ export default function BlueprintTakeoff() {
         <StickyNote className="w-3.5 h-3.5" />
       </Button>
       <div className="w-px h-5 bg-border mx-1" />
+      <Button size="sm" variant="ghost" onClick={() => setSteelCatalogEditorOpen(true)} title="Edit steel size catalog">
+        <ListChecks className="w-3.5 h-3.5 mr-1.5" />Steel Catalog
+      </Button>
+      <div className="w-px h-5 bg-border mx-1" />
       <Button size="sm" variant={isFullscreen ? 'default' : 'ghost'} onClick={() => setIsFullscreen((f) => !f)} disabled={!fileUrl} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
         <Maximize2 className="w-3.5 h-3.5" />
       </Button>
@@ -1505,6 +1571,8 @@ export default function BlueprintTakeoff() {
                     candidateMarkers={candidates}
                     onCandidateToggle={handleToggleCandidate}
                     fillHeight={isFullscreen}
+                    steelCatalog={steelCatalog}
+                    areas={areas}
                   />
                 </div>
               )}
@@ -1854,6 +1922,17 @@ export default function BlueprintTakeoff() {
           )}
         </>
       )}
+      <SteelCatalogEditor
+        open={steelCatalogEditorOpen}
+        onOpenChange={setSteelCatalogEditorOpen}
+        catalog={steelCatalog}
+        onSave={setSteelCatalog}
+      />
+      <AreaNameModal
+        open={areaNameModalOpen}
+        onOpenChange={(next) => { if (!next) handleCancelAreaName(); }}
+        onSave={handleSaveAreaName}
+      />
     </div>
   );
 }
