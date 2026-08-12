@@ -23,6 +23,35 @@
     "status_passed": {
       "type": "boolean",
       "default": true
+    },
+    "checklist_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "item": { "type": "string" },
+          "pass": { "type": "boolean" },
+          "notes": { "type": "string" }
+        }
+      },
+      "description": "Per-item checklist results. AI-scanned or hand-entered against the OSHA/ASME structure in src/lib/heavyEquipmentChecklists.js for Crane_Annual/Rigging_Quarterly."
+    },
+    "inspector_name": {
+      "type": "string"
+    },
+    "cert_document_id": {
+      "type": "string",
+      "description": "Links to Document — the uploaded/scanned inspection certificate or paper checklist this record was created from."
+    },
+    "competent_person": {
+      "type": "boolean",
+      "default": false,
+      "description": "Signer identified as a Competent Person per 29 CFR 1926.32(f)."
+    },
+    "qualified_person": {
+      "type": "boolean",
+      "default": false,
+      "description": "Signer identified as a Qualified Person per 29 CFR 1926.32(m). Crane_Annual and Rigging_Quarterly both require this tier — see getPersonTierMismatch in src/lib/heavyEquipmentChecklists.js."
     }
   },
   "required": [

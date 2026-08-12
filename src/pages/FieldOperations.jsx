@@ -127,7 +127,7 @@ export default function FieldOperations() {
         </TabsContent>
 
         <TabsContent value="radar">
-          <InspectionRadar inspections={inspections} assets={assets} />
+          <InspectionRadar inspections={inspections} assets={assets} canManageFleet={canManageFleet} onReload={loadAll} />
         </TabsContent>
 
         <TabsContent value="hooks">
