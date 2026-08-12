@@ -66,23 +66,35 @@ export default function ProjectDetail() {
   const [savingPart, setSavingPart] = useState(false);
   const [viewingPart, setViewingPart] = useState(null);
 
+  // Phasing tab — shopPieces is the shop-floor `pieces` entity (bridged back
+  // to a PieceMark via piece_mark_id), used only to derive % Shipped per
+  // phase from field_status, same bridge JobsiteReceiving.jsx already reads.
+  const [shopPieces, setShopPieces] = useState([]);
+  const [savingPhaseMode, setSavingPhaseMode] = useState(false);
+  const [selectedPieceIds, setSelectedPieceIds] = useState(new Set());
+  const [bulkPhaseTarget, setBulkPhaseTarget] = useState('');
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [viewingPhasePiece, setViewingPhasePiece] = useState(null);
+
   useEffect(() => { if (id) loadAll(); }, [id]);
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [proj, finds, rfiList, pieceList, subcontractList] = await Promise.all([
+      const [proj, finds, rfiList, pieceList, subcontractList, shopPieceList] = await Promise.all([
         db.entities.Project.get(id),
         db.entities.AIFinding.filter({ project_id: id }, '-created_date', 50),
         db.entities.RFI.filter({ project_id: id }, '-created_date', 20),
-        db.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 50),
+        db.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 500),
         db.entities.Subcontract.filter({ project_id: id }, '-created_date', 50),
+        db.entities.pieces.filter({ project_id: id }, '-created_date', 500),
       ]);
       setProject(proj);
       setFindings(finds);
       setRfis(rfiList);
       setPieces(pieceList);
       setSubcontracts(subcontractList);
+      setShopPieces(shopPieceList);
     } catch (e) {
       console.error(e);
     } finally {
@@ -222,6 +234,61 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleSetPhasingMode = async (mode) => {
+    setSavingPhaseMode(true);
+    try {
+      const updated = await db.entities.Project.update(id, { project_phasing_mode: mode });
+      setProject(updated);
+    } catch (e) {
+      toast({ title: 'Unable to update phasing mode', variant: 'destructive' });
+    } finally {
+      setSavingPhaseMode(false);
+    }
+  };
+
+  const handlePhaseFieldUpdate = async (piece, field, value) => {
+    try {
+      const updated = await db.entities.PieceMark.update(piece.id, { [field]: value });
+      setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    } catch (e) {
+      toast({ title: 'Unable to save change', variant: 'destructive' });
+    }
+  };
+
+  const toggleSelectPiece = (pieceId) => {
+    setSelectedPieceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pieceId)) next.delete(pieceId); else next.add(pieceId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllInPhase = (phaseRows, checked) => {
+    setSelectedPieceIds((prev) => {
+      const next = new Set(prev);
+      phaseRows.forEach((r) => { if (checked) next.add(r.id); else next.delete(r.id); });
+      return next;
+    });
+  };
+
+  const handleBulkAssignPhase = async () => {
+    const targetPhase = bulkPhaseTarget.trim();
+    if (!targetPhase || selectedPieceIds.size === 0) return;
+    setBulkAssigning(true);
+    try {
+      const ids = Array.from(selectedPieceIds);
+      const updated = await Promise.all(ids.map((pid) => db.entities.PieceMark.update(pid, { phase: targetPhase })));
+      setPieces((prev) => prev.map((p) => updated.find((u) => u.id === p.id) || p));
+      setSelectedPieceIds(new Set());
+      setBulkPhaseTarget('');
+      toast({ title: `${ids.length} piece${ids.length === 1 ? '' : 's'} assigned to "${targetPhase}"` });
+    } catch (e) {
+      toast({ title: 'Unable to bulk-assign phase', variant: 'destructive' });
+    } finally {
+      setBulkAssigning(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -254,6 +321,46 @@ export default function ProjectDetail() {
     acc[p.stock_material_description] = (acc[p.stock_material_description] || 0) + (Number(p.stock_qty_required) || 0);
     return acc;
   }, {});
+
+  // % Shipped is read off the shop-floor `pieces` bridge (field_status ===
+  // 'On_Site'), the same signal JobsiteReceiving.jsx uses for jobsite
+  // check-in — piece_mark_id is the primary join, piece_mark string is the
+  // fallback for shop rows created before that bridge was populated.
+  const phasingMode = project.project_phasing_mode || 'sequence';
+  const shopStatusByPieceMarkId = new Map();
+  const shopStatusByPieceMarkString = new Map();
+  shopPieces.forEach((sp) => {
+    if (sp.piece_mark_id) shopStatusByPieceMarkId.set(sp.piece_mark_id, sp.field_status);
+    else if (sp.piece_mark) shopStatusByPieceMarkString.set(sp.piece_mark, sp.field_status);
+  });
+  const isShippedPiece = (pm) => {
+    const status = shopStatusByPieceMarkId.get(pm.id) ?? shopStatusByPieceMarkString.get(pm.piece_mark);
+    return status === 'On_Site';
+  };
+
+  const piecePhaseKey = (p) => (p.phase || '').trim() || 'Unassigned';
+  const phaseMap = new Map();
+  pieces.forEach((p) => {
+    const key = piecePhaseKey(p);
+    if (!phaseMap.has(key)) phaseMap.set(key, []);
+    phaseMap.get(key).push(p);
+  });
+  const phaseEntries = Array.from(phaseMap.entries()).sort(([a], [b]) => {
+    if (a === 'Unassigned') return 1;
+    if (b === 'Unassigned') return -1;
+    return a.localeCompare(b, undefined, { numeric: true });
+  });
+
+  const phaseStats = (rows) => {
+    const totalWeight = rows.reduce((s, p) => s + (Number(p.weight_lbs) || 0), 0);
+    const fabricatedCount = rows.filter((p) => p.status !== 'not_started').length;
+    const shippedCount = rows.filter(isShippedPiece).length;
+    return {
+      tons: totalWeight / 2000,
+      pctFabricated: rows.length ? Math.round((fabricatedCount / rows.length) * 100) : 0,
+      pctShipped: rows.length ? Math.round((shippedCount / rows.length) * 100) : 0,
+    };
+  };
 
   return (
     <div className="p-6 animate-fade-in">
@@ -324,6 +431,9 @@ export default function ProjectDetail() {
           </TabsTrigger>
           <TabsTrigger value="pieces">
             Pieces {pieces.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{pieces.length}</span>}
+          </TabsTrigger>
+          <TabsTrigger value="phasing">
+            Phasing {phaseEntries.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{phaseEntries.length}</span>}
           </TabsTrigger>
         </TabsList>
 
@@ -679,6 +789,135 @@ export default function ProjectDetail() {
             )}
           </div>
         </TabsContent>
+
+        {/* Phasing */}
+        <TabsContent value="phasing">
+          <div className="steel-card p-5 mb-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h3 className="font-semibold">Phasing Mode</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Sequence orders pieces by numbered erection sequence. Area groups pieces into named zones.
+                </p>
+              </div>
+              <Select value={phasingMode} onValueChange={handleSetPhasingMode} disabled={savingPhaseMode}>
+                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sequence">Sequence</SelectItem>
+                  <SelectItem value="area">Area</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {pieces.length === 0 ? (
+            <div className="steel-card p-12 text-center">
+              <Layers className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No pieces yet — add pieces on the Pieces tab first.</p>
+            </div>
+          ) : (
+            <>
+              {selectedPieceIds.size > 0 && (
+                <div className="steel-card p-3 mb-4 flex items-center gap-3 flex-wrap border-primary/40 bg-primary/5">
+                  <span className="text-sm font-medium">{selectedPieceIds.size} selected</span>
+                  <Input
+                    value={bulkPhaseTarget}
+                    onChange={(e) => setBulkPhaseTarget(e.target.value)}
+                    placeholder={phasingMode === 'area' ? 'Zone name…' : 'Sequence / phase name…'}
+                    className="h-8 w-56"
+                  />
+                  <Button size="sm" onClick={handleBulkAssignPhase} disabled={!bulkPhaseTarget.trim() || bulkAssigning}>
+                    {bulkAssigning ? 'Assigning…' : 'Assign Phase'}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedPieceIds(new Set())}>Clear</Button>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {phaseEntries.map(([phaseKey, rows]) => {
+                  const stats = phaseStats(rows);
+                  const allSelected = rows.every((r) => selectedPieceIds.has(r.id));
+                  return (
+                    <div key={phaseKey} className="steel-card overflow-hidden">
+                      <div className="p-4 border-b border-border flex items-center justify-between flex-wrap gap-3">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-semibold">{phaseKey}</h4>
+                          <span className="text-xs text-muted-foreground">{rows.length} piece{rows.length === 1 ? '' : 's'} · {stats.tons.toFixed(2)}T</span>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground">Fabricated</span>
+                            <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-blue-500" style={{ width: `${stats.pctFabricated}%` }} />
+                            </div>
+                            <span className="font-medium w-8 text-right">{stats.pctFabricated}%</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground">Shipped</span>
+                            <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-green-500" style={{ width: `${stats.pctShipped}%` }} />
+                            </div>
+                            <span className="font-medium w-8 text-right">{stats.pctShipped}%</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                              <th className="py-2 px-3 w-8">
+                                <input
+                                  type="checkbox"
+                                  checked={allSelected}
+                                  onChange={(e) => toggleSelectAllInPhase(rows, e.target.checked)}
+                                />
+                              </th>
+                              <th className="text-left py-2 px-3">Piece Mark</th>
+                              <th className="text-left py-2 px-3">Assembly</th>
+                              <th className="text-right py-2 px-3">Weight</th>
+                              <th className="text-left py-2 px-3">Phase</th>
+                              <th className="text-left py-2 px-3">Sequence</th>
+                              <th className="text-left py-2 px-3">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((p) => (
+                              <tr key={p.id} onClick={() => setViewingPhasePiece(p)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                                <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
+                                  <input type="checkbox" checked={selectedPieceIds.has(p.id)} onChange={() => toggleSelectPiece(p.id)} />
+                                </td>
+                                <td className="py-2 px-3 font-mono font-medium">{p.piece_mark}</td>
+                                <td className="py-2 px-3 text-muted-foreground">{p.assembly || '—'}</td>
+                                <td className="py-2 px-3 text-right">{p.weight_lbs ? `${p.weight_lbs.toLocaleString()} lbs` : '—'}</td>
+                                <td className="py-2 px-3">
+                                  <Input
+                                    defaultValue={p.phase || ''}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onBlur={(e) => handlePhaseFieldUpdate(p, 'phase', e.target.value)}
+                                    className="h-7 w-32"
+                                  />
+                                </td>
+                                <td className="py-2 px-3">
+                                  <Input
+                                    defaultValue={p.sequence || ''}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onBlur={(e) => handlePhaseFieldUpdate(p, 'sequence', e.target.value)}
+                                    className="h-7 w-24"
+                                  />
+                                </td>
+                                <td className="py-2 px-3"><StatusBadge status={p.status} /></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </TabsContent>
       </Tabs>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
@@ -747,6 +986,37 @@ export default function ProjectDetail() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setViewingPart(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingPhasePiece} onOpenChange={(o) => !o && setViewingPhasePiece(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{viewingPhasePiece?.piece_mark}</DialogTitle></DialogHeader>
+          {viewingPhasePiece && (
+            <div className="space-y-2">
+              {[
+                ['Piece Mark', viewingPhasePiece.piece_mark],
+                ['Assembly', viewingPhasePiece.assembly],
+                ['Description', viewingPhasePiece.description],
+                ['Material Grade', viewingPhasePiece.material_grade],
+                ['Weight', viewingPhasePiece.weight_lbs ? `${viewingPhasePiece.weight_lbs.toLocaleString()} lbs` : null],
+                ['Quantity', viewingPhasePiece.quantity],
+                ['Phase', viewingPhasePiece.phase],
+                ['Sequence', viewingPhasePiece.sequence],
+                ['Status', viewingPhasePiece.status],
+                ['Warehouse Zone', viewingPhasePiece.warehouse_zone],
+                ['Drawing Number', viewingPhasePiece.drawing_number],
+              ].map(([label, value]) => (
+                <div key={label} className="grid grid-cols-3 gap-2 text-sm border-b border-border/50 pb-2">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="col-span-2 font-medium">{value || value === 0 ? value : '—'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingPhasePiece(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

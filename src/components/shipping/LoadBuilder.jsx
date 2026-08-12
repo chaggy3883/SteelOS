@@ -20,7 +20,7 @@ const nextLoadNumber = (loads) => {
   return `LOAD-${String(max + 1).padStart(3, '0')}`;
 };
 
-export default function LoadBuilder({ pieces, loads, loadItems, carriers, projects, onReload }) {
+export default function LoadBuilder({ pieces, loads, loadItems, carriers, projects, pieceMarks = [], onReload }) {
   const { toast } = useToast();
   const [selectedLoadId, setSelectedLoadId] = useState(loads[0]?.id || null);
   const [showNewLoadForm, setShowNewLoadForm] = useState(false);
@@ -44,6 +44,31 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
     () => pieces.filter((p) => p.workflow_status === 'Paint_Unlocked' && !assignedPieceIds.has(p.id)),
     [pieces, assignedPieceIds]
   );
+
+  // Phase lookup — piece_mark_id is the primary bridge back to a PieceMark;
+  // shop pieces created before that bridge was populated fall back to a
+  // (project_id, piece_mark) string match, same fallback ProjectDetail.jsx's
+  // Phasing tab uses for the % Shipped bridge.
+  const phaseByPieceMarkId = useMemo(() => new Map(pieceMarks.map((pm) => [pm.id, (pm.phase || '').trim() || 'Unassigned'])), [pieceMarks]);
+  const phaseByProjectAndMark = useMemo(() => new Map(pieceMarks.map((pm) => [`${pm.project_id}::${pm.piece_mark}`, (pm.phase || '').trim() || 'Unassigned'])), [pieceMarks]);
+  const phaseForPiece = (p) => phaseByPieceMarkId.get(p.piece_mark_id) ?? phaseByProjectAndMark.get(`${p.project_id}::${p.piece_mark}`) ?? 'Unassigned';
+
+  // Sorted once by phase (then piece mark) so the flattened Draggable index
+  // below stays stable while phase group headers are inserted between runs
+  // of the same phase — a single Droppable needs one continuous index
+  // sequence, so pieces can't be split into separate per-phase Droppables.
+  const availablePiecesByPhase = useMemo(() => {
+    return [...availablePieces].sort((a, b) => {
+      const phaseA = phaseForPiece(a);
+      const phaseB = phaseForPiece(b);
+      if (phaseA !== phaseB) {
+        if (phaseA === 'Unassigned') return 1;
+        if (phaseB === 'Unassigned') return -1;
+        return phaseA.localeCompare(phaseB, undefined, { numeric: true });
+      }
+      return (a.piece_mark || '').localeCompare(b.piece_mark || '', undefined, { numeric: true });
+    });
+  }, [availablePieces, phaseByPieceMarkId, phaseByProjectAndMark]);
 
   const currentLoadWeight = loadPieces.reduce((sum, lp) => sum + (lp.piece?.weight || 0), 0);
   const capacity = selectedLoad?.max_weight_capacity_lbs || 45000;
@@ -196,24 +221,33 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
                       Paint-Unlocked Pieces <span className="text-xs text-muted-foreground font-normal">{availablePieces.length}</span>
                     </h4>
                     <div className="space-y-2 min-h-[120px]">
-                      {availablePieces.map((p, i) => (
-                        <Draggable key={p.id} draggableId={p.id} index={i}>
-                          {(dragProvided) => (
-                            <div
-                              ref={dragProvided.innerRef}
-                              {...dragProvided.draggableProps}
-                              {...dragProvided.dragHandleProps}
-                              className="steel-card p-2 text-xs flex items-center gap-2 cursor-grab active:cursor-grabbing"
-                            >
-                              <GripVertical className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                              <div className="min-w-0">
-                                <p className="font-mono font-bold truncate">{p.piece_mark}</p>
-                                <p className="text-muted-foreground truncate">{p.weight ? `${p.weight.toLocaleString()} lbs` : ''}</p>
-                              </div>
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
+                      {availablePiecesByPhase.map((p, i) => {
+                        const phase = phaseForPiece(p);
+                        const showPhaseHeader = i === 0 || phaseForPiece(availablePiecesByPhase[i - 1]) !== phase;
+                        return (
+                          <React.Fragment key={p.id}>
+                            {showPhaseHeader && (
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground pt-1 first:pt-0">{phase}</p>
+                            )}
+                            <Draggable draggableId={p.id} index={i}>
+                              {(dragProvided) => (
+                                <div
+                                  ref={dragProvided.innerRef}
+                                  {...dragProvided.draggableProps}
+                                  {...dragProvided.dragHandleProps}
+                                  className="steel-card p-2 text-xs flex items-center gap-2 cursor-grab active:cursor-grabbing"
+                                >
+                                  <GripVertical className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="font-mono font-bold truncate">{p.piece_mark}</p>
+                                    <p className="text-muted-foreground truncate">{p.weight ? `${p.weight.toLocaleString()} lbs` : ''}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </Draggable>
+                          </React.Fragment>
+                        );
+                      })}
                       {provided.placeholder}
                       {availablePieces.length === 0 && (
                         <p className="text-xs text-muted-foreground text-center py-6">No Paint-Unlocked pieces waiting.</p>

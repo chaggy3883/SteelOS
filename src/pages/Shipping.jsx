@@ -38,23 +38,26 @@ export default function Shipping() {
   const [loadItems, setLoadItems] = useState([]);
   const [manifests, setManifests] = useState([]);
   const [carriers, setCarriers] = useState([]);
+  const [pieceMarks, setPieceMarks] = useState([]);
 
   useEffect(() => { loadData(); loadLogisticsData(); }, []);
 
   const loadLogisticsData = async () => {
     try {
-      const [pieceData, loadsData, itemsData, manifestData, carrierData] = await Promise.all([
+      const [pieceData, loadsData, itemsData, manifestData, carrierData, pieceMarkData] = await Promise.all([
         db.entities.pieces.list('-created_date', 200),
         db.entities.loads.list('-created_date', 100),
         db.entities.load_items.list('-created_date', 500),
         db.entities.shipping_manifests.list('-created_date', 100),
         db.entities.Vendor.filter({ vendor_type: 'carrier', is_active: true }, 'name', 50),
+        db.entities.PieceMark.list('-created_date', 500),
       ]);
       setShopPieces(pieceData);
       setLoads(loadsData);
       setLoadItems(itemsData);
       setManifests(manifestData);
       setCarriers(carrierData);
+      setPieceMarks(pieceMarkData);
     } catch (e) {}
   };
 
@@ -310,6 +313,7 @@ export default function Shipping() {
             loadItems={loadItems}
             carriers={carriers}
             projects={projects}
+            pieceMarks={pieceMarks}
             onReload={loadLogisticsData}
           />
         </TabsContent>

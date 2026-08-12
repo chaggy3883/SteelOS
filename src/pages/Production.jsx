@@ -40,6 +40,7 @@ export default function Production() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
+  const [phaseFilter, setPhaseFilter] = useState('all');
   const [viewingPiece, setViewingPiece] = useState(null);
 
   useEffect(() => { loadData(); }, []);
@@ -67,11 +68,19 @@ export default function Production() {
 
   const projectName = (id) => projects.find((p) => p.id === id)?.name || '—';
 
+  const piecePhaseKey = (p) => (p.phase || '').trim() || 'Unassigned';
+  const phaseOptions = Array.from(new Set(pieces.map(piecePhaseKey))).sort((a, b) => {
+    if (a === 'Unassigned') return 1;
+    if (b === 'Unassigned') return -1;
+    return a.localeCompare(b, undefined, { numeric: true });
+  });
+
   const filtered = pieces.filter(p => {
     const matchSearch = !search || p.piece_mark?.toLowerCase().includes(search.toLowerCase()) || p.assembly?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || p.status === statusFilter;
     const matchProject = projectFilter === 'all' || p.project_id === projectFilter;
-    return matchSearch && matchStatus && matchProject;
+    const matchPhase = phaseFilter === 'all' || piecePhaseKey(p) === phaseFilter;
+    return matchSearch && matchStatus && matchProject && matchPhase;
   });
 
   const statusCounts = STATUS_OPTIONS.slice(1).map(s => ({
@@ -375,6 +384,15 @@ export default function Production() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={phaseFilter} onValueChange={setPhaseFilter}>
+          <SelectTrigger className="w-44"><SelectValue placeholder="All Phases" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Phases</SelectItem>
+            {phaseOptions.map(ph => (
+              <SelectItem key={ph} value={ph}>{ph}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Pieces Table */}
@@ -390,24 +408,25 @@ export default function Production() {
                 <th className="text-right py-3 px-4">Weight (lbs)</th>
                 <th className="text-left py-3 px-4">Zone</th>
                 <th className="text-left py-3 px-4">Drawing</th>
+                <th className="text-left py-3 px-4">Phase</th>
                 <th className="text-left py-3 px-4">Status</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i}><td colSpan={8} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
+                  <tr key={i}><td colSpan={9} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
                 ))
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-16 text-center">
+                  <td colSpan={9} className="py-16 text-center">
                     <Package className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                     <p className="text-sm text-muted-foreground">No pieces found</p>
                   </td>
                 </tr>
               ) : (
                 filtered.map(p => (
-                  <tr key={p.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                  <tr key={p.id} onClick={() => setViewingPiece(p)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
                     <td className="py-3 px-4 font-mono font-bold text-primary">{p.piece_mark}</td>
                     <td className="py-3 px-4 text-muted-foreground">{p.assembly || '—'}</td>
                     <td className="py-3 px-4">{p.material_grade || '—'}</td>
@@ -415,6 +434,7 @@ export default function Production() {
                     <td className="py-3 px-4 text-right font-mono">{p.weight_lbs ? p.weight_lbs.toLocaleString() : '—'}</td>
                     <td className="py-3 px-4 text-xs font-mono text-muted-foreground">{p.warehouse_zone || '—'}</td>
                     <td className="py-3 px-4 text-xs font-mono text-muted-foreground">{p.drawing_number || '—'}</td>
+                    <td className="py-3 px-4 text-xs text-muted-foreground">{piecePhaseKey(p)}</td>
                     <td className="py-3 px-4"><StatusBadge status={p.status} /></td>
                   </tr>
                 ))

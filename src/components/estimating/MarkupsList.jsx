@@ -8,15 +8,25 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { ToastAction } from '@/components/ui/toast';
 import { useToast } from '@/components/ui/use-toast';
-import { CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2, Clipboard, Scale } from 'lucide-react';
+import { CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2, Clipboard, Scale, FileDown, Printer, ListChecks } from 'lucide-react';
 import { getShapeClass } from '@/data/steelShapeSelector';
 import { SHAPE_CATALOG } from '@/data/steelShapes';
+import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
+import { exportRowsToCsv } from '@/lib/csvExport';
 
 const TOOL_META = {
   count: { label: 'Count', icon: MousePointerClick, unitLabel: 'lbs/ft' },
   length: { label: 'Length', icon: Ruler, unitLabel: 'lbs/ft' },
   area: { label: 'Area', icon: Shapes, unitLabel: 'lbs/sq ft' },
 };
+
+const METRIC_LABELS = {
+  count: 'Count (pcs)',
+  length: 'Length (ft)',
+  area: 'Area (sq ft)',
+};
+
+const UNASSIGNED_PHASE = 'Unassigned';
 
 // Shape category used for the tonnage summary's breakdown — maps the
 // SHAPE_CLASSES taxonomy IRONSIGHT's own tool presets use (steelShapeSelector.js)
@@ -49,7 +59,12 @@ function buildGroups(rows) {
   rows
     .filter((r) => r.is_accepted && (r.tool === 'count' || r.tool === 'length' || r.tool === 'area'))
     .forEach((r) => {
-      const key = `${r.tool}::${r.label || 'Untitled'}`;
+      // Phase folds into the group key alongside tool+label — a project
+      // built in stages needs its takeoff split per stage, so the same
+      // label tagged with two different phases becomes two edit cards
+      // instead of one card silently blending both stages' quantities.
+      const phase = (r.phase || '').trim();
+      const key = `${r.tool}::${r.label || 'Untitled'}::${phase}`;
       if (!map.has(key)) {
         map.set(key, {
           key,
@@ -58,6 +73,7 @@ function buildGroups(rows) {
           color: r.color || '#94a3b8',
           shape_type: r.shape_type || 'Custom',
           size_designation: r.size_designation || '',
+          phase,
           rows: [],
         });
       }
@@ -174,6 +190,16 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
 
   const updateSetting = (group, field, value) => {
     setSettings((prev) => ({ ...prev, [group.key]: { ...getSetting(group), [field]: value } }));
+  };
+
+  // Phase lives on the rows themselves (like label/shape_type), not in the
+  // ephemeral weight-settings map — it's a takeoff-stage tag, not a pricing
+  // input, so it persists straight through onRowsChange the same way
+  // applyPushedFlag mutates every row in a group by its _key.
+  const updateGroupPhase = (group, phase) => {
+    const keys = new Set(group.rows.map((r) => r._key));
+    const newRows = rows.map((r) => (keys.has(r._key) ? { ...r, phase } : r));
+    onRowsChange(newRows);
   };
 
   // Unit weight edits flip the badge to "Override" when they replace an
@@ -384,6 +410,70 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
   });
   const totalTons = Object.values(categoryTotals).reduce((sum, t) => sum + t, 0);
 
+  // Spreadsheet view — merges groups sharing (tool, shape, size, phase) so
+  // the same shape/size split across multiple labels within one stage
+  // collapses into a single summed quantity row, per stage. Weight/tons
+  // still come straight from each source group's own calcGroup() (which
+  // already applied that group's own multiplier/typical-length/unit-weight
+  // settings) — only the outputs are summed, not re-derived.
+  const spreadsheetRows = groups.reduce((acc, group) => {
+    const phase = group.phase || UNASSIGNED_PHASE;
+    const key = `${group.tool}::${group.shape_type}::${group.size_designation}::${phase}`;
+    const { finalQuantity, estLbs, estTons } = calcGroup(group);
+    const existing = acc.find((r) => r.key === key);
+    if (existing) {
+      existing.qty += finalQuantity;
+      existing.estLbs += estLbs;
+      existing.estTons += estTons;
+    } else {
+      acc.push({ key, phase, tool: group.tool, shape_type: group.shape_type, size_designation: group.size_designation, qty: finalQuantity, estLbs, estTons });
+    }
+    return acc;
+  }, []);
+
+  const phaseKeys = Array.from(new Set(spreadsheetRows.map((r) => r.phase))).sort((a, b) => {
+    if (a === UNASSIGNED_PHASE) return 1;
+    if (b === UNASSIGNED_PHASE) return -1;
+    return a.localeCompare(b, undefined, { numeric: true });
+  });
+  const phaseTonsOf = (phase) => spreadsheetRows.filter((r) => r.phase === phase).reduce((s, r) => s + r.estTons, 0);
+  const phasePctOfProject = (phase) => (totalTons > 0 ? (phaseTonsOf(phase) / totalTons) * 100 : 0);
+
+  const linkedJobLabel = linkedBid
+    ? (linkedBid.job_name || (linkedBid.bid_number ? `Bid ${linkedBid.bid_number}` : 'Linked bid'))
+    : projectId
+      ? (projects.find((p) => p.id === projectId)?.name || 'Linked project')
+      : null;
+  const linkedJobPath = bidId ? `/estimating/${bidId}` : projectId ? `/projects/${projectId}` : null;
+
+  const spreadsheetExportRows = () => spreadsheetRows.map((r) => [
+    r.phase,
+    `${phasePctOfProject(r.phase).toFixed(1)}%`,
+    categoryFor(r.shape_type),
+    r.size_designation || '—',
+    r.qty.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+    METRIC_LABELS[r.tool] || r.tool,
+    r.estLbs.toFixed(0),
+    r.estTons.toFixed(2),
+  ]);
+
+  const handleExportSpreadsheetCsv = () => {
+    exportRowsToCsv({
+      filename: `${takeoffName || fileName || 'takeoff'}_spreadsheet`,
+      columns: ['Phase', '% of Project', 'Shape', 'Size', 'Qty', 'Metric', 'Est. Weight (lbs)', 'Est. Tons'],
+      rows: spreadsheetExportRows(),
+    });
+  };
+
+  const handlePrintSpreadsheet = () => {
+    exportRequisitionToPdf({
+      title: 'IRONSIGHT Takeoff Spreadsheet',
+      subtitle: `${takeoffName || fileName || 'Untitled takeoff'}${linkedJobLabel ? ` — ${linkedJobLabel}` : ''}`,
+      columns: ['Phase', '% of Project', 'Shape', 'Size', 'Qty', 'Metric', 'Est. Weight (lbs)', 'Est. Tons'],
+      rows: spreadsheetExportRows(),
+    });
+  };
+
   const bidTons = linkedBid?.total_weight_tons;
   const variance = (bidTons != null && bidTons > 0)
     ? (() => {
@@ -452,6 +542,69 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
         </Button>
       </div>
 
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h4 className="font-semibold text-sm flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary" />Takeoff Spreadsheet</h4>
+              {linkedJobLabel ? (
+                <button onClick={() => navigate(linkedJobPath)} className="text-xs text-primary hover:underline flex items-center gap-1 mt-0.5">
+                  <Link2 className="w-3 h-3" />Linked to {linkedJobLabel}
+                </button>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-0.5">Not linked to a bid or project yet.</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={handleExportSpreadsheetCsv}><FileDown className="w-3.5 h-3.5 mr-1.5" />Export CSV</Button>
+              <Button size="sm" variant="outline" onClick={handlePrintSpreadsheet}><Printer className="w-3.5 h-3.5 mr-1.5" />Print</Button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {phaseKeys.map((phase) => {
+              const rowsForPhase = spreadsheetRows.filter((r) => r.phase === phase);
+              return (
+                <div key={phase} className="border rounded-lg overflow-hidden">
+                  <div className="bg-muted/40 px-3 py-2 text-sm font-semibold flex items-center justify-between">
+                    <span>{phase}</span>
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {phaseTonsOf(phase).toFixed(1)} tons · {phasePctOfProject(phase).toFixed(0)}% of project
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/20 text-muted-foreground uppercase tracking-wide">
+                        <tr>
+                          <th className="text-left p-2">Shape</th>
+                          <th className="text-left p-2">Size</th>
+                          <th className="text-right p-2">Qty</th>
+                          <th className="text-left p-2">Metric</th>
+                          <th className="text-right p-2">Est. Weight (lbs)</th>
+                          <th className="text-right p-2">Est. Tons</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rowsForPhase.map((r) => (
+                          <tr key={r.key} className="border-t">
+                            <td className="p-2">{categoryFor(r.shape_type)}</td>
+                            <td className="p-2">{r.size_designation || '—'}</td>
+                            <td className="p-2 text-right font-mono">{r.qty.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                            <td className="p-2 text-muted-foreground">{METRIC_LABELS[r.tool] || r.tool}</td>
+                            <td className="p-2 text-right font-mono">{r.estLbs.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                            <td className="p-2 text-right font-mono">{r.estTons.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
       {['count', 'length', 'area'].map((tool) => {
         if (groupsByTool[tool].length === 0) return null;
         const Icon = TOOL_META[tool].icon;
@@ -478,6 +631,16 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
                         {tool === 'length' && `${group.totalLengthFt.toFixed(2)} ft total`}
                         {tool === 'area' && `${group.totalAreaSqFt.toFixed(2)} sq ft total`}
                       </p>
+                    </div>
+
+                    <div className="w-32">
+                      <label className="text-[10px] text-muted-foreground">Phase / Stage</label>
+                      <Input
+                        value={group.phase}
+                        onChange={(e) => updateGroupPhase(group, e.target.value)}
+                        placeholder="e.g. Phase 1"
+                        className="h-8 text-xs"
+                      />
                     </div>
 
                     <div className="w-24">

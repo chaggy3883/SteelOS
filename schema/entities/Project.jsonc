@@ -160,6 +160,12 @@
       "type": "string",
       "default": ""
     },
+    "project_phasing_mode": {
+      "type": "string",
+      "enum": ["sequence", "area"],
+      "default": "sequence",
+      "description": "How this project's PieceMark.phase values are organized — 'sequence' for numbered erection order, 'area' for named zones."
+    },
     "is_prevailing_wage": {
       "type": "boolean",
       "default": false
