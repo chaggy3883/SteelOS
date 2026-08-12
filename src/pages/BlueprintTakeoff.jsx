@@ -32,6 +32,7 @@ import BlueprintCanvas from '@/components/estimating/BlueprintCanvas';
 import MarkupsList from '@/components/estimating/MarkupsList';
 import SteelCatalogEditor from '@/components/estimating/SteelCatalogEditor';
 import AreaNameModal from '@/components/estimating/AreaNameModal';
+import MeasurementConfirmationModal from '@/components/estimating/MeasurementConfirmationModal';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
@@ -89,6 +90,25 @@ const rowGalvanizedTons = (r) => {
   const totalLbs = (r.quantity || 0) * (r.unit_weight_lbs_per_ft || 0) * (r.length_ft || 0);
   return totalLbs / 2000;
 };
+
+// Shoelace formula on the closed Area-tool polygon (PDF-space, scale=1) —
+// pxPerFt squared converts the raw px² result into real-world sq ft the
+// same way pxPerFt alone converts a length.
+const polygonAreaSqFt = (polygon, pxPerFtValue) => {
+  if (!polygon || polygon.length < 3 || !pxPerFtValue) return 0;
+  let sum = 0;
+  for (let i = 0; i < polygon.length; i++) {
+    const p1 = polygon[i];
+    const p2 = polygon[(i + 1) % polygon.length];
+    sum += p1.pdfX * p2.pdfY - p2.pdfX * p1.pdfY;
+  }
+  return (Math.abs(sum) / 2) / (pxPerFtValue * pxPerFtValue);
+};
+
+const polygonCentroid = (polygon) => ({
+  pdfX: polygon.reduce((s, p) => s + p.pdfX, 0) / polygon.length,
+  pdfY: polygon.reduce((s, p) => s + p.pdfY, 0) / polygon.length,
+});
 
 // Explicit, clearly-labeled sample rows for checking the spreadsheet layout
 // without a local VLM connected — NOT a substitute for the honest "no model
@@ -234,6 +254,14 @@ export default function BlueprintTakeoff() {
   const [activeTool, setActiveTool] = useState(null);
   const [lengthPoints, setLengthPoints] = useState([]);
   const [areaPoints, setAreaPoints] = useState([]);
+  // Confirmation modal that fires after every completed Count/Length/Area
+  // measurement (never during calibration) — pendingMeasurement holds
+  // whatever geometry that tool just produced (a click point, a two-point
+  // length, or a closed+named polygon) until the estimator confirms or
+  // cancels it in MeasurementConfirmationModal; nothing reaches `rows` until
+  // then.
+  const [measurementModalOpen, setMeasurementModalOpen] = useState(false);
+  const [pendingMeasurement, setPendingMeasurement] = useState(null);
   const [toolChest, setToolChest] = useState([]);
   const [selectedPresetId, setSelectedPresetId] = useState(null);
   const [toolChestOpen, setToolChestOpen] = useState(false);
@@ -258,8 +286,6 @@ export default function BlueprintTakeoff() {
   const toolChestSaveTimerRef = useRef(null);
   const pageNotesSaveTimerRef = useRef(null);
   const canvasRef = useRef(null);
-
-  const selectedPreset = toolChest.find((p) => p.id === selectedPresetId) || null;
 
   useEffect(() => {
     db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
@@ -708,6 +734,8 @@ export default function BlueprintTakeoff() {
     setAreaPoints([]);
     setCalibrationPoints([]);
     setCalibrationMode(true);
+    setMeasurementModalOpen(false);
+    setPendingMeasurement(null);
   };
 
   const handleCalibrationCancel = () => {
@@ -781,6 +809,8 @@ export default function BlueprintTakeoff() {
     setActiveTool(null);
     setLengthPoints([]);
     setAreaPoints([]);
+    setMeasurementModalOpen(false);
+    setPendingMeasurement(null);
   };
 
   // Gate every tool activation behind calibration — Count/Length/Area
@@ -797,30 +827,15 @@ export default function BlueprintTakeoff() {
     setCalibrationPoints([]);
     setLengthPoints([]);
     setAreaPoints([]);
+    setMeasurementModalOpen(false);
+    setPendingMeasurement(null);
     setActiveTool(tool);
   };
 
   const handleMeasurementClick = ({ tool, pdfX, pdfY, isClosingClick }) => {
     if (tool === 'count') {
-      const preset = selectedPreset;
-      const newRow = {
-        _key: crypto.randomUUID(),
-        source: 'measurement',
-        tool: 'count',
-        shape_type: preset?.shapeClass || 'Custom',
-        size_designation: preset?.sizeDesignation || '',
-        label: preset?.label || 'Count',
-        color: preset?.color || '#ef4444',
-        pdfX,
-        pdfY,
-        quantity: 1,
-        length_ft: 0,
-        unit_weight_lbs_per_ft: 0,
-        is_accepted: true,
-      };
-      const updated = [...rows, newRow];
-      setRows(updated);
-      persist(updated);
+      setPendingMeasurement({ tool: 'count', pdfX, pdfY });
+      setMeasurementModalOpen(true);
       return;
     }
 
@@ -837,26 +852,8 @@ export default function BlueprintTakeoff() {
       // calibrating and clicking a length (see handleConfirmCalibration).
       const pxDist = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2);
       const lengthFt = pxDist / pxPerFt;
-      const preset = selectedPreset;
-      const newRow = {
-        _key: crypto.randomUUID(),
-        source: 'measurement',
-        tool: 'length',
-        shape_type: preset?.shapeClass || 'Custom',
-        size_designation: preset?.sizeDesignation || '',
-        label: preset?.label || 'Length',
-        color: preset?.color || '#3b82f6',
-        point1: p1,
-        point2: p2,
-        quantity: 1,
-        length_ft: Math.round(lengthFt * 100) / 100,
-        unit_weight_lbs_per_ft: 0,
-        is_accepted: true,
-      };
-      const updated = [...rows, newRow];
-      setRows(updated);
-      persist(updated);
-      setLengthPoints([]);
+      setPendingMeasurement({ tool: 'length', point1: p1, point2: p2, length_ft: Math.round(lengthFt * 100) / 100 });
+      setMeasurementModalOpen(true);
       return;
     }
 
@@ -885,6 +882,17 @@ export default function BlueprintTakeoff() {
         ...prev,
         [name]: { id: crypto.randomUUID(), polygon: pendingAreaPolygon, pageNumber: pageInfo.pageNum },
       }));
+      // The zone itself is committed above regardless — this only decides
+      // whether it also becomes a takeoff row. zoneName pre-selects this
+      // exact zone in the confirmation modal's Phase/Area dropdown.
+      setPendingMeasurement({
+        tool: 'area',
+        polygon: pendingAreaPolygon,
+        area_sq_ft: polygonAreaSqFt(pendingAreaPolygon, pxPerFt),
+        centroid: polygonCentroid(pendingAreaPolygon),
+        zoneName: name,
+      });
+      setMeasurementModalOpen(true);
     }
     setPendingAreaPolygon(null);
     setAreaPoints([]);
@@ -897,6 +905,88 @@ export default function BlueprintTakeoff() {
     setAreaNameModalOpen(false);
   };
 
+  // Same crop-and-ask-the-local-VLM flow as handleFindSimilar below, but for
+  // a measurement that hasn't been confirmed into `rows` yet — so it works
+  // off pendingMeasurement's own point instead of an existing row, and hands
+  // the raw match count back to the modal instead of populating the
+  // separate candidate-review UI (`candidates`).
+  const handleCountSimilarForModal = async () => {
+    if (!pendingMeasurement || !canvasRef.current || pageSize.width <= 0 || pageSize.height <= 0) {
+      toast({ title: 'Could not capture the drawing for visual search.', variant: 'destructive' });
+      return null;
+    }
+
+    const point = pendingMeasurement.tool === 'area' ? pendingMeasurement.centroid
+      : pendingMeasurement.tool === 'length' ? pendingMeasurement.point2
+      : pendingMeasurement;
+
+    const pageImageDataUrl = canvasRef.current.getFullPageDataUrl();
+    const cropDataUrl = canvasRef.current.getCropDataUrl(point.pdfX, point.pdfY, 120);
+    if (!pageImageDataUrl || !cropDataUrl) {
+      toast({ title: 'Could not capture the drawing for visual search.', variant: 'destructive' });
+      return null;
+    }
+
+    const matches = await findSimilarSymbols(pageImageDataUrl, cropDataUrl, scaleReference);
+    if (!matches) {
+      toast({ title: 'Visual search requires a local AI model — see Settings > AI Configuration', variant: 'destructive' });
+      return null;
+    }
+    return matches.length;
+  };
+
+  const handleCancelMeasurement = () => {
+    setMeasurementModalOpen(false);
+    setPendingMeasurement(null);
+    setLengthPoints([]);
+  };
+
+  const handleConfirmMeasurement = ({ shape, size, quantity, phaseArea }) => {
+    if (!pendingMeasurement) return;
+    const id = crypto.randomUUID();
+    const qty = Math.max(1, Number(quantity) || 1);
+    const base = {
+      id,
+      _key: id,
+      source: 'measurement',
+      tool: pendingMeasurement.tool,
+      page_number: pageInfo.pageNum,
+      shape_type: shape,
+      size_designation: size,
+      label: [shape, size].filter(Boolean).join(' ')
+        || (pendingMeasurement.tool === 'count' ? 'Count' : pendingMeasurement.tool === 'length' ? 'Length' : 'Area'),
+      color: '#22c55e',
+      marker_color: 'green',
+      quantity: qty,
+      phase: phaseArea,
+      area: phaseArea,
+      notes: '',
+      is_saved: true,
+      is_accepted: true,
+      unit_weight_lbs_per_ft: 0,
+      length_ft: pendingMeasurement.tool === 'length' ? pendingMeasurement.length_ft : 0,
+    };
+
+    const newRow = pendingMeasurement.tool === 'count'
+      ? { ...base, pdfX: pendingMeasurement.pdfX, pdfY: pendingMeasurement.pdfY }
+      : pendingMeasurement.tool === 'length'
+        ? { ...base, point1: pendingMeasurement.point1, point2: pendingMeasurement.point2 }
+        : {
+          ...base,
+          pdfX: pendingMeasurement.centroid.pdfX,
+          pdfY: pendingMeasurement.centroid.pdfY,
+          area_sq_ft: pendingMeasurement.area_sq_ft,
+        };
+
+    const updated = [...rows, newRow];
+    setRows(updated);
+    persist(updated);
+
+    if (pendingMeasurement.tool === 'length') setLengthPoints([]);
+    setMeasurementModalOpen(false);
+    setPendingMeasurement(null);
+  };
+
   const handleSelectPreset = (preset) => {
     setSelectedPresetId(preset.id);
     if (pxPerFt == null) {
@@ -907,6 +997,8 @@ export default function BlueprintTakeoff() {
     setCalibrationPoints([]);
     setLengthPoints([]);
     setAreaPoints([]);
+    setMeasurementModalOpen(false);
+    setPendingMeasurement(null);
     setActiveTool(preset.tool);
   };
 
@@ -1932,6 +2024,15 @@ export default function BlueprintTakeoff() {
         open={areaNameModalOpen}
         onOpenChange={(next) => { if (!next) handleCancelAreaName(); }}
         onSave={handleSaveAreaName}
+      />
+      <MeasurementConfirmationModal
+        open={measurementModalOpen}
+        pendingMeasurement={pendingMeasurement}
+        steelCatalog={steelCatalog}
+        areas={areas}
+        onCountSimilar={handleCountSimilarForModal}
+        onConfirm={handleConfirmMeasurement}
+        onCancel={handleCancelMeasurement}
       />
     </div>
   );
