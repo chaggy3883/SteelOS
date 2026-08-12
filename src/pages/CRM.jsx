@@ -18,10 +18,11 @@ const TYPE_COLORS = {
   fabricator_subcontractor: 'bg-cyan-500/10 text-cyan-500',
   detailer: 'bg-indigo-500/10 text-indigo-500',
   erector: 'bg-pink-500/10 text-pink-500',
+  steel_supplier: 'bg-yellow-500/10 text-yellow-500',
   other: 'bg-gray-500/10 text-gray-500',
 };
 
-const DISCIPLINE_OPTIONS = ['general_contractor', 'owner', 'engineer', 'architect', 'government', 'fabricator_subcontractor', 'detailer', 'erector', 'other'];
+const DISCIPLINE_OPTIONS = ['general_contractor', 'owner', 'engineer', 'architect', 'government', 'fabricator_subcontractor', 'detailer', 'erector', 'steel_supplier', 'other'];
 const DISCIPLINE_LABELS = { fabricator_subcontractor: 'Fabricator/Subcontractor' };
 const disciplineLabel = (t) => DISCIPLINE_LABELS[t] || t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
