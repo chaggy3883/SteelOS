@@ -566,7 +566,7 @@ export default function ProjectDetail() {
                         </div>
                         <p className="text-sm font-medium">{f.title}</p>
                         {f.ai_explanation && (
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{f.ai_explanation}</p>
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2" title={f.ai_explanation}>{f.ai_explanation}</p>
                         )}
                       </div>
                       <StatusBadge status={f.review_status} label={f.review_status?.replace('_',' ')} />

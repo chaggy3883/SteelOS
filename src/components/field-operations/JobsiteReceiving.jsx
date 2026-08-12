@@ -213,7 +213,7 @@ export default function JobsiteReceiving() {
                   >
                     <span className="font-mono font-medium truncate">{piece?.piece_mark || pm?.piece_mark || '—'}</span>
                     <span className="text-xs text-muted-foreground truncate">{load?.load_number_id || '—'}</span>
-                    <span className="text-xs text-muted-foreground truncate flex-shrink-0">{manifest?.driver_name || 'No driver on file'}</span>
+                    <span className="text-xs text-muted-foreground truncate flex-shrink-0" title={manifest?.driver_name || 'No driver on file'}>{manifest?.driver_name || 'No driver on file'}</span>
                   </button>
                 ))}
               </div>

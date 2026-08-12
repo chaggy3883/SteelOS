@@ -28,7 +28,7 @@ function BidListWidget() {
   if (bids.length === 0) return <WidgetEmpty message="No bids yet" />;
   return <div className="space-y-1">{bids.map(b => (
     <Link key={b.id} to={`/estimating/${b.id}`} className="flex items-center justify-between p-1.5 rounded hover:bg-muted transition-colors">
-      <div className="min-w-0 flex-1"><p className="text-xs font-medium truncate">{b.job_name || b.bid_number}</p><p className="text-[10px] text-muted-foreground truncate">{b.customer_name}</p></div>
+      <div className="min-w-0 flex-1"><p className="text-xs font-medium truncate" title={b.job_name || b.bid_number}>{b.job_name || b.bid_number}</p><p className="text-[10px] text-muted-foreground truncate" title={b.customer_name}>{b.customer_name}</p></div>
       <StatusBadge status={b.status} />
     </Link>
   ))}</div>;
@@ -147,7 +147,7 @@ function ActiveProjectsWidget() {
   if (projects.length === 0) return <WidgetEmpty message="No active projects" />;
   return <div className="space-y-1">{projects.slice(0, 6).map(p => (
     <Link key={p.id} to={`/projects/${p.id}`} className="flex items-center justify-between p-1.5 rounded hover:bg-muted transition-colors">
-      <div className="min-w-0 flex-1"><p className="text-xs font-medium truncate">{p.name}</p><p className="text-[10px] text-muted-foreground">{p.project_number}</p></div>
+      <div className="min-w-0 flex-1"><p className="text-xs font-medium truncate" title={p.name}>{p.name}</p><p className="text-[10px] text-muted-foreground">{p.project_number}</p></div>
       <StatusBadge status={p.status} />
     </Link>
   ))}</div>;
@@ -207,7 +207,7 @@ function FabProgressWidget() {
   return <div className="space-y-3">{projects.map(p => (
     <div key={p.id}>
       <div className="flex items-center justify-between mb-1">
-        <p className="text-xs font-medium truncate flex-1">{p.name}</p>
+        <p className="text-xs font-medium truncate flex-1" title={p.name}>{p.name}</p>
         <span className="text-xs text-muted-foreground ml-2">{p.pct}%</span>
       </div>
       <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
@@ -269,8 +269,8 @@ function InterviewsCalendarWidget() {
         <span className="text-xs font-bold text-purple-500">{new Date(i.scheduled_datetime).getDate()}</span>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium truncate">{i.candidate_name}</p>
-        <p className="text-[10px] text-muted-foreground truncate">{i.interviewer || 'Interviewer TBD'}</p>
+        <p className="text-xs font-medium truncate" title={i.candidate_name}>{i.candidate_name}</p>
+        <p className="text-[10px] text-muted-foreground truncate" title={i.interviewer || 'Interviewer TBD'}>{i.interviewer || 'Interviewer TBD'}</p>
       </div>
       <CalendarClock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
     </div>

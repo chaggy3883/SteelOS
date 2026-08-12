@@ -48,7 +48,7 @@ export default function WebhookConsole({ logs }) {
                     {log.payload_direction}
                   </span>
                 </TableCell>
-                <TableCell className="font-mono text-xs max-w-[280px] truncate">{log.endpoint_url}</TableCell>
+                <TableCell className="font-mono text-xs max-w-[280px] truncate" title={log.endpoint_url}>{log.endpoint_url}</TableCell>
                 <TableCell>
                   <Badge variant={isError ? 'destructive' : 'secondary'} className={isError ? '' : 'bg-green-500/10 text-green-600 border-transparent'}>
                     {log.response_status}

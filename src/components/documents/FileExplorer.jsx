@@ -91,7 +91,7 @@ export default function FileExplorer({ projectId, onUpload, documentTypeFilter }
       <div className="flex items-center gap-3 min-w-0">
         <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
         <div className="min-w-0">
-          <p className="text-sm font-medium truncate">{doc.name}</p>
+          <p className="text-sm font-medium truncate" title={doc.name}>{doc.name}</p>
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-xs text-muted-foreground">{doc.document_type?.replace(/_/g, ' ')} • v{doc.version || 1}</p>
             {(doc.tags || []).map((t) => (

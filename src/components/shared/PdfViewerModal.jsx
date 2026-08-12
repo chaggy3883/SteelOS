@@ -23,7 +23,7 @@ export default function PdfViewerModal({ open, onOpenChange, source, fileName })
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="flex-row items-center justify-between gap-3 pr-8 space-y-0">
-          <DialogTitle className="truncate">{fileName || 'Document'}</DialogTitle>
+          <DialogTitle className="truncate" title={fileName || 'Document'}>{fileName || 'Document'}</DialogTitle>
           <div className="flex items-center gap-2 flex-shrink-0">
             <Button size="sm" variant="outline" onClick={handlePrint}>
               <Printer className="w-3.5 h-3.5 mr-1.5" />Print

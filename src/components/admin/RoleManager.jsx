@@ -144,7 +144,7 @@ export default function RoleManager() {
                 <TableRow key={role.name} onClick={() => setViewingBuiltin(role)} className="cursor-pointer">
                   <TableCell className="font-mono text-xs">{role.name}</TableCell>
                   <TableCell className="font-medium">{role.label}</TableCell>
-                  <TableCell className="text-muted-foreground text-xs max-w-xs truncate">{role.description}</TableCell>
+                  <TableCell className="text-muted-foreground text-xs max-w-xs truncate" title={role.description}>{role.description}</TableCell>
                   <TableCell><AccessSummary list={role.allowed_modules} allLabel="All Modules" unit="modules" /></TableCell>
                   <TableCell><AccessSummary list={role.allowed_widgets} allLabel="All Widgets" unit="widgets" /></TableCell>
                   <TableCell className="text-right">
@@ -196,7 +196,7 @@ export default function RoleManager() {
                         {role.is_active === false && <Badge variant="outline" className="text-[10px]">Inactive</Badge>}
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-xs max-w-xs truncate">{role.description || 'No description'}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs max-w-xs truncate" title={role.description || 'No description'}>{role.description || 'No description'}</TableCell>
                     <TableCell><AccessSummary list={role.allowed_modules} allLabel="All Modules" unit="modules" /></TableCell>
                     <TableCell><AccessSummary list={role.allowed_widgets} allLabel="All Widgets" unit="widgets" /></TableCell>
                     <TableCell className="text-right">

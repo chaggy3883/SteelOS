@@ -8,6 +8,23 @@ import { flagCostCodeOverruns } from '@/lib/jobCostAnalysis';
 const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308', '#14b8a6'];
 const STATIONS = ['saw', 'drill', 'fab', 'weld', 'paint'];
 
+function computeLabelWidth(items, { max = 150, min = 70, charWidth = 6.5, pad = 16 } = {}) {
+  const longest = items.reduce((m, d) => Math.max(m, (d.name || '').length), 0);
+  const width = Math.min(max, Math.max(min, longest * charWidth + pad));
+  return { width, maxChars: Math.max(4, Math.floor((width - pad) / charWidth)) };
+}
+
+function TruncatedYAxisTick({ x, y, payload, maxChars }) {
+  const label = payload?.value || '';
+  const display = label.length > maxChars ? `${label.slice(0, Math.max(1, maxChars - 1))}…` : label;
+  return (
+    <text x={x} y={y} dy={4} textAnchor="end" fontSize={10} fill="hsl(var(--muted-foreground))">
+      <title>{label}</title>
+      {display}
+    </text>
+  );
+}
+
 export default function EstimatingAnalytics() {
   const [variances, setVariances] = useState([]);
   const [bids, setBids] = useState([]);
@@ -53,10 +70,11 @@ export default function EstimatingAnalytics() {
     if (b.status === 'won') gcStats[gc].won++; else gcStats[gc].lost++;
   });
   const winRateByGC = Object.entries(gcStats).map(([gc, s]) => ({
-    name: gc.length > 15 ? gc.substring(0, 13) + '…' : gc,
+    name: gc,
     winRate: s.total > 0 ? Math.round(s.won / s.total * 100) : 0,
     total: s.total,
   })).filter(d => d.total >= 1).sort((a, b) => b.winRate - a.winRate);
+  const gcLabel = computeLabelWidth(winRateByGC);
 
   // Win rate by Estimator
   const employeeNames = employees.reduce((acc, e) => ({ ...acc, [e.id]: e.full_name }), {});
@@ -68,10 +86,11 @@ export default function EstimatingAnalytics() {
     if (b.status === 'won') estimatorStats[estimator].won++; else estimatorStats[estimator].lost++;
   });
   const winRateByEstimator = Object.entries(estimatorStats).map(([estimator, s]) => ({
-    name: estimator.length > 15 ? estimator.substring(0, 13) + '…' : estimator,
+    name: estimator,
     winRate: s.total > 0 ? Math.round(s.won / s.total * 100) : 0,
     total: s.total,
   })).filter(d => d.total >= 1).sort((a, b) => b.winRate - a.winRate);
+  const estimatorLabel = computeLabelWidth(winRateByEstimator);
 
   // Win rate by geometry type
   const geoStats = {};
@@ -211,7 +230,7 @@ export default function EstimatingAnalytics() {
               <BarChart data={winRateByGC} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} width={80} />
+                <YAxis type="category" dataKey="name" tick={<TruncatedYAxisTick maxChars={gcLabel.maxChars} />} axisLine={false} tickLine={false} width={gcLabel.width} />
                 <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} formatter={v => `${v}%`} />
                 <Bar dataKey="winRate" name="Win Rate" fill="#1d7ed8" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -230,7 +249,7 @@ export default function EstimatingAnalytics() {
               <BarChart data={winRateByEstimator} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} width={80} />
+                <YAxis type="category" dataKey="name" tick={<TruncatedYAxisTick maxChars={estimatorLabel.maxChars} />} axisLine={false} tickLine={false} width={estimatorLabel.width} />
                 <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} formatter={v => `${v}%`} />
                 <Bar dataKey="winRate" name="Win Rate" fill="#1d7ed8" radius={[0, 4, 4, 0]} />
               </BarChart>

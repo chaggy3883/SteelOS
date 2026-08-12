@@ -113,7 +113,7 @@ export default function Documents() {
                         <div className="flex items-center gap-2">
                           <span className="text-base">{DOC_TYPE_ICONS[doc.document_type] || '📄'}</span>
                           <div>
-                            <p className="font-medium truncate max-w-[200px]">{doc.name}</p>
+                            <p className="font-medium truncate max-w-[200px]" title={doc.name}>{doc.name}</p>
                             {doc.file_name && <p className="text-xs text-muted-foreground">{doc.file_name}</p>}
                           </div>
                         </div>

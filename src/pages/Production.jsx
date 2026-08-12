@@ -156,7 +156,7 @@ export default function Production() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {projectProgress.map(p => (
               <div key={p.id} className="steel-card p-4">
-                <p className="font-medium text-sm truncate">{p.name}</p>
+                <p className="font-medium text-sm truncate" title={p.name}>{p.name}</p>
                 <p className="text-xs text-muted-foreground font-mono mb-3">{p.project_number} · {p.total} pieces</p>
                 {[
                   { label: '% Detailing', value: p.detailingPct, color: 'bg-purple-500' },
@@ -188,7 +188,7 @@ export default function Production() {
               const totalVariance = r.totalActual - r.totalTheoretical;
               return (
                 <div key={r.project.id} className="steel-card p-4">
-                  <p className="font-medium text-sm truncate">{r.project.name}</p>
+                  <p className="font-medium text-sm truncate" title={r.project.name}>{r.project.name}</p>
                   <p className="text-xs text-muted-foreground font-mono mb-3">{r.project.project_number}</p>
                   <div className="flex justify-between text-sm mb-1.5">
                     <span className="text-muted-foreground">Theoretical</span>

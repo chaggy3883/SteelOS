@@ -133,7 +133,7 @@ export default function CustomerHub() {
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {rfis.map((r) => (
                 <div key={r.id} className="flex items-center justify-between p-2 rounded bg-muted/50 text-xs">
-                  <div className="min-w-0"><p className="font-mono font-bold">{r.rfi_number}</p><p className="truncate text-muted-foreground">{r.subject}</p></div>
+                  <div className="min-w-0"><p className="font-mono font-bold">{r.rfi_number}</p><p className="truncate text-muted-foreground" title={r.subject}>{r.subject}</p></div>
                   <StatusBadge status={r.status} />
                 </div>
               ))}
@@ -148,7 +148,7 @@ export default function CustomerHub() {
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {submittals.map((s) => (
                 <div key={s.id} className="flex items-center justify-between p-2 rounded bg-muted/50 text-xs">
-                  <div className="min-w-0"><p className="font-mono font-bold">{s.submittal_number || s.id.slice(0, 8)}</p><p className="truncate text-muted-foreground">{s.title}</p></div>
+                  <div className="min-w-0"><p className="font-mono font-bold">{s.submittal_number || s.id.slice(0, 8)}</p><p className="truncate text-muted-foreground" title={s.title}>{s.title}</p></div>
                   <StatusBadge status={s.status} />
                 </div>
               ))}
@@ -167,7 +167,7 @@ export default function CustomerHub() {
                     <p className="font-mono font-bold">{co.change_order_id}</p>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-muted">{co.status}</span>
                   </div>
-                  <p className="text-muted-foreground truncate">{co.description}</p>
+                  <p className="text-muted-foreground truncate" title={co.description}>{co.description}</p>
                   <p className="font-mono mt-1">${Number(co.cost_impact || 0).toLocaleString()} · {co.schedule_impact || 0}d schedule</p>
                 </div>
               ))}

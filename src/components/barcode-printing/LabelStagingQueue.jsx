@@ -52,7 +52,7 @@ export default function LabelStagingQueue({ pieces, manifests, printJobs, onPrin
             {manifestsAwaiting.map((m) => (
               <div key={m.id} className="flex items-center justify-between gap-2 rounded-lg border border-border p-2 text-sm">
                 <div className="min-w-0">
-                  <p className="font-medium truncate">{m.driver_name}</p>
+                  <p className="font-medium truncate" title={m.driver_name}>{m.driver_name}</p>
                   <p className="text-xs text-muted-foreground font-mono truncate">{m.manifest_qr_payload_string}</p>
                 </div>
                 <Button size="sm" variant="outline" className="gap-1.5 flex-shrink-0" onClick={() => onPrintManifest(m)}>

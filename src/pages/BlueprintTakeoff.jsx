@@ -1375,7 +1375,7 @@ export default function BlueprintTakeoff() {
                     <Card key={s.id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => openSession(s)}>
                       <CardContent className="p-4 flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="font-semibold truncate">{s.takeoff_name || s.file_name || 'Untitled takeoff'}</p>
+                          <p className="font-semibold truncate" title={s.takeoff_name || s.file_name || 'Untitled takeoff'}>{s.takeoff_name || s.file_name || 'Untitled takeoff'}</p>
                           {s._linkedLabel ? (
                             <button
                               type="button"
@@ -1457,7 +1457,7 @@ export default function BlueprintTakeoff() {
       {mode === 'workspace' && (
         <>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="font-semibold truncate">{takeoffName || fileName || 'Untitled takeoff'}</span>
+            <span className="font-semibold truncate" title={takeoffName || fileName || 'Untitled takeoff'}>{takeoffName || fileName || 'Untitled takeoff'}</span>
             <span className="text-muted-foreground">·</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1"><Link2 className="w-3 h-3" />Linked to:</span>
             {sessionBidId ? (

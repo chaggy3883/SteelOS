@@ -308,7 +308,7 @@ export default function PayrollHours() {
               <p className="text-xs text-muted-foreground">No project-tagged hours.</p>
             ) : summary.topProjects.map(({ projectId, hours }) => (
               <div key={projectId} className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground truncate">{projectsById[projectId]?.name || projectId}</span>
+                <span className="text-muted-foreground truncate" title={projectsById[projectId]?.name || projectId}>{projectsById[projectId]?.name || projectId}</span>
                 <span className="font-mono font-semibold">{hours.toFixed(1)}</span>
               </div>
             ))}

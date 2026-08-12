@@ -156,7 +156,7 @@ export default function Quality() {
                         <span className="text-xs text-muted-foreground">{f.category}</span>
                       </div>
                       <p className="font-medium text-sm">{f.title}</p>
-                      {f.ai_explanation && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{f.ai_explanation}</p>}
+                      {f.ai_explanation && <p className="text-xs text-muted-foreground mt-1 line-clamp-2" title={f.ai_explanation}>{f.ai_explanation}</p>}
                       {f.specification_section && (
                         <p className="text-xs text-primary mt-1">§{f.specification_section} {f.page_number ? `• Pg. ${f.page_number}` : ''}</p>
                       )}
@@ -196,7 +196,7 @@ export default function Quality() {
                       <p className="text-xs text-muted-foreground mt-1">
                         {r.inspector_name} • {r.inspection_date}
                       </p>
-                      {r.notes && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{r.notes}</p>}
+                      {r.notes && <p className="text-xs text-muted-foreground mt-1 line-clamp-2" title={r.notes}>{r.notes}</p>}
                     </div>
                   </div>
                 </div>
