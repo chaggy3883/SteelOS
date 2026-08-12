@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet, Sparkles, ListChecks } from 'lucide-react';
 import TemplateVaultPanel from '@/components/settings/TemplateVaultPanel';
 import AiPlatformConfigPanel from '@/components/settings/AiPlatformConfigPanel';
@@ -12,8 +12,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
+import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { enableKioskMode } from '@/lib/kioskMode';
+
+const emptyCompanyForm = () => ({
+  name: '', company_type: 'structural_steel_fabricator', address: '', city: '', state: '', zip: '',
+  aisc_certification: '', phone: '', email: '', website: '',
+});
 
 const AI_RULES = [
   { id: 1, rule: 'Always verify AISC Fabricator Certification requirement', active: true },
@@ -32,8 +38,38 @@ export default function Settings() {
   const { toast } = useToast();
   const [aiRules, setAiRules] = useState(AI_RULES);
   const [newRule, setNewRule] = useState('');
-  const [saving, setSaving] = useState(false);
   const [provisioning, setProvisioning] = useState(false);
+
+  const [company, setCompany] = useState(null);
+  const [companyForm, setCompanyForm] = useState(emptyCompanyForm());
+  const [loadingCompany, setLoadingCompany] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { loadCompany(); }, []);
+
+  const loadCompany = async () => {
+    setLoadingCompany(true);
+    try {
+      const row = await getEffectiveCompany();
+      setCompany(row);
+      setCompanyForm({
+        name: row?.name || '',
+        company_type: row?.company_type || 'structural_steel_fabricator',
+        address: row?.address || '',
+        city: row?.city || '',
+        state: row?.state || '',
+        zip: row?.zip || '',
+        aisc_certification: row?.aisc_certification || '',
+        phone: row?.phone || '',
+        email: row?.email || '',
+        website: row?.website || '',
+      });
+    } finally {
+      setLoadingCompany(false);
+    }
+  };
+
+  const updateCompanyField = (field, value) => setCompanyForm((f) => ({ ...f, [field]: value }));
 
   // Isolated Caching Portal — writes the admin's own effective tenant into
   // THIS physical device's localStorage (see src/lib/kioskMode.js), then
@@ -66,9 +102,21 @@ export default function Settings() {
     toast({ title: 'AI Rule Added', description: 'This rule will be applied to all future document analyses.' });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (!company) {
+      toast({ title: 'No active tenant to save settings for', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
-    setTimeout(() => { setSaving(false); toast({ title: 'Settings saved!' }); }, 800);
+    try {
+      const updated = await db.entities.Company.update(company.id, companyForm);
+      setCompany(updated);
+      toast({ title: 'Settings saved!' });
+    } catch (e) {
+      toast({ title: 'Unable to save settings', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -89,17 +137,22 @@ export default function Settings() {
 
         {/* Company Settings */}
         <TabsContent value="company">
+          {loadingCompany ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : !company ? (
+            <p className="text-sm text-muted-foreground p-4">No tenant profile found for this session — nothing to configure.</p>
+          ) : (
           <div className="space-y-4">
             <div className="steel-card p-6">
               <h3 className="font-semibold mb-4">Company Information</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   <Label>Company Name</Label>
-                  <Input defaultValue="My Steel Fabricators, Inc." className="mt-1" />
+                  <Input value={companyForm.name} onChange={e => updateCompanyField('name', e.target.value)} placeholder="My Steel Fabricators, Inc." className="mt-1" />
                 </div>
                 <div>
                   <Label>Company Type</Label>
-                  <Select defaultValue="structural_steel_fabricator">
+                  <Select value={companyForm.company_type} onValueChange={v => updateCompanyField('company_type', v)}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {['structural_steel_fabricator','steel_erector','bridge_fabricator','miscellaneous_metals','detailing_company','steel_service_center'].map(t => (
@@ -110,28 +163,53 @@ export default function Settings() {
                 </div>
                 <div>
                   <Label>AISC Certification Number</Label>
-                  <Input placeholder="e.g. FA-1234" className="mt-1" />
+                  <Input value={companyForm.aisc_certification} onChange={e => updateCompanyField('aisc_certification', e.target.value)} placeholder="e.g. FA-1234" className="mt-1" />
                 </div>
                 <div>
                   <Label>Phone</Label>
-                  <Input placeholder="(555) 000-0000" className="mt-1" />
+                  <Input value={companyForm.phone} onChange={e => updateCompanyField('phone', e.target.value)} placeholder="(555) 000-0000" className="mt-1" />
                 </div>
                 <div>
                   <Label>Email</Label>
-                  <Input type="email" placeholder="info@yourcompany.com" className="mt-1" />
+                  <Input type="email" value={companyForm.email} onChange={e => updateCompanyField('email', e.target.value)} placeholder="info@yourcompany.com" className="mt-1" />
                 </div>
                 <div>
                   <Label>Website</Label>
-                  <Input placeholder="https://yourcompany.com" className="mt-1" />
+                  <Input value={companyForm.website} onChange={e => updateCompanyField('website', e.target.value)} placeholder="https://yourcompany.com" className="mt-1" />
                 </div>
               </div>
             </div>
+
+            <div className="steel-card p-6">
+              <h3 className="font-semibold mb-1">Company Address</h3>
+              <p className="text-xs text-muted-foreground mb-4">Used as the origin point for all mileage/distance calculations (e.g. delivery cost coding).</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <Label>Street</Label>
+                  <Input value={companyForm.address} onChange={e => updateCompanyField('address', e.target.value)} placeholder="123 Main St" className="mt-1" />
+                </div>
+                <div>
+                  <Label>City</Label>
+                  <Input value={companyForm.city} onChange={e => updateCompanyField('city', e.target.value)} placeholder="Findlay" className="mt-1" />
+                </div>
+                <div>
+                  <Label>State</Label>
+                  <Input value={companyForm.state} onChange={e => updateCompanyField('state', e.target.value)} placeholder="OH" className="mt-1" />
+                </div>
+                <div>
+                  <Label>Zip</Label>
+                  <Input value={companyForm.zip} onChange={e => updateCompanyField('zip', e.target.value)} placeholder="45840" className="mt-1" />
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-end">
               <Button onClick={handleSave} disabled={saving} className="steel-gradient text-white border-0 min-w-32">
                 {saving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           </div>
+          )}
         </TabsContent>
 
         {/* AI Rules */}

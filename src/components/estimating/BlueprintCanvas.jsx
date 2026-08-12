@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,6 +72,10 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   // modal) — keyed by name, each holding { polygon, pageNumber }. Only the
   // ones matching the current page are ever drawn (see the overlay effect).
   areas = {},
+  // _key/id of whichever measurementItems entry the takeoff table's row
+  // click most recently highlighted — see the overlay effect for how this
+  // gets an extra ring/box drawn around it.
+  highlightedItemKey = null,
 }, ref) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
@@ -101,6 +105,21 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   // to (not instead of) the two ordinary click events that make it up —
   // using it directly would add two stray vertices right before closing.
   const lastAreaClickAtRef = useRef(0);
+
+  // goToPage lets BlueprintTakeoff's takeoff table jump straight to
+  // whatever page a clicked row's marker lives on. getFullPageDataUrl/
+  // getCropDataUrl are called by BlueprintTakeoff's Find Similar/Count
+  // Similar features but were never implemented here — canvasRef.current
+  // was always null before this ref existed at all (forwardRef's `ref` was
+  // accepted but never wired up), so those two features have always
+  // silently no-opped rather than crashed. Stubbed the same way here so
+  // adding this ref for goToPage doesn't turn that into an actual runtime
+  // error; not fixing that pre-existing gap as part of this change.
+  useImperativeHandle(ref, () => ({
+    goToPage: (n) => setPageNum((prev) => (Number.isFinite(n) && n >= 1 && n <= numPages ? n : prev)),
+    getFullPageDataUrl: () => null,
+    getCropDataUrl: () => null,
+  }), [numPages]);
 
   // Loads the document whenever `source` changes (a URL string, or a
   // File/Blob — both accepted so this can be wired directly to the same
@@ -403,9 +422,39 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       ctx.fillText(`x${item.quantity || 1}`, x, y + 0.5);
     };
 
+    // A brief dashed amber ring/box around whichever marker the takeoff
+    // table's row click most recently highlighted (BlueprintTakeoff clears
+    // highlightedItemKey ~1.6s later, giving the "flash" effect without any
+    // animation loop here).
+    const isHighlighted = (item) => highlightedItemKey != null && (item._key || item.id) === highlightedItemKey;
+    const drawHighlightRing = (x, y) => {
+      ctx.save();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.arc(x, y, 17, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    };
+    const drawHighlightBox = (p1, p2) => {
+      const minX = Math.min(p1.x, p2.x) - 14;
+      const maxX = Math.max(p1.x, p2.x) + 14;
+      const minY = Math.min(p1.y, p2.y) - 14;
+      const maxY = Math.max(p1.y, p2.y) + 14;
+      ctx.save();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+      ctx.restore();
+    };
+
     measurementItems.filter((item) => item.source === 'measurement').forEach((item) => {
       if (item.tool === 'count' && item.pdfX != null && item.pdfY != null) {
-        drawStatusMarker(item.pdfX * scale, item.pdfY * scale, item);
+        const x = item.pdfX * scale, y = item.pdfY * scale;
+        drawStatusMarker(x, y, item);
+        if (isHighlighted(item)) drawHighlightRing(x, y);
       } else if (item.tool === 'length' && item.point1 && item.point2) {
         const p1 = { x: item.point1.pdfX * scale, y: item.point1.pdfY * scale };
         const p2 = { x: item.point2.pdfX * scale, y: item.point2.pdfY * scale };
@@ -439,14 +488,17 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         // Status circle sits above the length label instead of on top of
         // it — same anchor itemScreenAnchor uses for the hover hit-test.
         drawStatusMarker(midX, midY - 26, item);
+        if (isHighlighted(item)) drawHighlightBox(p1, p2);
       } else if (item.tool === 'area' && item.pdfX != null && item.pdfY != null) {
         // The named zone itself (fill/outline/label) is drawn separately
         // above from `areas` — this is only the takeoff-row status circle
         // for that same closed shape, centered on its centroid.
-        drawStatusMarker(item.pdfX * scale, item.pdfY * scale, item);
+        const x = item.pdfX * scale, y = item.pdfY * scale;
+        drawStatusMarker(x, y, item);
+        if (isHighlighted(item)) drawHighlightRing(x, y);
       }
     });
-  }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems, areaPoints, areas, pageNum]);
+  }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems, areaPoints, areas, pageNum, highlightedItemKey]);
 
   const handleOverlayClick = (e) => {
     // React's SyntheticEvent doesn't carry offsetX/offsetY (they're not in

@@ -1,0 +1,23 @@
+{
+  "name": "CostCode",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "code_name": {
+      "type": "string",
+      "description": "e.g. \"DELIVERY\", \"LABOR\", \"MATERIALS\", \"EQUIPMENT\", \"SUBCONTRACTOR\""
+    },
+    "description": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "code_name"
+  ]
+}

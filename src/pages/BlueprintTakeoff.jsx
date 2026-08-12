@@ -18,13 +18,14 @@ import {
   Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
   MousePointer2, MousePointerClick, Wrench, ChevronDown, ChevronUp,
   Shapes, ScanSearch, Check, X, Link2, ExternalLink, ListChecks, Grid3x3,
-  Maximize2, HelpCircle, GripVertical, StickyNote,
+  Maximize2, HelpCircle, GripVertical, StickyNote, Save,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 import { writeBidRecapCells, downloadWorkbook } from '@/lib/bidRecapXlsxExport';
 import { buildBidRecapWrites } from '@/lib/bidRecapMapping';
+import { exportRowsToCsv } from '@/lib/csvExport';
 import * as XLSX from 'xlsx';
 import steelSizesXlsxUrl from '@/assets/steel-sizes.xlsx?url';
 import { parseSteelCatalogWorkbook, FALLBACK_STEEL_CATALOG } from '@/lib/steelCatalogXlsx';
@@ -134,6 +135,11 @@ const measurementAnchorFromRow = (r) => {
 // W14x90 columns elsewhere on the sheet as duplicates.
 const DUPLICATE_SPOT_THRESHOLD_PDF = 50;
 
+// Mirrors BlueprintCanvas's own MARKER_STATUS_COLORS — kept as a separate
+// small constant here rather than a shared import since it's only ever
+// used for the Confirmed Measurements table's status dot, not the canvas.
+const MARKER_COLOR_HEX = { green: '#22c55e', blue: '#3b82f6', red: '#ef4444' };
+
 const findDuplicateRow = (existingRows, tool, shape, size, phaseArea, anchor) => {
   if (!anchor) return null;
   return existingRows.find((r) => {
@@ -221,6 +227,13 @@ export default function BlueprintTakeoff() {
   const [sessionLinkDraft, setSessionLinkDraft] = useState({});
   const [workspaceLinkDraft, setWorkspaceLinkDraft] = useState('');
   const [gridView, setGridView] = useState('takeoff');
+  // Confirmed Measurements table (Count/Length/Area rows only) — highlight
+  // is which row's canvas marker most recently got clicked (cleared after a
+  // short flash by highlightTimeoutRef), sort/excludedAreas drive that
+  // table's own column-sort and phase/area checkbox filter.
+  const [highlightedRowKey, setHighlightedRowKey] = useState(null);
+  const [measurementSort, setMeasurementSort] = useState({ field: 'page_number', dir: 'asc' });
+  const [excludedMeasurementAreas, setExcludedMeasurementAreas] = useState(() => new Set());
   // Phase 4 — Markups List weight settings (unit weight, typical length,
   // AISC/manual/override source), restored from the session on open and
   // handed to MarkupsList as its seed; MarkupsList owns persisting edits
@@ -321,6 +334,9 @@ export default function BlueprintTakeoff() {
   const toolChestSaveTimerRef = useRef(null);
   const pageNotesSaveTimerRef = useRef(null);
   const canvasRef = useRef(null);
+  const highlightTimeoutRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(highlightTimeoutRef.current), []);
 
   useEffect(() => {
     db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
@@ -1328,6 +1344,70 @@ export default function BlueprintTakeoff() {
     persist(newRows);
   };
 
+  // Jumps to the row's page (if it's on a different one than currently
+  // shown) and flashes a highlight ring/box around its marker for ~1.6s —
+  // see BlueprintCanvas's isHighlighted/drawHighlightRing/drawHighlightBox.
+  const handleMeasurementRowClick = (row) => {
+    if (row.page_number && row.page_number !== pageInfo.pageNum) {
+      canvasRef.current?.goToPage(row.page_number);
+    }
+    setHighlightedRowKey(row._key);
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    highlightTimeoutRef.current = setTimeout(() => setHighlightedRowKey(null), 1600);
+  };
+
+  // Deleting one half of a same-spot duplicate pair clears the other's red
+  // flag too — leaving it red after its only conflict is gone would
+  // permanently mislabel an otherwise ordinary row as a duplicate.
+  const handleDeleteMeasurementRow = (row) => {
+    const remaining = rows.filter((r) => r._key !== row._key);
+    const stillHasDuplicate = (candidate) => remaining.some((r) => {
+      if (r._key === candidate._key || r.tool !== candidate.tool || r.shape_type !== candidate.shape_type) return false;
+      if (r.size_designation !== candidate.size_designation || (r.phase || '') !== (candidate.phase || '')) return false;
+      const a = measurementAnchorFromRow(candidate);
+      const b = measurementAnchorFromRow(r);
+      return a && b && Math.hypot(a.pdfX - b.pdfX, a.pdfY - b.pdfY) <= DUPLICATE_SPOT_THRESHOLD_PDF;
+    });
+    const updated = remaining.map((r) => (
+      r.marker_color === 'red' && !stillHasDuplicate(r) ? { ...r, marker_color: 'green', color: '#22c55e' } : r
+    ));
+    setRows(updated);
+    persist(updated);
+    if (highlightedRowKey === row._key) setHighlightedRowKey(null);
+  };
+
+  const handleMeasurementSortClick = (field) => {
+    setMeasurementSort((prev) => (prev.field === field ? { field, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }));
+  };
+
+  const toggleMeasurementAreaFilter = (area) => {
+    setExcludedMeasurementAreas((prev) => {
+      const next = new Set(prev);
+      if (next.has(area)) next.delete(area); else next.add(area);
+      return next;
+    });
+  };
+
+  const handleSaveMeasurementsLocally = (measurementRows) => {
+    try {
+      localStorage.setItem(`ironsight_measurements_${takeoffId || 'draft'}`, JSON.stringify(measurementRows));
+      toast({ title: 'Measurements saved locally', description: `${measurementRows.length} row${measurementRows.length === 1 ? '' : 's'} saved to this browser.` });
+    } catch (e) {
+      toast({ title: 'Could not save locally', variant: 'destructive' });
+    }
+  };
+
+  const handleExportMeasurementsCsv = (visibleRows) => {
+    exportRowsToCsv({
+      filename: `${takeoffName || 'takeoff'}_measurements`,
+      columns: ['Page', 'Shape Type', 'Size', 'Quantity', 'Phase', 'Area', 'Notes', 'Status'],
+      rows: visibleRows.map((r) => [
+        r.page_number || 1, r.shape_type || '', r.size_designation || '', r.quantity || 0,
+        r.phase || '', r.area || '', r.notes || '', r.marker_color || '',
+      ]),
+    });
+  };
+
   const addManualRow = () => {
     setRows((prev) => [...prev, emptyRow()]);
   };
@@ -1363,6 +1443,23 @@ export default function BlueprintTakeoff() {
       : { pdfX: pendingMeasurement.centroid.pdfX, pdfY: pendingMeasurement.centroid.pdfY }),
   } : null;
   const measurementItemsForCanvas = pendingMeasurementMarker ? [...rows, pendingMeasurementMarker] : rows;
+
+  // Confirmed Measurements table — every row the confirmation modal has
+  // ever added (green or red; never the ephemeral blue pending marker,
+  // which never touches `rows`), sorted/filtered per the table's own
+  // controls.
+  const measurementRows = rows.filter((r) => r.source === 'measurement');
+  const measurementAreaOptions = Array.from(new Set(measurementRows.map((r) => r.area || '(none)')));
+  const visibleMeasurementRows = measurementRows
+    .filter((r) => !excludedMeasurementAreas.has(r.area || '(none)'))
+    .slice()
+    .sort((a, b) => {
+      const { field, dir } = measurementSort;
+      const av = field === 'page_number' || field === 'quantity' ? (a[field] || 0) : (a[field] || '');
+      const bv = field === 'page_number' || field === 'quantity' ? (b[field] || 0) : (b[field] || '');
+      const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
+      return dir === 'asc' ? cmp : -cmp;
+    });
 
   // Distinguishes "still loading" from "genuinely nothing to link to" so the
   // link dropdowns don't look broken when a fresh company just has no bids
@@ -1747,6 +1844,7 @@ export default function BlueprintTakeoff() {
                     areaPoints={areaPoints}
                     onMeasurementClick={handleMeasurementClick}
                     measurementItems={measurementItemsForCanvas}
+                    highlightedItemKey={highlightedRowKey}
                     pxPerFt={pxPerFt}
                     candidateMarkers={candidates}
                     onCandidateToggle={handleToggleCandidate}
@@ -1950,6 +2048,9 @@ export default function BlueprintTakeoff() {
                 <Button size="sm" variant={gridView === 'markups' ? 'default' : 'ghost'} onClick={() => setGridView('markups')}>
                   <ListChecks className="w-3.5 h-3.5 mr-1.5" />Markups List
                 </Button>
+                <Button size="sm" variant={gridView === 'measurements' ? 'default' : 'ghost'} onClick={() => setGridView('measurements')}>
+                  <MousePointerClick className="w-3.5 h-3.5 mr-1.5" />Confirmed Measurements
+                </Button>
               </div>
 
               {/* Both panels stay mounted (toggled via `hidden`) rather than a
@@ -2097,6 +2198,119 @@ export default function BlueprintTakeoff() {
                   🪙 Total Galvanized Mass: {totalGalvanizedTons.toLocaleString(undefined, { maximumFractionDigits: 2 })} Tons
                 </p>
               </div>
+              </div>
+
+              <div className={gridView === 'measurements' ? '' : 'hidden'}>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-semibold flex items-center gap-2">
+                    <MousePointerClick className="w-4 h-4 text-primary" />
+                    Confirmed Measurements — {measurementRows.length} row{measurementRows.length === 1 ? '' : 's'}
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => handleSaveMeasurementsLocally(measurementRows)}>
+                      <Save className="w-3.5 h-3.5 mr-1" />Save Takeoff
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleExportMeasurementsCsv(visibleMeasurementRows)}
+                      disabled={measurementRows.length === 0}
+                    >
+                      <FileDown className="w-3.5 h-3.5 mr-1" />Export Takeoff
+                    </Button>
+                  </div>
+                </div>
+
+                {measurementAreaOptions.length > 0 && (
+                  <div className="flex items-center gap-3 flex-wrap mb-2 text-xs">
+                    <span className="font-medium text-muted-foreground">Filter Phase/Area:</span>
+                    {measurementAreaOptions.map((a) => (
+                      <label key={a} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!excludedMeasurementAreas.has(a)}
+                          onChange={() => toggleMeasurementAreaFilter(a)}
+                        />
+                        {a}
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                {measurementRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">
+                    No confirmed measurements yet — use the Count/Length/Area tools and confirm from the modal to add rows here.
+                  </p>
+                ) : (
+                  <div className="border rounded-lg overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/40 text-left">
+                        <tr>
+                          {[
+                            { key: 'page_number', label: 'Page #' },
+                            { key: 'shape_type', label: 'Shape Type' },
+                            { key: 'size_designation', label: 'Size' },
+                            { key: 'quantity', label: 'Quantity' },
+                            { key: 'phase', label: 'Phase' },
+                            { key: 'area', label: 'Area' },
+                          ].map((col) => (
+                            <th
+                              key={col.key}
+                              className="p-2 font-medium cursor-pointer select-none whitespace-nowrap"
+                              onClick={() => handleMeasurementSortClick(col.key)}
+                            >
+                              {col.label}{measurementSort.field === col.key && (measurementSort.dir === 'asc' ? ' ▲' : ' ▼')}
+                            </th>
+                          ))}
+                          <th className="p-2 font-medium">Notes</th>
+                          <th className="p-2 font-medium w-20 text-center">Status</th>
+                          <th className="p-2 font-medium w-12"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleMeasurementRows.map((r) => (
+                          <tr
+                            key={r._key}
+                            className={`border-t cursor-pointer hover:bg-muted/40 transition-colors ${highlightedRowKey === r._key ? 'bg-amber-500/10' : ''}`}
+                            onClick={() => handleMeasurementRowClick(r)}
+                          >
+                            <td className="p-2 text-xs text-muted-foreground">{r.page_number || 1}</td>
+                            <td className="p-2">{r.shape_type || '—'}</td>
+                            <td className="p-2">{r.size_designation || '—'}</td>
+                            <td className="p-2">{r.quantity || 0}</td>
+                            <td className="p-2">{r.phase || '—'}</td>
+                            <td className="p-2">{r.area || '—'}</td>
+                            <td className="p-2" onClick={(e) => e.stopPropagation()}>
+                              <Input
+                                value={r.notes || ''}
+                                onChange={(e) => updateRow(r._key, 'notes', e.target.value)}
+                                placeholder="Add a note…"
+                                className="h-8"
+                              />
+                            </td>
+                            <td className="p-2 text-center">
+                              <span
+                                className="inline-block w-3 h-3 rounded-full border border-black/10"
+                                style={{ backgroundColor: MARKER_COLOR_HEX[r.marker_color] || MARKER_COLOR_HEX.blue }}
+                                title={r.marker_color || 'blue'}
+                              />
+                            </td>
+                            <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-destructive"
+                                onClick={() => handleDeleteMeasurementRow(r)}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}

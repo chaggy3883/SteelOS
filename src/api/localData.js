@@ -193,6 +193,13 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
+    CostCode: [
+      { id: 'cost-code-delivery', company_id: 'company-hancock', code_name: 'DELIVERY', description: 'Freight and mileage to jobsite', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-labor', company_id: 'company-hancock', code_name: 'LABOR', description: 'Shop and field labor', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-materials', company_id: 'company-hancock', code_name: 'MATERIALS', description: 'Raw steel and consumables', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-equipment', company_id: 'company-hancock', code_name: 'EQUIPMENT', description: 'Owned/rented equipment usage', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-subcontractor', company_id: 'company-hancock', code_name: 'SUBCONTRACTOR', description: 'Subcontracted scope', is_active: true, created_date: now, updated_date: now }
+    ],
     Customer: [
       {
         id: 'customer-acme',

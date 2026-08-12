@@ -49,6 +49,7 @@ const createLocalApi = () => ({
     time_off_requests: createEntityApi('time_off_requests'),
     login_slideshow_images: createEntityApi('login_slideshow_images'),
     Contract: createEntityApi('Contract'),
+    CostCode: createEntityApi('CostCode'),
     Customer: createEntityApi('Customer'),
     Contact: createEntityApi('Contact'),
     CustomRole: createEntityApi('CustomRole'),
