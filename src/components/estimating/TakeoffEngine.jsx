@@ -1,17 +1,34 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { db } from '@/api/apiClient';
-import { Save, Info, Upload, Pencil } from 'lucide-react';
+import { Save, Info, Upload, Pencil, Truck, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import { computeEffectiveTaxRate, getJoistDeckTaxRate } from '@/lib/taxRate';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { isErectPlan } from '@/lib/planGating';
+import { calculateDistance, isGoogleMapsConfigured } from '@/lib/googleMapsService';
+
+// No DeliveryPricingTier is tagged with a CostCode, so the ledger posting
+// buckets the selected code into JobCostLedgerEntry's fixed MAT/SUB/EQP/LAB
+// cost_class by keyword — delivery/freight has no dedicated class in that
+// enum, so it defaults to MAT (closest existing bucket, matching how
+// jobsite_freight already lives next to structural_material above).
+const inferCostClassFromCodeName = (codeName) => {
+  const upper = (codeName || '').toUpperCase();
+  if (upper.includes('LABOR')) return 'LAB';
+  if (upper.includes('EQUIP')) return 'EQP';
+  if (upper.includes('SUBCONTRACT')) return 'SUB';
+  return 'MAT';
+};
+
+const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 
 // SteelOS Erect tenants are erection-only contractors — these shop/fab
 // categories still initialize and save normally (so pre-existing line data
@@ -84,9 +101,77 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const [exclusions, setExclusions] = useState(bid?.exclusions || '');
   const [erectPlan, setErectPlan] = useState(false);
 
+  const [company, setCompany] = useState(null);
+  const [costCodeOptions, setCostCodeOptions] = useState([]);
+  const [deliveryTiers, setDeliveryTiers] = useState([]);
+  const [deliveryDistance, setDeliveryDistance] = useState(bid?.delivery_distance_miles ?? null);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [deliveryError, setDeliveryError] = useState('');
+  const [deliveryTripCount, setDeliveryTripCount] = useState(bid?.delivery_trip_count ?? 1);
+  const [deliveryCostPerTripManual, setDeliveryCostPerTripManual] = useState(
+    bid?.delivery_cost_per_trip != null ? String(bid.delivery_cost_per_trip) : ''
+  );
+  const [deliveryCostCode, setDeliveryCostCode] = useState(bid?.delivery_cost_code || '');
+
   useEffect(() => {
-    getEffectiveCompany().then((company) => setErectPlan(isErectPlan(company))).catch(() => setErectPlan(false));
+    getEffectiveCompany().then((c) => { setErectPlan(isErectPlan(c)); setCompany(c); }).catch(() => setErectPlan(false));
   }, []);
+
+  useEffect(() => {
+    db.entities.CostCode.filter({ is_active: true }, 'code_name', 200).then(setCostCodeOptions).catch(() => setCostCodeOptions([]));
+    db.entities.DeliveryPricingTier.list('min_miles', 200).then(setDeliveryTiers).catch(() => setDeliveryTiers([]));
+  }, []);
+
+  const jobsiteAddress = joinAddressParts([
+    bid?.street,
+    bid?.city || bid?.job_city,
+    joinAddressParts([bid?.state || bid?.job_state, bid?.zip]),
+  ]);
+  const companyAddress = company ? joinAddressParts([company.address, company.city, joinAddressParts([company.state, company.zip])]) : '';
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setDeliveryDistance(null);
+      setDeliveryError('');
+      if (!jobsiteAddress || !companyAddress) {
+        setDeliveryError('Enter a jobsite address above and your company address in Settings to calculate mileage automatically.');
+        return;
+      }
+      if (!isGoogleMapsConfigured()) {
+        setDeliveryError('Google Maps API key not configured — enter cost per trip manually.');
+        return;
+      }
+      setDeliveryLoading(true);
+      try {
+        const miles = await calculateDistance(companyAddress, jobsiteAddress);
+        if (!cancelled) setDeliveryDistance(miles);
+      } catch (e) {
+        if (!cancelled) setDeliveryError(e?.message || 'Unable to calculate mileage — enter cost per trip manually.');
+      } finally {
+        if (!cancelled) setDeliveryLoading(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [jobsiteAddress, companyAddress]);
+
+  const matchedDeliveryTier = deliveryDistance != null
+    ? deliveryTiers.find((t) => deliveryDistance >= (t.min_miles ?? 0) && deliveryDistance <= (t.max_miles ?? Infinity))
+    : null;
+  const maxTierMiles = deliveryTiers.length > 0 ? Math.max(...deliveryTiers.map((t) => t.max_miles ?? 0)) : 125;
+  const deliveryManualMode = !deliveryLoading && (!!deliveryError || (deliveryDistance != null && !matchedDeliveryTier));
+  const deliveryManualReason = deliveryError || (deliveryDistance != null && !matchedDeliveryTier
+    ? `Mileage exceeds ${maxTierMiles} miles — enter cost per trip manually.`
+    : '');
+  const deliveryCostPerTrip = deliveryManualMode
+    ? (parseFloat(deliveryCostPerTripManual) || 0)
+    : (matchedDeliveryTier?.cost_per_trip || 0);
+  const deliveryTotalCost = deliveryCostPerTrip * (parseFloat(deliveryTripCount) || 0);
+
+  const updateDeliveryTripCount = (value) => { setDeliveryTripCount(value); setDirty(true); };
+  const updateDeliveryCostPerTripManual = (value) => { setDeliveryCostPerTripManual(value); setDirty(true); };
+  const updateDeliveryCostCode = (value) => { setDeliveryCostCode(value); setDirty(true); };
 
   const visibleCategories = erectPlan
     ? COST_CATEGORIES.filter((cat) => !HIDDEN_FOR_ERECT_PLAN.includes(cat.key))
@@ -190,8 +275,36 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const insuranceAllocation = (parseFloat(insuranceInputs.general_liability) || 0) + (parseFloat(insuranceInputs.umbrella) || 0) + (parseFloat(insuranceInputs.professional_liability) || 0);
   const includedBondAmount = bondEnabled ? bondAmount : 0;
   const includedInsuranceAllocation = insuranceEnabled ? insuranceAllocation : 0;
-  const totalWithTax = grandTotal + taxAmount + includedBondAmount + includedInsuranceAllocation;
+  const totalWithTax = grandTotal + taxAmount + includedBondAmount + includedInsuranceAllocation + deliveryTotalCost;
   const canOpenDocuments = currentUserRoles.some(r => ['admin', 'estimator', 'president', 'ceo', 'finance_department'].includes(normalizeRoleName(r)));
+
+  // JobCostLedgerEntry requires a project_id — a bid only has one once it's
+  // linked to (or won into) a Project. Pre-award, we still save the
+  // delivery_* fields on the Bid itself; posting to the ledger just waits
+  // until there's a real project to post against. Re-saves update the same
+  // entry (via delivery_job_cost_entry_id) instead of creating duplicates.
+  const postDeliveryJobCostEntry = async () => {
+    const projectId = bid.project_id || bid.won_project_id;
+    if (!projectId || !deliveryCostCode || deliveryTotalCost <= 0) {
+      return bid.delivery_job_cost_entry_id || null;
+    }
+    const payload = {
+      project_id: projectId,
+      cost_code: deliveryCostCode,
+      cost_class: inferCostClassFromCodeName(deliveryCostCode),
+      amount: deliveryTotalCost,
+      transaction_date: new Date().toISOString().slice(0, 10),
+      source_type: 'other',
+      source_id: bid.id,
+      description: `Delivery — ${deliveryTripCount} trip(s) @ $${deliveryCostPerTrip.toFixed(2)}/trip (${deliveryCostCode})`,
+    };
+    if (bid.delivery_job_cost_entry_id) {
+      const updated = await db.entities.JobCostLedgerEntry.update(bid.delivery_job_cost_entry_id, payload);
+      return updated.id;
+    }
+    const created = await db.entities.JobCostLedgerEntry.create(payload);
+    return created.id;
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -216,6 +329,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       }).filter(Boolean);
       await Promise.all(ops);
       const freshBid = await db.entities.Bid.get(bid.id);
+      const deliveryJobCostEntryId = await postDeliveryJobCostEntry();
       await db.entities.Bid.update(bid.id, {
         bid_total_cost: totalWithTax,
         inclusions,
@@ -233,6 +347,13 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         leed_level_override: overrides.leed_level || null,
         tax_rate: computeEffectiveTaxRate(freshBid),
         tax_enabled: !!freshBid?.tax_enabled,
+        delivery_distance_miles: deliveryDistance,
+        delivery_trip_count: parseFloat(deliveryTripCount) || 1,
+        delivery_cost_per_trip: deliveryCostPerTrip,
+        delivery_cost_manual_entry: deliveryManualMode,
+        delivery_cost_code: deliveryCostCode || null,
+        delivery_total_cost: deliveryTotalCost,
+        delivery_job_cost_entry_id: deliveryJobCostEntryId,
       });
       toast({ title: 'Takeoff saved!' });
       setDirty(false);
@@ -379,6 +500,65 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         </div>
       </div>
 
+      {/* Delivery Cost Calculator */}
+      <div className="steel-card p-5">
+        <h4 className="font-semibold mb-1 flex items-center gap-2"><Truck className="w-4 h-4 text-primary" />Delivery Cost Calculator</h4>
+        <p className="text-xs text-muted-foreground mb-4">Freight cost to this bid's jobsite address (Base Information above), banded by mileage from your company address.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <Label className="text-xs">Delivery Mileage</Label>
+            <div className="mt-1 h-9 flex items-center px-3 rounded-md border border-input bg-muted/30 text-sm">
+              {deliveryLoading ? (
+                <span className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" />Calculating…</span>
+              ) : deliveryDistance != null ? (
+                <span>Calculated mileage: {deliveryDistance.toFixed(1)} miles</span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Number of Trips</Label>
+            <Input type="number" min="1" value={deliveryTripCount}
+              onChange={e => updateDeliveryTripCount(e.target.value)}
+              className="mt-1 h-9" />
+          </div>
+          <div>
+            <Label className="text-xs">Cost per Trip</Label>
+            {deliveryManualMode ? (
+              <div className="relative mt-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                <Input type="number" step="0.01" value={deliveryCostPerTripManual}
+                  onChange={e => updateDeliveryCostPerTripManual(e.target.value)}
+                  placeholder="0.00" className="h-9 pl-7" />
+              </div>
+            ) : (
+              <div className="h-9 flex items-center px-3 rounded-md border border-input bg-muted/30 text-sm font-mono">
+                ${deliveryCostPerTrip.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            )}
+          </div>
+          <div>
+            <Label className="text-xs">Delivery Cost Code</Label>
+            <Select value={deliveryCostCode} onValueChange={updateDeliveryCostCode}>
+              <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select cost code" /></SelectTrigger>
+              <SelectContent>
+                {costCodeOptions.map(c => <SelectItem key={c.id} value={c.code_name}>{c.code_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {deliveryManualMode && deliveryManualReason && (
+          <p className="text-xs text-amber-600 mt-3">{deliveryManualReason}</p>
+        )}
+
+        <div className="flex justify-between items-center pt-3 mt-3 border-t border-border font-semibold">
+          <span>Total Delivery Cost</span>
+          <span className="font-mono">${deliveryTotalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+        </div>
+      </div>
+
       {/* Administrative Manual Overrides */}
       <div className="steel-card p-5">
         <h4 className="font-semibold mb-1">Administrative Overrides</h4>
@@ -489,6 +669,10 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
           <div className="flex justify-between text-sm">
             <span>Insurance Allocation{!insuranceEnabled && <span className="text-xs text-muted-foreground"> (off — not included)</span>}</span>
             <span className="font-mono">${includedInsuranceAllocation.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span>Delivery Cost{deliveryCostCode && <span className="text-xs text-muted-foreground"> ({deliveryCostCode})</span>}</span>
+            <span className="font-mono">${deliveryTotalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
           <div className="flex justify-between text-sm"><span>Hancock County Tax ({(calculatedTaxRate * 100).toFixed(2)}%)</span><span className="font-mono">${structuralTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
           <div className="flex justify-between text-sm">

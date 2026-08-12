@@ -113,7 +113,7 @@ export default function DeliveryPricingAdmin() {
     <div className="p-6 max-w-4xl mx-auto">
       <PageHeader
         title="Delivery Pricing Tiers"
-        subtitle="Flat delivery cost per trip, banded by round-trip mileage from the company address."
+        subtitle="Flat delivery cost per trip, banded by one-way mileage from the company address to the jobsite."
         actions={<Button onClick={openAdd} className="steel-gradient text-white border-0"><Plus className="w-4 h-4" />Add Tier</Button>}
       />
 
