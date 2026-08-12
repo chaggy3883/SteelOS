@@ -11,6 +11,17 @@ import { Save, Gauge, TrendingUp, Landmark, Loader2 } from 'lucide-react';
 
 const fmtMoney = (n) => `$${Math.round(n || 0).toLocaleString()}`;
 
+function WipYAxisTick({ x, y, payload, maxChars }) {
+  const label = payload?.value || '';
+  const display = label.length > maxChars ? `${label.slice(0, Math.max(1, maxChars - 1))}…` : label;
+  return (
+    <text x={x} y={y} dy={4} textAnchor="end" fontSize={12} fill="#6b7280">
+      <title>{label}</title>
+      {display}
+    </text>
+  );
+}
+
 const REASON_LABELS = {
   price: 'Price — Too High', competitor: 'Competitor Selected', schedule: 'Schedule — Too Long',
   capacity: 'Capacity — No Shop Availability', scope_clarity: 'Scope Clarity', relationship: 'Relationship / Preference',
@@ -50,6 +61,12 @@ export default function ExecutiveAnalytics() {
 
   const wipRadar = useMemo(() => computeProjectWipRadar(projects, ledgerEntries), [projects, ledgerEntries]);
   const winLoss = useMemo(() => computeWinLossStats(bids), [bids]);
+
+  const { wipLabelWidth, wipMaxChars } = useMemo(() => {
+    const longest = wipRadar.reduce((max, p) => Math.max(max, (p.projectName || '').length), 0);
+    const width = Math.min(220, Math.max(120, longest * 6.5 + 16));
+    return { wipLabelWidth: width, wipMaxChars: Math.max(6, Math.floor((width - 16) / 6.5)) };
+  }, [wipRadar]);
 
   const winLossChartData = [
     { name: 'Won', count: winLoss.won, fill: '#16a34a' },
@@ -103,10 +120,15 @@ export default function ExecutiveAnalytics() {
           <p className="text-sm text-muted-foreground py-8 text-center">No active projects to chart.</p>
         ) : (
           <ResponsiveContainer width="100%" height={Math.max(160, wipRadar.length * 60)}>
-            <BarChart data={wipRadar} layout="vertical" margin={{ left: 24 }}>
+            <BarChart data={wipRadar} layout="vertical" margin={{ left: 8 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} />
               <XAxis type="number" tickFormatter={fmtMoney} />
-              <YAxis type="category" dataKey="projectName" width={140} />
+              <YAxis
+                type="category"
+                dataKey="projectName"
+                width={wipLabelWidth}
+                tick={<WipYAxisTick maxChars={wipMaxChars} />}
+              />
               <Tooltip formatter={(value) => fmtMoney(value)} />
               <Legend />
               <Bar dataKey="contractValue" name="Contract Value" fill="#2563eb" radius={[0, 4, 4, 0]} />
