@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isAdminUser } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
 import UserManagement from '@/components/admin/UserManagement';
 import AuditLogViewer from '@/components/admin/AuditLogViewer';
@@ -30,8 +31,16 @@ const TABS = [
   { id: 'steel-catalog', label: 'Steel Inventory Catalog', icon: Layers, Component: SteelCatalogPanel },
 ];
 
+// Standalone routed pages (not query-param tabs) that still belong in the
+// Admin nav — rendered as Link items alongside the tab buttons above.
+const NAV_LINKS = [
+  { path: '/admin/cost-codes', label: 'Cost Codes', icon: Tags },
+  { path: '/admin/delivery-pricing', label: 'Delivery Pricing', icon: Truck },
+];
+
 export default function Admin() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const requestedTab = searchParams.get('tab') || 'users';
   const setActiveTab = (id) => setSearchParams({ tab: id });
   const [currentUser, setCurrentUser] = useState(null);
@@ -49,15 +58,16 @@ export default function Admin() {
 
   const userRoles = currentUser?.roles || [];
   const normalizedRoles = userRoles.map(r => String(r).toLowerCase());
-  const isAdmin = userRoles.includes('admin') || userRoles.includes('system_administrator') || userRoles.includes('super_admin') || currentUser?.is_admin === true || userRoles.includes('Demo Admin') || userRoles.includes('Admin');
+  const isAdmin = isAdminUser(currentUser);
 
   // Most tabs require full admin access. A tab can opt into a narrower
   // `roles` allowlist (case-insensitive) to also admit users who aren't
   // full admins — e.g. hr_admin viewing only "Roles & Permissions".
   const hasTabAccess = (tab) => isAdmin || (tab.roles || []).some(r => normalizedRoles.includes(r.toLowerCase()));
   const visibleTabs = TABS.filter(hasTabAccess);
+  const visibleNavLinks = isAdmin ? NAV_LINKS : [];
 
-  if (visibleTabs.length === 0) return (
+  if (visibleTabs.length === 0 && visibleNavLinks.length === 0) return (
     <div className="flex flex-col items-center justify-center h-96 gap-3">
       <ShieldCheck className="w-12 h-12 text-muted-foreground" />
       <h2 className="text-lg font-semibold">Admin Access Required</h2>
@@ -66,7 +76,7 @@ export default function Admin() {
   );
 
   const activeTabObj = visibleTabs.find(t => t.id === requestedTab) || visibleTabs[0];
-  const Active = activeTabObj.Component;
+  const Active = activeTabObj?.Component;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -77,13 +87,23 @@ export default function Admin() {
           return (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
-                activeTabObj.id === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+                activeTabObj?.id === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}>
               <Icon className="w-4 h-4" />{tab.label}
             </button>
           );
         })}
+        {visibleNavLinks.map(link => {
+          const Icon = link.icon;
+          return (
+            <Link key={link.path} to={link.path}
+              className={cn('flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
+                location.pathname === link.path ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+              <Icon className="w-4 h-4" />{link.label}
+            </Link>
+          );
+        })}
       </div>
-      <Active />
+      {Active && <Active />}
     </div>
   );
 }

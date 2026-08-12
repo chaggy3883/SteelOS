@@ -52,6 +52,7 @@ const createLocalApi = () => ({
     CostCode: createEntityApi('CostCode'),
     Customer: createEntityApi('Customer'),
     Contact: createEntityApi('Contact'),
+    DeliveryPricingTier: createEntityApi('DeliveryPricingTier'),
     CustomRole: createEntityApi('CustomRole'),
     Document: createEntityApi('Document'),
     HistoricalVariance: createEntityApi('HistoricalVariance'),

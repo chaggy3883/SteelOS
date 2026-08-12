@@ -200,6 +200,13 @@ const buildSeedData = () => {
       { id: 'cost-code-equipment', company_id: 'company-hancock', code_name: 'EQUIPMENT', description: 'Owned/rented equipment usage', is_active: true, created_date: now, updated_date: now },
       { id: 'cost-code-subcontractor', company_id: 'company-hancock', code_name: 'SUBCONTRACTOR', description: 'Subcontracted scope', is_active: true, created_date: now, updated_date: now }
     ],
+    DeliveryPricingTier: [
+      { id: 'delivery-tier-1', company_id: 'company-hancock', min_miles: 0, max_miles: 25, cost_per_trip: 750, created_date: now, updated_date: now },
+      { id: 'delivery-tier-2', company_id: 'company-hancock', min_miles: 25, max_miles: 50, cost_per_trip: 1200, created_date: now, updated_date: now },
+      { id: 'delivery-tier-3', company_id: 'company-hancock', min_miles: 50, max_miles: 75, cost_per_trip: 1650, created_date: now, updated_date: now },
+      { id: 'delivery-tier-4', company_id: 'company-hancock', min_miles: 75, max_miles: 100, cost_per_trip: 2100, created_date: now, updated_date: now },
+      { id: 'delivery-tier-5', company_id: 'company-hancock', min_miles: 100, max_miles: 125, cost_per_trip: 2550, created_date: now, updated_date: now }
+    ],
     Customer: [
       {
         id: 'customer-acme',
@@ -2001,7 +2008,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();

@@ -46,6 +46,8 @@ import Reports from '@/pages/Reports';
 import Users from '@/pages/Users';
 import Settings from '@/pages/Settings';
 import Admin from '@/pages/Admin';
+import CostCodesAdmin from '@/pages/CostCodesAdmin';
+import DeliveryPricingAdmin from '@/pages/DeliveryPricingAdmin';
 import Estimating from '@/pages/Estimating';
 import BidNew from '@/pages/BidNew';
 import BidDetail from '@/pages/BidDetail';
@@ -155,6 +157,8 @@ const AuthenticatedApp = () => {
           <Route path="/executive-analytics" element={<ExecutiveAnalytics />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/cost-codes" element={<CostCodesAdmin />} />
+          <Route path="/admin/delivery-pricing" element={<DeliveryPricingAdmin />} />
           <Route path="/system-integrations" element={<SystemIntegrations />} />
         </Route>
       </Route>

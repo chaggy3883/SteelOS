@@ -13,6 +13,23 @@ export function isSuperAdmin(user) {
   return roles.includes('super_admin');
 }
 
+// Broader than isSuperAdmin — true for any role that should see the Admin
+// module's tabs (system_administrator, the seeded demo "Demo Admin"/"Admin"
+// role strings, or an explicit is_admin flag), not just the platform
+// super_admin role.
+export function isAdminUser(user) {
+  const roles = user?.roles || [];
+  const normalizedRoles = roles.map((r) => String(r).toLowerCase());
+  return (
+    normalizedRoles.includes('admin') ||
+    normalizedRoles.includes('system_administrator') ||
+    normalizedRoles.includes('super_admin') ||
+    user?.is_admin === true ||
+    roles.includes('Demo Admin') ||
+    roles.includes('Admin')
+  );
+}
+
 // The session's home tenant, or the tenant a super_admin is currently
 // impersonating — this is the single value the query interceptor scopes by.
 export function getEffectiveCompanyId() {
