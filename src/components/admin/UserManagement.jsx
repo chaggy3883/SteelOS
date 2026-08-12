@@ -28,10 +28,14 @@ export default function UserManagement() {
     db.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
   }, []);
 
-  // Super-Admin Role Firewall: a plain tenant `admin` (not a platform
-  // `super_admin`) may never see, assign, or view the `super_admin` tier —
-  // it's the platform-operator role, not a tenant permission level.
-  const assignableRoles = viewerIsSuperAdmin ? allRoles : allRoles.filter((r) => r.value !== 'super_admin');
+  // Super-Admin Role Firewall: `super_admin` is the platform-operator role,
+  // not a tenant permission level, so it never appears as a selectable UI
+  // option for anyone — including a viewer who is themselves a super_admin.
+  // There is currently no out-of-band provisioning path for super_admin
+  // accounts; a future one would hook in here (and in `RoleManager.jsx`'s
+  // visibleBuiltinRoles / `adminConstants.jsx`'s SYSTEM_ROLES) rather than
+  // restoring it to this dropdown.
+  const assignableRoles = allRoles.filter((r) => r.value !== 'super_admin');
   const visibleUsers = viewerIsSuperAdmin ? users : users.filter((u) => !(u.roles || []).includes('super_admin'));
 
   const loadUsers = async () => {

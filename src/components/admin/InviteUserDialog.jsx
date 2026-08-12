@@ -43,7 +43,7 @@ export default function InviteUserDialog({ onClose, onInvited, availableRoles })
             <Select value={role} onValueChange={setRole}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {(availableRoles || SYSTEM_ROLES).filter(r => r.value !== 'suspended').map(r =>
+                {(availableRoles || SYSTEM_ROLES).filter(r => r.value !== 'suspended' && r.value !== 'super_admin').map(r =>
                   <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                 )}
               </SelectContent>

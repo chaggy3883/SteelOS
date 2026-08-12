@@ -87,7 +87,9 @@ export default function HumanResources() {
     } catch (e) {}
     setRoles(currentRoles);
     await loadAll(currentRoles);
-    getAllRoles().then(setAllRoles).catch(() => setAllRoles([]));
+    // super_admin is a platform-operator role, not an assignable HR role —
+    // never offer it in the Platform Role dropdown here or in AddEmployeeWizard.
+    getAllRoles().then((r) => setAllRoles(r.filter((role) => role.value !== 'super_admin'))).catch(() => setAllRoles([]));
     setLoading(false);
   };
 

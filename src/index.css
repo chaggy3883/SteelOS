@@ -109,9 +109,14 @@
   border-color: #000 !important;
 }
 
-.dark .theme-invert-toggle {
+.dark .theme-invert-toggle[data-state="unchecked"] {
   background-color: #fff !important;
   border-color: #000 !important;
+}
+
+.dark .theme-invert-toggle[data-state="checked"] {
+  background-color: #3b82f6 !important;
+  border-color: transparent !important;
 }
 
 /* Login Vault slideshow backdrop (LoginVaultBackdrop.jsx) — a continuous,

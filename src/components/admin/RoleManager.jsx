@@ -8,7 +8,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Edit2, Trash2, Loader2, Shield, Lock } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { BUILTIN_ROLES, ALL_MODULES, WIDGET_LIBRARY } from '@/components/dashboard/rbacConfig';
-import { isSuperAdmin } from '@/lib/tenantContext';
 
 export default function RoleManager() {
   const { toast } = useToast();
@@ -18,16 +17,18 @@ export default function RoleManager() {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ role_name: '', label: '', description: '', allowed_modules: [], allowed_widgets: [] });
-  const [viewerIsSuperAdmin, setViewerIsSuperAdmin] = useState(false);
 
   useEffect(() => {
     loadRoles();
-    db.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
   }, []);
 
-  // Super-Admin Role Firewall: a plain tenant admin never sees the
-  // platform-operator role card at all — not even read-only.
-  const visibleBuiltinRoles = BUILTIN_ROLES.filter((r) => r.name !== 'user' && (viewerIsSuperAdmin || r.name !== 'super_admin'));
+  // Super-Admin Role Firewall: no one — including a viewer who is
+  // themselves a super_admin — sees the platform-operator role card here.
+  // There is currently no out-of-band provisioning path for super_admin
+  // accounts; a future one would hook in here (and in
+  // `UserManagement.jsx`'s assignableRoles) rather than restoring it to
+  // this list.
+  const visibleBuiltinRoles = BUILTIN_ROLES.filter((r) => r.name !== 'user' && r.name !== 'super_admin');
 
   const loadRoles = async () => {
     setLoading(true);
