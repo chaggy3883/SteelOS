@@ -1,4 +1,4 @@
-import { ListChecks, Calculator, TrendingUp, History, Plus, FolderKanban, FileEdit, Factory, Truck, DollarSign, Activity, PackageCheck, CalendarClock } from 'lucide-react';
+import { ListChecks, Calculator, TrendingUp, History, Plus, FolderKanban, FileEdit, Factory, Truck, DollarSign, Activity, PackageCheck, CalendarClock, AlertTriangle } from 'lucide-react';
 import { db } from '@/api/apiClient';
 
 export const ALL_MODULES = [
@@ -51,6 +51,7 @@ export const WIDGET_LIBRARY = [
   { id: 'bid_list', name: 'Bid List', category: 'estimator', icon: ListChecks, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 3, description: 'Recent bids with status', route: '/estimating' },
   { id: 'active_bids_count', name: 'Active Bids', category: 'estimator', icon: Calculator, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Count of in-progress bids', route: '/estimating' },
   { id: 'bid_win_rate', name: 'Bid Win %', category: 'estimator', icon: TrendingUp, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Win rate percentage', route: '/estimating/analytics' },
+  { id: 'bid_pricing_hold', name: 'Bid Pricing Hold', category: 'estimator', icon: AlertTriangle, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Bids expiring or past their pricing hold window', route: '/estimating' },
   { id: 'bid_history', name: 'Bid History', category: 'estimator', icon: History, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Won/lost/submitted trends', route: '/estimating/analytics' },
   { id: 'quick_add_bid', name: 'Quick Add Bid', category: 'estimator', icon: Plus, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Fast bid creation form', route: '/estimating' },
   { id: 'active_projects', name: 'Active Projects', category: 'pm', icon: FolderKanban, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 3, description: 'Project status overview', route: '/projects' },
@@ -69,7 +70,7 @@ export const WIDGET_LIBRARY = [
 
 export const BUILTIN_ROLES = [
   { name: 'admin', label: 'Admin', is_system: true, description: 'Full system access', allowed_modules: ['*'], allowed_widgets: ['*'] },
-  { name: 'estimator', label: 'Estimator', is_system: true, description: 'Estimating, BID Worksheet, CRM', allowed_modules: ['/', '/employee-center','/estimating', '/estimating/analytics', '/estimating/spec-review', '/projects', '/crm', '/intelligence', '/documents', '/rfis', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_win_rate', 'bid_history', 'quick_add_bid'] },
+  { name: 'estimator', label: 'Estimator', is_system: true, description: 'Estimating, BID Worksheet, CRM', allowed_modules: ['/', '/employee-center','/estimating', '/estimating/analytics', '/estimating/spec-review', '/projects', '/crm', '/intelligence', '/documents', '/rfis', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_win_rate', 'bid_pricing_hold', 'bid_history', 'quick_add_bid'] },
   { name: 'project_manager', label: 'Project Manager', is_system: true, description: 'Job Tracking, Change Orders, Logistics, Billing', allowed_modules: ['/', '/employee-center','/projects', '/production', '/shipping', '/field-operations', '/field-operations/rigging-inspection', '/field-operations/equipment-service', '/accounting', '/documents', '/rfis', '/reports', '/payroll/hours', '/portal/login'], allowed_widgets: ['active_projects', 'change_orders', 'fab_progress', 'shipments_calendar', 'invoiced_vs_remaining', 'project_health_summary', 'change_order_pipeline', 'shipments_calendar_widget', 'pending_requisition_approvals_widget', 'material_received_tracker_widget'] },
   { name: 'purchasing_agent', label: 'Purchasing Agent', is_system: true, description: 'Purchasing & vendor management', allowed_modules: ['/', '/employee-center','/purchasing', '/purchasing/module', '/purchasing/receiving-kiosk', '/crm', '/inventory', '/portal/login'], allowed_widgets: ['buyout_variance_widget', 'pending_requisition_approvals_widget'] },
   { name: 'shop_manager', label: 'Shop Manager', is_system: true, description: 'Production & quality oversight', allowed_modules: ['/', '/employee-center','/production', '/quality', '/safety', '/inventory', '/shop-operations', '/shop-floor-command-center', '/field-operations', '/field-operations/rigging-inspection', '/field-operations/equipment-service', '/payroll/hours'], allowed_widgets: ['fab_progress'] },

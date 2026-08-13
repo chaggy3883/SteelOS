@@ -16,10 +16,12 @@ import { useToast } from '@/components/ui/use-toast';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { enableKioskMode } from '@/lib/kioskMode';
+import { DEFAULT_BID_PRICING_HOLD_DAYS } from '@/lib/bidPricingHold';
 
 const emptyCompanyForm = () => ({
   name: '', company_type: 'structural_steel_fabricator', address: '', city: '', state: '', zip: '',
   aisc_certification: '', phone: '', email: '', website: '',
+  bid_pricing_hold_days: DEFAULT_BID_PRICING_HOLD_DAYS,
 });
 
 // Per-user preference — stored on the User/employees record (see
@@ -128,6 +130,7 @@ export default function Settings() {
         phone: row?.phone || '',
         email: row?.email || '',
         website: row?.website || '',
+        bid_pricing_hold_days: row?.bid_pricing_hold_days || DEFAULT_BID_PRICING_HOLD_DAYS,
       });
     } finally {
       setLoadingCompany(false);
@@ -184,8 +187,11 @@ export default function Settings() {
     }
     setSaving(true);
     try {
-      const updated = await db.entities.Company.update(company.id, companyForm);
+      const holdDays = Number(companyForm.bid_pricing_hold_days);
+      const payload = { ...companyForm, bid_pricing_hold_days: Number.isFinite(holdDays) && holdDays > 0 ? holdDays : DEFAULT_BID_PRICING_HOLD_DAYS };
+      const updated = await db.entities.Company.update(company.id, payload);
       setCompany(updated);
+      setCompanyForm(f => ({ ...f, bid_pricing_hold_days: payload.bid_pricing_hold_days }));
       toast({ title: 'Settings saved!' });
     } catch (e) {
       toast({ title: 'Unable to save settings', variant: 'destructive' });
@@ -274,6 +280,26 @@ export default function Settings() {
                 <div>
                   <Label>Zip</Label>
                   <Input value={companyForm.zip} onChange={e => updateCompanyField('zip', e.target.value)} placeholder="45840" className="mt-1" />
+                </div>
+              </div>
+            </div>
+
+            <div className="steel-card p-6">
+              <h3 className="font-semibold mb-1">Business Rules</h3>
+              <p className="text-xs text-muted-foreground mb-4">Company-wide thresholds used across SteelOS.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label>Bid Pricing Hold (days)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={companyForm.bid_pricing_hold_days}
+                    onChange={e => updateCompanyField('bid_pricing_hold_days', e.target.value === '' ? '' : Number(e.target.value))}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    How long quoted bid pricing is held before it's flagged as expired. Defaults to {DEFAULT_BID_PRICING_HOLD_DAYS}.
+                  </p>
                 </div>
               </div>
             </div>

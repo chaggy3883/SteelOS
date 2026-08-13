@@ -23,6 +23,10 @@ import { Switch } from '@/components/ui/switch';
 import FullTakeoff from '@/components/estimating/FullTakeoff';
 import { computeEffectiveTaxRate, HANCOCK_COUNTY_TAX_RATE, TAX_RATE_PATTERN, formatTaxRatePercent, sanitizeTaxRateInput } from '@/lib/taxRate';
 import { runBidReviewSkill } from '@/lib/aiReviewSkills';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { getBidHoldDays } from '@/lib/bidPricingHold';
+import BidPricingHoldBadge from '@/components/estimating/BidPricingHoldBadge';
+import BidPricingHoldModal from '@/components/estimating/BidPricingHoldModal';
 
 const LOSS_REASONS = [
   { value: 'price', label: 'Price — Too High' },
@@ -41,6 +45,8 @@ export default function BidDetail() {
   const { toast } = useToast();
   const [bid, setBid] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [bidHoldDays, setBidHoldDays] = useState(() => getBidHoldDays(null));
+  const [showPricingHold, setShowPricingHold] = useState(false);
   const [activeTab, setActiveTab] = useState(location.state?.tab || 'files');
   const [showLossForm, setShowLossForm] = useState(false);
   const [showDnbModal, setShowDnbModal] = useState(false);
@@ -62,6 +68,7 @@ export default function BidDetail() {
 
   useEffect(() => { loadBid(); }, [id]);
   useEffect(() => { loadEmployees(); }, []);
+  useEffect(() => { getEffectiveCompany().then(c => setBidHoldDays(getBidHoldDays(c))).catch(() => {}); }, []);
 
   useEffect(() => {
     if (bid) {
@@ -365,6 +372,7 @@ export default function BidDetail() {
         actions={
           <div className="flex items-center gap-2">
             <StatusBadge status={bid.status} />
+            <BidPricingHoldBadge bid={bid} holdDays={bidHoldDays} onClick={() => setShowPricingHold(true)} />
             <Button size="sm" onClick={handleSaveEstimate} disabled={savingEstimate} className="steel-gradient text-white border-0">
               {savingEstimate ? 'Saving…' : 'Save Estimate'}
             </Button>
@@ -558,6 +566,13 @@ export default function BidDetail() {
         onOpenChange={setCertViewerOpen}
         source={bid.tax_exempt_certificate_uri}
         fileName="Tax Exemption Certificate.pdf"
+      />
+
+      <BidPricingHoldModal
+        bid={bid}
+        holdDays={bidHoldDays}
+        open={showPricingHold}
+        onOpenChange={setShowPricingHold}
       />
 
       {/* Tabs */}

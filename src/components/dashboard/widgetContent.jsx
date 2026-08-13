@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, Package, CalendarClock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { getBidHoldDays, getBidPricingHoldState } from '@/lib/bidPricingHold';
 
 export const REQUISITION_APPROVAL_ROLES = ['controller', 'finance_department', 'admin', 'super_admin'];
 
@@ -48,6 +50,46 @@ function ActiveBidsCountWidget() {
       <p className="text-3xl font-bold text-primary">{count === null ? '—' : count}</p>
       <p className="text-xs text-muted-foreground mt-1">Active Bids</p>
     </button>
+  );
+}
+
+function BidPricingHoldWidget() {
+  const navigate = useNavigate();
+  const [counts, setCounts] = useState(null);
+  useEffect(() => {
+    Promise.all([getEffectiveCompany(), db.entities.Bid.list('-created_date', 500)])
+      .then(([company, bids]) => {
+        const holdDays = getBidHoldDays(company);
+        const levels = bids.map(b => getBidPricingHoldState(b, holdDays)?.level);
+        setCounts({
+          warning: levels.filter(l => l === 'warning').length,
+          expired: levels.filter(l => l === 'expired').length,
+        });
+      })
+      .catch(() => setCounts({ warning: 0, expired: 0 }));
+  }, []);
+  if (!counts) return <WidgetSkeleton lines={2} />;
+  return (
+    <div className="grid grid-cols-2 gap-2 h-full">
+      <button
+        type="button"
+        onClick={() => navigate('/estimating?pricing_hold=warning')}
+        title="View bids with an expiring pricing hold"
+        className="flex flex-col items-center justify-center rounded cursor-pointer hover:bg-muted/50 transition-colors min-h-[44px]"
+      >
+        <p className="text-2xl font-bold text-yellow-600">{counts.warning}</p>
+        <p className="text-xs text-muted-foreground mt-1">Expiring Soon</p>
+      </button>
+      <button
+        type="button"
+        onClick={() => navigate('/estimating?pricing_hold=expired')}
+        title="View bids with an expired pricing hold"
+        className="flex flex-col items-center justify-center rounded cursor-pointer hover:bg-muted/50 transition-colors min-h-[44px]"
+      >
+        <p className="text-2xl font-bold text-red-600">{counts.expired}</p>
+        <p className="text-xs text-muted-foreground mt-1">Pricing Expired</p>
+      </button>
+    </div>
   );
 }
 
@@ -600,6 +642,7 @@ function MaterialReceivedTrackerWidget() {
 
 const WIDGET_RENDERERS = {
   bid_list: BidListWidget, active_bids_count: ActiveBidsCountWidget, bid_win_rate: BidWinRateWidget,
+  bid_pricing_hold: BidPricingHoldWidget,
   bid_history: BidHistoryWidget, quick_add_bid: QuickAddBidWidget, active_projects: ActiveProjectsWidget,
   change_orders: ChangeOrdersWidget, fab_progress: FabProgressWidget, shipments_calendar: ShipmentsCalendarWidget,
   interviews_calendar: InterviewsCalendarWidget,

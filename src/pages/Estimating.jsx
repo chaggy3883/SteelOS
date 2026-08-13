@@ -11,6 +11,10 @@ import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import DNBReasonModal from '@/components/estimating/DNBReasonModal';
+import BidPricingHoldBadge from '@/components/estimating/BidPricingHoldBadge';
+import BidPricingHoldModal from '@/components/estimating/BidPricingHoldModal';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { getBidHoldDays, getBidPricingHoldState } from '@/lib/bidPricingHold';
 
 const BID_STATUSES = ['draft', 'in_progress', 'submitted', 'won', 'lost', 'cancelled', 'Did_Not_Bid'];
 
@@ -43,11 +47,14 @@ export default function Estimating() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [showDnbModal, setShowDnbModal] = useState(false);
   const [statusBid, setStatusBid] = useState(null);
+  const [pricingHoldBid, setPricingHoldBid] = useState(null);
+  const [bidHoldDays, setBidHoldDays] = useState(() => getBidHoldDays(null));
 
   useEffect(() => {
     const saved = localStorage.getItem('estimating_widgets');
     if (saved) setWidgetConfig(JSON.parse(saved));
     loadData();
+    getEffectiveCompany().then(c => setBidHoldDays(getBidHoldDays(c))).catch(() => {});
   }, []);
 
   const loadData = async () => {
@@ -117,10 +124,14 @@ export default function Estimating() {
     localStorage.setItem('estimating_widgets', JSON.stringify(updated));
   };
 
+  const pricingHoldFilter = searchParams.get('pricing_hold'); // 'warning' | 'expired' | null
   const customerFilteredBids = customerFilterId
     ? bids.filter(b => b.customer_id === customerFilterId || b.general_contractor_id === customerFilterId)
     : bids;
-  const activeBids = customerFilteredBids.filter(b => ['draft', 'in_progress', 'submitted'].includes(b.status));
+  const activeBidsUnfiltered = customerFilteredBids.filter(b => ['draft', 'in_progress', 'submitted'].includes(b.status));
+  const activeBids = pricingHoldFilter
+    ? activeBidsUnfiltered.filter(b => getBidPricingHoldState(b, bidHoldDays)?.level === pricingHoldFilter)
+    : activeBidsUnfiltered;
   const wonBids = customerFilteredBids.filter(b => b.status === 'won');
   const lostBids = customerFilteredBids.filter(b => b.status === 'lost');
   const dnbBids = customerFilteredBids.filter(b => b.status === 'Did_Not_Bid');
@@ -170,6 +181,15 @@ export default function Estimating() {
           <span>
             Showing only bids for{' '}
             {customerFilteredBids[0]?.customer_name || customerFilteredBids[0]?.general_contractor_name || 'this company'}.
+          </span>
+          <button className="flex items-center gap-1 hover:underline" onClick={() => navigate('/estimating')}><X className="w-3.5 h-3.5" />Clear filter</button>
+        </div>
+      )}
+
+      {pricingHoldFilter && (
+        <div className={`flex items-center justify-between text-sm mb-4 px-3 py-2 rounded-lg ${pricingHoldFilter === 'expired' ? 'bg-red-500/10 text-red-600' : 'bg-yellow-500/10 text-yellow-600'}`}>
+          <span>
+            Showing only active bids with {pricingHoldFilter === 'expired' ? 'an expired' : 'a warning-level'} pricing hold.
           </span>
           <button className="flex items-center gap-1 hover:underline" onClick={() => navigate('/estimating')}><X className="w-3.5 h-3.5" />Clear filter</button>
         </div>
@@ -278,9 +298,12 @@ export default function Estimating() {
                         </button>
                       </td>
                       <td className="py-3 px-4">
-                        <button onClick={(e) => { e.stopPropagation(); setStatusBid(b); }}>
-                          <StatusBadge status={b.status} />
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button onClick={(e) => { e.stopPropagation(); setStatusBid(b); }}>
+                            <StatusBadge status={b.status} />
+                          </button>
+                          <BidPricingHoldBadge bid={b} holdDays={bidHoldDays} onClick={() => setPricingHoldBid(b)} />
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-right">
                         <button
@@ -546,6 +569,13 @@ export default function Estimating() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BidPricingHoldModal
+        bid={pricingHoldBid}
+        holdDays={bidHoldDays}
+        open={!!pricingHoldBid}
+        onOpenChange={(open) => !open && setPricingHoldBid(null)}
+      />
     </div>
   );
 }
