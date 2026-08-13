@@ -5,9 +5,12 @@ import SystemAccessPortal from '@/components/hr/SystemAccessPortal';
 import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
 import ComplianceDocumentCenter from '@/components/hr/ComplianceDocumentCenter';
 import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
+import DisciplinaryActionsPanel from '@/components/hr/DisciplinaryActionsPanel';
+import { canManageDisciplinaryActions } from '@/lib/disciplinaryAccess';
 
-export default function EmployeeProfileDialog({ employee, roles, open, onOpenChange, onEmployeeUpdated }) {
+export default function EmployeeProfileDialog({ employee, employees = [], roles, open, onOpenChange, onEmployeeUpdated }) {
   const [current, setCurrent] = useState(employee);
+  const showDisciplinary = canManageDisciplinaryActions(roles);
 
   useEffect(() => { setCurrent(employee); }, [employee?.id]);
 
@@ -30,6 +33,7 @@ export default function EmployeeProfileDialog({ employee, roles, open, onOpenCha
             <TabsTrigger value="emergency">Emergency Contact</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
+            {showDisciplinary && <TabsTrigger value="disciplinary">Disciplinary</TabsTrigger>}
           </TabsList>
           <TabsContent value="access">
             <SystemAccessPortal employee={current} roles={roles} onUpdated={handleUpdated} />
@@ -43,6 +47,11 @@ export default function EmployeeProfileDialog({ employee, roles, open, onOpenCha
           <TabsContent value="permissions">
             <PermissionsGridPanel subject={current} subjectType="employees" onUpdated={handleUpdated} />
           </TabsContent>
+          {showDisciplinary && (
+            <TabsContent value="disciplinary">
+              <DisciplinaryActionsPanel employee={current} employees={employees} roles={roles} />
+            </TabsContent>
+          )}
         </Tabs>
       </DialogContent>
     </Dialog>

@@ -664,6 +664,7 @@ export default function HumanResources() {
       {profileEmployee && (
         <EmployeeProfileDialog
           employee={profileEmployee}
+          employees={employees}
           roles={roles}
           open={showProfileDialog}
           onOpenChange={setShowProfileDialog}

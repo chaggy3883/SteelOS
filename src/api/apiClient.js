@@ -24,6 +24,7 @@ const createLocalApi = () => ({
     RiggingInspection: createEntityApi('RiggingInspection'),
     EquipmentService: createEntityApi('EquipmentService'),
     SafetyMeeting: createEntityApi('SafetyMeeting'),
+    DisciplinaryAction: createEntityApi('DisciplinaryAction'),
     form_layouts: createEntityApi('form_layouts'),
     report_templates: createEntityApi('report_templates'),
     Bid: createEntityApi('Bid'),

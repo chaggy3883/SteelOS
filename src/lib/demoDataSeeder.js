@@ -990,6 +990,46 @@ export async function seedDemoData() {
     }))
   );
 
+  // Disciplinary Actions — one fully filed (draft -> printed -> signed_filed)
+  // and one still in draft, so DisciplinaryActionsPanel's tab shows both a
+  // locked, completed record and an editable one on first load.
+  const disciplineSubject = fieldEmployees[1] || fieldEmployees[0] || shopEmployees[0];
+  const disciplinarySeeds = disciplineSubject ? [
+    {
+      employee_id: disciplineSubject.id,
+      action_date: daysFromNow(-45),
+      action_level: 'verbal_warning',
+      incident_date: daysFromNow(-46),
+      incident_description: 'Arrived 40 minutes late to the morning safety briefing without prior notice, the second such occurrence this quarter.',
+      policy_violated: 'Employee Handbook §3.1 — Attendance & Punctuality',
+      prior_actions_referenced: '',
+      corrective_action_required: 'Employee must notify their supervisor at least 30 minutes before shift start for any expected lateness.',
+      consequences_if_repeated: 'A third occurrence within the quarter will escalate to a written warning.',
+      supervisor_name: shopManager?.full_name || 'Shop Manager',
+      witness_name: pmEmployee?.full_name || '',
+      employee_statement: 'Acknowledged — will set an earlier alarm and notify ahead of time going forward.',
+      status: 'signed_filed',
+    },
+    {
+      employee_id: disciplineSubject.id,
+      action_date: daysFromNow(-2),
+      action_level: 'written_warning',
+      incident_date: daysFromNow(-3),
+      incident_description: 'Failed to wear required fall protection harness while working above 6ft on the erection site.',
+      policy_violated: 'Site Safety Plan — Fall Protection Requirements (>6ft)',
+      prior_actions_referenced: `See verbal warning dated ${daysFromNow(-45)} (attendance) — different category, noted for pattern review.`,
+      corrective_action_required: 'Mandatory fall-protection refresher training before returning to elevated work.',
+      consequences_if_repeated: 'Any repeat safety violation will result in suspension pending investigation.',
+      supervisor_name: shopManager?.full_name || 'Shop Manager',
+      witness_name: '',
+      employee_statement: '',
+      status: 'draft',
+    },
+  ] : [];
+  if (disciplinarySeeds.length > 0) {
+    await db.entities.DisciplinaryAction.bulkCreate(disciplinarySeeds.map((d) => ({ ...d, signed_document: null })));
+  }
+
   // 26. Credit Card Expenses
   const OFFICE_CARD = '4821';
   const FIELD_CARD = '7734';
@@ -1465,6 +1505,7 @@ export async function seedDemoData() {
       attendancePunches: attendancePayloads.length,
       employeeCertifications: certSeeds.length,
       safetyMeetings: safetyMeetingSeeds.length,
+      disciplinaryActions: disciplinarySeeds.length,
       creditCardExpenses: expenseSeeds.length,
       historicalVariances: historicalVarianceSeeds.length,
       recurringCashItems: recurringCashSeeds.length,
