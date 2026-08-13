@@ -5,9 +5,7 @@ import { db } from '@/api/apiClient';
 import { getUserPermissions, isModuleAllowed } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany, isImpersonating } from '@/lib/tenantContext';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
-import { isErectPlan } from '@/lib/planGating';
-
-const ERECT_PLAN_HIDDEN_PATHS = ['/shop-fabrication', '/shop-operations', '/shop-efficiency'];
+import { hasModule } from '@/lib/moduleEntitlement';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem
 } from '@/components/ui/dropdown-menu';
@@ -121,7 +119,7 @@ export default function NavBar() {
   const location = useLocation();
   const [allowedModules, setAllowedModules] = useState(['*']);
   const [openSection, setOpenSection] = useState(null);
-  const [erectPlan, setErectPlan] = useState(false);
+  const [company, setCompany] = useState(null);
   const [isKioskSession, setIsKioskSession] = useState(false);
   const [isPlatformSuperAdmin, setIsPlatformSuperAdmin] = useState(false);
 
@@ -171,17 +169,14 @@ export default function NavBar() {
         setAllowedModules(['*']);
       }
     })();
-    getEffectiveCompany().then((company) => setErectPlan(isErectPlan(company))).catch(() => setErectPlan(false));
+    getEffectiveCompany().then(setCompany).catch(() => setCompany(null));
   }, []);
 
-  // Absolute Plan Tabs Enforcement: SteelOS_Erect is erection-only — Shop
-  // Fabrication/Shop Operations are hard-removed from the nav, not just
-  // permission-gated, since Field Operations already covers this plan's
-  // fleet/erection workflow in their place.
-  const visibleNavGroups = (erectPlan
-    ? navGroups.map((group) => ({ ...group, items: group.items.filter((item) => !ERECT_PLAN_HIDDEN_PATHS.includes(item.path)) }))
-    : navGroups
-  ).filter((group) => !isKioskSession || !KIOSK_SESSION_HIDDEN_GROUPS.includes(group.label));
+  // Module pack enforcement: a nav item never renders as a link to a module
+  // the company's pack doesn't grant (see modulePacks.js — the one place
+  // that mapping is defined). Hard-removed from the nav, not just
+  // permission-gated, matching the route-level guard each gated page enforces.
+  const visibleNavGroups = navGroups.filter((group) => !isKioskSession || !KIOSK_SESSION_HIDDEN_GROUPS.includes(group.label));
 
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';
@@ -204,7 +199,8 @@ export default function NavBar() {
       {visibleNavGroups.map((group) => {
         const filteredItems = group.items.filter(item =>
           isModuleAllowed(item.path, allowedModules) &&
-          (item.path !== '/super-admin/dashboard' || isPlatformSuperAdmin)
+          (item.path !== '/super-admin/dashboard' || isPlatformSuperAdmin) &&
+          hasModule(company, item.path)
         );
         if (filteredItems.length === 0) return null;
         const hasActive = hasActiveInGroup(filteredItems);

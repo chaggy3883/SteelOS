@@ -170,7 +170,10 @@ const buildSeedData = () => {
         city: 'Findlay',
         state: 'OH',
         logo_url: '',
-        subscription_plan: 'professional',
+        // Enterprise Connect — Hancock's seed data spans both shop fabrication
+        // and field erection (fleet, rigging, jobsite receiving), so it needs
+        // every module pack bundles. See src/lib/modulePacks.js.
+        subscription_plan: 'Enterprise_Connect',
         subscription_status: 'Active',
         brand_color_hex: '#2563eb',
         is_active: true,
@@ -185,7 +188,10 @@ const buildSeedData = () => {
         city: 'Arlington',
         state: 'TX',
         logo_url: '',
-        subscription_plan: 'starter',
+        // Fabricator pack only — deliberately narrower than Hancock so the two
+        // demo tenants exercise different module-pack gates (no Field
+        // Operations/rigging/equipment-service; see modulePacks.js).
+        subscription_plan: 'SteelOS_Fab',
         subscription_status: 'Active',
         brand_color_hex: '#dc2626',
         is_active: true,

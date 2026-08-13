@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
-import { canAccessRiggingInspection, canAccessEquipmentService } from '@/lib/planGating';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 import FleetRentalRegistry from '@/components/field-operations/FleetRentalRegistry';
 import InspectionRadar from '@/components/field-operations/InspectionRadar';
 import HookProductionTerminal from '@/components/field-operations/HookProductionTerminal';
@@ -36,8 +37,8 @@ export default function FieldOperations() {
   const [usageLogs, setUsageLogs] = useState([]);
   const [canManageFleet, setCanManageFleet] = useState(false);
   const [canOverridePoMismatch, setCanOverridePoMismatch] = useState(false);
-  const [canAccessRigging, setCanAccessRigging] = useState(false);
-  const [canAccessEquipmentSvc, setCanAccessEquipmentSvc] = useState(false);
+  const [fieldOpsAllowed, setFieldOpsAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -89,13 +90,12 @@ export default function FieldOperations() {
       });
     getEffectiveCompany()
       .then((company) => {
-        setCanAccessRigging(canAccessRiggingInspection(company));
-        setCanAccessEquipmentSvc(canAccessEquipmentService(company));
+        setFieldOpsAllowed(hasModule(company, '/field-operations'));
       })
       .catch(() => {
-        setCanAccessRigging(false);
-        setCanAccessEquipmentSvc(false);
-      });
+        setFieldOpsAllowed(false);
+      })
+      .finally(() => setCheckingModuleAccess(false));
   }, [loadAll]);
 
   // Deep-link target for "equipment ID" drill-downs from other tabs/dialogs
@@ -115,28 +115,31 @@ export default function FieldOperations() {
 
   const cranes = assets.filter((a) => a.asset_type === 'Crane');
   const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
-  const showRiggingInspectionLink = canAccessRigging || isPlatformOperatorView;
-  const showEquipmentServiceLink = canAccessEquipmentSvc || isPlatformOperatorView;
+  const showFieldOpsSubforms = fieldOpsAllowed || isPlatformOperatorView;
 
-  if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+  if (loading || checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /field-operations can't bypass the nav's
+  // module-pack filtering. Fleet/rigging/equipment maintenance is Erector +
+  // Enterprise Connect only (see modulePacks.js); a Fabricator-pack company
+  // has no field crews or cranes, so none of this page applies to them.
+  if (!showFieldOpsSubforms) {
+    return <ModuleLocked modulePath="/field-operations" title="Field Operations Not Included" />;
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-4 animate-fade-in">
       <PageHeader
         title="Field Operations"
         subtitle="Fleet & rental registry, OSHA/DOT inspection radar, crane hook production, repair ledger, and rigging matrix"
-        actions={(showRiggingInspectionLink || showEquipmentServiceLink) && (
+        actions={(
           <div className="flex items-center gap-2">
-            {showEquipmentServiceLink && (
-              <Link to="/field-operations/equipment-service">
-                <Button size="sm" variant="outline" className="gap-1.5"><ClipboardList className="w-3.5 h-3.5" />New Equipment Service</Button>
-              </Link>
-            )}
-            {showRiggingInspectionLink && (
-              <Link to="/field-operations/rigging-inspection">
-                <Button size="sm" className="gap-1.5 steel-gradient text-white border-0"><ClipboardCheck className="w-3.5 h-3.5" />New Rigging Inspection</Button>
-              </Link>
-            )}
+            <Link to="/field-operations/equipment-service">
+              <Button size="sm" variant="outline" className="gap-1.5"><ClipboardList className="w-3.5 h-3.5" />New Equipment Service</Button>
+            </Link>
+            <Link to="/field-operations/rigging-inspection">
+              <Button size="sm" className="gap-1.5 steel-gradient text-white border-0"><ClipboardCheck className="w-3.5 h-3.5" />New Rigging Inspection</Button>
+            </Link>
           </div>
         )}
       />

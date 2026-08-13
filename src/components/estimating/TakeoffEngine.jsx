@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { computeEffectiveTaxRate, getJoistDeckTaxRate } from '@/lib/taxRate';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
-import { isErectPlan } from '@/lib/planGating';
+import { hasModule } from '@/lib/moduleEntitlement';
 import { calculateDistance, isGoogleMapsConfigured } from '@/lib/googleMapsService';
 
 // No DeliveryPricingTier is tagged with a CostCode, so the ledger posting
@@ -30,10 +30,11 @@ const inferCostClassFromCodeName = (codeName) => {
 
 const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 
-// SteelOS Erect tenants are erection-only contractors — these shop/fab
-// categories still initialize and save normally (so pre-existing line data
-// is never lost), they're just not rendered in the takeoff form for that plan.
-const HIDDEN_FOR_ERECT_PLAN = ['structural_material', 'structural_fabrication', 'shop_priming'];
+// A company whose pack doesn't include the Fabrication module (see
+// modulePacks.js — Erector-only companies have no shop) still initializes
+// and saves these categories normally, so pre-existing line data is never
+// lost; they're just not rendered in the takeoff form for that company.
+const FABRICATION_ONLY_CATEGORIES = ['structural_material', 'structural_fabrication', 'shop_priming'];
 
 export const COST_CATEGORIES = [
   { key: 'detailing', label: 'Detailing', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price' },
@@ -99,7 +100,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const [editingCoverageKey, setEditingCoverageKey] = useState(null);
   const [inclusions, setInclusions] = useState(bid?.inclusions || '');
   const [exclusions, setExclusions] = useState(bid?.exclusions || '');
-  const [erectPlan, setErectPlan] = useState(false);
 
   const [company, setCompany] = useState(null);
   const [costCodeOptions, setCostCodeOptions] = useState([]);
@@ -114,7 +114,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const [deliveryCostCode, setDeliveryCostCode] = useState(bid?.delivery_cost_code || '');
 
   useEffect(() => {
-    getEffectiveCompany().then((c) => { setErectPlan(isErectPlan(c)); setCompany(c); }).catch(() => setErectPlan(false));
+    getEffectiveCompany().then(setCompany).catch(() => setCompany(null));
   }, []);
 
   useEffect(() => {
@@ -173,9 +173,9 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const updateDeliveryCostPerTripManual = (value) => { setDeliveryCostPerTripManual(value); setDirty(true); };
   const updateDeliveryCostCode = (value) => { setDeliveryCostCode(value); setDirty(true); };
 
-  const visibleCategories = erectPlan
-    ? COST_CATEGORIES.filter((cat) => !HIDDEN_FOR_ERECT_PLAN.includes(cat.key))
-    : COST_CATEGORIES;
+  const visibleCategories = hasModule(company, '/shop-fabrication')
+    ? COST_CATEGORIES
+    : COST_CATEGORIES.filter((cat) => !FABRICATION_ONLY_CATEGORIES.includes(cat.key));
 
   useEffect(() => { loadLines(); }, [bid?.id]);
 

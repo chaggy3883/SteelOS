@@ -8,6 +8,7 @@ import { isMobileDevice, captureLocationCoordinates } from '@/lib/mobilePunch';
 import { normalizeTargetMinutes } from '@/lib/shopOpsMetrics';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
+import { hasModule } from '@/lib/moduleEntitlement';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -409,7 +410,10 @@ export default function EmployeeCenter() {
   };
 
   const approvedLeaveHours = timeOffRequests.filter((r) => r.status === 'Approved').reduce((sum, r) => sum + (r.total_hours || 0), 0);
-  const travelExpensePlanEnabled = company?.subscription_plan === 'SteelOS_Fab' || company?.subscription_plan === 'Enterprise_Connect';
+  // Out-of-town travel/per-diem tracking is a field-crew concept — gated to
+  // companies whose pack includes Field Operations (Erector or Enterprise
+  // Connect; see modulePacks.js), not to a literal plan-string comparison.
+  const travelExpensePlanEnabled = hasModule(company, '/field-operations');
 
   const visibleTabValues = EMPLOYEE_CENTER_TABS
     .filter((t) => isCapabilityAllowed(employee?.permission_overrides, t.key))

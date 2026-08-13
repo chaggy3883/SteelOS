@@ -3,13 +3,14 @@ import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { saveDocumentRecords } from '@/lib/inspectionDocumentStore';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
-import { canAccessEquipmentService } from '@/lib/planGating';
+import { hasModule } from '@/lib/moduleEntitlement';
 import { cn } from '@/lib/utils';
 import {
   ArrowLeft, ClipboardCheck, Wrench, Disc, CircleDot, Truck, Droplets, AlertTriangle, Paperclip,
-  ChevronDown, ShieldAlert, Loader2,
+  ChevronDown, Loader2,
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -252,18 +253,10 @@ export default function EquipmentServiceForm() {
   }
 
   const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
-  const allowed = isPlatformOperatorView || canAccessEquipmentService(effectiveCompany);
+  const allowed = isPlatformOperatorView || hasModule(effectiveCompany, '/field-operations/equipment-service');
 
   if (!allowed) {
-    return (
-      <div className="p-4 md:p-6">
-        <div className="steel-card p-8 text-center max-w-md mx-auto mt-12">
-          <ShieldAlert className="w-10 h-10 text-red-500 mx-auto mb-3" />
-          <h2 className="font-semibold text-lg mb-1">Access Restricted</h2>
-          <p className="text-sm text-muted-foreground">Equipment Service is only available on the Erector or Enterprise plan.</p>
-        </div>
-      </div>
-    );
+    return <ModuleLocked modulePath="/field-operations/equipment-service" title="Equipment Service Not Included" />;
   }
 
   return (

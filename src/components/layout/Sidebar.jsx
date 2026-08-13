@@ -10,9 +10,7 @@ import { cn } from '@/lib/utils';
 import { db } from '@/api/apiClient';
 import { getUserPermissions, isModuleAllowed } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
-import { isErectPlan } from '@/lib/planGating';
-
-const ERECT_PLAN_HIDDEN_PATHS = ['/shop-fabrication', '/shop-operations'];
+import { hasModule } from '@/lib/moduleEntitlement';
 
 const navGroups = [
   {
@@ -72,21 +70,17 @@ const navGroups = [
 export default function Sidebar({ collapsed, setCollapsed, mobileOpen, onClose }) {
   const location = useLocation();
   const [allowedModules, setAllowedModules] = useState(['*']);
-  const [erectPlan, setErectPlan] = useState(false);
+  const [company, setCompany] = useState(null);
 
   useEffect(() => {
     db.auth.me().then(async (u) => {
       const perms = await getUserPermissions(u.roles || ['user']);
       setAllowedModules(perms.modules);
     }).catch(() => {});
-    getEffectiveCompany().then((company) => setErectPlan(isErectPlan(company))).catch(() => setErectPlan(false));
+    getEffectiveCompany().then(setCompany).catch(() => setCompany(null));
   }, []);
 
   useEffect(() => { if (onClose) onClose(); }, [location.pathname]);
-
-  const visibleNavGroups = erectPlan
-    ? navGroups.map((group) => ({ ...group, items: group.items.filter((item) => !ERECT_PLAN_HIDDEN_PATHS.includes(item.path)) }))
-    : navGroups;
 
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';
@@ -136,8 +130,8 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, onClose }
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto scrollbar-thin py-4 px-2">
-        {visibleNavGroups.map((group) => {
-          const filteredItems = group.items.filter(item => isModuleAllowed(item.path, allowedModules));
+        {navGroups.map((group) => {
+          const filteredItems = group.items.filter(item => isModuleAllowed(item.path, allowedModules) && hasModule(company, item.path));
           if (filteredItems.length === 0) return null;
           return (
           <div key={group.label} className="mb-4">
