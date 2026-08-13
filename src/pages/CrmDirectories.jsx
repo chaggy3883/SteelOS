@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Loader2, Building2, Phone, Mail, Search } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
@@ -26,7 +27,8 @@ const TYPE_COLORS = {
 };
 
 export default function CrmDirectories() {
-  const [filter, setFilter] = useState('customers');
+  const [searchParams] = useSearchParams();
+  const [filter, setFilter] = useState(searchParams.get('vendor') ? 'vendors' : 'customers');
   const [customers, setCustomers] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +36,13 @@ export default function CrmDirectories() {
   const [viewingRecord, setViewingRecord] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+
+  useEffect(() => {
+    const vendorId = searchParams.get('vendor');
+    if (!vendorId || vendors.length === 0) return;
+    const match = vendors.find(v => v.id === vendorId);
+    if (match) setViewingRecord(match);
+  }, [searchParams, vendors]);
 
   const loadData = async () => {
     setLoading(true);

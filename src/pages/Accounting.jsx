@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw, ShieldAlert } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { isAdminUser } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
@@ -22,6 +23,10 @@ import CashManagementPanel from '@/components/accounting/CashManagementPanel';
 import CashForecastPanel from '@/components/accounting/CashForecastPanel';
 import MonthEndClosePanel from '@/components/accounting/MonthEndClosePanel';
 import BudgetPanel from '@/components/accounting/BudgetPanel';
+import LedgerDrilldownModal from '@/components/accounting/LedgerDrilldownModal';
+import VendorBillDetailModal from '@/components/accounting/VendorBillDetailModal';
+import InvoiceReceivableDetailModal from '@/components/accounting/InvoiceReceivableDetailModal';
+import PurchaseOrderDetailModal from '@/components/purchasing/PurchaseOrderDetailModal';
 
 const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
 const LEDGER_COST_CLASSES = ['MAT', 'SUB', 'EQP', 'LAB'];
@@ -94,6 +99,20 @@ function emptyLedgerForm() {
 
 export default function Accounting() {
   const { toast } = useToast();
+  const navigate = useNavigate();
+
+  // --- Drill-down targets (standing rule: every data point navigates to its
+  // full underlying detail). Kept separate from the existing edit-form state
+  // above/below since these are read-only detail views, not edit forms. ---
+  const [ledgerModal, setLedgerModal] = useState({ open: false, title: '', entries: [], emptyMessage: undefined });
+  const [viewingBillId, setViewingBillId] = useState(null);
+  const [viewingInvoiceId, setViewingInvoiceId] = useState(null);
+  const [viewingPOId, setViewingPOId] = useState(null);
+  const [jobsRiskFilter, setJobsRiskFilter] = useState(false);
+  const [findingsProjectFilter, setFindingsProjectFilter] = useState(null);
+
+  const openLedgerDrilldown = (title, entries, emptyMessage) => setLedgerModal({ open: true, title, entries, emptyMessage });
+  const closeLedgerDrilldown = () => setLedgerModal((m) => ({ ...m, open: false }));
 
   const [currentUser, setCurrentUser] = useState(null);
   const [userRoles, setUserRoles] = useState([]);
@@ -578,15 +597,15 @@ export default function Accounting() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Total Contract Value', value: `$${(totalContractValue/1000000).toFixed(2)}M`, icon: DollarSign, color: 'text-green-500' },
-          { label: 'Active Projects Value', value: `$${(activeValue/1000000).toFixed(2)}M`, icon: TrendingUp, color: 'text-blue-500' },
-          { label: 'Projects with Risk', value: projects.filter(p => p.financial_risk > 0).length, icon: AlertCircle, color: 'text-orange-500' },
-          { label: 'AI Financial Flags', value: findings.length, icon: Brain, color: 'text-purple-500' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Total Contract Value', value: `$${(totalContractValue/1000000).toFixed(2)}M`, icon: DollarSign, color: 'text-green-500', onClick: () => { setJobsRiskFilter(false); setActiveTab('jobs'); } },
+          { label: 'Active Projects Value', value: `$${(activeValue/1000000).toFixed(2)}M`, icon: TrendingUp, color: 'text-blue-500', onClick: () => { setJobsRiskFilter(false); setActiveTab('jobs'); } },
+          { label: 'Projects with Risk', value: projects.filter(p => p.financial_risk > 0).length, icon: AlertCircle, color: 'text-orange-500', onClick: () => { setJobsRiskFilter(true); setActiveTab('jobs'); } },
+          { label: 'AI Financial Flags', value: findings.length, icon: Brain, color: 'text-purple-500', onClick: () => { setFindingsProjectFilter(null); setActiveTab('ai'); } },
+        ].map(({ label, value, icon: Icon, color, onClick }) => (
+          <button key={label} type="button" onClick={onClick} disabled={!canAccessTab(label === 'AI Financial Flags' ? 'ai' : 'jobs')} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow disabled:hover:ring-0 disabled:cursor-default">
             <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
             <p className={`text-xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -615,6 +634,12 @@ export default function Accounting() {
 
         {canAccessTab('jobs') && (
         <TabsContent value="jobs">
+          {jobsRiskFilter && (
+            <div className="flex items-center justify-between text-sm mb-3 px-3 py-2 rounded-lg bg-orange-500/10 text-orange-600">
+              <span>Showing only projects with financial risk flagged.</span>
+              <button className="flex items-center gap-1 hover:underline" onClick={() => setJobsRiskFilter(false)}><X className="w-3.5 h-3.5" />Clear filter</button>
+            </div>
+          )}
           <div className="steel-card overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -631,18 +656,22 @@ export default function Accounting() {
                 <tbody>
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => <tr key={i}><td colSpan={6} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>)
-                  ) : projects.length === 0 ? (
+                  ) : (jobsRiskFilter ? projects.filter(p => p.financial_risk > 0) : projects).length === 0 ? (
                     <tr><td colSpan={6} className="py-16 text-center text-muted-foreground text-sm">No projects found</td></tr>
                   ) : (
-                    projects.map(p => (
-                      <tr key={p.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                    (jobsRiskFilter ? projects.filter(p => p.financial_risk > 0) : projects).map(p => (
+                      <tr key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
                         <td className="py-3 px-4">
-                          <p className="font-medium">{p.name}</p>
+                          <p className="font-medium text-primary hover:underline">{p.name}</p>
                           <p className="text-xs text-muted-foreground">{p.project_number}</p>
                         </td>
                         <td className="py-3 px-4"><StatusBadge status={p.status} /></td>
                         <td className="py-3 px-4 text-right font-mono font-bold">
-                          {p.contract_value ? `$${p.contract_value.toLocaleString()}` : '—'}
+                          {p.contract_value ? (
+                            <button className="hover:underline" onClick={(e) => { e.stopPropagation(); setSelectedProjectId(p.id); setActiveTab('jobcostdetail'); }}>
+                              ${p.contract_value.toLocaleString()}
+                            </button>
+                          ) : '—'}
                         </td>
                         <td className="py-3 px-4 text-right font-mono text-muted-foreground">
                           {p.estimated_tons ? `${p.estimated_tons.toLocaleString()} T` : '—'}
@@ -652,7 +681,11 @@ export default function Accounting() {
                             ? `$${Math.round(p.contract_value / p.estimated_tons).toLocaleString()}`
                             : '—'}
                         </td>
-                        <td className="py-3 px-4"><StatusBadge status={p.risk_level} /></td>
+                        <td className="py-3 px-4">
+                          <button onClick={(e) => { e.stopPropagation(); setFindingsProjectFilter(p.id); setActiveTab('ai'); }}>
+                            <StatusBadge status={p.risk_level} />
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -675,12 +708,23 @@ export default function Accounting() {
                   </Button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {CONTRACT_FIELDS.map(f => (
-                    <div key={f.key}>
-                      <p className="text-xs text-muted-foreground">{f.label}</p>
-                      <p className="font-mono font-bold">${(selectedProject?.[f.key] || 0).toLocaleString()}</p>
-                    </div>
-                  ))}
+                  {CONTRACT_FIELDS.map(f => {
+                    const targets = {
+                      original_contract: () => navigate(`/projects/${selectedProjectId}`),
+                      change_orders_to_date: () => navigate('/projects/change-orders'),
+                      billed_to_date: () => setActiveTab('arbilling'),
+                      retainage: () => setActiveTab('arbilling'),
+                      net_billings: () => setActiveTab('arbilling'),
+                      cash_received: () => setActiveTab('cash'),
+                      left_to_bill: () => setActiveTab('arbilling'),
+                    };
+                    return (
+                      <button key={f.key} type="button" onClick={targets[f.key]} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
+                        <p className="text-xs text-muted-foreground">{f.label}</p>
+                        <p className="font-mono font-bold">${(selectedProject?.[f.key] || 0).toLocaleString()}</p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -710,25 +754,37 @@ export default function Accounting() {
                       ) : jobCostRows.length === 0 ? (
                         <tr><td colSpan={9} className="py-12 text-center text-muted-foreground">No job cost data for this project yet.</td></tr>
                       ) : (
-                        jobCostRows.map(row => (
-                          <tr key={row.id} className="border-b border-border/50 hover:bg-muted/50">
-                            <td className="py-3 px-4 font-mono font-bold text-primary">
-                              {row.cost_code}
-                              {row.description && <p className="text-xs text-muted-foreground font-sans">{row.description}</p>}
-                            </td>
-                            <td className="py-3 px-4">{row.cost_class}</td>
-                            <td className="py-3 px-4 text-right font-mono">${(row.original_estimate || 0).toLocaleString()}</td>
-                            <td className="py-3 px-4 text-right font-mono">${(row.approved_co || 0).toLocaleString()}</td>
-                            <td className="py-3 px-4 text-right font-mono">${(row.revised_estimated_cost || 0).toLocaleString()}</td>
-                            <td className="py-3 px-4 text-right font-mono">{(row.jtd_hours || 0).toLocaleString()}</td>
-                            <td className="py-3 px-4 text-right font-mono">${(row.jtd_costs || 0).toLocaleString()}</td>
-                            <td className={`py-3 px-4 text-right font-mono font-bold ${(row.profit_loss || 0) < 0 ? 'text-red-500' : 'text-green-500'}`}>${(row.profit_loss || 0).toLocaleString()}</td>
-                            <td className="py-3 px-4 text-right">
-                              <button onClick={() => startEditRow(row)} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
-                              <button onClick={() => handleDeleteRow(row)} className="text-muted-foreground hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>
-                            </td>
-                          </tr>
-                        ))
+                        jobCostRows.map(row => {
+                          const codeEntries = ledgerEntries.filter(e => e.cost_code === row.cost_code);
+                          const openCodeLedger = () => openLedgerDrilldown(
+                            `Ledger — ${row.cost_code}`,
+                            codeEntries,
+                            `No job cost ledger entries recorded against ${row.cost_code} yet.`
+                          );
+                          return (
+                            <tr key={row.id} onClick={() => startEditRow(row)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                              <td className="py-3 px-4">
+                                <button onClick={(e) => { e.stopPropagation(); openCodeLedger(); }} className="font-mono font-bold text-primary hover:underline">{row.cost_code}</button>
+                                {row.description && <p className="text-xs text-muted-foreground font-sans">{row.description}</p>}
+                              </td>
+                              <td className="py-3 px-4">{row.cost_class}</td>
+                              <td className="py-3 px-4 text-right font-mono">${(row.original_estimate || 0).toLocaleString()}</td>
+                              <td className="py-3 px-4 text-right font-mono">${(row.approved_co || 0).toLocaleString()}</td>
+                              <td className="py-3 px-4 text-right font-mono">${(row.revised_estimated_cost || 0).toLocaleString()}</td>
+                              <td className="py-3 px-4 text-right font-mono">{(row.jtd_hours || 0).toLocaleString()}</td>
+                              <td className="py-3 px-4 text-right font-mono">
+                                <button onClick={(e) => { e.stopPropagation(); openCodeLedger(); }} className="hover:underline">${(row.jtd_costs || 0).toLocaleString()}</button>
+                              </td>
+                              <td className={`py-3 px-4 text-right font-mono font-bold ${(row.profit_loss || 0) < 0 ? 'text-red-500' : 'text-green-500'}`}>
+                                <button onClick={(e) => { e.stopPropagation(); openCodeLedger(); }} className="hover:underline">${(row.profit_loss || 0).toLocaleString()}</button>
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <button onClick={(e) => { e.stopPropagation(); startEditRow(row); }} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
+                                <button onClick={(e) => { e.stopPropagation(); handleDeleteRow(row); }} className="text-muted-foreground hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -752,7 +808,9 @@ export default function Accounting() {
               {vendors.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No vendors yet — add one to attach vendor bills.</p>
               ) : vendors.map(v => (
-                <span key={v.id} className="text-xs px-2 py-1 rounded bg-muted">{v.name} <span className="text-muted-foreground">({v.vendor_type})</span></span>
+                <button key={v.id} type="button" onClick={() => navigate(`/crm/directory?vendor=${v.id}`)} className="text-xs px-2 py-1 rounded bg-muted hover:bg-muted/70 hover:underline">
+                  {v.name} <span className="text-muted-foreground">({v.vendor_type})</span>
+                </button>
               ))}
             </div>
           </div>
@@ -783,10 +841,18 @@ export default function Accounting() {
                     const vendor = vendors.find(v => v.id === bill.vendor_id);
                     const po = purchaseOrders.find(p => p.id === bill.po_id);
                     return (
-                      <tr key={bill.id} className="border-b border-border/50 hover:bg-muted/50">
-                        <td className="py-3 px-4 font-mono">{bill.invoice_number || '—'}</td>
-                        <td className="py-3 px-4">{vendor?.name || '—'}</td>
-                        <td className="py-3 px-4">{po?.po_number || '—'}</td>
+                      <tr key={bill.id} onClick={() => setViewingBillId(bill.id)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                        <td className="py-3 px-4 font-mono text-primary hover:underline">{bill.invoice_number || '—'}</td>
+                        <td className="py-3 px-4">
+                          {vendor ? (
+                            <button onClick={(e) => { e.stopPropagation(); navigate(`/crm/directory?vendor=${vendor.id}`); }} className="hover:underline">{vendor.name}</button>
+                          ) : '—'}
+                        </td>
+                        <td className="py-3 px-4">
+                          {po ? (
+                            <button onClick={(e) => { e.stopPropagation(); setViewingPOId(po.id); }} className="hover:underline">{po.po_number}</button>
+                          ) : '—'}
+                        </td>
                         <td className="py-3 px-4 text-right font-mono">${(bill.gross_amount || 0).toLocaleString()}</td>
                         <td className="py-3 px-4 text-right font-mono">{bill.variance_pct != null ? `${bill.variance_pct}%` : '—'}</td>
                         <td className="py-3 px-4"><StatusBadge status={bill.status} /></td>
@@ -794,8 +860,8 @@ export default function Accounting() {
                           {bill.conditional_waiver_signed ? 'Cond ✓' : 'Cond —'} / {bill.unconditional_waiver_received ? 'Uncond ✓' : 'Uncond —'}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <Button size="sm" variant="outline" className="mr-1" onClick={() => handleRunMatch(bill)}>Run Match</Button>
-                          <button onClick={() => startEditBill(bill)} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
+                          <Button size="sm" variant="outline" className="mr-1" onClick={(e) => { e.stopPropagation(); handleRunMatch(bill); }}>Run Match</Button>
+                          <button onClick={(e) => { e.stopPropagation(); startEditBill(bill); }} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
                         </td>
                       </tr>
                     );
@@ -860,18 +926,29 @@ export default function Accounting() {
                     <tbody>
                       {sovLines.length === 0 ? (
                         <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">No SOV lines for this project yet.</td></tr>
-                      ) : sovLines.map(line => (
-                        <tr key={line.id} className="border-b border-border/50 hover:bg-muted/50">
-                          <td className="py-3 px-4">{line.item_description}{line.cost_code && <p className="text-xs text-muted-foreground">{line.cost_code}</p>}</td>
-                          <td className="py-3 px-4 text-right font-mono">${(line.original_scheduled_value || 0).toLocaleString()}</td>
-                          <td className="py-3 px-4 text-right font-mono">{line.completion_percentage || 0}%</td>
-                          <td className="py-3 px-4 text-right font-mono">${(line.current_billed_amount || 0).toLocaleString()}</td>
-                          <td className="py-3 px-4 text-right font-mono">{((line.retainage_rate || 0) * 100).toFixed(1)}%</td>
-                          <td className="py-3 px-4 text-right">
-                            <button onClick={() => startEditSov(line)} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
-                          </td>
-                        </tr>
-                      ))}
+                      ) : sovLines.map(line => {
+                        const codeEntries = line.cost_code ? ledgerEntries.filter(e => e.cost_code === line.cost_code) : [];
+                        const openLineLedger = (e) => {
+                          e.stopPropagation();
+                          if (!line.cost_code) { openLedgerDrilldown('Job Cost Ledger', [], 'This SOV line has no cost code assigned, so there is nothing to match against the job cost ledger.'); return; }
+                          openLedgerDrilldown(`Ledger — ${line.cost_code}`, codeEntries, `No job cost ledger entries recorded against ${line.cost_code} yet.`);
+                        };
+                        return (
+                          <tr key={line.id} onClick={() => startEditSov(line)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                            <td className="py-3 px-4">
+                              {line.item_description}
+                              {line.cost_code && <button onClick={openLineLedger} className="block text-xs text-muted-foreground hover:underline">{line.cost_code}</button>}
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono">${(line.original_scheduled_value || 0).toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right font-mono">{line.completion_percentage || 0}%</td>
+                            <td className="py-3 px-4 text-right font-mono"><button onClick={openLineLedger} className="hover:underline">${(line.current_billed_amount || 0).toLocaleString()}</button></td>
+                            <td className="py-3 px-4 text-right font-mono">{((line.retainage_rate || 0) * 100).toFixed(1)}%</td>
+                            <td className="py-3 px-4 text-right">
+                              <button onClick={(e) => { e.stopPropagation(); startEditSov(line); }} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -898,14 +975,14 @@ export default function Accounting() {
                       {invoiceReceivables.length === 0 ? (
                         <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">No progress billings for this project yet.</td></tr>
                       ) : invoiceReceivables.map(inv => (
-                        <tr key={inv.id} className="border-b border-border/50 hover:bg-muted/50">
-                          <td className="py-3 px-4">{inv.billing_period}</td>
+                        <tr key={inv.id} onClick={() => setViewingInvoiceId(inv.id)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                          <td className="py-3 px-4 text-primary hover:underline">{inv.billing_period}</td>
                           <td className="py-3 px-4 text-right font-mono">${(inv.gross_amount || 0).toLocaleString()}</td>
                           <td className="py-3 px-4 text-right font-mono">${(inv.retainage_held || 0).toLocaleString()}</td>
                           <td className="py-3 px-4 text-right font-mono">${(inv.net_billing || 0).toLocaleString()}</td>
                           <td className="py-3 px-4"><StatusBadge status={inv.payment_status} /></td>
                           <td className="py-3 px-4 text-right">
-                            <button onClick={() => startEditInvoice(inv)} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
+                            <button onClick={(e) => { e.stopPropagation(); startEditInvoice(inv); }} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
                           </td>
                         </tr>
                       ))}
@@ -954,16 +1031,22 @@ export default function Accounting() {
                 <h3 className="font-semibold mb-4">WIP Schedule — {selectedProject?.name}</h3>
                 {wip ? (
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div><p className="text-xs text-muted-foreground">Total Contract Value</p><p className="font-mono font-bold text-lg">${wip.totalContractValue.toLocaleString()}</p></div>
-                    <div><p className="text-xs text-muted-foreground">Actual JTD Costs</p><p className="font-mono font-bold text-lg">${wip.actualJTDCosts.toLocaleString()}</p></div>
-                    <div><p className="text-xs text-muted-foreground">Earned Revenue</p><p className="font-mono font-bold text-lg">${wip.earnedRevenue.toLocaleString()}</p></div>
-                    <div>
+                    <button type="button" onClick={() => setActiveTab('jobcostdetail')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
+                      <p className="text-xs text-muted-foreground">Total Contract Value</p><p className="font-mono font-bold text-lg">${wip.totalContractValue.toLocaleString()}</p>
+                    </button>
+                    <button type="button" onClick={() => openLedgerDrilldown(`All Ledger Entries — ${selectedProject?.name || ''}`, ledgerEntries, 'No job cost ledger entries recorded for this project yet.')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
+                      <p className="text-xs text-muted-foreground">Actual JTD Costs</p><p className="font-mono font-bold text-lg">${wip.actualJTDCosts.toLocaleString()}</p>
+                    </button>
+                    <button type="button" onClick={() => setActiveTab('arbilling')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
+                      <p className="text-xs text-muted-foreground">Earned Revenue</p><p className="font-mono font-bold text-lg">${wip.earnedRevenue.toLocaleString()}</p>
+                    </button>
+                    <button type="button" onClick={() => setActiveTab('jobcostdetail')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
                       <p className="text-xs text-muted-foreground">Margin Variance</p>
                       <p className={`font-mono font-bold text-lg ${wip.isOverBudget ? 'text-red-500' : 'text-green-500'}`}>
                         {wip.marginVariancePct > 0 ? '+' : ''}{wip.marginVariancePct.toFixed(1)}%
                         {wip.isOverBudget && <span className="text-xs ml-1">(over 3% threshold)</span>}
                       </p>
-                    </div>
+                    </button>
                   </div>
                 ) : <p className="text-sm text-muted-foreground">Select a project to view its WIP schedule.</p>}
               </div>
@@ -988,16 +1071,28 @@ export default function Accounting() {
                     <tbody>
                       {ledgerEntries.length === 0 ? (
                         <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">No ledger transactions for this project yet.</td></tr>
-                      ) : ledgerEntries.map(entry => (
-                        <tr key={entry.id} className="border-b border-border/50 hover:bg-muted/50">
-                          <td className="py-3 px-4 text-xs">{entry.transaction_date || '—'}</td>
-                          <td className="py-3 px-4 font-mono">{entry.cost_code}</td>
-                          <td className="py-3 px-4">{entry.cost_class}</td>
-                          <td className="py-3 px-4 text-xs text-muted-foreground">{entry.source_type}</td>
-                          <td className="py-3 px-4 text-right font-mono">${(entry.amount || 0).toLocaleString()}</td>
-                          <td className="py-3 px-4 text-xs text-muted-foreground">{entry.description || '—'}</td>
-                        </tr>
-                      ))}
+                      ) : ledgerEntries.map(entry => {
+                        const openEntryDetail = () => openLedgerDrilldown('Ledger Entry Detail', [entry]);
+                        const linkedBill = entry.source_type === 'vendor_bill' && entry.source_id
+                          ? vendorBills.find(b => b.id === entry.source_id)
+                          : null;
+                        return (
+                          <tr key={entry.id} onClick={openEntryDetail} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                            <td className="py-3 px-4 text-xs">{entry.transaction_date || '—'}</td>
+                            <td className="py-3 px-4 font-mono">
+                              <button onClick={(e) => { e.stopPropagation(); setActiveTab('jobcostdetail'); }} className="hover:underline">{entry.cost_code}</button>
+                            </td>
+                            <td className="py-3 px-4">{entry.cost_class}</td>
+                            <td className="py-3 px-4 text-xs text-muted-foreground">
+                              {linkedBill ? (
+                                <button onClick={(e) => { e.stopPropagation(); setViewingBillId(linkedBill.id); }} className="hover:underline">{entry.source_type.replace(/_/g, ' ')}</button>
+                              ) : entry.source_type}
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono">${(entry.amount || 0).toLocaleString()}</td>
+                            <td className="py-3 px-4 text-xs text-muted-foreground">{entry.description || '—'}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1022,26 +1117,39 @@ export default function Accounting() {
 
         {canAccessTab('ai') && (
         <TabsContent value="ai">
-          {findings.length === 0 ? (
-            <div className="text-center py-16 steel-card">
-              <Brain className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">No AI financial findings yet. Upload project contracts to generate analysis.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {findings.map(f => (
-                <div key={f.id} className={`steel-card p-4 border-l-4 ${f.status === 'fail' ? 'border-l-red-500' : f.status === 'warning' ? 'border-l-yellow-500' : 'border-l-blue-500'}`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <StatusBadge status={f.status} />
-                    {f.risk_level && <StatusBadge status={f.risk_level} />}
-                  </div>
-                  <p className="font-medium text-sm">{f.title}</p>
-                  {f.ai_explanation && <p className="text-xs text-muted-foreground mt-1">{f.ai_explanation}</p>}
-                  {f.estimated_financial_impact && <p className="text-xs text-orange-500 mt-1 font-medium">Est. Impact: {f.estimated_financial_impact}</p>}
-                </div>
-              ))}
+          {findingsProjectFilter && (
+            <div className="flex items-center justify-between text-sm mb-3 px-3 py-2 rounded-lg bg-purple-500/10 text-purple-600">
+              <span>Showing flags for {projects.find(p => p.id === findingsProjectFilter)?.name || 'selected project'}.</span>
+              <button className="flex items-center gap-1 hover:underline" onClick={() => setFindingsProjectFilter(null)}><X className="w-3.5 h-3.5" />Clear filter</button>
             </div>
           )}
+          {(() => {
+            const visibleFindings = findingsProjectFilter ? findings.filter(f => f.project_id === findingsProjectFilter) : findings;
+            return visibleFindings.length === 0 ? (
+              <div className="text-center py-16 steel-card">
+                <Brain className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">No AI financial findings yet. Upload project contracts to generate analysis.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {visibleFindings.map(f => (
+                  <div
+                    key={f.id}
+                    onClick={() => f.project_id && navigate(`/projects/${f.project_id}`)}
+                    className={`steel-card p-4 border-l-4 ${f.project_id ? 'cursor-pointer hover:bg-muted/40' : ''} ${f.status === 'fail' ? 'border-l-red-500' : f.status === 'warning' ? 'border-l-yellow-500' : 'border-l-blue-500'}`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <StatusBadge status={f.status} />
+                      {f.risk_level && <StatusBadge status={f.risk_level} />}
+                    </div>
+                    <p className="font-medium text-sm">{f.title}</p>
+                    {f.ai_explanation && <p className="text-xs text-muted-foreground mt-1">{f.ai_explanation}</p>}
+                    {f.estimated_financial_impact && <p className="text-xs text-orange-500 mt-1 font-medium">Est. Impact: {f.estimated_financial_impact}</p>}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </TabsContent>
         )}
       </Tabs>
@@ -1390,6 +1498,33 @@ export default function Accounting() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <LedgerDrilldownModal
+        open={ledgerModal.open}
+        onOpenChange={closeLedgerDrilldown}
+        title={ledgerModal.title}
+        entries={ledgerModal.entries}
+        emptyMessage={ledgerModal.emptyMessage}
+      />
+
+      <VendorBillDetailModal
+        open={!!viewingBillId}
+        onOpenChange={(open) => !open && setViewingBillId(null)}
+        billId={viewingBillId}
+        onViewPO={(poId) => setViewingPOId(poId)}
+      />
+
+      <InvoiceReceivableDetailModal
+        open={!!viewingInvoiceId}
+        onOpenChange={(open) => !open && setViewingInvoiceId(null)}
+        invoiceId={viewingInvoiceId}
+      />
+
+      <PurchaseOrderDetailModal
+        open={!!viewingPOId}
+        onOpenChange={(open) => !open && setViewingPOId(null)}
+        poId={viewingPOId}
+      />
     </div>
   );
 }
