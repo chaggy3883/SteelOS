@@ -15,6 +15,7 @@ import BidPricingHoldBadge from '@/components/estimating/BidPricingHoldBadge';
 import BidPricingHoldModal from '@/components/estimating/BidPricingHoldModal';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { getBidHoldDays, getBidPricingHoldState } from '@/lib/bidPricingHold';
+import { useClickOutside } from '@/hooks/useClickOutside';
 
 const BID_STATUSES = ['draft', 'in_progress', 'submitted', 'won', 'lost', 'cancelled', 'Did_Not_Bid'];
 
@@ -35,6 +36,7 @@ export default function Estimating() {
   const customerFilterId = searchParams.get('customer');
   const bidListRef = useRef(null);
   const bidHistoryRef = useRef(null);
+  const widgetsMenuRef = useRef(null);
   const [bids, setBids] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +44,7 @@ export default function Estimating() {
     bidList: true, activeCount: true, frontEndReview: true, winRate: true, bidHistory: true,
   });
   const [showConfig, setShowConfig] = useState(false);
+  useClickOutside(widgetsMenuRef, () => setShowConfig(false), showConfig);
   const [editingBid, setEditingBid] = useState(null);
   const [editForm, setEditForm] = useState({ job_name: '', customer_name: '', bid_due_date: '', status: 'draft', tags: '' });
   const [savingEdit, setSavingEdit] = useState(false);
@@ -152,8 +155,8 @@ export default function Estimating() {
         subtitle="Bids, takeoff, and historic cost analytics"
         actions={
           <div className="flex items-center gap-2">
-            <div className="relative">
-              <Button variant="outline" onClick={() => setShowConfig(s => !s)}>
+            <div className="relative" ref={widgetsMenuRef}>
+              <Button variant="outline" onClick={(e) => { e.stopPropagation(); setShowConfig(s => !s); }}>
                 <Settings2 className="w-4 h-4 mr-2" />Widgets
               </Button>
               {showConfig && (
