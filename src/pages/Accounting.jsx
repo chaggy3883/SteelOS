@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw, ShieldAlert } from 'lucide-react';
+import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
+import { isAdminUser } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -25,6 +27,32 @@ const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
 const LEDGER_COST_CLASSES = ['MAT', 'SUB', 'EQP', 'LAB'];
 const VENDOR_TYPES = ['subcontractor', 'supplier', 'equipment_rental', 'other'];
 const BILLING_STATUSES = ['Draft', 'Submitted', 'Approved', 'Released'];
+
+// Tab-level RBAC. Every role string below is a REAL entry in BUILTIN_ROLES
+// (src/components/dashboard/rbacConfig.jsx) — verified against that list, not
+// guessed. admin/super_admin are NOT listed here on purpose: they bypass this
+// map entirely via isAdminUser() in canAccessTab() below, so full access for
+// those two roles can't be accidentally dropped by editing this table.
+//
+// This financial page is restricted to roles with an actual accounting
+// function (Controller, Finance, executives) plus Project Manager for the
+// job-costing/WIP/billing tabs they own day-to-day. hr_admin and
+// payroll_admin currently have module-level access to /accounting (see
+// BUILTIN_ROLES) for payroll-adjacent reporting elsewhere, but none of the
+// tabs on THIS page (AP, AR, cash, GL close) are HR/payroll data — so by
+// design they see none of them here and land on the access-denied state.
+const TAB_ROLES = {
+  jobs: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
+  jobcostdetail: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
+  vendorbills: ['finance_department', 'controller', 'president', 'ceo'],
+  cash: ['finance_department', 'controller', 'president', 'ceo'],
+  close: ['finance_department', 'controller', 'president', 'ceo'],
+  budget: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
+  arbilling: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
+  wip: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
+  ai: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
+};
+const TAB_ORDER = ['jobs', 'jobcostdetail', 'vendorbills', 'cash', 'close', 'budget', 'arbilling', 'wip', 'ai'];
 
 const CONTRACT_FIELDS = [
   { key: 'original_contract', label: 'Original Contract' },
@@ -66,6 +94,12 @@ function emptyLedgerForm() {
 
 export default function Accounting() {
   const { toast } = useToast();
+
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userRoles, setUserRoles] = useState([]);
+  const [accessChecked, setAccessChecked] = useState(false);
+  const [activeTab, setActiveTab] = useState(null);
+
   const [projects, setProjects] = useState([]);
   const [findings, setFindings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -116,7 +150,34 @@ export default function Accounting() {
   const [editingLedger, setEditingLedger] = useState(null);
   const [ledgerForm, setLedgerForm] = useState(emptyLedgerForm());
 
-  useEffect(() => { loadData(); }, []);
+  const isAdmin = isAdminUser(currentUser);
+  const canAccessTab = (tabId) => isAdmin || userRoles.some((r) => (TAB_ROLES[tabId] || []).includes(r));
+  const accessibleTabs = TAB_ORDER.filter(canAccessTab);
+
+  useEffect(() => {
+    const checkAccess = async () => {
+      try {
+        const me = await db.auth.me();
+        setCurrentUser(me);
+        setUserRoles((me?.roles || ['user']).map(normalizeRoleName));
+      } catch (e) {
+        setCurrentUser(null);
+        setUserRoles([]);
+      } finally {
+        setAccessChecked(true);
+      }
+    };
+    checkAccess();
+  }, []);
+
+  useEffect(() => {
+    if (accessChecked && !activeTab) {
+      const firstAccessible = TAB_ORDER.find(canAccessTab);
+      if (firstAccessible) setActiveTab(firstAccessible);
+    }
+  }, [accessChecked]);
+
+  useEffect(() => { if (accessChecked && accessibleTabs.length > 0) loadData(); }, [accessChecked]);
   useEffect(() => {
     if (selectedProjectId) {
       loadJobCostRows(selectedProjectId);
@@ -495,6 +556,22 @@ export default function Accounting() {
   const activeProjects = projects.filter(p => !['complete','cancelled','lead'].includes(p.status));
   const activeValue = activeProjects.reduce((s, p) => s + (p.contract_value || 0), 0);
 
+  if (!accessChecked) {
+    return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  if (accessibleTabs.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="steel-card p-8 text-center max-w-md mx-auto mt-12">
+          <ShieldAlert className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <h2 className="font-semibold text-lg mb-1">Access Restricted</h2>
+          <p className="text-sm text-muted-foreground">Accounting & Finance data is only available to Project Manager, Finance, Controller, and executive roles.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 animate-fade-in">
       <PageHeader title="Accounting & Finance" subtitle="Job costing, financial tracking, and AI-flagged financial risks" />
@@ -523,19 +600,20 @@ export default function Accounting() {
         </Select>
       </div>
 
-      <Tabs defaultValue="jobs">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4 flex-wrap h-auto">
-          <TabsTrigger value="jobs">Job Costing Summary</TabsTrigger>
-          <TabsTrigger value="jobcostdetail"><BarChart3 className="w-3.5 h-3.5 mr-1.5" />Job Cost Detail</TabsTrigger>
-          <TabsTrigger value="vendorbills"><Receipt className="w-3.5 h-3.5 mr-1.5" />Vendor Bills (AP)</TabsTrigger>
-          <TabsTrigger value="cash"><Landmark className="w-3.5 h-3.5 mr-1.5" />Bank &amp; Cash</TabsTrigger>
-          <TabsTrigger value="close"><ListChecks className="w-3.5 h-3.5 mr-1.5" />Month-End Close</TabsTrigger>
-          <TabsTrigger value="budget"><ClipboardList className="w-3.5 h-3.5 mr-1.5" />Budget</TabsTrigger>
-          <TabsTrigger value="arbilling"><FileText className="w-3.5 h-3.5 mr-1.5" />AR &amp; Billings</TabsTrigger>
-          <TabsTrigger value="wip"><Gauge className="w-3.5 h-3.5 mr-1.5" />WIP Report</TabsTrigger>
-          <TabsTrigger value="ai">AI Financial Flags ({findings.length})</TabsTrigger>
+          {canAccessTab('jobs') && <TabsTrigger value="jobs">Job Costing Summary</TabsTrigger>}
+          {canAccessTab('jobcostdetail') && <TabsTrigger value="jobcostdetail"><BarChart3 className="w-3.5 h-3.5 mr-1.5" />Job Cost Detail</TabsTrigger>}
+          {canAccessTab('vendorbills') && <TabsTrigger value="vendorbills"><Receipt className="w-3.5 h-3.5 mr-1.5" />Vendor Bills (AP)</TabsTrigger>}
+          {canAccessTab('cash') && <TabsTrigger value="cash"><Landmark className="w-3.5 h-3.5 mr-1.5" />Bank &amp; Cash</TabsTrigger>}
+          {canAccessTab('close') && <TabsTrigger value="close"><ListChecks className="w-3.5 h-3.5 mr-1.5" />Month-End Close</TabsTrigger>}
+          {canAccessTab('budget') && <TabsTrigger value="budget"><ClipboardList className="w-3.5 h-3.5 mr-1.5" />Budget</TabsTrigger>}
+          {canAccessTab('arbilling') && <TabsTrigger value="arbilling"><FileText className="w-3.5 h-3.5 mr-1.5" />AR &amp; Billings</TabsTrigger>}
+          {canAccessTab('wip') && <TabsTrigger value="wip"><Gauge className="w-3.5 h-3.5 mr-1.5" />WIP Report</TabsTrigger>}
+          {canAccessTab('ai') && <TabsTrigger value="ai">AI Financial Flags ({findings.length})</TabsTrigger>}
         </TabsList>
 
+        {canAccessTab('jobs') && (
         <TabsContent value="jobs">
           <div className="steel-card overflow-hidden">
             <div className="overflow-x-auto">
@@ -583,7 +661,9 @@ export default function Accounting() {
             </div>
           </div>
         </TabsContent>
+        )}
 
+        {canAccessTab('jobcostdetail') && (
         <TabsContent value="jobcostdetail">
           {selectedProjectId && (
             <>
@@ -657,7 +737,9 @@ export default function Accounting() {
             </>
           )}
         </TabsContent>
+        )}
 
+        {canAccessTab('vendorbills') && (
         <TabsContent value="vendorbills">
           <div className="steel-card p-5 mb-4">
             <div className="flex items-center justify-between mb-3">
@@ -723,7 +805,9 @@ export default function Accounting() {
             </div>
           </div>
         </TabsContent>
+        )}
 
+        {canAccessTab('cash') && (
         <TabsContent value="cash">
           <Tabs defaultValue="accounts">
             <TabsList className="mb-4">
@@ -738,15 +822,21 @@ export default function Accounting() {
             </TabsContent>
           </Tabs>
         </TabsContent>
+        )}
 
+        {canAccessTab('close') && (
         <TabsContent value="close">
           <MonthEndClosePanel />
         </TabsContent>
+        )}
 
+        {canAccessTab('budget') && (
         <TabsContent value="budget">
           <BudgetPanel />
         </TabsContent>
+        )}
 
+        {canAccessTab('arbilling') && (
         <TabsContent value="arbilling">
           {selectedProjectId && (
             <>
@@ -854,7 +944,9 @@ export default function Accounting() {
             </>
           )}
         </TabsContent>
+        )}
 
+        {canAccessTab('wip') && (
         <TabsContent value="wip">
           {selectedProjectId && (
             <>
@@ -926,7 +1018,9 @@ export default function Accounting() {
             </>
           )}
         </TabsContent>
+        )}
 
+        {canAccessTab('ai') && (
         <TabsContent value="ai">
           {findings.length === 0 ? (
             <div className="text-center py-16 steel-card">
@@ -949,6 +1043,7 @@ export default function Accounting() {
             </div>
           )}
         </TabsContent>
+        )}
       </Tabs>
 
       <Dialog open={!!editingRow} onOpenChange={(open) => !open && setEditingRow(null)}>
