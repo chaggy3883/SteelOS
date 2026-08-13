@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { Truck, Package, CheckCircle2, Search } from 'lucide-react';
+import { Truck, Package, CheckCircle2, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,8 +9,21 @@ import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import LoadBuilder from '@/components/shipping/LoadBuilder';
 import YardScanning from '@/components/shipping/YardScanning';
+import LoadDetailModal from '@/components/shipping/LoadDetailModal';
+import PieceDetailModal from '@/components/shipping/PieceDetailModal';
+import ManifestDetailModal from '@/components/shipping/ManifestDetailModal';
 
 export default function Shipping() {
+  const [activeTab, setActiveTab] = useState('list');
+  const [pieceStatusFilter, setPieceStatusFilter] = useState('all');
+
+  // Drill-down targets, shared across the Shipping List tab and the
+  // LoadBuilder/YardScanning child components (passed down as callbacks) so
+  // every surface that shows a load/piece/manifest opens the same modal.
+  const [viewingLoadId, setViewingLoadId] = useState(null);
+  const [viewingPiece, setViewingPiece] = useState(null); // { pieceMarkId } | { pieceId }
+  const [viewingManifestId, setViewingManifestId] = useState(null);
+
   const [pieces, setPieces] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,8 +84,30 @@ export default function Shipping() {
   const filtered = pieces.filter(p => {
     const matchSearch = !search || p.piece_mark?.toLowerCase().includes(search.toLowerCase());
     const matchProject = projectFilter === 'all' || p.project_id === projectFilter;
-    return matchSearch && matchProject;
+    const matchStatus = pieceStatusFilter === 'all' || p.status === pieceStatusFilter;
+    return matchSearch && matchProject && matchStatus;
   });
+
+  const openKpiFilter = (status) => { setPieceStatusFilter(status); setActiveTab('list'); };
+
+  // Bridges a Shipping List row (a PieceMark) to the load that actually
+  // shipped it, via pieces.piece_mark_id (or the same project_id+piece_mark
+  // fallback used elsewhere) -> load_items.piece_id -> loads. Returns null
+  // when no such chain resolves — common, since not every PieceMark has a
+  // corresponding shop `pieces` row wired all the way through to a load.
+  const findLoadIdForPieceMark = (pieceMarkRow) => {
+    const shopPiece = shopPieces.find((sp) => sp.piece_mark_id === pieceMarkRow.id)
+      || shopPieces.find((sp) => sp.project_id === pieceMarkRow.project_id && sp.piece_mark === pieceMarkRow.piece_mark);
+    if (!shopPiece) return null;
+    const item = loadItems.find((li) => li.piece_id === shopPiece.id);
+    return item?.load_id || null;
+  };
+
+  const openDateDrilldown = (pieceMarkRow) => {
+    const loadId = findLoadIdForPieceMark(pieceMarkRow);
+    if (loadId) setViewingLoadId(loadId);
+    else setViewingPiece({ pieceMarkId: pieceMarkRow.id });
+  };
 
   return (
     <div className="p-6 animate-fade-in">
@@ -84,18 +119,18 @@ export default function Shipping() {
 
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: 'Ready to Ship', value: readyToShip.length, icon: Package, color: 'text-blue-500' },
-          { label: 'Shipped', value: shipped.length, icon: Truck, color: 'text-orange-500' },
-          { label: 'Erected', value: erected.length, icon: CheckCircle2, color: 'text-green-500' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Ready to Ship', value: readyToShip.length, icon: Package, color: 'text-blue-500', status: 'painted' },
+          { label: 'Shipped', value: shipped.length, icon: Truck, color: 'text-orange-500', status: 'shipped' },
+          { label: 'Erected', value: erected.length, icon: CheckCircle2, color: 'text-green-500', status: 'erected' },
+        ].map(({ label, value, icon: Icon, color, status }) => (
+          <button key={label} type="button" onClick={() => openKpiFilter(status)} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
             <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      <Tabs defaultValue="list">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="list">Shipping List</TabsTrigger>
           <TabsTrigger value="load-builder">Load Builder</TabsTrigger>
@@ -116,6 +151,13 @@ export default function Shipping() {
               </SelectContent>
             </Select>
           </div>
+
+          {pieceStatusFilter !== 'all' && (
+            <div className="flex items-center justify-between text-sm mb-3 px-3 py-2 rounded-lg bg-primary/10 text-primary">
+              <span>Showing only "{pieceStatusFilter}" pieces.</span>
+              <button className="flex items-center gap-1 hover:underline" onClick={() => setPieceStatusFilter('all')}><X className="w-3.5 h-3.5" />Clear filter</button>
+            </div>
+          )}
 
           <div className="steel-card overflow-hidden">
             <div className="overflow-x-auto">
@@ -142,13 +184,21 @@ export default function Shipping() {
                     </td></tr>
                   ) : (
                     filtered.map(p => (
-                      <tr key={p.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                      <tr key={p.id} onClick={() => setViewingPiece({ pieceMarkId: p.id })} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
                         <td className="py-3 px-4 font-mono font-bold text-primary">{p.piece_mark}</td>
                         <td className="py-3 px-4 text-muted-foreground">{p.assembly || '—'}</td>
                         <td className="py-3 px-4 text-right font-mono">{p.weight_lbs?.toLocaleString() || '—'}</td>
-                        <td className="py-3 px-4 text-xs">{p.ship_date || '—'}</td>
-                        <td className="py-3 px-4 text-xs">{p.erect_date || '—'}</td>
-                        <td className="py-3 px-4"><StatusBadge status={p.status} /></td>
+                        <td className="py-3 px-4 text-xs">
+                          {p.ship_date ? <button onClick={(e) => { e.stopPropagation(); openDateDrilldown(p); }} className="hover:underline">{p.ship_date}</button> : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-xs">
+                          {p.erect_date ? <button onClick={(e) => { e.stopPropagation(); openDateDrilldown(p); }} className="hover:underline">{p.erect_date}</button> : '—'}
+                        </td>
+                        <td className="py-3 px-4">
+                          <button onClick={(e) => { e.stopPropagation(); setViewingPiece({ pieceMarkId: p.id }); }}>
+                            <StatusBadge status={p.status} />
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -167,6 +217,8 @@ export default function Shipping() {
             projects={projects}
             pieceMarks={pieceMarks}
             onReload={loadLogisticsData}
+            onViewLoad={setViewingLoadId}
+            onViewPiece={setViewingPiece}
           />
         </TabsContent>
 
@@ -177,9 +229,35 @@ export default function Shipping() {
             loadItems={loadItems}
             manifests={manifests}
             onReload={loadLogisticsData}
+            onViewLoad={setViewingLoadId}
+            onViewPiece={setViewingPiece}
+            onViewManifest={setViewingManifestId}
           />
         </TabsContent>
       </Tabs>
+
+      <LoadDetailModal
+        open={!!viewingLoadId}
+        onOpenChange={(open) => !open && setViewingLoadId(null)}
+        loadId={viewingLoadId}
+        onViewPiece={setViewingPiece}
+        onViewManifest={setViewingManifestId}
+      />
+
+      <PieceDetailModal
+        open={!!viewingPiece}
+        onOpenChange={(open) => !open && setViewingPiece(null)}
+        pieceMarkId={viewingPiece?.pieceMarkId}
+        pieceId={viewingPiece?.pieceId}
+        onViewLoad={(loadId) => { setViewingPiece(null); setViewingLoadId(loadId); }}
+      />
+
+      <ManifestDetailModal
+        open={!!viewingManifestId}
+        onOpenChange={(open) => !open && setViewingManifestId(null)}
+        manifestId={viewingManifestId}
+        onViewLoad={(loadId) => { setViewingManifestId(null); setViewingLoadId(loadId); }}
+      />
     </div>
   );
 }

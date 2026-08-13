@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { QrCode, PackageCheck, Ban, MapPin, Upload, Truck, Printer } from 'lucide-react';
+import { QrCode, PackageCheck, Ban, MapPin, Upload, Truck, Printer, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,7 +14,7 @@ import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelShe
 const TRAILER_TYPES = ['Flatbed', 'Drop_Deck', 'Stretch', 'Step_Deck'];
 const emptyManifestForm = () => ({ driver_name: '', driver_phone: '', trailer_type: 'Flatbed', license_plate: '' });
 
-export default function YardScanning({ pieces, loads, loadItems, manifests, onReload }) {
+export default function YardScanning({ pieces, loads, loadItems, manifests, onReload, onViewLoad, onViewPiece, onViewManifest }) {
   const { toast } = useToast();
   const [selectedLoadId, setSelectedLoadId] = useState(loads[0]?.id || null);
   const [scanValue, setScanValue] = useState('');
@@ -138,17 +138,26 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         {loads.map((load) => (
-          <button
+          <div
             key={load.id}
-            onClick={() => setSelectedLoadId(load.id)}
             className={cn(
-              'rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+              'rounded-lg border px-3 py-2 text-sm transition-colors flex items-center gap-2',
               load.id === selectedLoadId ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted/50'
             )}
           >
-            <p className="font-semibold">{load.load_number_id}</p>
-            <p className="text-xs text-muted-foreground">{load.status}</p>
-          </button>
+            <button onClick={() => setSelectedLoadId(load.id)} className="text-left">
+              <p className="font-semibold">{load.load_number_id}</p>
+              <p className="text-xs text-muted-foreground">{load.status}</p>
+            </button>
+            <button
+              type="button"
+              title="View load details"
+              onClick={(e) => { e.stopPropagation(); onViewLoad?.(load.id); }}
+              className="text-muted-foreground hover:text-primary flex-shrink-0"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+          </div>
         ))}
       </div>
 
@@ -188,7 +197,12 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
                   <Button onClick={handleMasterReceiptScan} className="steel-gradient text-white border-0">Receive Load</Button>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground font-mono truncate">Master code: {manifest.manifest_qr_payload_string}</p>
+                  <button
+                    className="text-xs text-muted-foreground font-mono truncate hover:underline text-left"
+                    onClick={() => onViewManifest?.(manifest.id)}
+                  >
+                    Master code: {manifest.manifest_qr_payload_string}
+                  </button>
                   <button
                     type="button"
                     title="Print Tracking Tag"
@@ -225,7 +239,9 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
             ) : items.map((item) => (
               <div key={item.id} className="rounded-lg border border-border p-2 text-xs flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="font-mono font-bold truncate">{item.piece?.piece_mark}</p>
+                  <button className="font-mono font-bold truncate hover:underline text-left block" onClick={() => onViewPiece?.({ pieceId: item.piece_id })}>
+                    {item.piece?.piece_mark}
+                  </button>
                   <p className="text-muted-foreground">Seq #{item.sequence_number} • {item.status}</p>
                 </div>
                 {(showTransitPanel || showDeliveredPanel) && item.status === 'Loaded' && (

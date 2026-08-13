@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { Plus, GripVertical, AlertTriangle, Trash2, PackageCheck } from 'lucide-react';
+import { Plus, GripVertical, AlertTriangle, Trash2, PackageCheck, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,7 +20,7 @@ const nextLoadNumber = (loads) => {
   return `LOAD-${String(max + 1).padStart(3, '0')}`;
 };
 
-export default function LoadBuilder({ pieces, loads, loadItems, carriers, projects, pieceMarks = [], onReload }) {
+export default function LoadBuilder({ pieces, loads, loadItems, carriers, projects, pieceMarks = [], onReload, onViewLoad, onViewPiece }) {
   const { toast } = useToast();
   const [selectedLoadId, setSelectedLoadId] = useState(loads[0]?.id || null);
   const [showNewLoadForm, setShowNewLoadForm] = useState(false);
@@ -166,17 +166,26 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         {loads.map((load) => (
-          <button
+          <div
             key={load.id}
-            onClick={() => setSelectedLoadId(load.id)}
             className={cn(
-              'rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+              'rounded-lg border px-3 py-2 text-sm transition-colors flex items-center gap-2',
               load.id === selectedLoadId ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted/50'
             )}
           >
-            <p className="font-semibold">{load.load_number_id}</p>
-            <p className="text-xs text-muted-foreground">{load.status} • {loadItems.filter((li) => li.load_id === load.id).length} pcs</p>
-          </button>
+            <button onClick={() => setSelectedLoadId(load.id)} className="text-left">
+              <p className="font-semibold">{load.load_number_id}</p>
+              <p className="text-xs text-muted-foreground">{load.status} • {loadItems.filter((li) => li.load_id === load.id).length} pcs</p>
+            </button>
+            <button
+              type="button"
+              title="View load details"
+              onClick={(e) => { e.stopPropagation(); onViewLoad?.(load.id); }}
+              className="text-muted-foreground hover:text-primary flex-shrink-0"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+          </div>
         ))}
         <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowNewLoadForm(true)}>
           <Plus className="w-4 h-4" />New Load
@@ -238,10 +247,18 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
                                   className="steel-card p-2 text-xs flex items-center gap-2 cursor-grab active:cursor-grabbing"
                                 >
                                   <GripVertical className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                  <div className="min-w-0">
+                                  <div className="min-w-0 flex-1">
                                     <p className="font-mono font-bold truncate">{p.piece_mark}</p>
                                     <p className="text-muted-foreground truncate">{p.weight ? `${p.weight.toLocaleString()} lbs` : ''}</p>
                                   </div>
+                                  <button
+                                    type="button"
+                                    title="View piece details"
+                                    onClick={(e) => { e.stopPropagation(); onViewPiece?.({ pieceId: p.id }); }}
+                                    className="text-muted-foreground hover:text-primary flex-shrink-0"
+                                  >
+                                    <Info className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
                               )}
                             </Draggable>
@@ -261,10 +278,13 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
                 {(provided) => (
                   <div ref={provided.innerRef} {...provided.droppableProps} className="steel-card p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-semibold text-sm">{selectedLoad.load_number_id}</h4>
-                      <span className={cn('text-xs font-mono', isOverweight ? 'text-red-600 font-bold' : 'text-muted-foreground')}>
+                      <button className="font-semibold text-sm hover:underline" onClick={() => onViewLoad?.(selectedLoad.id)}>{selectedLoad.load_number_id}</button>
+                      <button
+                        onClick={() => onViewLoad?.(selectedLoad.id)}
+                        className={cn('text-xs font-mono hover:underline', isOverweight ? 'text-red-600 font-bold' : 'text-muted-foreground')}
+                      >
                         {currentLoadWeight.toLocaleString()} / {capacity.toLocaleString()} lbs
-                      </span>
+                      </button>
                     </div>
                     <div className="space-y-2 min-h-[120px]">
                       {loadPieces.map((lp, i) => (
@@ -278,7 +298,12 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
                                 className="h-7 w-14 text-xs flex-shrink-0"
                               />
                               <div className="min-w-0 flex-1">
-                                <p className="font-mono font-bold truncate">{lp.piece?.piece_mark}</p>
+                                <button
+                                  className="font-mono font-bold truncate hover:underline text-left block w-full"
+                                  onClick={() => onViewPiece?.({ pieceId: lp.piece_id })}
+                                >
+                                  {lp.piece?.piece_mark}
+                                </button>
                                 <p className="text-muted-foreground truncate">{lp.piece?.weight ? `${lp.piece.weight.toLocaleString()} lbs` : ''} • {lp.status}</p>
                               </div>
                               {lp.status === 'Staged' && (
