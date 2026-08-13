@@ -6,23 +6,74 @@
       "type": "string"
     },
     "po_id": {
-      "type": "string"
+      "type": "string",
+      "description": "Links to purchase_orders — the PO this material was received against."
+    },
+    "po_line_id": {
+      "type": "string",
+      "description": "Explicit FK to purchase_order_lines — the specific material line this cert documents. Set by an operator choosing a line in the MTR Reader's (src/components/receiving/MtrReader.jsx) review step, never inferred by matching heat_number text against other records. Blank on records created via the Vendor Portal's separate self-submission path (VendorPanel.jsx), which has no line-level context — po_id is the only link there."
     },
     "vendor_id": {
       "type": "string"
     },
     "heat_number": {
-      "type": "string"
+      "type": "string",
+      "description": "The key field — the only one the AI reader hard-blocks Approve on if empty. See heat_number_confidence."
+    },
+    "heat_number_confidence": {
+      "type": "number",
+      "description": "AI's 0-1 confidence in the extracted heat_number, from the MTR Reader's InvokeLLM call. Null for a hand-typed/corrected heat number. Reviewed values below ~0.7 are flagged in the review table before Approve — this field persists what the AI actually reported, not the reviewer's final say."
     },
     "material_grade": {
+      "type": "string",
+      "description": "e.g. \"A992\", \"A572-50\"."
+    },
+    "shape_size": {
+      "type": "string",
+      "description": "e.g. \"W12x26\", \"HSS6x6x1/4\", free text as printed on the cert."
+    },
+    "mill_name": {
       "type": "string"
+    },
+    "cert_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date printed on the mill cert itself — distinct from submitted_date (when it was logged into SteelOS)."
+    },
+    "carbon_pct": { "type": "number", "description": "Carbon (C), % by weight." },
+    "manganese_pct": { "type": "number", "description": "Manganese (Mn), % by weight." },
+    "phosphorus_pct": { "type": "number", "description": "Phosphorus (P), % by weight." },
+    "sulfur_pct": { "type": "number", "description": "Sulfur (S), % by weight." },
+    "silicon_pct": { "type": "number", "description": "Silicon (Si), % by weight." },
+    "copper_pct": { "type": "number", "description": "Copper (Cu), % by weight." },
+    "nickel_pct": { "type": "number", "description": "Nickel (Ni), % by weight." },
+    "chromium_pct": { "type": "number", "description": "Chromium (Cr), % by weight." },
+    "molybdenum_pct": { "type": "number", "description": "Molybdenum (Mo), % by weight." },
+    "vanadium_pct": { "type": "number", "description": "Vanadium (V), % by weight." },
+    "columbium_pct": { "type": "number", "description": "Columbium/Niobium (Cb/Nb), % by weight." },
+    "yield_strength_ksi": { "type": "number" },
+    "tensile_strength_ksi": { "type": "number" },
+    "elongation_pct": { "type": "number" },
+    "carbon_equivalent": {
+      "type": "number",
+      "description": "CE, only when reported on the source cert — left null rather than computed, since CE formulas vary by spec and a computed value could silently disagree with the mill's own stated CE."
+    },
+    "validation_warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Snapshot of the non-blocking warnings (src/lib/mtrValidation.js) shown in the review table at the moment Approve was clicked — kept for audit trail even though the reviewer approved past them."
     },
     "cert_document_id": {
-      "type": "string"
+      "type": "string",
+      "description": "IndexedDB key in mtrDocumentStore.js — the actual PDF/image blob lives there, never in localStorage. Blank only if the record was created without a source file attached."
     },
+    "cert_file_name": { "type": "string" },
+    "cert_file_mime": { "type": "string" },
+    "cert_file_size": { "type": "number" },
     "submitted_date": {
       "type": "string",
-      "format": "date"
+      "format": "date",
+      "description": "When this record was logged into SteelOS (Approve time) — see cert_date for the date printed on the cert."
     }
   },
   "required": [
