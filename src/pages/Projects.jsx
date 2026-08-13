@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
   Plus, Search, Building2,
-  MoreVertical, Star, StarOff, Archive, Eye, Package
+  MoreVertical, Star, StarOff, Archive, Eye, Package, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,8 @@ const STATUS_FILTERS = ['all', 'estimating', 'awarded', 'engineering', 'fabricat
 
 export default function Projects() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const customerFilterId = searchParams.get('customer');
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -53,7 +55,8 @@ export default function Projects() {
       p.project_number?.toLowerCase().includes(search.toLowerCase()) ||
       p.customer_name?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || p.status === statusFilter;
-    return matchSearch && matchStatus;
+    const matchCustomer = !customerFilterId || p.customer_id === customerFilterId;
+    return matchSearch && matchStatus && matchCustomer;
   }).sort((a, b) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0));
 
   const healthColor = (score) => {
@@ -75,6 +78,13 @@ export default function Projects() {
           </Link>
         }
       />
+
+      {customerFilterId && (
+        <div className="flex items-center justify-between text-sm mb-4 px-3 py-2 rounded-lg bg-primary/10 text-primary">
+          <span>Showing only projects for {filtered[0]?.customer_name || 'this company'}.</span>
+          <button className="flex items-center gap-1 hover:underline" onClick={() => navigate('/projects')}><X className="w-3.5 h-3.5" />Clear filter</button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">

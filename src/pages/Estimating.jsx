@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '@/api/apiClient';
-import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Settings2, Calculator, TrendingUp, CheckCircle2, XCircle, Archive, ListChecks, Eye, EyeOff, Pencil } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, Settings2, Calculator, TrendingUp, CheckCircle2, XCircle, Archive, ListChecks, Eye, EyeOff, Pencil, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,6 +27,8 @@ const WIDGETS = [
 export default function Estimating() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const customerFilterId = searchParams.get('customer');
   const bidListRef = useRef(null);
   const bidHistoryRef = useRef(null);
   const [bids, setBids] = useState([]);
@@ -115,10 +117,13 @@ export default function Estimating() {
     localStorage.setItem('estimating_widgets', JSON.stringify(updated));
   };
 
-  const activeBids = bids.filter(b => ['draft', 'in_progress', 'submitted'].includes(b.status));
-  const wonBids = bids.filter(b => b.status === 'won');
-  const lostBids = bids.filter(b => b.status === 'lost');
-  const dnbBids = bids.filter(b => b.status === 'Did_Not_Bid');
+  const customerFilteredBids = customerFilterId
+    ? bids.filter(b => b.customer_id === customerFilterId || b.general_contractor_id === customerFilterId)
+    : bids;
+  const activeBids = customerFilteredBids.filter(b => ['draft', 'in_progress', 'submitted'].includes(b.status));
+  const wonBids = customerFilteredBids.filter(b => b.status === 'won');
+  const lostBids = customerFilteredBids.filter(b => b.status === 'lost');
+  const dnbBids = customerFilteredBids.filter(b => b.status === 'Did_Not_Bid');
   const decidedBids = wonBids.length + lostBids.length;
   const winRate = decidedBids > 0 ? (wonBids.length / decidedBids * 100) : 0;
 
@@ -159,6 +164,16 @@ export default function Estimating() {
           </div>
         }
       />
+
+      {customerFilterId && (
+        <div className="flex items-center justify-between text-sm mb-4 px-3 py-2 rounded-lg bg-primary/10 text-primary">
+          <span>
+            Showing only bids for{' '}
+            {customerFilteredBids[0]?.customer_name || customerFilteredBids[0]?.general_contractor_name || 'this company'}.
+          </span>
+          <button className="flex items-center gap-1 hover:underline" onClick={() => navigate('/estimating')}><X className="w-3.5 h-3.5" />Clear filter</button>
+        </div>
+      )}
 
       {/* Top row: count widgets */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">

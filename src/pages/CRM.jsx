@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Building2, Plus, Search, Phone, Mail, Pencil, Trash2, UserPlus } from 'lucide-react';
+import { Building2, Plus, Search, Phone, Mail, Pencil, Trash2, UserPlus, X, FileText, FolderKanban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/ui/PageHeader';
@@ -40,12 +40,16 @@ const deriveRelationshipType = (isCustomer, isVendor) => {
 
 export default function CRM() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(searchParams.get('search') || '');
+  const [typeFilter, setTypeFilter] = useState(null);
   const [open, setOpen] = useState(false);
   const [viewingCustomer, setViewingCustomer] = useState(null);
+  const [viewingContact, setViewingContact] = useState(null);
+  const [relatedCounts, setRelatedCounts] = useState({ bids: null, projects: null });
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [form, setForm] = useState({ name: '', customer_type: 'general_contractor', is_customer: true, is_vendor: false, phone: '', email: '', city: '', state: '', zip: '', billing_address: '', billing_city: '', billing_state: '', billing_zip: '', portal_enabled: false, portal_email: '', portal_password: '' });
   const [contacts, setContacts] = useState([]);
@@ -60,6 +64,30 @@ export default function CRM() {
     const match = customers.find(c => c.id === customerId);
     if (match) setViewingCustomer(match);
   }, [searchParams, customers]);
+
+  // Related bids/projects counts — computed from the real Bid/Project
+  // entities (customer_id + Bid's separate general_contractor_id, since a
+  // company can be referenced either way), not fabricated. Loaded per-open
+  // rather than once for all customers since this list can be long.
+  useEffect(() => {
+    if (!viewingCustomer) { setRelatedCounts({ bids: null, projects: null }); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [bidsAsCustomer, bidsAsGC, projects] = await Promise.all([
+          db.entities.Bid.filter({ customer_id: viewingCustomer.id }, '-created_date', 200).catch(() => []),
+          db.entities.Bid.filter({ general_contractor_id: viewingCustomer.id }, '-created_date', 200).catch(() => []),
+          db.entities.Project.filter({ customer_id: viewingCustomer.id }, '-created_date', 200).catch(() => []),
+        ]);
+        if (cancelled) return;
+        const bidIds = new Set([...bidsAsCustomer, ...bidsAsGC].map(b => b.id));
+        setRelatedCounts({ bids: bidIds.size, projects: projects.length });
+      } catch (e) {
+        if (!cancelled) setRelatedCounts({ bids: 0, projects: 0 });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [viewingCustomer]);
 
   const loadData = async () => {
     setLoading(true);
@@ -131,15 +159,23 @@ export default function CRM() {
     setContacts(prev => prev.filter(contact => contact.id !== contactId));
   };
 
-  const filtered = customers.filter(c =>
-    !search || c.name?.toLowerCase().includes(search.toLowerCase()) || c.email?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = customers.filter(c => {
+    const matchSearch = !search || c.name?.toLowerCase().includes(search.toLowerCase()) || c.email?.toLowerCase().includes(search.toLowerCase());
+    const matchType = !typeFilter || c.customer_type === typeFilter;
+    return matchSearch && matchType;
+  });
+
+  const filterByType = (type) => { setViewingCustomer(null); setTypeFilter(type); };
 
   return (
     <div className="p-6 animate-fade-in">
       <PageHeader
         title="CRM — Customers"
-        subtitle={`${customers.length} active customers`}
+        subtitle={
+          <button type="button" onClick={() => { setTypeFilter(null); setSearch(''); }} className="hover:text-primary hover:underline">
+            {customers.length} active customers
+          </button>
+        }
         actions={
           <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) resetForm(); }}>
             <DialogTrigger asChild>
@@ -258,6 +294,13 @@ export default function CRM() {
         <Input placeholder="Search customers..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
       </div>
 
+      {typeFilter && (
+        <div className="flex items-center justify-between text-sm mb-4 px-3 py-2 rounded-lg bg-primary/10 text-primary">
+          <span>Showing only "{disciplineLabel(typeFilter)}" companies.</span>
+          <button className="flex items-center gap-1 hover:underline" onClick={() => setTypeFilter(null)}><X className="w-3.5 h-3.5" />Clear filter</button>
+        </div>
+      )}
+
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-40 bg-muted rounded-xl animate-pulse" />)}
@@ -277,16 +320,29 @@ export default function CRM() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={(e) => { e.stopPropagation(); startEdit(c); }} className="text-muted-foreground hover:text-primary"><Pencil className="w-4 h-4" /></button>
-                  <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_COLORS[c.customer_type] || TYPE_COLORS.other}`}>
-                    {c.customer_type ? disciplineLabel(c.customer_type) : ''}
-                  </span>
+                  {c.customer_type && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); filterByType(c.customer_type); }}
+                      className={`text-xs px-2.5 py-0.5 rounded-full font-medium hover:opacity-80 ${TYPE_COLORS[c.customer_type] || TYPE_COLORS.other}`}
+                    >
+                      {disciplineLabel(c.customer_type)}
+                    </button>
+                  )}
                 </div>
               </div>
-              <h3 className="font-semibold mb-1">{c.name}</h3>
-              {(c.city || c.state) && <p className="text-sm text-muted-foreground mb-3">{[c.city, c.state].filter(Boolean).join(', ')}</p>}
+              <h3 className="font-semibold mb-1 hover:text-primary hover:underline">{c.name}</h3>
+              {(c.city || c.state) && <p className="text-sm text-muted-foreground mb-3 hover:underline">{[c.city, c.state].filter(Boolean).join(', ')}</p>}
               <div className="space-y-1.5 text-xs text-muted-foreground">
-                {c.email && <div className="flex items-center gap-2"><Mail className="w-3.5 h-3.5" />{c.email}</div>}
-                {c.phone && <div className="flex items-center gap-2"><Phone className="w-3.5 h-3.5" />{c.phone}</div>}
+                {c.email && (
+                  <a href={`mailto:${c.email}`} onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 hover:text-primary hover:underline">
+                    <Mail className="w-3.5 h-3.5" />{c.email}
+                  </a>
+                )}
+                {c.phone && (
+                  <a href={`tel:${c.phone}`} onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 hover:text-primary hover:underline">
+                    <Phone className="w-3.5 h-3.5" />{c.phone}
+                  </a>
+                )}
               </div>
             </div>
           ))}
@@ -300,9 +356,13 @@ export default function CRM() {
               <DialogHeader><DialogTitle>{viewingCustomer.name}</DialogTitle></DialogHeader>
               <div className="space-y-3 text-sm">
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_COLORS[viewingCustomer.customer_type] || TYPE_COLORS.other}`}>
+                  <button
+                    onClick={() => filterByType(viewingCustomer.customer_type)}
+                    disabled={!viewingCustomer.customer_type}
+                    className={`text-xs px-2.5 py-0.5 rounded-full font-medium hover:opacity-80 disabled:hover:opacity-100 ${TYPE_COLORS[viewingCustomer.customer_type] || TYPE_COLORS.other}`}
+                  >
                     {viewingCustomer.customer_type ? disciplineLabel(viewingCustomer.customer_type) : '—'}
-                  </span>
+                  </button>
                   {viewingCustomer.relationship_type && (
                     <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-muted text-muted-foreground capitalize">
                       {viewingCustomer.relationship_type}
@@ -316,12 +376,33 @@ export default function CRM() {
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Phone</p>
-                    <p className="font-medium">{viewingCustomer.phone || '—'}</p>
+                    {viewingCustomer.phone ? (
+                      <a href={`tel:${viewingCustomer.phone}`} className="font-medium text-primary hover:underline">{viewingCustomer.phone}</a>
+                    ) : <p className="font-medium">—</p>}
                   </div>
                   <div className="col-span-2">
                     <p className="text-xs text-muted-foreground">Email</p>
-                    <p className="font-medium">{viewingCustomer.email || '—'}</p>
+                    {viewingCustomer.email ? (
+                      <a href={`mailto:${viewingCustomer.email}`} className="font-medium text-primary hover:underline">{viewingCustomer.email}</a>
+                    ) : <p className="font-medium">—</p>}
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => navigate(`/estimating?customer=${viewingCustomer.id}`)}
+                    className="rounded-lg border border-border p-3 text-left hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><FileText className="w-3.5 h-3.5" />Related Bids</div>
+                    <p className="text-lg font-bold">{relatedCounts.bids ?? '—'}</p>
+                  </button>
+                  <button
+                    onClick={() => navigate(`/projects?customer=${viewingCustomer.id}`)}
+                    className="rounded-lg border border-border p-3 text-left hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><FolderKanban className="w-3.5 h-3.5" />Related Projects</div>
+                    <p className="text-lg font-bold">{relatedCounts.projects ?? '—'}</p>
+                  </button>
                 </div>
 
                 <div className="rounded-lg border border-border p-3 space-y-2">
@@ -330,10 +411,14 @@ export default function CRM() {
                     <p className="text-xs text-muted-foreground">No contacts on file.</p>
                   ) : (
                     viewingCustomer.contacts.map(contact => (
-                      <div key={contact.id} className="rounded border border-border p-2 text-xs">
-                        <p className="font-medium">{contact.name}</p>
+                      <button
+                        key={contact.id}
+                        onClick={() => setViewingContact(contact)}
+                        className="w-full rounded border border-border p-2 text-xs text-left hover:bg-muted/50 transition-colors"
+                      >
+                        <p className="font-medium text-primary hover:underline">{contact.name}</p>
                         <p className="text-muted-foreground">{contact.title || 'Contact'} • {contact.email || '—'} • {contact.phone || '—'}</p>
-                      </div>
+                      </button>
                     ))
                   )}
                 </div>
@@ -346,6 +431,43 @@ export default function CRM() {
                 >
                   <Pencil className="w-3.5 h-3.5 mr-1.5" />Edit
                 </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingContact} onOpenChange={(next) => !next && setViewingContact(null)}>
+        <DialogContent>
+          {viewingContact && (
+            <>
+              <DialogHeader><DialogTitle>{viewingContact.name}</DialogTitle></DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Title</p>
+                  <p className="font-medium">{viewingContact.title || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Phone</p>
+                  {viewingContact.phone ? (
+                    <a href={`tel:${viewingContact.phone}`} className="font-medium text-primary hover:underline">{viewingContact.phone}</a>
+                  ) : <p className="font-medium">—</p>}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Email</p>
+                  {viewingContact.email ? (
+                    <a href={`mailto:${viewingContact.email}`} className="font-medium text-primary hover:underline">{viewingContact.email}</a>
+                  ) : <p className="font-medium">—</p>}
+                </div>
+                {viewingContact.notes && (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Notes</p>
+                    <p className="font-medium">{viewingContact.notes}</p>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setViewingContact(null)}>Close</Button>
               </DialogFooter>
             </>
           )}
