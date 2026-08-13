@@ -11,6 +11,61 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { generateDelayImpactNoticePDF } from '@/lib/delayNoticePdf';
+import { useAuth } from '@/lib/AuthContext';
+
+// RFI status lifecycle: draft -> submitted -> answered -> closed, with a
+// void branch reachable from any active state and a reopen path back out of
+// answered/closed/void. 'under_review' is a legacy in-flight status from
+// before this control existed (still present on older records) — it's no
+// longer a reachable target, but is treated as equivalent to 'submitted' so
+// records already sitting in it still get a valid forward path.
+const RFI_STATUS_LABELS = {
+  draft: 'Draft', submitted: 'Submitted', under_review: 'Under Review',
+  answered: 'Answered', closed: 'Closed', void: 'Void',
+};
+
+const RFI_STATUS_FILTER_OPTIONS = ['all', 'draft', 'submitted', 'under_review', 'answered', 'closed', 'void'];
+
+const RFI_STATUS_TRANSITIONS = {
+  draft: [
+    { to: 'submitted', label: 'Submit' },
+    { to: 'void', label: 'Void', requiresNote: true },
+  ],
+  submitted: [
+    { to: 'answered', label: 'Answered' },
+    { to: 'void', label: 'Void', requiresNote: true },
+  ],
+  under_review: [
+    { to: 'answered', label: 'Answered' },
+    { to: 'void', label: 'Void', requiresNote: true },
+  ],
+  answered: [
+    { to: 'closed', label: 'Close' },
+    { to: 'submitted', label: 'Reopen', reopen: true, requiresNote: true },
+    { to: 'void', label: 'Void', requiresNote: true },
+  ],
+  closed: [
+    { to: 'submitted', label: 'Reopen', reopen: true, requiresNote: true },
+    { to: 'void', label: 'Void', requiresNote: true },
+  ],
+  void: [
+    { to: 'draft', label: 'Reopen', reopen: true, requiresNote: true },
+  ],
+};
+
+const nextStatusOptions = (status) => RFI_STATUS_TRANSITIONS[status] || RFI_STATUS_TRANSITIONS.draft;
+
+// date_required is this app's "response due date" field for an RFI.
+const isRfiOverdue = (rfi) => !!(rfi.date_required && new Date(rfi.date_required) < new Date() && !['closed', 'void'].includes(rfi.status));
+
+// Open-ended while active (counts up to today); pins to the last update once
+// closed/voided so the counter stops advancing after the RFI is done.
+const daysRfiOpen = (rfi) => {
+  const start = rfi.date_submitted || rfi.created_date;
+  if (!start) return null;
+  const end = ['closed', 'void'].includes(rfi.status) ? (rfi.updated_date || rfi.created_date) : new Date().toISOString();
+  return Math.max(0, Math.floor((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)));
+};
 
 // Mirrors Intelligence.jsx's STEEL_SYSTEM_PROMPT verbatim — same
 // structural-steel-expert persona for every AI call in this app, not a
@@ -33,6 +88,7 @@ When reviewing documents, you reason through them EXACTLY as an experienced stru
 
 export default function RFIs() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [rfis, setRfis] = useState([]);
   const [projects, setProjects] = useState([]);
   const [contracts, setContracts] = useState([]);
@@ -50,6 +106,10 @@ export default function RFIs() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [draftingResponse, setDraftingResponse] = useState(false);
   const [aiDraftUsed, setAiDraftUsed] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
+  const [statusChangeForm, setStatusChangeForm] = useState({ to: '', note: '', response: '' });
+  const [savingStatusChange, setSavingStatusChange] = useState(false);
+  const [historyRfi, setHistoryRfi] = useState(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -74,7 +134,7 @@ export default function RFIs() {
   // distinct from date_required, which is just a PM-set internal target date.
   const getContractDelinquency = (rfi) => {
     const contract = contracts.find(c => c.project_id === rfi.project_id);
-    if (!contract?.rfi_response_window_days || !rfi.date_submitted || ['answered', 'closed'].includes(rfi.status)) {
+    if (!contract?.rfi_response_window_days || !rfi.date_submitted || ['answered', 'closed', 'void'].includes(rfi.status)) {
       return { contract: null, daysDelayed: 0 };
     }
     const daysSinceSubmitted = Math.floor((new Date() - new Date(rfi.date_submitted)) / (1000 * 60 * 60 * 24));
@@ -135,7 +195,14 @@ export default function RFIs() {
     setSaving(true);
     try {
       const rfiCount = rfis.filter(r => r.project_id === form.project_id).length + 1;
-      await db.entities.RFI.create({ ...form, rfi_number: `RFI-${String(rfiCount).padStart(3,'0')}`, status: 'draft', date_submitted: new Date().toISOString().split('T')[0] });
+      const createdAt = new Date().toISOString();
+      await db.entities.RFI.create({
+        ...form,
+        rfi_number: `RFI-${String(rfiCount).padStart(3,'0')}`,
+        status: 'draft',
+        date_submitted: createdAt.split('T')[0],
+        status_history: [{ from: null, to: 'draft', changed_by: user?.full_name || user?.email || 'Unknown', changed_at: createdAt, note: 'RFI created.' }],
+      });
       toast({ title: 'RFI created!' });
       setOpen(false);
       setForm({ project_id: '', bid_id: '', subject: '', description: '', priority: 'medium' });
@@ -148,7 +215,6 @@ export default function RFIs() {
   const startEditingRfi = () => {
     setEditForm({
       subject: selectedRfi.subject || '',
-      status: selectedRfi.status || 'draft',
       priority: selectedRfi.priority || 'medium',
       assigned_to: selectedRfi.assigned_to || '',
       date_required: selectedRfi.date_required || '',
@@ -169,7 +235,6 @@ export default function RFIs() {
     setEditingRfi(false);
     setEditForm({
       subject: selectedRfi.subject || '',
-      status: selectedRfi.status || 'draft',
       priority: selectedRfi.priority || 'medium',
       assigned_to: selectedRfi.assigned_to || '',
       date_required: selectedRfi.date_required || '',
@@ -255,6 +320,62 @@ Draft the response now.`;
     }
   };
 
+  const openChangeStatus = () => {
+    setStatusChangeForm({ to: '', note: '', response: selectedRfi?.response || '' });
+    setChangingStatus(true);
+  };
+
+  const pickStatusOption = (option) => {
+    setStatusChangeForm(f => ({
+      ...f,
+      to: option.to,
+      note: '',
+      response: option.to === 'answered' ? (selectedRfi?.response || f.response || '') : f.response,
+    }));
+  };
+
+  const handleChangeStatus = async () => {
+    if (!selectedRfi || !statusChangeForm.to) return;
+    const option = nextStatusOptions(selectedRfi.status).find(o => o.to === statusChangeForm.to);
+    if (!option) return;
+    if (option.requiresNote && !statusChangeForm.note.trim()) {
+      toast({ title: 'A note is required for this change', description: 'Void and reopen transitions must explain why.', variant: 'destructive' });
+      return;
+    }
+    if (statusChangeForm.to === 'answered' && !statusChangeForm.response.trim()) {
+      toast({ title: 'Response text is required', description: 'Enter the RFI response before marking it Answered.', variant: 'destructive' });
+      return;
+    }
+    setSavingStatusChange(true);
+    try {
+      const changedAt = new Date().toISOString();
+      const historyEntry = {
+        from: selectedRfi.status,
+        to: statusChangeForm.to,
+        changed_by: user?.full_name || user?.email || 'Unknown',
+        changed_at: changedAt,
+        note: statusChangeForm.note.trim(),
+      };
+      const payload = {
+        status: statusChangeForm.to,
+        status_history: [...(selectedRfi.status_history || []), historyEntry],
+      };
+      if (statusChangeForm.to === 'answered') {
+        payload.response = statusChangeForm.response.trim();
+        payload.date_answered = changedAt.split('T')[0];
+      }
+      const updated = await db.entities.RFI.update(selectedRfi.id, payload);
+      setRfis(prev => prev.map(r => r.id === selectedRfi.id ? updated : r));
+      setSelectedRfi(updated);
+      setChangingStatus(false);
+      toast({ title: `Status changed to ${RFI_STATUS_LABELS[statusChangeForm.to] || statusChangeForm.to}` });
+    } catch (e) {
+      toast({ title: 'Unable to change status', variant: 'destructive' });
+    } finally {
+      setSavingStatusChange(false);
+    }
+  };
+
   const filtered = rfis.filter(r => {
     const matchSearch = !search || r.subject?.toLowerCase().includes(search.toLowerCase()) || r.rfi_number?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || r.status === statusFilter;
@@ -271,7 +392,7 @@ Draft the response now.`;
     total: rfis.length,
     open: rfis.filter(r => ['submitted','under_review'].includes(r.status)).length,
     answered: rfis.filter(r => r.status === 'answered').length,
-    overdue: rfis.filter(r => r.date_required && new Date(r.date_required) < new Date() && r.status !== 'closed').length,
+    overdue: rfis.filter(isRfiOverdue).length,
   };
 
   return (
@@ -341,8 +462,8 @@ Draft the response now.`;
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-44"><SelectValue placeholder="All Statuses" /></SelectTrigger>
           <SelectContent>
-            {['all','draft','submitted','under_review','answered','closed'].map(s => (
-              <SelectItem key={s} value={s}>{s === 'all' ? 'All Statuses' : s.replace('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}</SelectItem>
+            {RFI_STATUS_FILTER_OPTIONS.map(s => (
+              <SelectItem key={s} value={s}>{s === 'all' ? 'All Statuses' : (RFI_STATUS_LABELS[s] || s)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -360,7 +481,8 @@ Draft the response now.`;
           filtered.map(r => {
             const proj = projects.find(p => p.id === r.project_id);
             const linkedBid = bids.find(b => b.id === r.bid_id);
-            const isOverdue = r.date_required && new Date(r.date_required) < new Date() && r.status !== 'closed';
+            const isOverdue = isRfiOverdue(r);
+            const daysOpen = daysRfiOpen(r);
             const { daysDelayed } = getContractDelinquency(r);
             const isContractuallyDelinquent = daysDelayed > 0;
             return (
@@ -373,7 +495,9 @@ Draft the response now.`;
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="text-xs font-mono font-bold text-primary">{r.rfi_number}</span>
-                      <StatusBadge status={r.status} />
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setHistoryRfi(r); }} className="cursor-pointer">
+                        <StatusBadge status={r.status} label={RFI_STATUS_LABELS[r.status]} />
+                      </button>
                       <span className={`text-xs font-medium ${PRIORITY_COLORS[r.priority]}`}>{r.priority?.toUpperCase()}</span>
                       {isOverdue && <span className="text-xs bg-red-500/10 text-red-500 px-2 py-0.5 rounded-full">OVERDUE</span>}
                       {isContractuallyDelinquent && <span className="text-xs bg-red-600/10 text-red-600 px-2 py-0.5 rounded-full font-medium">{daysDelayed}d PAST CONTRACT WINDOW</span>}
@@ -381,7 +505,11 @@ Draft the response now.`;
                     <p className="font-medium text-sm">{r.subject}</p>
                     {proj && <p className="text-xs text-muted-foreground mt-1">{proj.project_number} — {proj.name}</p>}
                     {linkedBid && <p className="text-xs text-muted-foreground mt-0.5">Estimate: {linkedBid.bid_number}</p>}
-                    {r.date_required && <p className="text-xs text-muted-foreground mt-1">Required by: {r.date_required}</p>}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {daysOpen != null && <span>{daysOpen}d open</span>}
+                      {daysOpen != null && r.date_required && <span> • </span>}
+                      {r.date_required && <span>Required by: {r.date_required}</span>}
+                    </p>
                   </div>
                   {isContractuallyDelinquent && (
                     <Button
@@ -402,9 +530,9 @@ Draft the response now.`;
         )}
       </div>
 
-      <Dialog open={!!selectedRfi} onOpenChange={(o) => { if (!o) { setSelectedRfi(null); setEditingRfi(false); setAiDraftUsed(false); } }}>
+      <Dialog open={!!selectedRfi} onOpenChange={(o) => { if (!o) { setSelectedRfi(null); setEditingRfi(false); setAiDraftUsed(false); setChangingStatus(false); } }}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          {selectedRfi && !editingRfi && (
+          {selectedRfi && !editingRfi && !changingStatus && (
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 flex-wrap">
@@ -413,14 +541,18 @@ Draft the response now.`;
                 </DialogTitle>
               </DialogHeader>
               <div className="flex items-center gap-2 flex-wrap">
-                <StatusBadge status={selectedRfi.status} />
+                <button type="button" onClick={() => setHistoryRfi(selectedRfi)} className="cursor-pointer">
+                  <StatusBadge status={selectedRfi.status} label={RFI_STATUS_LABELS[selectedRfi.status]} />
+                </button>
                 <span className={`text-xs font-medium ${PRIORITY_COLORS[selectedRfi.priority]}`}>{selectedRfi.priority?.toUpperCase()}</span>
                 {selectedRfi.ai_generated && <span className="text-xs bg-purple-500/10 text-purple-500 px-2 py-0.5 rounded-full font-medium">AI GENERATED</span>}
+                {isRfiOverdue(selectedRfi) && <span className="text-xs bg-red-500/10 text-red-500 px-2 py-0.5 rounded-full">OVERDUE</span>}
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {[
                   { label: 'Project', value: selectedRfiProject ? `${selectedRfiProject.project_number} — ${selectedRfiProject.name}` : '—' },
+                  { label: 'Days Open', value: daysRfiOpen(selectedRfi) != null ? `${daysRfiOpen(selectedRfi)} day(s)` : '—' },
                   { label: 'Date Submitted', value: selectedRfi.date_submitted || '—' },
                   { label: 'Date Required', value: selectedRfi.date_required || '—' },
                   { label: 'Date Answered', value: selectedRfi.date_answered || '—' },
@@ -454,7 +586,90 @@ Draft the response now.`;
 
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setSelectedRfi(null)}>Close</Button>
+                <Button variant="outline" onClick={openChangeStatus}>Change Status</Button>
                 <Button onClick={startEditingRfi} className="steel-gradient text-white border-0">Edit</Button>
+              </div>
+            </>
+          )}
+
+          {selectedRfi && changingStatus && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="font-mono text-primary">{selectedRfi.rfi_number}</span>
+                  <span className="text-sm text-muted-foreground font-normal">Change Status</span>
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Current status:</span>
+                  <StatusBadge status={selectedRfi.status} label={RFI_STATUS_LABELS[selectedRfi.status]} />
+                </div>
+
+                <div>
+                  <Label>New Status</Label>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {nextStatusOptions(selectedRfi.status).map(option => (
+                      <Button
+                        key={option.to}
+                        type="button"
+                        size="sm"
+                        variant={statusChangeForm.to === option.to ? 'default' : 'outline'}
+                        className={statusChangeForm.to === option.to ? 'steel-gradient text-white border-0' : ''}
+                        onClick={() => pickStatusOption(option)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {statusChangeForm.to === 'answered' && (
+                  <div>
+                    <Label>Response *</Label>
+                    <Textarea
+                      value={statusChangeForm.response}
+                      onChange={e => setStatusChangeForm(f => ({ ...f, response: e.target.value }))}
+                      className="mt-1"
+                      rows={4}
+                      placeholder="Enter the RFI response — required to mark this Answered."
+                    />
+                  </div>
+                )}
+
+                {statusChangeForm.to && (
+                  <div>
+                    <Label>
+                      Note {nextStatusOptions(selectedRfi.status).find(o => o.to === statusChangeForm.to)?.requiresNote ? '*' : '(optional)'}
+                    </Label>
+                    <Textarea
+                      value={statusChangeForm.note}
+                      onChange={e => setStatusChangeForm(f => ({ ...f, note: e.target.value }))}
+                      className="mt-1"
+                      rows={2}
+                      placeholder={nextStatusOptions(selectedRfi.status).find(o => o.to === statusChangeForm.to)?.requiresNote
+                        ? 'Required — explain why this RFI is being voided or reopened.'
+                        : 'Optional context for this status change.'}
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+                  <div><p>Changed By</p><p className="font-medium text-foreground">{user?.full_name || user?.email || 'Unknown'}</p></div>
+                  <div><p>Date</p><p className="font-medium text-foreground">{new Date().toISOString().split('T')[0]}</p></div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setChangingStatus(false)}>Cancel</Button>
+                  <Button
+                    onClick={handleChangeStatus}
+                    disabled={!statusChangeForm.to || savingStatusChange}
+                    className="steel-gradient text-white border-0"
+                  >
+                    {savingStatusChange ? 'Saving…' : 'Confirm Change'}
+                  </Button>
+                </div>
               </div>
             </>
           )}
@@ -475,17 +690,6 @@ Draft the response now.`;
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Status</Label>
-                    <Select value={editForm.status} onValueChange={v => setEditForm(f => ({ ...f, status: v }))}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {['draft','submitted','under_review','answered','closed'].map(s => (
-                          <SelectItem key={s} value={s}>{s.replace('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                   <div>
                     <Label>Priority</Label>
                     <Select value={editForm.priority} onValueChange={v => setEditForm(f => ({ ...f, priority: v }))}>
@@ -567,6 +771,41 @@ Draft the response now.`;
                     {savingEdit ? 'Saving…' : 'Save'}
                   </Button>
                 </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!historyRfi} onOpenChange={(o) => !o && setHistoryRfi(null)}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          {historyRfi && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="font-mono text-primary">{historyRfi.rfi_number}</span>
+                  <span className="text-sm text-muted-foreground font-normal">Status History</span>
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                {(historyRfi.status_history || []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No status changes recorded yet.</p>
+                ) : (
+                  [...historyRfi.status_history].reverse().map((entry, i) => (
+                    <div key={i} className="p-3 rounded-lg border border-border">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        {entry.from && <StatusBadge status={entry.from} label={RFI_STATUS_LABELS[entry.from] || entry.from} />}
+                        {entry.from && <span className="text-xs text-muted-foreground">→</span>}
+                        <StatusBadge status={entry.to} label={RFI_STATUS_LABELS[entry.to] || entry.to} />
+                      </div>
+                      <p className="text-xs text-muted-foreground">{entry.changed_by} • {new Date(entry.changed_at).toLocaleString()}</p>
+                      {entry.note && <p className="text-sm mt-1 whitespace-pre-wrap">{entry.note}</p>}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button variant="outline" onClick={() => setHistoryRfi(null)}>Close</Button>
               </div>
             </>
           )}

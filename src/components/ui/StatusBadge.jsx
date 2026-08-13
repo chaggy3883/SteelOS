@@ -37,6 +37,11 @@ const statusConfig = {
   shipped: { label: 'Shipped', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
   erected: { label: 'Erected', class: 'bg-green-600/10 text-green-600 border-green-600/20' },
   rejected: { label: 'Rejected', class: 'bg-red-500/10 text-red-500 border-red-500/20' },
+  // RFI statuses
+  under_review: { label: 'Under Review', class: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
+  answered: { label: 'Answered', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
+  closed: { label: 'Closed', class: 'bg-gray-500/10 text-gray-600 border-gray-500/20' },
+  void: { label: 'Void', class: 'bg-red-500/10 text-red-500 border-red-500/20' },
 };
 
 export default function StatusBadge({ status, label, className }) {

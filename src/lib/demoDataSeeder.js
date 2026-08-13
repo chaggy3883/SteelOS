@@ -592,6 +592,18 @@ export async function seedDemoData() {
   const rfiPayloads = [];
   rfiProjectSeeds.forEach(({ project, items }) => {
     items.forEach((item, i) => {
+      // Reconstruct the audit trail a real RFI would have accumulated on its
+      // way to its seeded status, rather than seeding as if it arrived there
+      // in one step — this keeps the demo's Status History modal non-empty
+      // and internally consistent (from/to chain, ascending changed_at).
+      const statusHistory = [{ from: null, to: 'draft', changed_by: item.submitter.full_name, changed_at: daysFromNow((item.submittedOffset ?? 0) - 1), note: 'RFI created.' }];
+      if (item.status !== 'draft') {
+        statusHistory.push({ from: 'draft', to: 'submitted', changed_by: item.submitter.full_name, changed_at: daysFromNow(item.submittedOffset), note: '' });
+      }
+      if (item.status === 'answered') {
+        statusHistory.push({ from: 'submitted', to: 'answered', changed_by: item.submitter.full_name, changed_at: daysFromNow(item.answeredOffset), note: '' });
+      }
+
       rfiPayloads.push({
         project_id: project.id,
         rfi_number: `RFI-${String(i + 1).padStart(3, '0')}`,
@@ -603,6 +615,7 @@ export async function seedDemoData() {
         ...(item.requiredOffset != null ? { date_required: daysFromNow(item.requiredOffset) } : {}),
         ...(item.answeredOffset != null ? { date_answered: daysFromNow(item.answeredOffset) } : {}),
         response: item.response || '',
+        status_history: statusHistory,
       });
     });
   });

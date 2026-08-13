@@ -423,6 +423,7 @@ const buildSeedData = () => {
         project_id: 'project-harbor',
         status: 'draft',
         date_submitted: '2026-07-21',
+        status_history: [{ from: null, to: 'draft', changed_by: 'System', changed_at: now, note: 'RFI created.' }],
         created_date: now,
         updated_date: now
       }
@@ -1941,6 +1942,27 @@ const migrateStore = (store) => {
       if (r.track === 'fabricator' || r.track === 'erector') return r;
       const category = String(r.category || '').toLowerCase();
       return { ...r, track: category.includes('bolt') ? 'erector' : 'fabricator' };
+    });
+  }
+
+  // RFI predates the status-change/audit-trail feature (RFIs.jsx), which
+  // reads status_history as an array and appends to it on every transition.
+  // Backfill a synthetic single-entry history on existing rows so it's never
+  // undefined — without this, .map()/.reverse() on an old record's history
+  // would throw the first time its status-history modal is opened.
+  if (Array.isArray(migrated.RFI)) {
+    migrated.RFI = migrated.RFI.map((r) => {
+      if (Array.isArray(r.status_history)) return r;
+      return {
+        ...r,
+        status_history: [{
+          from: null,
+          to: r.status || 'draft',
+          changed_by: r.submitted_by || 'System',
+          changed_at: r.updated_date || r.created_date || new Date().toISOString(),
+          note: 'Backfilled — no prior history recorded for this RFI.',
+        }],
+      };
     });
   }
 
