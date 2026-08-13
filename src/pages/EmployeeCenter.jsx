@@ -9,6 +9,7 @@ import { normalizeTargetMinutes } from '@/lib/shopOpsMetrics';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { hasModule } from '@/lib/moduleEntitlement';
+import { isAdminUser } from '@/lib/tenantContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,7 +23,7 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText,
   User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt, DoorOpen,
-  Timer, Square, Eye,
+  Timer, Square, Eye, ShieldCheck,
 } from 'lucide-react';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
 
@@ -59,6 +60,18 @@ export default function EmployeeCenter() {
   const { toast } = useToast();
   const [terminalId] = useState(() => getTerminalId());
   const [appUserRoles, setAppUserRoles] = useState(['user']);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Admin support-view: an admin/super_admin account has no employees row of
+  // its own (see the mount effect below), so it can never satisfy the normal
+  // PIN gate — this lets it pick a target employee instead. isAdminViewing
+  // marks the session as that read-only support view, never a real kiosk
+  // login, so every mutating action below must check it.
+  const [adminEmployees, setAdminEmployees] = useState([]);
+  const [adminCompanies, setAdminCompanies] = useState({});
+  const [adminSelectedEmployeeId, setAdminSelectedEmployeeId] = useState('');
+  const [loadingAdminEmployees, setLoadingAdminEmployees] = useState(false);
+  const [isAdminViewing, setIsAdminViewing] = useState(false);
 
   const [employee, setEmployee] = useState(null);
   const [company, setCompany] = useState(null);
@@ -103,6 +116,7 @@ export default function EmployeeCenter() {
     db.auth.me()
       .then((me) => {
         setAppUserRoles(me?.roles || ['user']);
+        setCurrentUser(me);
         // A kiosk-PIN session (Login.jsx / KioskKeypadLogin.jsx) already
         // proved identity via employee_id — resolving it here means the
         // worker never re-enters their Employee Number + PIN a second time
@@ -115,6 +129,16 @@ export default function EmployeeCenter() {
             setVaultUnlocked(false);
             return Promise.all([loadEmployeeData(emp.id), loadCompany(emp.company_id)]);
           });
+        }
+        // Office accounts (admin/super_admin) have no employees row backing
+        // them — this was the actual bug: the PIN gate below has no way to
+        // ever succeed for them. isAdminUser() checks against the real
+        // BUILTIN_ROLES role names ('admin', 'super_admin', etc.) via
+        // tenantContext.js — this must never be loosened to any broader
+        // check, since it's what stands in for the PIN a normal employee
+        // would otherwise have to prove.
+        if (isAdminUser(me)) {
+          return loadAdminEmployeePicker();
         }
       })
       .catch(() => setAppUserRoles(['user']));
@@ -161,6 +185,58 @@ export default function EmployeeCenter() {
     setExpenses(expenseData);
   };
 
+  const loadAdminEmployeePicker = async () => {
+    setLoadingAdminEmployees(true);
+    try {
+      const [employeeList, companyList] = await Promise.all([
+        db.entities.employees.list('full_name', 500),
+        db.entities.Company.list('name', 200).catch(() => []),
+      ]);
+      setAdminEmployees(employeeList);
+      setAdminCompanies(Object.fromEntries(companyList.map((c) => [c.id, c.name])));
+    } catch (e) {
+      setAdminEmployees([]);
+    } finally {
+      setLoadingAdminEmployees(false);
+    }
+  };
+
+  // Admin support view — deliberately NOT a kiosk login: no PIN is checked
+  // (role already gated this via isAdminUser above), the vault is
+  // auto-unlocked since the admin can't know the employee's PIN either, and
+  // every mutating handler below checks isAdminViewing and no-ops. Logged to
+  // AuditLog so "who looked at whose Employee Center, and when" is on record.
+  const handleAdminViewEmployee = async () => {
+    if (!adminSelectedEmployeeId) return;
+    setLoggingIn(true);
+    try {
+      const emp = await db.entities.employees.get(adminSelectedEmployeeId);
+      if (!emp) {
+        toast({ title: 'Employee not found', variant: 'destructive' });
+        return;
+      }
+      setEmployee(emp);
+      setIsAdminViewing(true);
+      setVaultUnlocked(true);
+      await Promise.all([loadEmployeeData(emp.id), loadCompany(emp.company_id)]);
+      try {
+        await db.entities.AuditLog.create({
+          user_id: currentUser?.id,
+          user_name: currentUser?.full_name || currentUser?.email || 'Unknown Admin',
+          user_email: currentUser?.email,
+          action_type: 'VIEW_EMPLOYEE_CENTER',
+          entity_type: 'employees',
+          entity_id: emp.id,
+          entity_name: emp.full_name,
+          notes: `Admin viewed Employee Center for ${emp.full_name} (#${emp.employee_number}) — read-only support access, no PIN entered.`,
+        });
+      } catch (e) {}
+      toast({ title: `Viewing ${emp.full_name}'s Employee Center`, description: 'Admin View — read-only. This visit was logged.' });
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
   const handleKioskLogin = async () => {
     const info = await isTerminalLocked(terminalId);
     if (info.locked) {
@@ -204,6 +280,8 @@ export default function EmployeeCenter() {
     setVaultUnlocked(false);
     setSelectedProjectId('');
     setLaborCategory('');
+    setIsAdminViewing(false);
+    setAdminSelectedEmployeeId('');
   };
 
   // Kiosk Reset Action — a real kiosk-PIN session (isKioskSession) has no
@@ -222,7 +300,7 @@ export default function EmployeeCenter() {
   const currentState = !lastPunch || lastPunch.punch_type === 'Clock_Out' ? 'OUT' : lastPunch.punch_type === 'Start_Break' ? 'ON_BREAK' : 'WORKING';
 
   const handlePunch = async (punchType) => {
-    if (!employee) return;
+    if (!employee || isAdminViewing) return;
     if (punchType === 'Clock_In' && (!selectedProjectId || !laborCategory)) {
       toast({ title: 'Select a project and labor category first', variant: 'destructive' });
       return;
@@ -256,6 +334,7 @@ export default function EmployeeCenter() {
   };
 
   const handleStartFabrication = async () => {
+    if (isAdminViewing) return;
     if (!employee || !pieceMarkInput.trim() || !selectedProjectId) {
       toast({ title: 'Enter a piece mark and select a job first', variant: 'destructive' });
       return;
@@ -275,7 +354,7 @@ export default function EmployeeCenter() {
   };
 
   const handleCompletePiece = async () => {
-    if (!activePieceLog) return;
+    if (!activePieceLog || isAdminViewing) return;
     const endTime = new Date();
     const elapsedMinutes = Math.max(0, Math.round((endTime - new Date(activePieceLog.start_time)) / 60000));
     await db.entities.piece_production_logs.update(activePieceLog.id, {
@@ -302,6 +381,7 @@ export default function EmployeeCenter() {
   };
 
   const submitExpense = async () => {
+    if (isAdminViewing) return;
     if (!expenseForm.expense_date || !expenseForm.amount) {
       toast({ title: 'Expense date and amount are required', variant: 'destructive' });
       return;
@@ -329,6 +409,7 @@ export default function EmployeeCenter() {
   };
 
   const submitLeaveRequest = async () => {
+    if (isAdminViewing) return;
     if (!leaveForm.start_date || !leaveForm.end_date) {
       toast({ title: 'Start and end dates are required', variant: 'destructive' });
       return;
@@ -351,6 +432,7 @@ export default function EmployeeCenter() {
   // capacity heatmap's tonnage math) — ShopOperations.jsx instead queries
   // Approved time_off_requests live and annotates the week columns with them.
   const decideLeaveRequest = async (request, status, notes = '') => {
+    if (isAdminViewing) return;
     const updated = await db.entities.time_off_requests.update(request.id, { status, supervisor_notes: notes });
     setAllPendingLeave((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
     if (employee && request.employee_id === employee.id) {
@@ -370,6 +452,7 @@ export default function EmployeeCenter() {
   };
 
   const requestInfoUpdate = async () => {
+    if (isAdminViewing) return;
     try {
       await db.entities.Notification.create({
         title: 'Employee Info Update Request',
@@ -426,34 +509,79 @@ export default function EmployeeCenter() {
       <PageHeader title="Employee Center" subtitle="Kiosk time clock, self-service profile, time off, and payroll document vault" />
 
       {!employee ? (
-        <div className="steel-card p-6 max-w-sm mx-auto space-y-3">
-          <h3 className="font-semibold text-sm flex items-center gap-2"><KeyRound className="w-4 h-4 text-primary" />Kiosk Login</h3>
-          {lockInfo.locked ? (
-            <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-600 flex items-center gap-2">
-              <Lock className="w-4 h-4" />Terminal locked until {lockInfo.lockedUntil?.toLocaleTimeString()}.
+        <div className={`grid grid-cols-1 ${isAdminUser(currentUser) ? 'md:grid-cols-2' : ''} gap-4 max-w-3xl mx-auto`}>
+          <div className="steel-card p-6 space-y-3">
+            <h3 className="font-semibold text-sm flex items-center gap-2"><KeyRound className="w-4 h-4 text-primary" />Kiosk Login</h3>
+            {lockInfo.locked ? (
+              <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-600 flex items-center gap-2">
+                <Lock className="w-4 h-4" />Terminal locked until {lockInfo.lockedUntil?.toLocaleTimeString()}.
+              </div>
+            ) : (
+              <>
+                <div>
+                  <Label className="text-xs">Employee Number</Label>
+                  <Input value={kioskNumber} onChange={(e) => setKioskNumber(e.target.value)} placeholder="001" className="mt-1" />
+                </div>
+                <div>
+                  <Label className="text-xs">5-Digit PIN</Label>
+                  <Input type="password" maxLength={5} value={kioskPin} onChange={(e) => setKioskPin(e.target.value.replace(/\D/g, ''))} placeholder="•••••" className="mt-1" onKeyDown={(e) => e.key === 'Enter' && handleKioskLogin()} />
+                </div>
+                <Button onClick={handleKioskLogin} disabled={loggingIn} className="w-full steel-gradient text-white border-0">Log In</Button>
+              </>
+            )}
+          </div>
+
+          {isAdminUser(currentUser) && (
+            <div className="steel-card p-6 space-y-3 border-amber-500/30">
+              <h3 className="font-semibold text-sm flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-amber-600" />Admin: View Employee Center</h3>
+              <p className="text-xs text-muted-foreground">
+                For support and troubleshooting only. Opens a read-only view of the selected employee's
+                Employee Center — no PIN required, and this access is logged.
+              </p>
+              <div>
+                <Label className="text-xs">Employee</Label>
+                <Select value={adminSelectedEmployeeId} onValueChange={setAdminSelectedEmployeeId}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder={loadingAdminEmployees ? 'Loading…' : 'Select an employee'} /></SelectTrigger>
+                  <SelectContent>
+                    {adminEmployees.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.full_name} — #{e.employee_number}{adminCompanies[e.company_id] ? ` • ${adminCompanies[e.company_id]}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                onClick={handleAdminViewEmployee}
+                disabled={!adminSelectedEmployeeId || loggingIn}
+                variant="outline"
+                className="w-full border-amber-500/40 text-amber-700 hover:bg-amber-500/10"
+              >
+                <Eye className="w-4 h-4 mr-2" />View (Read-Only)
+              </Button>
             </div>
-          ) : (
-            <>
-              <div>
-                <Label className="text-xs">Employee Number</Label>
-                <Input value={kioskNumber} onChange={(e) => setKioskNumber(e.target.value)} placeholder="001" className="mt-1" />
-              </div>
-              <div>
-                <Label className="text-xs">5-Digit PIN</Label>
-                <Input type="password" maxLength={5} value={kioskPin} onChange={(e) => setKioskPin(e.target.value.replace(/\D/g, ''))} placeholder="•••••" className="mt-1" onKeyDown={(e) => e.key === 'Enter' && handleKioskLogin()} />
-              </div>
-              <Button onClick={handleKioskLogin} disabled={loggingIn} className="w-full steel-gradient text-white border-0">Log In</Button>
-            </>
           )}
         </div>
       ) : (
         <>
-          <div className="steel-card p-3 flex items-center justify-between">
-            <p className="text-sm font-medium">{employee.full_name} <span className="text-muted-foreground font-mono text-xs">#{employee.employee_number}</span></p>
-            <Button variant="outline" size="sm" onClick={handleKioskLogout}>Log Out</Button>
-          </div>
+          {isAdminViewing ? (
+            <div className="steel-card p-3 flex items-center justify-between border-amber-500/40 bg-amber-500/10">
+              <p className="text-sm font-medium flex items-center gap-2 text-amber-800 dark:text-amber-400">
+                <ShieldCheck className="w-4 h-4 flex-shrink-0" />
+                ADMIN VIEW — READ ONLY: {employee.full_name} <span className="text-muted-foreground font-mono text-xs">#{employee.employee_number}</span>
+              </p>
+              <Button variant="outline" size="sm" onClick={handleKioskLogout} className="border-amber-500/40">
+                <DoorOpen className="w-3.5 h-3.5 mr-1.5" />Exit Admin View
+              </Button>
+            </div>
+          ) : (
+            <div className="steel-card p-3 flex items-center justify-between">
+              <p className="text-sm font-medium">{employee.full_name} <span className="text-muted-foreground font-mono text-xs">#{employee.employee_number}</span></p>
+              <Button variant="outline" size="sm" onClick={handleKioskLogout}>Log Out</Button>
+            </div>
+          )}
 
-          <Tabs defaultValue={defaultTabValue} onValueChange={(v) => { if (v !== 'payroll') setVaultUnlocked(false); }}>
+          <Tabs defaultValue={defaultTabValue} onValueChange={(v) => { if (!isAdminViewing && v !== 'payroll') setVaultUnlocked(false); }}>
             <TabsList className="mb-4 max-w-full overflow-x-auto justify-start">
               {isTabVisible('kiosk') && <TabsTrigger value="kiosk">Time Clock Kiosk</TabsTrigger>}
               {isTabVisible('profile') && <TabsTrigger value="profile">My Profile</TabsTrigger>}
@@ -506,11 +634,11 @@ export default function EmployeeCenter() {
                   </div>
                 </div>
                 {activePieceLog ? (
-                  <Button size="lg" className="w-full h-14 bg-red-600 hover:bg-red-700 text-white border-0" onClick={handleCompletePiece}>
+                  <Button size="lg" className="w-full h-14 bg-red-600 hover:bg-red-700 text-white border-0" disabled={isAdminViewing} onClick={handleCompletePiece}>
                     <Square className="w-5 h-5 mr-2" />Complete Piece — {activePieceLog.piece_mark}
                   </Button>
                 ) : (
-                  <Button size="lg" className="w-full h-14 bg-green-600 hover:bg-green-700 text-white border-0" onClick={handleStartFabrication}>
+                  <Button size="lg" className="w-full h-14 bg-green-600 hover:bg-green-700 text-white border-0" disabled={isAdminViewing} onClick={handleStartFabrication}>
                     <Timer className="w-5 h-5 mr-2" />Start Fabrication
                   </Button>
                 )}
@@ -524,16 +652,16 @@ export default function EmployeeCenter() {
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 max-w-2xl">
-                <Button size="lg" className="h-24 sm:h-20 flex-col gap-1 bg-green-600 hover:bg-green-700 text-white border-0" disabled={currentState !== 'OUT'} onClick={() => handlePunch('Clock_In')}>
+                <Button size="lg" className="h-24 sm:h-20 flex-col gap-1 bg-green-600 hover:bg-green-700 text-white border-0" disabled={isAdminViewing || currentState !== 'OUT'} onClick={() => handlePunch('Clock_In')}>
                   <LogIn className="w-6 h-6 sm:w-5 sm:h-5" />Clock In
                 </Button>
-                <Button size="lg" className="h-24 sm:h-20 flex-col gap-1 bg-red-600 hover:bg-red-700 text-white border-0" disabled={currentState !== 'WORKING'} onClick={() => handlePunch('Clock_Out')}>
+                <Button size="lg" className="h-24 sm:h-20 flex-col gap-1 bg-red-600 hover:bg-red-700 text-white border-0" disabled={isAdminViewing || currentState !== 'WORKING'} onClick={() => handlePunch('Clock_Out')}>
                   <LogOut className="w-6 h-6 sm:w-5 sm:h-5" />Clock Out
                 </Button>
-                <Button size="lg" variant="outline" className="h-24 sm:h-20 flex-col gap-1" disabled={currentState !== 'WORKING'} onClick={() => handlePunch('Start_Break')}>
+                <Button size="lg" variant="outline" className="h-24 sm:h-20 flex-col gap-1" disabled={isAdminViewing || currentState !== 'WORKING'} onClick={() => handlePunch('Start_Break')}>
                   <Coffee className="w-6 h-6 sm:w-5 sm:h-5" />Start Break
                 </Button>
-                <Button size="lg" variant="outline" className="h-24 sm:h-20 flex-col gap-1" disabled={currentState !== 'ON_BREAK'} onClick={() => handlePunch('End_Break')}>
+                <Button size="lg" variant="outline" className="h-24 sm:h-20 flex-col gap-1" disabled={isAdminViewing || currentState !== 'ON_BREAK'} onClick={() => handlePunch('End_Break')}>
                   <Play className="w-6 h-6 sm:w-5 sm:h-5" />End Break
                 </Button>
               </div>
@@ -581,9 +709,11 @@ export default function EmployeeCenter() {
                 <div className="steel-card p-4">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="font-semibold text-sm flex items-center gap-2"><Receipt className="w-4 h-4 text-primary" />Travel &amp; Per Diem (Out-of-Town Crews)</h4>
-                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowExpenseForm(true)}>
-                      <Plus className="w-3.5 h-3.5" />Log Expense
-                    </Button>
+                    {!isAdminViewing && (
+                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowExpenseForm(true)}>
+                        <Plus className="w-3.5 h-3.5" />Log Expense
+                      </Button>
+                    )}
                   </div>
                   {expenses.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-4 text-center">No travel expenses on file.</p>
@@ -615,9 +745,11 @@ export default function EmployeeCenter() {
                   <div><span className="text-muted-foreground">Emergency Contact</span><p className="font-medium">{employee.emergency_contact_name || 'Not on file'}</p></div>
                   <div><span className="text-muted-foreground">Emergency Phone</span><p className="font-medium">{employee.emergency_contact_phone || 'Not on file'}</p></div>
                 </div>
-                <Button variant="outline" className="gap-2 mt-4" onClick={requestInfoUpdate}>
-                  <Send className="w-4 h-4" />Request Info Update
-                </Button>
+                {!isAdminViewing && (
+                  <Button variant="outline" className="gap-2 mt-4" onClick={requestInfoUpdate}>
+                    <Send className="w-4 h-4" />Request Info Update
+                  </Button>
+                )}
               </div>
             </TabsContent>
 
@@ -625,9 +757,11 @@ export default function EmployeeCenter() {
               <div className="steel-card p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-semibold text-sm">My Time Off Requests</h4>
-                  <Button size="sm" className="gap-2 steel-gradient text-white border-0" onClick={() => setShowLeaveForm(true)}>
-                    <Plus className="w-4 h-4" />New Request
-                  </Button>
+                  {!isAdminViewing && (
+                    <Button size="sm" className="gap-2 steel-gradient text-white border-0" onClick={() => setShowLeaveForm(true)}>
+                      <Plus className="w-4 h-4" />New Request
+                    </Button>
+                  )}
                 </div>
                 {timeOffRequests.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">No time off requests yet.</p>
@@ -649,7 +783,7 @@ export default function EmployeeCenter() {
                 ))}
               </div>
 
-              {isHrReviewer && (
+              {isHrReviewer && !isAdminViewing && (
                 <div className="steel-card p-4">
                   <h4 className="font-semibold text-sm mb-3">HR Approval Queue (all employees)</h4>
                   {allPendingLeave.filter((r) => r.status === 'Submitted' || r.status === 'Pending').length === 0 ? (
