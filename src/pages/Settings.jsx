@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet, Sparkles, ListChecks } from 'lucide-react';
 import TemplateVaultPanel from '@/components/settings/TemplateVaultPanel';
 import AiPlatformConfigPanel from '@/components/settings/AiPlatformConfigPanel';
@@ -21,6 +22,19 @@ const emptyCompanyForm = () => ({
   aisc_certification: '', phone: '', email: '', website: '',
 });
 
+// Per-user preference — stored on the User/employees record (see
+// notification_preferences below), NOT on Company. Each entry's `key` is the
+// object key persisted inside that JSON field; `default` is only the
+// fallback shown before a saved value exists.
+const NOTIFICATION_TYPES = [
+  { key: 'ai_analysis_complete', label: 'AI Analysis Complete', desc: 'When document analysis finishes', default: true },
+  { key: 'critical_risk_findings', label: 'Critical Risk Findings', desc: 'When AI finds critical or high risk items', default: true },
+  { key: 'review_assignments', label: 'Review Assignments', desc: 'When you are assigned a review task', default: true },
+  { key: 'rfi_updates', label: 'RFI Updates', desc: 'When RFIs are updated or answered', default: true },
+  { key: 'document_updates', label: 'Document Updates', desc: 'When project documents are revised', default: false },
+  { key: 'weekly_summary', label: 'Weekly Summary', desc: 'Weekly project health summary email', default: true },
+];
+
 const AI_RULES = [
   { id: 1, rule: 'Always verify AISC Fabricator Certification requirement', active: true },
   { id: 2, rule: 'Always identify Liquidated Damages clauses and dollar amounts', active: true },
@@ -36,6 +50,7 @@ const AI_RULES = [
 
 export default function Settings() {
   const { toast } = useToast();
+  const { user } = useOutletContext() || {};
   const [aiRules, setAiRules] = useState(AI_RULES);
   const [newRule, setNewRule] = useState('');
   const [provisioning, setProvisioning] = useState(false);
@@ -45,7 +60,57 @@ export default function Settings() {
   const [loadingCompany, setLoadingCompany] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Notification toggles are a per-user preference, not a company setting —
+  // each logged-in person gets their own values, persisted on their own
+  // User/employees record (see the entity/id resolution in
+  // loadNotificationPrefs, mirroring Dashboard.jsx's page_layouts_json
+  // pattern) rather than on the shared Company row.
+  const [notifTargetEntity, setNotifTargetEntity] = useState('User');
+  const [notifTargetId, setNotifTargetId] = useState(null);
+  const [notifPrefs, setNotifPrefs] = useState({});
+  const [loadingNotifs, setLoadingNotifs] = useState(true);
+  const [savingNotifs, setSavingNotifs] = useState(false);
+
   useEffect(() => { loadCompany(); }, []);
+  useEffect(() => { if (user?.id) loadNotificationPrefs(); }, [user?.id]);
+
+  const loadNotificationPrefs = async () => {
+    setLoadingNotifs(true);
+    try {
+      const entity = user?.employee_id ? 'employees' : 'User';
+      const id = user?.employee_id || user?.id;
+      setNotifTargetEntity(entity);
+      setNotifTargetId(id);
+      // Always re-fetch the live row rather than trusting the `user` object
+      // from useOutletContext/db.auth.me() — that's a snapshot captured at
+      // login time and never refreshed, so it would still show pre-save
+      // values after a reload even though the write below succeeded.
+      const record = await db.entities[entity].get(id);
+      setNotifPrefs(record?.notification_preferences || {});
+    } catch (e) {
+      setNotifPrefs({});
+    } finally {
+      setLoadingNotifs(false);
+    }
+  };
+
+  const toggleNotificationPref = (key, value) => setNotifPrefs((p) => ({ ...p, [key]: value }));
+
+  const handleSaveNotifications = async () => {
+    if (!notifTargetId) {
+      toast({ title: 'No signed-in user to save preferences for', variant: 'destructive' });
+      return;
+    }
+    setSavingNotifs(true);
+    try {
+      await db.entities[notifTargetEntity].update(notifTargetId, { notification_preferences: notifPrefs });
+      toast({ title: 'Notification preferences saved!' });
+    } catch (e) {
+      toast({ title: 'Unable to save notification preferences', description: e?.message, variant: 'destructive' });
+    } finally {
+      setSavingNotifs(false);
+    }
+  };
 
   const loadCompany = async () => {
     setLoadingCompany(true);
@@ -71,6 +136,12 @@ export default function Settings() {
 
   const updateCompanyField = (field, value) => setCompanyForm((f) => ({ ...f, [field]: value }));
 
+  // Kiosk provisioning is device-local, on purpose: it locks THIS physical
+  // browser/tablet into kiosk mode by writing to its own localStorage (see
+  // src/lib/kioskMode.js) — it is never written to Company or User, since a
+  // shared shop-floor tablet's kiosk lock must not follow the admin who
+  // provisioned it, or apply to any other device.
+  //
   // Isolated Caching Portal — writes the admin's own effective tenant into
   // THIS physical device's localStorage (see src/lib/kioskMode.js), then
   // reloads straight into KioskKeypadLogin. This is now the only place a
@@ -102,6 +173,10 @@ export default function Settings() {
     toast({ title: 'AI Rule Added', description: 'This rule will be applied to all future document analyses.' });
   };
 
+  // Company Information + Company Address are company-level fields, shared
+  // by every user at this tenant — persisted on the Company entity itself
+  // (tenant-scoped via getEffectiveCompany/db.entities.Company), not on the
+  // signed-in user's own record.
   const handleSave = async () => {
     if (!company) {
       toast({ title: 'No active tenant to save settings for', variant: 'destructive' });
@@ -259,24 +334,28 @@ export default function Settings() {
         <TabsContent value="notifications">
           <div className="steel-card p-6">
             <h3 className="font-semibold mb-4">Notification Preferences</h3>
+            {loadingNotifs ? (
+              <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+            ) : (
+            <>
             <div className="space-y-4">
-              {[
-                { label: 'AI Analysis Complete', desc: 'When document analysis finishes', default: true },
-                { label: 'Critical Risk Findings', desc: 'When AI finds critical or high risk items', default: true },
-                { label: 'Review Assignments', desc: 'When you are assigned a review task', default: true },
-                { label: 'RFI Updates', desc: 'When RFIs are updated or answered', default: true },
-                { label: 'Document Updates', desc: 'When project documents are revised', default: false },
-                { label: 'Weekly Summary', desc: 'Weekly project health summary email', default: true },
-              ].map(({ label, desc, default: def }) => (
-                <div key={label} className="flex items-center justify-between p-3 rounded-lg border border-border">
+              {NOTIFICATION_TYPES.map(({ key, label, desc, default: def }) => (
+                <div key={key} className="flex items-center justify-between p-3 rounded-lg border border-border">
                   <div>
                     <p className="text-sm font-medium">{label}</p>
                     <p className="text-xs text-muted-foreground">{desc}</p>
                   </div>
-                  <Switch defaultChecked={def} />
+                  <Switch checked={notifPrefs[key] ?? def} onCheckedChange={(v) => toggleNotificationPref(key, v)} />
                 </div>
               ))}
             </div>
+            <div className="flex justify-end mt-4">
+              <Button onClick={handleSaveNotifications} disabled={savingNotifs} className="steel-gradient text-white border-0 min-w-32">
+                {savingNotifs ? 'Saving...' : 'Save Preferences'}
+              </Button>
+            </div>
+            </>
+            )}
           </div>
         </TabsContent>
 
