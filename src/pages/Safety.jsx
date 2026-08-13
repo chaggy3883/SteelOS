@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, AlertTriangle, HardHat, FileWarning, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, HardHat, FileWarning, CheckCircle2, ClipboardList } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import SafetyMeetingLog from '@/components/safety/SafetyMeetingLog';
 
 const SAFETY_ITEMS = [
   'Fall Protection Requirements (>6ft)', 'Site Safety Plan Required', 'OSHA 10/30 Hour Training',
@@ -31,7 +32,7 @@ export default function Safety() {
 
   return (
     <div className="p-6 animate-fade-in">
-      <PageHeader title="Safety" subtitle="AI-powered safety review findings and compliance tracking" />
+      <PageHeader title="Safety" subtitle="Weekly toolbox talks, sign-in tracking, and AI-powered safety review findings" />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
@@ -47,11 +48,16 @@ export default function Safety() {
         ))}
       </div>
 
-      <Tabs defaultValue="findings">
+      <Tabs defaultValue="meetings">
         <TabsList className="mb-4">
+          <TabsTrigger value="meetings" className="gap-1.5"><ClipboardList className="w-3.5 h-3.5" />Safety Meetings</TabsTrigger>
           <TabsTrigger value="findings">AI Safety Findings</TabsTrigger>
           <TabsTrigger value="checklist">Safety Checklist</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="meetings">
+          <SafetyMeetingLog />
+        </TabsContent>
 
         <TabsContent value="findings">
           {loading ? (

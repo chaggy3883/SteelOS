@@ -941,6 +941,55 @@ export async function seedDemoData() {
     }))
   );
 
+  // Safety Meetings (toolbox talks) — weekly cadence plus one monthly
+  // safety meeting, so the new Safety Meetings tab isn't empty on first load.
+  const toolboxAttendees = [...fieldEmployees, ...shopEmployees].filter(Boolean);
+  const safetyMeetingSeeds = [
+    {
+      meeting_date: daysFromNow(-7),
+      meeting_type: 'toolbox_talk',
+      topic: 'Fall Protection at Height',
+      location: 'Harbor Bridge jobsite trailer',
+      project: costProjects[1],
+      presenter: shopManager,
+      content: "Topic: Fall Protection at Height\n\nHazards:\n- Working near unprotected edges above 6ft\n- Improperly anchored lanyards\n\nControls:\n- 100% tie-off above 6ft\n- Inspect anchor points and lanyards before each shift\n\nOSHA Reference: 1926.501(b)(1)\n\nDiscussion Questions:\n- Where are today's fall hazards on this site?\n- Has anyone found damaged PPE this week?",
+      attendees: toolboxAttendees.slice(0, 4),
+    },
+    {
+      meeting_date: daysFromNow(-14),
+      meeting_type: 'toolbox_talk',
+      topic: 'Rigging & Crane Lift Safety',
+      location: 'Shop floor',
+      project: costProjects[2],
+      presenter: pmEmployee,
+      content: "Topic: Rigging & Crane Lift Safety\n\nHazards:\n- Overloaded slings\n- Working under a suspended load\n\nControls:\n- Verify WLL before every lift\n- Keep all personnel out from under the load path\n\nOSHA Reference: 1926.1417\n\nDiscussion Questions:\n- What is the WLL on the sling you used today?\n- Any near-misses to report from this week's lifts?",
+      attendees: toolboxAttendees.slice(2, 6),
+    },
+    {
+      meeting_date: daysFromNow(-30),
+      meeting_type: 'monthly',
+      topic: 'Monthly Safety Committee Review',
+      location: 'Main office conference room',
+      project: null,
+      presenter: hrEmployee,
+      content: 'Topic: Monthly Safety Committee Review\n\nReviewed incident log, open corrective actions, and upcoming OSHA 10/30 renewal deadlines.',
+      attendees: [pmEmployee, shopManager, hrEmployee, ...fieldEmployees.slice(0, 2)].filter(Boolean),
+    },
+  ];
+  await db.entities.SafetyMeeting.bulkCreate(
+    safetyMeetingSeeds.map((m) => ({
+      meeting_date: m.meeting_date,
+      meeting_type: m.meeting_type,
+      topic: m.topic,
+      location: m.location,
+      project_id: m.project?.id || '',
+      presenter_name: m.presenter?.full_name || 'Safety Manager',
+      content: m.content,
+      attendees: m.attendees.map((e) => ({ employee_id: e.id, name: e.full_name })),
+      documents: [],
+    }))
+  );
+
   // 26. Credit Card Expenses
   const OFFICE_CARD = '4821';
   const FIELD_CARD = '7734';
@@ -1415,6 +1464,7 @@ export async function seedDemoData() {
       equipmentUsageLogs: equipmentUsageSeeds.length,
       attendancePunches: attendancePayloads.length,
       employeeCertifications: certSeeds.length,
+      safetyMeetings: safetyMeetingSeeds.length,
       creditCardExpenses: expenseSeeds.length,
       historicalVariances: historicalVarianceSeeds.length,
       recurringCashItems: recurringCashSeeds.length,
