@@ -342,20 +342,6 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
-    shipping_loads: [
-      {
-        id: 'load-1',
-        project_id: 'project-harbor',
-        load_number: 'Load 1',
-        trailer_type: 'Flatbed',
-        carrier_name: 'Arrow Logistics',
-        tons_shipped: 46,
-        ship_date: '2026-07-24',
-        attachment_path: '/uploads/delivery-receipt-1.pdf',
-        created_date: now,
-        updated_date: now
-      }
-    ],
     Bid: [
       {
         id: 'bid-1001',
@@ -1038,6 +1024,25 @@ const buildSeedData = () => {
         is_overweight_permit_authorized: false,
         created_date: now,
         updated_date: now
+      },
+      // Folded forward from the now-removed legacy shipping_loads seed
+      // ('load-1' — Load 1, Arrow Logistics, 46 tons, delivered 2026-07-24,
+      // delivery receipt on file). No PieceMark was ever assigned to it in
+      // seed data, so it has no load_items counterpart. tons_shipped -> lbs
+      // (x2000); the legacy record's ship_date + attachment_path implied a
+      // completed delivery, so status is Delivered here rather than Draft.
+      {
+        id: 'load-legacy-1',
+        project_id: 'project-harbor',
+        company_id: 'company-hancock',
+        load_number_id: 'LOAD-LEGACY-1',
+        status: 'Delivered',
+        total_weight_lbs: 92000,
+        carrier_vendor_id: 'vendor-arrow-logistics',
+        max_weight_capacity_lbs: 45000,
+        is_overweight_permit_authorized: false,
+        created_date: '2026-07-24T00:00:00.000Z',
+        updated_date: '2026-07-24T00:00:00.000Z'
       }
     ],
     load_items: [
@@ -1767,6 +1772,87 @@ const isLegacyPieceShape = (item) => !!item && (item.qr_code !== undefined || it
 const isLegacyStationLogShape = (item) => !!item && (item.station !== undefined || item.station_id === undefined);
 const isLegacyQaShape = (item) => !!item && (item.inspection_stage !== undefined || item.stage === undefined);
 
+// One-time forward migration off the legacy shipping_loads + PieceMark.
+// shipping_load_id system (no schema file, superseded by loads/load_items/
+// shipping_manifests) onto the maintained tables. Runs from migrateStore()
+// below on every load, but is a no-op after the first successful run for a
+// given store: it clears migrated.shipping_loads at the end, so the guard at
+// the top (legacyLoads.length === 0) short-circuits on every call after.
+// Never silently drops data:
+//  - every legacy shipping_loads row always becomes a loads row (carrier
+//    name -> carrier_vendor_id is a best-effort exact-name match against
+//    Vendor; unmatched carriers/trailer types/attachment paths have no
+//    equivalent field on loads/shipping_manifests to hold them — logged via
+//    console.warn rather than fabricated into a fake manifest, since
+//    shipping_manifests.driver_name is required and legacy records never
+//    captured a driver).
+//  - every PieceMark.shipping_load_id assignment becomes a load_items row,
+//    linked via the explicit pieces.piece_mark_id FK (never an inferred
+//    project_id+piece_mark string match) — a PieceMark with no bridged shop
+//    pieces row yet has nothing to link, so it's reported via console.warn
+//    and its shipping_load_id is left untouched (not cleared) rather than
+//    deleted, so the raw assignment is still recoverable from storage.
+const migrateLegacyShippingLoads = (migrated) => {
+  const legacyLoads = Array.isArray(migrated.shipping_loads) ? migrated.shipping_loads : [];
+  if (legacyLoads.length === 0) return;
+
+  if (!Array.isArray(migrated.loads)) migrated.loads = [];
+  if (!Array.isArray(migrated.load_items)) migrated.load_items = [];
+  const vendors = Array.isArray(migrated.Vendor) ? migrated.Vendor : [];
+  const pieceMarks = Array.isArray(migrated.PieceMark) ? migrated.PieceMark : [];
+  const shopPieces = Array.isArray(migrated.pieces) ? migrated.pieces : [];
+  const migratedMarkIds = new Set();
+
+  legacyLoads.forEach((legacy) => {
+    const matchedVendor = vendors.find((v) => toLowerCase(v.name) === toLowerCase(legacy.carrier_name));
+    if (legacy.carrier_name && !matchedVendor) {
+      console.warn(`[migrateLegacyShippingLoads] No Vendor named "${legacy.carrier_name}" — carrier_vendor_id left blank on the migrated load for legacy shipping_loads/${legacy.id}.`);
+    }
+    if (legacy.attachment_path) {
+      console.warn(`[migrateLegacyShippingLoads] legacy shipping_loads/${legacy.id} had attachment_path "${legacy.attachment_path}" with no driver on file — shipping_manifests.driver_name is required, so no manifest was created. Re-attach manually via Yard Scanning if still needed.`);
+    }
+
+    const newLoad = {
+      id: createId(),
+      company_id: legacy.company_id || '',
+      project_id: legacy.project_id || '',
+      load_number_id: legacy.load_number || `LOAD-LEGACY-${legacy.id}`,
+      status: legacy.ship_date ? 'Delivered' : 'Draft',
+      total_weight_lbs: Math.round((Number(legacy.tons_shipped) || 0) * 2000),
+      carrier_vendor_id: matchedVendor?.id || '',
+      max_weight_capacity_lbs: 45000,
+      is_overweight_permit_authorized: false,
+      created_date: legacy.created_date || legacy.ship_date || new Date().toISOString(),
+      updated_date: new Date().toISOString(),
+    };
+    migrated.loads.push(newLoad);
+
+    const linkedMarks = pieceMarks.filter((pm) => pm.shipping_load_id === legacy.id);
+    let nextSeq = 1;
+    linkedMarks.forEach((pm) => {
+      const piece = shopPieces.find((p) => p.piece_mark_id === pm.id);
+      if (!piece) {
+        console.warn(`[migrateLegacyShippingLoads] PieceMark ${pm.id} (${pm.piece_mark}) was assigned to legacy load ${legacy.id} but has no bridged pieces row (piece_mark_id) — left as-is, not migrated to load_items.`);
+        return;
+      }
+      migrated.load_items.push({
+        id: createId(),
+        company_id: legacy.company_id || '',
+        load_id: newLoad.id,
+        piece_id: piece.id,
+        sequence_number: nextSeq++,
+        status: 'Staged',
+        created_date: newLoad.created_date,
+        updated_date: newLoad.updated_date,
+      });
+      migratedMarkIds.add(pm.id);
+    });
+  });
+
+  migrated.PieceMark = pieceMarks.map((pm) => (migratedMarkIds.has(pm.id) ? { ...pm, shipping_load_id: '' } : pm));
+  migrated.shipping_loads = [];
+};
+
 const migrateStore = (store) => {
   const seeded = buildSeedData();
   const migrated = { ...store };
@@ -1845,9 +1931,7 @@ const migrateStore = (store) => {
     migrated.shop_sequences = [...seeded.shop_sequences];
   }
 
-  if (!Array.isArray(migrated.shipping_loads)) {
-    migrated.shipping_loads = [...seeded.shipping_loads];
-  }
+  migrateLegacyShippingLoads(migrated);
 
   return migrated;
 };

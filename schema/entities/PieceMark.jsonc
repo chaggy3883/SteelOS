@@ -94,9 +94,6 @@
       "type": "string",
       "format": "date"
     },
-    "shipping_load_id": {
-      "type": "string"
-    },
     "item_type": {
       "type": "string",
       "enum": ["Piece_Mark", "Loose_Part", "Bolt", "Embed", "Misc_Metal"],

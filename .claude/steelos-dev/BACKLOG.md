@@ -30,6 +30,13 @@ right heading. Ask which section if it's ambiguous.
   check-in, phase-broken-out tally, field rejections, inbound loads —
   additive to existing Yard Scanning master-receipt flow, not a
   replacement)
+- Legacy shipping system cleanup — consolidated onto `loads` + `load_items`
+  + `shipping_manifests` only. Removed `PieceMark.shipping_load_id` +
+  `shipping_loads` (Shipping.jsx's Trailer Matrix tab, ProjectManagement.jsx's
+  shipping form, and the dashboard shipments widget all touched it). A
+  one-time `migrateLegacyShippingLoads` migration in `src/api/localData.js`
+  folds any pre-existing legacy records/assignments forward on load rather
+  than dropping them.
 
 ## Given As Prompts — Not Yet Confirmed Landed
 
@@ -105,11 +112,6 @@ closed:
   barcode-printing system already exists but nothing reads it back
 - **`target_minutes` integrity fix** — currently employee-entered per
   piece, which is gameable; needs to come from a standards table instead
-- **Legacy shipping system cleanup** — three parallel shipping systems
-  exist; `PieceMark.shipping_load_id` + `shipping_loads` (drag-drop tab)
-  is legacy/undocumented vs. `loads` + `load_items` + `shipping_manifests`
-  (the maintained system Jobsite Receiving was built on) — should
-  deprecate the legacy one eventually
 
 ## Known Bugs
 

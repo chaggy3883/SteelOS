@@ -31,15 +31,6 @@ const defaultCoForm = {
   attachment_path: ''
 };
 
-const defaultLoadForm = {
-  load_number: '',
-  trailer_type: 'Flatbed',
-  carrier_name: '',
-  tons_shipped: '',
-  ship_date: '',
-  attachment_path: ''
-};
-
 const milestoneLabels = ['Material Received', 'Fabrication Started', 'QA Structural Inspection Passed'];
 
 export default function ProjectManagement() {
@@ -48,10 +39,11 @@ export default function ProjectManagement() {
   const [project, setProject] = useState(null);
   const [changeOrders, setChangeOrders] = useState([]);
   const [shopSequences, setShopSequences] = useState([]);
-  const [shippingLoads, setShippingLoads] = useState([]);
+  const [projectLoads, setProjectLoads] = useState([]);
+  const [projectManifests, setProjectManifests] = useState([]);
+  const [carriers, setCarriers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [coForm, setCoForm] = useState(defaultCoForm);
-  const [loadForm, setLoadForm] = useState(defaultLoadForm);
   const [dragActive, setDragActive] = useState(false);
 
   useEffect(() => {
@@ -63,17 +55,22 @@ export default function ProjectManagement() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [projectRecord, coList, sequenceList, loadList] = await Promise.all([
+      const [projectRecord, coList, sequenceList, loadList, manifestList, carrierList] = await Promise.all([
         db.entities.projects.get(id),
         db.entities.change_orders.filter({ project_id: id }, '-created_date', 100),
         db.entities.shop_sequences.filter({ project_id: id }, '-created_date', 100),
-        db.entities.shipping_loads.filter({ project_id: id }, '-created_date', 100),
+        db.entities.loads.filter({ project_id: id }, '-created_date', 100),
+        db.entities.shipping_manifests.list('-created_date', 200),
+        db.entities.Vendor.filter({ vendor_type: 'carrier' }, 'name', 50),
       ]);
 
       setProject(projectRecord || null);
       setChangeOrders(coList || []);
       setShopSequences(sequenceList && sequenceList.length > 0 ? sequenceList : defaultSequences(projectRecord?.id));
-      setShippingLoads(loadList || []);
+      setProjectLoads(loadList || []);
+      const loadIds = new Set((loadList || []).map((l) => l.id));
+      setProjectManifests((manifestList || []).filter((m) => loadIds.has(m.load_id)));
+      setCarriers(carrierList || []);
     } catch (error) {
       console.error(error);
       toast({ title: 'Unable to load project lifecycle data', variant: 'destructive' });
@@ -134,34 +131,11 @@ export default function ProjectManagement() {
     setShopSequences(shopSequences.map((item) => (item.id === sequenceId ? updated : item)));
   };
 
-  const createShippingLoad = async (event) => {
-    event.preventDefault();
-    if (!project) return;
-
-    const nextLoad = {
-      project_id: project.id,
-      load_number: loadForm.load_number || `Load ${shippingLoads.length + 1}`,
-      trailer_type: loadForm.trailer_type,
-      carrier_name: loadForm.carrier_name,
-      tons_shipped: Number(loadForm.tons_shipped || 0),
-      ship_date: loadForm.ship_date,
-      attachment_path: loadForm.attachment_path || ''
-    };
-
-    const created = await db.entities.shipping_loads.create(nextLoad);
-    setShippingLoads([created, ...shippingLoads]);
-    setLoadForm(defaultLoadForm);
-    toast({ title: 'Shipping load logged' });
-  };
-
   const handleFileSelect = (event, target) => {
     const file = event.target.files?.[0];
     if (!file) return;
     if (target === 'co') {
       setCoForm((current) => ({ ...current, attachment_path: file.name }));
-    }
-    if (target === 'load') {
-      setLoadForm((current) => ({ ...current, attachment_path: file.name }));
     }
   };
 
@@ -173,10 +147,9 @@ export default function ProjectManagement() {
     if (target === 'co') {
       setCoForm((current) => ({ ...current, attachment_path: files[0].name }));
     }
-    if (target === 'load') {
-      setLoadForm((current) => ({ ...current, attachment_path: files[0].name }));
-    }
   };
+
+  const carrierName = (vendorId) => carriers.find((c) => c.id === vendorId)?.name || 'No carrier';
 
   const donutData = useMemo(() => {
     const summary = {
@@ -439,12 +412,12 @@ export default function ProjectManagement() {
               <h2 className="text-lg font-semibold">Logistics & shipments calendar</h2>
             </div>
             <div className="mt-4 space-y-2">
-              {shippingLoads.length > 0 ? shippingLoads.slice(0, 4).map((load) => (
-                <div key={load.id} className="rounded-lg border border-border p-3 text-sm">
-                  <p className="font-medium">{load.load_number}</p>
-                  <p className="text-muted-foreground">{load.carrier_name} • {load.trailer_type} • {load.tons_shipped}T</p>
-                  <p className="text-xs text-muted-foreground">{load.ship_date || 'Ship date pending'}</p>
-                </div>
+              {projectLoads.length > 0 ? projectLoads.slice(0, 4).map((load) => (
+                <Link key={load.id} to="/shipping" className="block rounded-lg border border-border p-3 text-sm hover:bg-muted/50 transition-colors">
+                  <p className="font-medium">{load.load_number_id}</p>
+                  <p className="text-muted-foreground">{carrierName(load.carrier_vendor_id)} • {((load.total_weight_lbs || 0) / 2000).toFixed(1)}T</p>
+                  <p className="text-xs text-muted-foreground">{load.status}</p>
+                </Link>
               )) : <p className="text-sm text-muted-foreground">No shipments logged yet.</p>}
             </div>
           </div>
@@ -503,49 +476,36 @@ export default function ProjectManagement() {
 
         <div className="space-y-6">
           <div className="steel-card p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <Truck className="w-4 h-4 text-primary" />
-              <h2 className="text-lg font-semibold">Shipping logistics & manifests</h2>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Truck className="w-4 h-4 text-primary" />
+                <h2 className="text-lg font-semibold">Shipping logistics & manifests</h2>
+              </div>
+              <Link to="/shipping">
+                <Button type="button" variant="outline" size="sm" className="gap-2">
+                  <Plus className="w-4 h-4" /> Build a Load
+                </Button>
+              </Link>
             </div>
-            <form onSubmit={createShippingLoad} className="grid gap-3">
-              <div>
-                <Label>Load Number</Label>
-                <Input value={loadForm.load_number} onChange={(event) => setLoadForm((current) => ({ ...current, load_number: event.target.value }))} className="mt-2" placeholder="Load 1" />
+            {projectLoads.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No loads built for this project yet — use Build a Load to open the Load Builder.</p>
+            ) : (
+              <div className="space-y-2">
+                {projectLoads.map((load) => {
+                  const manifest = projectManifests.find((m) => m.load_id === load.id);
+                  return (
+                    <Link key={load.id} to="/shipping" className="block rounded-lg border border-border p-3 text-sm hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <p className="font-medium">{load.load_number_id}</p>
+                        <span className="text-xs rounded-full bg-muted px-2 py-0.5">{load.status}</span>
+                      </div>
+                      <p className="text-muted-foreground">{carrierName(load.carrier_vendor_id)} • {((load.total_weight_lbs || 0) / 2000).toFixed(1)}T of {((load.max_weight_capacity_lbs || 45000) / 2000).toFixed(1)}T capacity</p>
+                      {manifest && <p className="text-xs text-muted-foreground">Driver: {manifest.driver_name} • {manifest.trailer_type?.replace('_', ' ')} • Plate {manifest.license_plate || '—'}</p>}
+                    </Link>
+                  );
+                })}
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Trailer Type</Label>
-                  <select value={loadForm.trailer_type} onChange={(event) => setLoadForm((current) => ({ ...current, trailer_type: event.target.value }))} className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                    {['Flatbed', 'Drop-deck', 'Stretch'].map((item) => <option key={item} value={item}>{item}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <Label>Carrier / Hauler</Label>
-                  <Input value={loadForm.carrier_name} onChange={(event) => setLoadForm((current) => ({ ...current, carrier_name: event.target.value }))} className="mt-2" />
-                </div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Tons Shipped</Label>
-                  <Input type="number" value={loadForm.tons_shipped} onChange={(event) => setLoadForm((current) => ({ ...current, tons_shipped: event.target.value }))} className="mt-2" />
-                </div>
-                <div>
-                  <Label>Ship Date</Label>
-                  <Input type="date" value={loadForm.ship_date} onChange={(event) => setLoadForm((current) => ({ ...current, ship_date: event.target.value }))} className="mt-2" />
-                </div>
-              </div>
-              <div>
-                <Label>Manifest / Delivery Receipt</Label>
-                <div onDragOver={(event) => { event.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDrop={(event) => handleDrop(event, 'load')} className={`mt-2 flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-3 text-sm ${dragActive ? 'border-primary bg-primary/5' : 'border-border'}`}>
-                  <Upload className="w-4 h-4" />
-                  <span>{loadForm.attachment_path || 'Drop manifest PDFs or signed receipts'}</span>
-                  <input type="file" className="hidden" onChange={(event) => handleFileSelect(event, 'load')} />
-                </div>
-              </div>
-              <Button type="submit" className="w-full gap-2">
-                <Plus className="w-4 h-4" /> Log Shipping Load
-              </Button>
-            </form>
+            )}
           </div>
 
           <div className="steel-card p-5 space-y-4">

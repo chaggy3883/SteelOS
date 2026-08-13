@@ -401,19 +401,26 @@ function ChangeOrderPipelineWidget() {
 
 function ShipmentsCalendarWidgetCard() {
   const [loads, setLoads] = useState([]);
+  const [carriers, setCarriers] = useState([]);
   useEffect(() => {
-    db.entities.shipping_loads.list('-created_date', 8).then((items) => setLoads(items)).catch(() => setLoads([]));
+    Promise.all([
+      db.entities.loads.list('-created_date', 8),
+      db.entities.Vendor.filter({ vendor_type: 'carrier' }, 'name', 50),
+    ]).then(([loadItems, carrierItems]) => { setLoads(loadItems); setCarriers(carrierItems); })
+      .catch(() => { setLoads([]); setCarriers([]); });
   }, []);
 
   if (loads.length === 0) return <WidgetEmpty message="No shipments logged" />;
 
+  const carrierName = (vendorId) => carriers.find((c) => c.id === vendorId)?.name || 'No carrier';
+
   return <div className="space-y-2">{loads.map((load) => (
     <Link key={load.id} to="/shipping" className="block rounded-lg border border-border px-2.5 py-2 text-xs min-h-[44px] cursor-pointer hover:bg-muted/50 transition-colors" title="Open Shipping">
       <div className="flex items-center justify-between">
-        <span className="font-medium">{load.load_number}</span>
-        <span className="text-muted-foreground">{load.ship_date || 'Pending'}</span>
+        <span className="font-medium">{load.load_number_id}</span>
+        <span className="text-muted-foreground">{load.status}</span>
       </div>
-      <p className="text-muted-foreground">{load.carrier_name} • {load.trailer_type} • {load.tons_shipped}T</p>
+      <p className="text-muted-foreground">{carrierName(load.carrier_vendor_id)} • {((load.total_weight_lbs || 0) / 2000).toFixed(1)}T</p>
     </Link>
   ))}</div>;
 }

@@ -82,12 +82,13 @@ entity.
 - **Two piece entities**: `PieceMark` (office/project side — phase,
   sequence, quantity, item_type) and `pieces` (shop floor — QR payload,
   workflow_status, field_status). Bridged via `pieces.piece_mark_id`.
-- **Three shipping systems**: (1) `PieceMark.shipping_load_id` +
-  `shipping_loads` — legacy drag-drop, no schema file, should eventually be
-  deprecated; (2) `loads` + `load_items` + `shipping_manifests` — the
-  maintained system with real manifest/QR/receiving logic, build new
-  shipping/receiving features on this one; (3) jobsite receiving (Field
-  Operations) — erector-facing, built on top of (2).
+- **Shipping**: consolidated onto one system — `loads` + `load_items` +
+  `shipping_manifests`, with jobsite receiving (Field Operations, erector-
+  facing) built on top of it. The legacy `PieceMark.shipping_load_id` +
+  `shipping_loads` drag-drop system (no schema file) was removed; any
+  pre-existing legacy data is folded forward by `migrateLegacyShippingLoads`
+  in `src/api/localData.js`. Build new shipping/receiving features on
+  `loads`/`load_items`/`shipping_manifests` only.
 - **Two receiving flows**: `receiving_logs` (shop-floor PO receiving,
   vendor material arriving at the shop) is unrelated to jobsite receiving
   (erector checking off pieces arriving on site). Never conflate them.
