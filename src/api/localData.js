@@ -1929,6 +1929,21 @@ const migrateStore = (store) => {
     migrated.projects = Array.isArray(migrated.Project) ? migrated.Project.map((item) => ({ ...item })) : [...seeded.projects];
   }
 
+  // quality_inspection_records predates the AISC Fabricator/Erector track
+  // split (Quality.jsx) and has no seed data, so the seeded-entity loop above
+  // never touches it. Backfill `track` on every existing row from its old
+  // category text rather than orphaning pre-split records from the new
+  // track-based reporting — this app's cert tracker was Fabricator-only
+  // before the split, so only the field-bolting category is inferred as
+  // Erector and everything else defaults to Fabricator.
+  if (Array.isArray(migrated.quality_inspection_records)) {
+    migrated.quality_inspection_records = migrated.quality_inspection_records.map((r) => {
+      if (r.track === 'fabricator' || r.track === 'erector') return r;
+      const category = String(r.category || '').toLowerCase();
+      return { ...r, track: category.includes('bolt') ? 'erector' : 'fabricator' };
+    });
+  }
+
   if (!Array.isArray(migrated.change_orders)) {
     migrated.change_orders = [...seeded.change_orders];
   }

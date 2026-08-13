@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { CheckSquare, AlertTriangle, XCircle, FileText, Brain, CheckCircle2, Plus, Search, Clock, ClipboardList } from 'lucide-react';
@@ -12,17 +12,66 @@ import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
 
+// The two AISC certification programs this page tracks. They're distinct
+// certs with distinct requirements (shop vs. field), so QA categories,
+// certifications, and records all carry a track — see QA_CATEGORIES below
+// for which track(s) each checklist item belongs to.
+const QA_TRACK = { FABRICATOR: 'fabricator', ERECTOR: 'erector' };
+
+const QA_TRACK_LABELS = {
+  [QA_TRACK.FABRICATOR]: 'AISC Fabricator',
+  [QA_TRACK.ERECTOR]: 'AISC Erector',
+};
+
+// Each category is tagged with the track(s) whose AISC cert program actually
+// requires it. Items common to both programs (e.g. NCR procedures, third
+// party inspection) are tagged with both tracks and defined once here rather
+// than duplicated per-track.
 const QA_CATEGORIES = [
-  'AISC Certification', 'Welding Requirements', 'Inspection Hold Points',
-  'Material Traceability', 'Surface Preparation', 'Bolting Inspection',
-  'Third Party Inspection', 'NCR Procedures'
+  { name: 'AISC Certification', tracks: [QA_TRACK.FABRICATOR, QA_TRACK.ERECTOR] },
+  { name: 'Shop QC Program', tracks: [QA_TRACK.FABRICATOR] },
+  { name: 'Material Control', tracks: [QA_TRACK.FABRICATOR] },
+  { name: 'Welding Procedures (WPS)', tracks: [QA_TRACK.FABRICATOR] },
+  { name: 'Welder Qualifications', tracks: [QA_TRACK.FABRICATOR] },
+  { name: 'NDT', tracks: [QA_TRACK.FABRICATOR] },
+  { name: 'Fit-Up & Dimensional Inspection', tracks: [QA_TRACK.FABRICATOR] },
+  { name: 'Surface Preparation', tracks: [QA_TRACK.FABRICATOR] },
+  { name: 'Field QC Program', tracks: [QA_TRACK.ERECTOR] },
+  { name: 'Erection Procedures', tracks: [QA_TRACK.ERECTOR] },
+  { name: 'Bolting Inspection (Snug/Pretensioned, RCT)', tracks: [QA_TRACK.ERECTOR] },
+  { name: 'Field Welding', tracks: [QA_TRACK.ERECTOR] },
+  { name: 'Plumbness & Alignment Survey', tracks: [QA_TRACK.ERECTOR] },
+  { name: 'Safety Program Interface', tracks: [QA_TRACK.ERECTOR] },
+  { name: 'Inspection Hold Points', tracks: [QA_TRACK.FABRICATOR, QA_TRACK.ERECTOR] },
+  { name: 'Third Party Inspection', tracks: [QA_TRACK.FABRICATOR, QA_TRACK.ERECTOR] },
+  { name: 'NCR Procedures', tracks: [QA_TRACK.FABRICATOR, QA_TRACK.ERECTOR] },
 ];
 
-const emptyRecordForm = () => ({
-  project_id: '', category: QA_CATEGORIES[0], inspector_name: '',
-  inspection_date: new Date().toISOString().slice(0, 10), result: 'Pass', notes: '',
-});
+const QA_CERTIFICATIONS = [
+  { cert: 'AISC Fabricator Certification', status: 'verified', expiry: '2026-03-15', tracks: [QA_TRACK.FABRICATOR] },
+  { cert: 'AWS Certified Welders (Active)', status: 'verified', expiry: null, tracks: [QA_TRACK.FABRICATOR] },
+  { cert: 'WPS / PQR Documents', status: 'pending', expiry: null, tracks: [QA_TRACK.FABRICATOR] },
+  { cert: 'SSPC QP 1 Certification', status: 'not_started', expiry: null, tracks: [QA_TRACK.FABRICATOR] },
+  { cert: 'AISC Certified Steel Erector', status: 'not_started', expiry: null, tracks: [QA_TRACK.ERECTOR] },
+  { cert: 'Rotational Capacity Testing (RCT) Records', status: 'not_started', expiry: null, tracks: [QA_TRACK.ERECTOR] },
+  { cert: 'Field Welding Personnel Qualifications', status: 'not_started', expiry: null, tracks: [QA_TRACK.ERECTOR] },
+  { cert: 'Erection Safety Program Documentation', status: 'not_started', expiry: null, tracks: [QA_TRACK.ERECTOR] },
+  { cert: 'Third Party Inspection Agency', status: 'pending', expiry: null, tracks: [QA_TRACK.FABRICATOR, QA_TRACK.ERECTOR] },
+];
+
+const emptyRecordForm = (track) => {
+  const resolvedTrack = track || QA_TRACK.FABRICATOR;
+  return {
+    project_id: '',
+    category: QA_CATEGORIES.find(c => c.tracks.includes(resolvedTrack))?.name || QA_CATEGORIES[0].name,
+    track: resolvedTrack,
+    inspector_name: '',
+    inspection_date: new Date().toISOString().slice(0, 10), result: 'Pass', notes: '',
+  };
+};
 
 export default function Quality() {
   const { toast } = useToast();
@@ -39,8 +88,23 @@ export default function Quality() {
   const [recordForm, setRecordForm] = useState(emptyRecordForm());
   const [savingRecord, setSavingRecord] = useState(false);
   const [detailRecord, setDetailRecord] = useState(null);
+  const [company, setCompany] = useState(null);
+  const [selectedTrack, setSelectedTrack] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => { getEffectiveCompany().then(setCompany).catch(() => setCompany(null)); }, []);
+
+  // Fabricator/Erector cert tracks are visible per the same pack gating as
+  // the Shop Fabrication and Field Operations modules — Quality itself is a
+  // shared page (visible to every pack), so it derives per-track visibility
+  // from those pack-exclusive module keys rather than a dedicated one.
+  const canFabricator = hasModule(company, '/shop-fabrication');
+  const canErector = hasModule(company, '/field-operations');
+  const visibleTracks = useMemo(
+    () => [canFabricator && QA_TRACK.FABRICATOR, canErector && QA_TRACK.ERECTOR].filter(Boolean),
+    [canFabricator, canErector]
+  );
+  const activeTrack = visibleTracks.includes(selectedTrack) ? selectedTrack : (visibleTracks[0] || QA_TRACK.FABRICATOR);
 
   const loadData = async () => {
     setLoading(true);
@@ -68,6 +132,7 @@ export default function Quality() {
       await db.entities.quality_inspection_records.create({
         project_id: recordForm.project_id,
         category: recordForm.category,
+        track: recordForm.track,
         inspector_name: recordForm.inspector_name.trim(),
         inspection_date: recordForm.inspection_date,
         result: recordForm.result,
@@ -75,7 +140,7 @@ export default function Quality() {
       });
       await loadData();
       setShowNewRecord(false);
-      setRecordForm(emptyRecordForm());
+      setRecordForm(emptyRecordForm(activeTrack));
       toast({ title: 'QA record saved' });
     } finally {
       setSavingRecord(false);
@@ -109,7 +174,7 @@ export default function Quality() {
         title="Quality Assurance"
         subtitle="QA review findings, inspection records, and compliance tracking"
         actions={
-          <Button className="steel-gradient text-white border-0" onClick={() => setShowNewRecord(true)}><Plus className="w-4 h-4 mr-2" /> New QA Record</Button>
+          <Button className="steel-gradient text-white border-0" onClick={() => { setRecordForm(emptyRecordForm(activeTrack)); setShowNewRecord(true); }}><Plus className="w-4 h-4 mr-2" /> New QA Record</Button>
         }
       />
 
@@ -217,6 +282,9 @@ export default function Quality() {
                       <div className="flex items-center gap-2 mb-1">
                         <StatusBadge status={r.result?.toLowerCase()} label={r.result} />
                         <span className="text-xs text-muted-foreground">{r.category}</span>
+                        {r.track && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{QA_TRACK_LABELS[r.track] || r.track}</span>
+                        )}
                       </div>
                       <p className="font-medium text-sm">
                         {r.project_id ? (
@@ -237,20 +305,35 @@ export default function Quality() {
 
         <TabsContent value="checklist">
           <div className="steel-card p-5">
-            <h3 className="font-semibold mb-4">Standard QA Checklist Categories</h3>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <h3 className="font-semibold">Standard QA Checklist Categories</h3>
+              {visibleTracks.length > 1 && (
+                <div className="inline-flex rounded-lg border border-border p-0.5">
+                  {visibleTracks.map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setSelectedTrack(t)}
+                      className={`px-3 py-1.5 text-xs rounded-md transition-colors ${activeTrack === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+                    >
+                      {QA_TRACK_LABELS[t]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {QA_CATEGORIES.map(cat => (
+              {QA_CATEGORIES.filter(cat => cat.tracks.includes(activeTrack)).map(cat => (
                 <button
-                  key={cat}
-                  onClick={() => jumpToFindings(null, cat)}
+                  key={cat.name}
+                  onClick={() => jumpToFindings(null, cat.name)}
                   className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted transition-colors text-left"
                 >
                   <div className="flex items-center gap-3">
                     <CheckSquare className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">{cat}</span>
+                    <span className="text-sm">{cat.name}</span>
                   </div>
                   <span className="text-xs text-primary hover:underline">
-                    {findings.filter(f => f.category?.toLowerCase().includes(cat.toLowerCase().split(' ')[0])).length} findings
+                    {findings.filter(f => f.category?.toLowerCase().includes(cat.name.toLowerCase().split(' ')[0])).length} findings
                   </span>
                 </button>
               ))}
@@ -260,15 +343,24 @@ export default function Quality() {
 
         <TabsContent value="certifications">
           <div className="steel-card p-5">
-            <h3 className="font-semibold mb-4">Required Certifications Tracker</h3>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <h3 className="font-semibold">Required Certifications Tracker</h3>
+              {visibleTracks.length > 1 && (
+                <div className="inline-flex rounded-lg border border-border p-0.5">
+                  {visibleTracks.map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setSelectedTrack(t)}
+                      className={`px-3 py-1.5 text-xs rounded-md transition-colors ${activeTrack === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+                    >
+                      {QA_TRACK_LABELS[t]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="space-y-3">
-              {[
-                { cert: 'AISC Fabricator Certification', status: 'verified', expiry: '2026-03-15' },
-                { cert: 'AWS Certified Welders (Active)', status: 'verified', expiry: null },
-                { cert: 'WPS / PQR Documents', status: 'pending', expiry: null },
-                { cert: 'SSPC QP 1 Certification', status: 'not_started', expiry: null },
-                { cert: 'Third Party Inspection Agency', status: 'pending', expiry: null },
-              ].map(item => (
+              {QA_CERTIFICATIONS.filter(item => item.tracks.includes(activeTrack)).map(item => (
                 <div key={item.cert} className="flex items-center justify-between p-4 rounded-lg border border-border">
                   <div className="flex items-center gap-3">
                     {item.status === 'verified'
@@ -293,7 +385,7 @@ export default function Quality() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={showNewRecord} onOpenChange={(open) => { setShowNewRecord(open); if (!open) setRecordForm(emptyRecordForm()); }}>
+      <Dialog open={showNewRecord} onOpenChange={(open) => { setShowNewRecord(open); if (!open) setRecordForm(emptyRecordForm(activeTrack)); }}>
         <DialogContent>
           <DialogHeader><DialogTitle>New QA Record</DialogTitle></DialogHeader>
           <div className="space-y-3">
@@ -304,11 +396,31 @@ export default function Quality() {
                 <SelectContent>{projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
+            {visibleTracks.length > 1 && (
+              <div>
+                <Label>AISC Track</Label>
+                <Select
+                  value={recordForm.track}
+                  onValueChange={(v) => setRecordForm(f => {
+                    const validCats = QA_CATEGORIES.filter(cat => cat.tracks.includes(v));
+                    const category = validCats.some(cat => cat.name === f.category) ? f.category : (validCats[0]?.name || '');
+                    return { ...f, track: v, category };
+                  })}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>{visibleTracks.map(t => <SelectItem key={t} value={t}>{QA_TRACK_LABELS[t]}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label>Category</Label>
               <Select value={recordForm.category} onValueChange={(v) => setRecordForm(f => ({ ...f, category: v }))}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>{QA_CATEGORIES.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}</SelectContent>
+                <SelectContent>
+                  {QA_CATEGORIES.filter(cat => cat.tracks.includes(recordForm.track)).map(cat => (
+                    <SelectItem key={cat.name} value={cat.name}>{cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -355,6 +467,9 @@ export default function Quality() {
                 <div className="flex items-center gap-2">
                   <StatusBadge status={detailRecord.result?.toLowerCase()} label={detailRecord.result} />
                   <span className="text-muted-foreground">{detailRecord.category}</span>
+                  {detailRecord.track && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{QA_TRACK_LABELS[detailRecord.track] || detailRecord.track}</span>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
