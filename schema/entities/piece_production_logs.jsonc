@@ -29,7 +29,7 @@
     },
     "target_minutes": {
       "type": "number",
-      "default": 0
+      "description": "Positive minutes, or null if the employee left it blank at punch-in. Never 0 as a sentinel for 'no target' — 0 would be silently summed into efficiency/variance math as if it were a real target. Written/read only through shopOpsMetrics.js's normalizeTargetMinutes so a blank input, garbage input, and an unset record are all represented the same way (null) everywhere."
     },
     "start_time": {
       "type": "string",

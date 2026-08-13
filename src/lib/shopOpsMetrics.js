@@ -66,6 +66,17 @@ export function buildCapacityMatrix(schedules, projects, weekColumns, maxCapacit
   return { rows, totals, statuses };
 }
 
+// The single definition of "a target was actually set" for target_minutes —
+// used at the EmployeeCenter write path and every downstream read, so a
+// blank kiosk input, garbage input (non-numeric, negative, zero), and an
+// unset record all collapse to the same null rather than three different
+// silent-zero bugs. A real target is always a positive number.
+export function normalizeTargetMinutes(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export function getStationBottlenecks(pieces, threshold = 50) {
   const counts = {};
   pieces.forEach((p) => {
@@ -117,9 +128,11 @@ export function getStationDwellVariance(stationLogs, pieces, pieceProductionLogs
   const targetsByPieceMark = {};
   pieceProductionLogs.forEach((log) => {
     if (log.status !== 'Complete' || !log.piece_mark) return;
+    const target = normalizeTargetMinutes(log.target_minutes);
+    if (target == null) return; // no target entered — must not drag the piece-mark average toward 0
     const key = log.piece_mark.trim().toLowerCase();
     if (!targetsByPieceMark[key]) targetsByPieceMark[key] = [];
-    targetsByPieceMark[key].push(log.target_minutes || 0);
+    targetsByPieceMark[key].push(target);
   });
 
   const headcountByStation = {};
@@ -183,8 +196,14 @@ export function getStationDwellVariance(stationLogs, pieces, pieceProductionLogs
 // elapsed_minutes/target_minutes however makes sense for their grouping
 // (per employee, per material profile, per shop per day), then pass the
 // totals through here so the actual math lives in exactly one place.
+// targetMinutes must be a sum of already-normalized (normalizeTargetMinutes)
+// values — a group where nothing had a target sums to 0 here, which is
+// deliberately treated the same as "no data" (null) rather than computed
+// into a real-looking 0% or divide-by-zero result. Callers use the null to
+// render "No target set" instead of a bogus percentage.
 export function computeEfficiencyPct(actualMinutes, targetMinutes) {
-  return actualMinutes > 0 ? Math.round((targetMinutes / actualMinutes) * 100) : null;
+  if (!(targetMinutes > 0) || !(actualMinutes > 0)) return null;
+  return Math.round((targetMinutes / actualMinutes) * 100);
 }
 
 // A Paused log is measured from when it was paused (end_time); an In_Progress

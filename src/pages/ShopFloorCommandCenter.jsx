@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
 import {
   getStationBottlenecks, getStationDwellVariance, getStalePieces, computeEfficiencyPct,
-  getCapacityStatus, STATIONS, stationName, HEATMAP_COLOR,
+  getCapacityStatus, STATIONS, stationName, HEATMAP_COLOR, normalizeTargetMinutes,
 } from '@/lib/shopOpsMetrics';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -77,11 +77,20 @@ export default function ShopFloorCommandCenter() {
   const todaysEfficiency = useMemo(() => {
     const todayKey = now.toDateString();
     const todaysLogs = pieceProductionLogs.filter((log) => log.end_time && new Date(log.end_time).toDateString() === todayKey);
+    // actualMinutes/targetMinutes only accumulate over pieces that HAVE a
+    // target — a piece with no target contributes to missingTarget instead,
+    // so its real elapsed time never drags the ratio down against a target
+    // sum that doesn't include it (see shopOpsMetrics.js computeEfficiencyPct).
     const totals = todaysLogs.reduce((acc, log) => {
-      acc.actualMinutes += log.elapsed_minutes || 0;
-      acc.targetMinutes += log.target_minutes || 0;
+      const target = normalizeTargetMinutes(log.target_minutes);
+      if (target == null) {
+        acc.missingTarget += 1;
+      } else {
+        acc.actualMinutes += log.elapsed_minutes || 0;
+        acc.targetMinutes += target;
+      }
       return acc;
-    }, { actualMinutes: 0, targetMinutes: 0 });
+    }, { actualMinutes: 0, targetMinutes: 0, missingTarget: 0 });
     return { ...totals, pieces: todaysLogs.length, efficiencyPct: computeEfficiencyPct(totals.actualMinutes, totals.targetMinutes) };
   }, [pieceProductionLogs, now]);
 
@@ -165,10 +174,13 @@ export default function ShopFloorCommandCenter() {
         <div className="rounded-xl border border-neutral-700 bg-neutral-900 p-4 flex flex-col items-center justify-center">
           <Gauge className="w-6 h-6 text-primary mb-2" />
           <p className="text-sm uppercase tracking-wide text-neutral-400">Today's Efficiency</p>
-          <p className={`text-6xl font-bold mt-2 ${todaysEfficiency.efficiencyPct == null ? 'text-neutral-500' : todaysEfficiency.efficiencyPct >= 100 ? 'text-emerald-500' : todaysEfficiency.efficiencyPct >= 85 ? 'text-amber-500' : 'text-red-500'}`}>
-            {todaysEfficiency.efficiencyPct != null ? `${todaysEfficiency.efficiencyPct}%` : '—'}
+          <p className={`text-4xl md:text-6xl font-bold mt-2 ${todaysEfficiency.efficiencyPct == null ? 'text-neutral-500' : todaysEfficiency.efficiencyPct >= 100 ? 'text-emerald-500' : todaysEfficiency.efficiencyPct >= 85 ? 'text-amber-500' : 'text-red-500'}`}>
+            {todaysEfficiency.pieces === 0 ? '—' : todaysEfficiency.efficiencyPct != null ? `${todaysEfficiency.efficiencyPct}%` : 'No target set'}
           </p>
-          <p className="text-xs text-neutral-500 mt-2">{todaysEfficiency.pieces} piece{todaysEfficiency.pieces === 1 ? '' : 's'} completed today</p>
+          <p className="text-xs text-neutral-500 mt-2">
+            {todaysEfficiency.pieces} piece{todaysEfficiency.pieces === 1 ? '' : 's'} completed today
+            {todaysEfficiency.missingTarget > 0 ? ` (${todaysEfficiency.missingTarget} missing target)` : ''}
+          </p>
         </div>
       </div>
 

@@ -3,7 +3,7 @@ import { db } from '@/api/apiClient';
 import { Loader2, Gauge } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { computeEfficiencyPct } from '@/lib/shopOpsMetrics';
+import { computeEfficiencyPct, normalizeTargetMinutes } from '@/lib/shopOpsMetrics';
 
 const efficiencyColor = (pct) => {
   if (pct >= 100) return 'text-emerald-600';
@@ -40,13 +40,27 @@ export default function ShopEfficiency() {
     return p ? `${p.project_number} — ${p.name}` : 'Unassigned';
   };
 
+  // actualMinutes/targetMinutes only accumulate over pieces that HAVE a
+  // target (missingTarget tracks the rest) — mixing an untimed piece's real
+  // elapsed time into a sum whose matching target never landed would drag
+  // the ratio down for reasons that have nothing to do with performance.
+  const accumulateTargetedTotals = (acc, log) => {
+    acc.pieces += 1;
+    const target = normalizeTargetMinutes(log.target_minutes);
+    if (target == null) {
+      acc.missingTarget += 1;
+    } else {
+      acc.actualMinutes += log.elapsed_minutes || 0;
+      acc.targetMinutes += target;
+    }
+    return acc;
+  };
+
   const leaderboard = Object.values(
     logs.reduce((acc, log) => {
       const key = log.employee_id;
-      if (!acc[key]) acc[key] = { employee_id: key, pieces: 0, actualMinutes: 0, targetMinutes: 0 };
-      acc[key].pieces += 1;
-      acc[key].actualMinutes += log.elapsed_minutes || 0;
-      acc[key].targetMinutes += log.target_minutes || 0;
+      if (!acc[key]) acc[key] = { employee_id: key, pieces: 0, actualMinutes: 0, targetMinutes: 0, missingTarget: 0 };
+      accumulateTargetedTotals(acc[key], log);
       return acc;
     }, {})
   ).map((row) => ({
@@ -57,15 +71,13 @@ export default function ShopEfficiency() {
   const varianceMatrix = Object.values(
     logs.reduce((acc, log) => {
       const key = log.material_profile_type || 'Other';
-      if (!acc[key]) acc[key] = { material_profile_type: key, pieces: 0, actualMinutes: 0, targetMinutes: 0 };
-      acc[key].pieces += 1;
-      acc[key].actualMinutes += log.elapsed_minutes || 0;
-      acc[key].targetMinutes += log.target_minutes || 0;
+      if (!acc[key]) acc[key] = { material_profile_type: key, pieces: 0, actualMinutes: 0, targetMinutes: 0, missingTarget: 0 };
+      accumulateTargetedTotals(acc[key], log);
       return acc;
     }, {})
   ).map((row) => ({
     ...row,
-    varianceMinutes: row.actualMinutes - row.targetMinutes,
+    varianceMinutes: row.targetMinutes > 0 ? row.actualMinutes - row.targetMinutes : null,
   }));
 
   const tonnageRollup = Object.values(
@@ -112,10 +124,15 @@ export default function ShopEfficiency() {
                 ) : leaderboard.map((row) => (
                   <tr key={row.employee_id} className="border-t">
                     <td className="p-3 font-medium">{employeeName(row.employee_id)}</td>
-                    <td className="p-3">{row.pieces}</td>
+                    <td className="p-3">
+                      {row.pieces}
+                      {row.missingTarget > 0 && <span className="text-xs text-muted-foreground"> ({row.missingTarget} no target)</span>}
+                    </td>
                     <td className="p-3">{row.actualMinutes}</td>
-                    <td className="p-3">{row.targetMinutes}</td>
-                    <td className={`p-3 font-semibold ${efficiencyColor(row.efficiencyPct || 0)}`}>{row.efficiencyPct != null ? `${row.efficiencyPct}%` : '—'}</td>
+                    <td className="p-3">{row.targetMinutes > 0 ? row.targetMinutes : '—'}</td>
+                    <td className={`p-3 font-semibold ${row.efficiencyPct != null ? efficiencyColor(row.efficiencyPct) : 'text-muted-foreground'}`}>
+                      {row.targetMinutes === 0 ? 'No target set' : row.efficiencyPct != null ? `${row.efficiencyPct}%` : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -135,10 +152,15 @@ export default function ShopEfficiency() {
                 ) : varianceMatrix.map((row) => (
                   <tr key={row.material_profile_type} className="border-t">
                     <td className="p-3 font-medium">{row.material_profile_type.replace(/_/g, ' ')}</td>
-                    <td className="p-3">{row.pieces}</td>
+                    <td className="p-3">
+                      {row.pieces}
+                      {row.missingTarget > 0 && <span className="text-xs text-muted-foreground"> ({row.missingTarget} no target)</span>}
+                    </td>
                     <td className="p-3">{row.actualMinutes}</td>
-                    <td className="p-3">{row.targetMinutes}</td>
-                    <td className={`p-3 font-semibold ${row.varianceMinutes > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{row.varianceMinutes > 0 ? '+' : ''}{row.varianceMinutes} min</td>
+                    <td className="p-3">{row.targetMinutes > 0 ? row.targetMinutes : '—'}</td>
+                    <td className={`p-3 font-semibold ${row.varianceMinutes == null ? 'text-muted-foreground' : row.varianceMinutes > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {row.varianceMinutes == null ? 'No target set' : `${row.varianceMinutes > 0 ? '+' : ''}${row.varianceMinutes} min`}
+                    </td>
                   </tr>
                 ))}
               </tbody>

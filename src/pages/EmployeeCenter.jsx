@@ -5,6 +5,7 @@ import { verifyPin } from '@/lib/hrSecurity';
 import { computeOvertimeForClockOut, resolveLaborScaleFromCategory, computeMultiScaleGrossPayCents } from '@/lib/attendanceMath';
 import { getPayrollRateScalesCents } from '@/lib/burdenedLabor';
 import { isMobileDevice, captureLocationCoordinates } from '@/lib/mobilePunch';
+import { normalizeTargetMinutes } from '@/lib/shopOpsMetrics';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { Button } from '@/components/ui/button';
@@ -264,7 +265,7 @@ export default function EmployeeCenter() {
       employee_id: employee.id,
       piece_mark: pieceMarkInput.trim(),
       material_profile_type: pieceProfileType,
-      target_minutes: Number(pieceTargetMinutes) || 0,
+      target_minutes: normalizeTargetMinutes(pieceTargetMinutes),
       start_time: new Date().toISOString(),
       status: 'In_Progress',
     });
