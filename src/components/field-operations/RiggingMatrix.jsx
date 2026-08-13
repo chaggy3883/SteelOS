@@ -46,6 +46,7 @@ export default function RiggingMatrix({ ledger, canManageFleet, onReload }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyRiggingForm());
   const [saving, setSaving] = useState(false);
+  const [viewingItem, setViewingItem] = useState(null);
 
   const handleSave = async () => {
     if (!form.serial_tag.trim()) {
@@ -94,7 +95,11 @@ export default function RiggingMatrix({ ledger, canManageFleet, onReload }) {
         {ledger.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">No rigging inventory on file.</p>
         ) : ledger.map((item) => (
-          <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm mb-2">
+          <div
+            key={item.id}
+            onClick={() => setViewingItem(item)}
+            className="flex items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm mb-2 cursor-pointer hover:bg-muted/50 transition-colors"
+          >
             <div>
               <p className="font-medium">{item.serial_tag} — {item.rigging_category.replace(/_/g, ' ')}</p>
               <p className="text-xs text-muted-foreground">{item.length_inches || 0}in length • {dimensionSummary(item)}</p>
@@ -168,6 +173,32 @@ export default function RiggingMatrix({ ledger, canManageFleet, onReload }) {
             <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={saving} className="steel-gradient text-white border-0">{saving ? 'Saving…' : 'Add Asset'}</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingItem} onOpenChange={(o) => !o && setViewingItem(null)}>
+        <DialogContent>
+          {viewingItem && (
+            <>
+              <DialogHeader><DialogTitle>{viewingItem.serial_tag}</DialogTitle></DialogHeader>
+              <div className="space-y-2 text-sm">
+                {[
+                  ['Category', viewingItem.rigging_category.replace(/_/g, ' ')],
+                  ['Length (in)', viewingItem.length_inches || 0],
+                  ['Dimensions', dimensionSummary(viewingItem)],
+                  ['Logged', viewingItem.created_at ? new Date(viewingItem.created_at).toLocaleString() : '—'],
+                ].map(([label, value]) => (
+                  <div key={label} className="grid grid-cols-3 gap-2 border-b border-border/50 pb-2">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="col-span-2 font-medium">{value}</span>
+                  </div>
+                ))}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setViewingItem(null)}>Close</Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

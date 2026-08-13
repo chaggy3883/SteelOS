@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { AlertTriangle, Truck, Warehouse, Plus, Gauge, Wrench, DollarSign, History, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -59,8 +60,9 @@ const getOffRentOverdueDays = (asset) => {
   return days > 0 ? days : 0;
 };
 
-export default function FleetRentalRegistry({ assets, projects, vendors, purchaseOrders = [], usageLogs = [], repairLogs = [], canManageFleet, canOverridePoMismatch = false, currentUser, onTogglePickup, onReload }) {
+export default function FleetRentalRegistry({ assets, projects, vendors, purchaseOrders = [], usageLogs = [], repairLogs = [], canManageFleet, canOverridePoMismatch = false, currentUser, onTogglePickup, onReload, focusAssetId }) {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [showAddForm, setShowAddForm] = useState(false);
   const [assetForm, setAssetForm] = useState(emptyAssetForm());
   const [saving, setSaving] = useState(false);
@@ -178,6 +180,16 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
     setEditingAsset(false);
     setEditForm(null);
   };
+
+  // Deep-link target for "equipment ID" drill-downs from other tabs
+  // (?asset=<id> on /field-operations, handled by the page-level effect that
+  // switches to this tab) — auto-opens this asset's detail once loaded.
+  useEffect(() => {
+    if (!focusAssetId) return;
+    const match = assets.find((a) => a.id === focusAssetId);
+    if (match) openDetail(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusAssetId, assets]);
 
   const handleSaveCostRate = async () => {
     if (!detailAsset) return;
@@ -405,7 +417,15 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
                   <TableCell className="text-sm">{asset.asset_type?.replace(/_/g, ' ')}</TableCell>
                   <TableCell>
                     <Badge variant={isRented ? 'outline' : 'secondary'}>{isRented ? 'Third-Party Rented' : 'Internal Owned'}</Badge>
-                    {isRented && <p className="text-xs text-muted-foreground mt-0.5">{vendorName(asset.rental_vendor_id)}</p>}
+                    {isRented && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/crm/directory?vendor=${asset.rental_vendor_id}`); }}
+                        disabled={!asset.rental_vendor_id}
+                        className="block text-xs text-primary hover:underline mt-0.5 disabled:no-underline disabled:text-muted-foreground disabled:cursor-default"
+                      >
+                        {vendorName(asset.rental_vendor_id)}
+                      </button>
+                    )}
                   </TableCell>
                   <TableCell>
                     {isRented ? (
@@ -425,7 +445,13 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
                       <span className="text-sm text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm">{projectName(asset.project_location_id)}</TableCell>
+                  <TableCell className="text-sm">
+                    {asset.project_location_id ? (
+                      <button onClick={(e) => { e.stopPropagation(); navigate(`/projects/${asset.project_location_id}`); }} className="text-primary hover:underline">
+                        {projectName(asset.project_location_id)}
+                      </button>
+                    ) : '—'}
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1.5">
                       <span className="font-mono text-sm">{(asset.runtime_hours || 0).toLocaleString()}</span>
@@ -749,7 +775,9 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
                           <div className="space-y-2">
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">
-                                ${burned.toLocaleString(undefined, { maximumFractionDigits: 0 })} posted of ${poTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })} PO ({poNumber(liveDetailAsset.linked_po_id)})
+                                ${burned.toLocaleString(undefined, { maximumFractionDigits: 0 })} posted of ${poTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })} PO (
+                                <button onClick={() => openPoDetail(liveDetailAsset.linked_po_id)} className="text-primary hover:underline">{poNumber(liveDetailAsset.linked_po_id)}</button>
+                                )
                               </span>
                               <span className={`font-semibold ${textColor}`}>{pct}%</span>
                             </div>
@@ -780,10 +808,15 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
                     {detailCostSummary.byProject.length > 0 && (
                       <div className="space-y-1">
                         {detailCostSummary.byProject.map(([projectId, { hours, cost }]) => (
-                          <div key={projectId} className="flex items-center justify-between text-sm px-2 py-1.5 rounded hover:bg-muted/40">
-                            <span>{projectName(projectId)}</span>
+                          <button
+                            key={projectId}
+                            onClick={() => navigate(`/projects/${projectId}`)}
+                            disabled={!projectId}
+                            className="flex items-center justify-between w-full text-sm px-2 py-1.5 rounded hover:bg-muted/40 text-left disabled:cursor-default"
+                          >
+                            <span className={projectId ? 'text-primary hover:underline' : ''}>{projectName(projectId)}</span>
                             <span className="text-muted-foreground">{hours.toLocaleString()} hrs · ${cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}
@@ -849,7 +882,11 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
                           {detailUsageLogs.map((log) => (
                             <TableRow key={log.id}>
                               <TableCell className="text-xs">{log.usage_date}</TableCell>
-                              <TableCell className="text-sm">{projectName(log.project_id)}</TableCell>
+                              <TableCell className="text-sm">
+                                <button onClick={() => navigate(`/projects/${log.project_id}`)} disabled={!log.project_id} className="text-primary hover:underline disabled:no-underline disabled:text-muted-foreground">
+                                  {projectName(log.project_id)}
+                                </button>
+                              </TableCell>
                               <TableCell className="text-right font-mono">{log.hours_used}</TableCell>
                               <TableCell className="text-right font-mono">${(log.total_cost || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</TableCell>
                               <TableCell>{log.posted_to_job_cost ? <Badge variant="secondary" className="text-[10px]">Posted</Badge> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>

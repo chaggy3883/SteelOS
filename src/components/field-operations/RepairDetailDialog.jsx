@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -7,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 // row drill-down and by FleetRentalRegistry's per-asset Maintenance History
 // section, so "every field on the record" only has one place to stay in sync.
 export default function RepairDetailDialog({ repair, open, onOpenChange, assets = [], projects = [], vendors = [] }) {
+  const navigate = useNavigate();
   if (!repair) return null;
 
   const asset = assets.find((a) => a.id === repair.asset_id);
@@ -14,14 +16,14 @@ export default function RepairDetailDialog({ repair, open, onOpenChange, assets 
   const vendor = vendors.find((v) => v.id === repair.vendor_id);
 
   const rows = [
-    ['Asset', asset?.asset_name || repair.asset_id || '—'],
+    ['Asset', asset?.asset_name || repair.asset_id || '—', repair.asset_id ? () => navigate(`/field-operations?asset=${repair.asset_id}`) : null],
     ['Repair Category', repair.repair_category ? repair.repair_category.replace(/_/g, ' ') : '—'],
     ['Repair Date', repair.repair_date || '—'],
     ['Runtime Hours at Repair', (repair.runtime_hours_at_repair || 0).toLocaleString()],
     ['Cost', `$${((repair.cost_cents || 0) / 100).toFixed(2)}`],
     ['Cost Code', repair.cost_code || '—'],
-    ['Project', project?.name || 'Not linked'],
-    ['Vendor', vendor?.name || 'Not linked'],
+    ['Project', project?.name || 'Not linked', project ? () => navigate(`/projects/${project.id}`) : null],
+    ['Vendor', vendor?.name || 'Not linked', vendor ? () => navigate(`/crm/directory?vendor=${vendor.id}`) : null],
     ['Notes', repair.notes || '—'],
     ['Job Cost Entry', repair.job_cost_entry_id || '—'],
     ['AP Bill', repair.vendor_bill_id || '—'],
@@ -40,10 +42,14 @@ export default function RepairDetailDialog({ repair, open, onOpenChange, assets 
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
-          {rows.map(([label, value]) => (
+          {rows.map(([label, value, onClick]) => (
             <div key={label} className="grid grid-cols-3 gap-2 text-sm border-b border-border/50 pb-2">
               <span className="text-muted-foreground">{label}</span>
-              <span className="col-span-2 font-medium whitespace-pre-wrap">{value}</span>
+              {onClick ? (
+                <button onClick={onClick} className="col-span-2 font-medium whitespace-pre-wrap text-left text-primary hover:underline">{value}</button>
+              ) : (
+                <span className="col-span-2 font-medium whitespace-pre-wrap">{value}</span>
+              )}
             </div>
           ))}
         </div>

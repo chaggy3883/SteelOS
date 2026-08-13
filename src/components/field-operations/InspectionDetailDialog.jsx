@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { CheckCircle2, XCircle, AlertTriangle, FileText, Eye, Download } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -13,6 +14,7 @@ const isPdfName = (name) => !!name?.match(/\.pdf$/i);
 // Read-only drill-down for a single inspection record — mirrors
 // RepairDetailDialog's shape (row click -> full record, no edit surface).
 export default function InspectionDetailDialog({ inspection, open, onOpenChange, assets = [] }) {
+  const navigate = useNavigate();
   const [certDoc, setCertDoc] = useState(null);
   const [pdfViewer, setPdfViewer] = useState(null);
 
@@ -51,7 +53,7 @@ export default function InspectionDetailDialog({ inspection, open, onOpenChange,
 
         <div className="space-y-2">
           {[
-            ['Asset', asset?.asset_name || inspection.asset_id || '—'],
+            ['Asset', asset?.asset_name || inspection.asset_id || '—', inspection.asset_id ? () => navigate(`/field-operations?asset=${inspection.asset_id}`) : null],
             ['Executed', inspection.executed_date || '—'],
             ['Expiration', inspection.expiration_date || '—'],
             ['Inspector', inspection.inspector_name || '—'],
@@ -59,10 +61,14 @@ export default function InspectionDetailDialog({ inspection, open, onOpenChange,
               inspection.competent_person ? 'Competent Person (1926.32(f))' : null,
               inspection.qualified_person ? 'Qualified Person (1926.32(m))' : null,
             ].filter(Boolean).join(' • ') || '—'],
-          ].map(([label, value]) => (
+          ].map(([label, value, onClick]) => (
             <div key={label} className="grid grid-cols-3 gap-2 text-sm border-b border-border/50 pb-2">
               <span className="text-muted-foreground">{label}</span>
-              <span className="col-span-2 font-medium">{value}</span>
+              {onClick ? (
+                <button onClick={onClick} className="col-span-2 font-medium text-left text-primary hover:underline">{value}</button>
+              ) : (
+                <span className="col-span-2 font-medium">{value}</span>
+              )}
             </div>
           ))}
         </div>

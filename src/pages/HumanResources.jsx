@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin } from '@/lib/employeesApi';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
@@ -45,6 +46,8 @@ const emptyCandidateForm = () => ({ candidate_name: '', email: '', phone: '', po
 
 export default function HumanResources() {
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(null);
   const [roles, setRoles] = useState(['user']);
   const [permissionOverrides, setPermissionOverrides] = useState([]);
   const [candidates, setCandidates] = useState([]);
@@ -74,8 +77,24 @@ export default function HumanResources() {
   const [emergencyContactEmployeeId, setEmergencyContactEmployeeId] = useState('');
   const [allRoles, setAllRoles] = useState([]);
   const [assigningRoleId, setAssigningRoleId] = useState(null);
+  const [viewingCertification, setViewingCertification] = useState(null);
 
   useEffect(() => { init(); }, []);
+
+  // Deep-link target for "employee" drill-downs from other pages/tabs
+  // (equipment usage operator, time-off requester, cert radar, etc.) —
+  // /human-resources?employee=<id> jumps to the Employees tab and opens
+  // that employee's profile dialog, mirroring CRM's ?vendor=/?customer= pattern.
+  useEffect(() => {
+    const empId = searchParams.get('employee');
+    if (!empId || employees.length === 0) return;
+    const match = employees.find((e) => e.id === empId);
+    if (match) {
+      setActiveTab('employees');
+      setProfileEmployee(match);
+      setShowProfileDialog(true);
+    }
+  }, [searchParams, employees]);
 
   const init = async () => {
     setLoading(true);
@@ -276,6 +295,7 @@ export default function HumanResources() {
   };
   const visibleTabValues = HR_TABS.filter((t) => isTabVisible(t.value)).map((t) => t.value);
   const defaultTabValue = visibleTabValues[0] || 'ats';
+  const currentTab = activeTab || defaultTabValue;
 
   if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
 
@@ -292,7 +312,7 @@ export default function HumanResources() {
         }
       />
 
-      <Tabs defaultValue={defaultTabValue}>
+      <Tabs value={currentTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           {isTabVisible('ats') && <TabsTrigger value="ats">Candidates (ATS)</TabsTrigger>}
           {isTabVisible('employees') && <TabsTrigger value="employees">Employees</TabsTrigger>}
@@ -418,8 +438,12 @@ export default function HumanResources() {
                   <tbody>
                     {employees.map((emp) => (
                       <tr key={emp.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
-                        <td className="py-3 px-4 font-mono font-bold text-primary">{emp.employee_number}</td>
-                        <td className="py-3 px-4">{emp.full_name}</td>
+                        <td className="py-3 px-4 font-mono font-bold">
+                          <button onClick={() => openProfile(emp)} className="text-primary hover:underline">{emp.employee_number}</button>
+                        </td>
+                        <td className="py-3 px-4">
+                          <button onClick={() => openProfile(emp)} className="text-primary hover:underline">{emp.full_name}</button>
+                        </td>
                         <td className="py-3 px-4 text-muted-foreground">{emp.classification}</td>
                         {isFullAccess && (
                           <td className="py-3 px-4">
@@ -490,7 +514,12 @@ export default function HumanResources() {
                   <div key={r.id} className="rounded-lg border border-border p-3 text-sm mb-2">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div>
-                        <p className="font-medium">{requester?.full_name || r.employee_id} — {r.leave_type} ({r.start_date} to {r.end_date})</p>
+                        <p className="font-medium">
+                          {requester ? (
+                            <button onClick={() => openProfile(requester)} className="text-primary hover:underline">{requester.full_name}</button>
+                          ) : (r.employee_id)}
+                          {' '}— {r.leave_type} ({r.start_date} to {r.end_date})
+                        </p>
                         <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
                       </div>
                       <div className="flex gap-2">
@@ -547,9 +576,18 @@ export default function HumanResources() {
             ) : expiringCerts.map((cert) => {
               const employee = employees.find((e) => e.id === cert.employee_id);
               return (
-                <div key={cert.id} className={`rounded-lg border p-3 text-sm mb-2 ${cert.status === 'Expired' ? 'border-red-500/40 bg-red-500/5' : 'border-yellow-500/40 bg-yellow-500/5'}`}>
+                <div
+                  key={cert.id}
+                  onClick={() => setViewingCertification({ ...cert, employee })}
+                  className={`rounded-lg border p-3 text-sm mb-2 cursor-pointer hover:bg-muted/40 transition-colors ${cert.status === 'Expired' ? 'border-red-500/40 bg-red-500/5' : 'border-yellow-500/40 bg-yellow-500/5'}`}
+                >
                   <div className="flex items-center justify-between">
-                    <p className="font-medium">{employee?.full_name || cert.employee_id} — {cert.cert_type.replace(/_/g, ' ')}</p>
+                    <p className="font-medium">
+                      {employee ? (
+                        <button onClick={(e) => { e.stopPropagation(); openProfile(employee); }} className="text-primary hover:underline">{employee.full_name}</button>
+                      ) : (cert.employee_id)}
+                      {' '}— {cert.cert_type.replace(/_/g, ' ')}
+                    </p>
                     <span className={`text-xs font-semibold ${cert.status === 'Expired' ? 'text-red-600' : 'text-yellow-700'}`}>{cert.status.replace('_', ' ')}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">Expires {cert.expiration_date}</p>
@@ -638,6 +676,42 @@ export default function HumanResources() {
         open={!!viewingCandidate}
         onOpenChange={(o) => { if (!o) setViewingCandidate(null); }}
       />
+
+      <Dialog open={!!viewingCertification} onOpenChange={(o) => !o && setViewingCertification(null)}>
+        <DialogContent>
+          {viewingCertification && (
+            <>
+              <DialogHeader><DialogTitle>{viewingCertification.cert_type.replace(/_/g, ' ')}</DialogTitle></DialogHeader>
+              <div className="space-y-2 text-sm">
+                {[
+                  ['Employee', viewingCertification.employee?.full_name || viewingCertification.employee_id, viewingCertification.employee ? () => { setViewingCertification(null); openProfile(viewingCertification.employee); } : null],
+                  ['Certification Number', viewingCertification.cert_number || '—'],
+                  ['Issued', viewingCertification.issued_date || '—'],
+                  ['Expires', viewingCertification.expiration_date || '—'],
+                  ['Status', viewingCertification.status.replace('_', ' ')],
+                ].map(([label, value, onClick]) => (
+                  <div key={label} className="grid grid-cols-3 gap-2 border-b border-border/50 pb-2">
+                    <span className="text-muted-foreground">{label}</span>
+                    {onClick ? (
+                      <button onClick={onClick} className="col-span-2 font-medium text-left text-primary hover:underline">{value}</button>
+                    ) : (
+                      <span className="col-span-2 font-medium">{value}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {viewingCertification.file_uri && (
+                <a href={viewingCertification.file_uri} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+                  <IdCard className="w-3.5 h-3.5" />View certificate file
+                </a>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setViewingCertification(null)}>Close</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

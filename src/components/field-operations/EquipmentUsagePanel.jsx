@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Gauge, CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ export function resolveAssetRate(asset) {
 
 export default function EquipmentUsagePanel({ assets, projects, employees, usageLogs, onReload }) {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [projectFilter, setProjectFilter] = useState('all');
@@ -213,8 +215,12 @@ export default function EquipmentUsagePanel({ assets, projects, employees, usage
             ) : filteredLogs.map((log) => (
               <TableRow key={log.id}>
                 <TableCell className="text-xs">{log.usage_date}</TableCell>
-                <TableCell className="font-medium">{assetName(log.asset_id)}</TableCell>
-                <TableCell className="text-sm">{projectName(log.project_id)}</TableCell>
+                <TableCell className="font-medium">
+                  <button onClick={() => navigate(`/field-operations?asset=${log.asset_id}`)} className="text-primary hover:underline">{assetName(log.asset_id)}</button>
+                </TableCell>
+                <TableCell className="text-sm">
+                  <button onClick={() => navigate(`/projects/${log.project_id}`)} disabled={!log.project_id} className="text-primary hover:underline disabled:no-underline disabled:text-muted-foreground">{projectName(log.project_id)}</button>
+                </TableCell>
                 <TableCell className="text-right font-mono">{log.hours_used}</TableCell>
                 <TableCell className="text-right font-mono">${(log.rate_used || 0).toLocaleString()}</TableCell>
                 <TableCell className="text-right font-mono">${(log.total_cost || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</TableCell>
@@ -225,7 +231,11 @@ export default function EquipmentUsagePanel({ assets, projects, employees, usage
                     <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><XCircle className="w-3.5 h-3.5" />Not posted</span>
                   )}
                 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">{log.operator_employee_id ? employeeName(log.operator_employee_id) : '—'}</TableCell>
+                <TableCell className="text-sm">
+                  {log.operator_employee_id ? (
+                    <button onClick={() => navigate(`/human-resources?employee=${log.operator_employee_id}`)} className="text-primary hover:underline">{employeeName(log.operator_employee_id)}</button>
+                  ) : '—'}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

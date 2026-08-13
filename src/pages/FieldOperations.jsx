@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2, Gauge, PackageCheck, ClipboardCheck, ClipboardList } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
@@ -21,6 +21,8 @@ const PO_MISMATCH_OVERRIDE_ROLES = ['controller', 'finance_department', 'admin',
 
 export default function FieldOperations() {
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState('fleet');
   const [assets, setAssets] = useState([]);
   const [inspections, setInspections] = useState([]);
   const [hookLogs, setHookLogs] = useState([]);
@@ -96,6 +98,15 @@ export default function FieldOperations() {
       });
   }, [loadAll]);
 
+  // Deep-link target for "equipment ID" drill-downs from other tabs/dialogs
+  // (repairs, inspections, hook terminal, usage log) — /field-operations?asset=<id>
+  // always lands on the Fleet & Rental Registry tab and auto-opens that asset's detail.
+  useEffect(() => {
+    if (searchParams.get('asset')) setActiveTab('fleet');
+  }, [searchParams]);
+
+  const focusAssetId = searchParams.get('asset');
+
   const handleTogglePickup = async (asset) => {
     await db.entities.erection_fleet_assets.update(asset.id, { is_marked_ready_for_pickup: true });
     await loadAll();
@@ -130,7 +141,7 @@ export default function FieldOperations() {
         )}
       />
 
-      <Tabs defaultValue="fleet">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4 max-w-full overflow-x-auto justify-start">
           <TabsTrigger value="fleet" className="gap-1.5"><Truck className="w-3.5 h-3.5" />Fleet &amp; Rental Registry</TabsTrigger>
           <TabsTrigger value="usage" className="gap-1.5"><Gauge className="w-3.5 h-3.5" />Equipment Usage</TabsTrigger>
@@ -154,6 +165,7 @@ export default function FieldOperations() {
             currentUser={currentUser}
             onTogglePickup={handleTogglePickup}
             onReload={loadAll}
+            focusAssetId={focusAssetId}
           />
         </TabsContent>
 

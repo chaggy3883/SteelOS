@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { AlertTriangle, ArrowUpFromLine, CheckCircle2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,13 +9,16 @@ import { useToast } from '@/components/ui/use-toast';
 import { isCraneDispatchBlocked } from '@/lib/craneDispatchGuard';
 import { getPayrollRateScalesCents } from '@/lib/burdenedLabor';
 import { computeMultiScaleGrossPayCents, LABOR_SCALES } from '@/lib/attendanceMath';
+import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 
 export default function HookProductionTerminal({ cranes, pieces, projects, inspections, hookLogs, onReload }) {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [craneId, setCraneId] = useState('');
   const [pieceId, setPieceId] = useState('');
   const [rateScale, setRateScale] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [viewingPieceId, setViewingPieceId] = useState(null);
 
   useEffect(() => { getPayrollRateScalesCents().then(setRateScale).catch(() => setRateScale(null)); }, []);
 
@@ -122,8 +126,15 @@ export default function HookProductionTerminal({ cranes, pieces, projects, inspe
         ) : openHooks.map((h) => (
           <div key={h.id} className="flex items-center justify-between gap-2 rounded-lg border border-border p-2 text-sm mb-2">
             <div>
-              <p className="font-medium">{pieceMark(h.piece_mark_id)} — {projectName(h.project_id)}</p>
-              <p className="text-xs text-muted-foreground">{craneName(h.crane_asset_id)} • hooked {new Date(h.hooked_at).toLocaleTimeString()}</p>
+              <p className="font-medium">
+                <button onClick={() => setViewingPieceId(h.piece_mark_id)} className="text-primary hover:underline">{pieceMark(h.piece_mark_id)}</button>
+                {' — '}
+                <button onClick={() => navigate(`/projects/${h.project_id}`)} className="text-primary hover:underline">{projectName(h.project_id)}</button>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <button onClick={() => navigate(`/field-operations?asset=${h.crane_asset_id}`)} className="hover:underline">{craneName(h.crane_asset_id)}</button>
+                {' '}• hooked {new Date(h.hooked_at).toLocaleTimeString()}
+              </p>
             </div>
             <Button size="sm" variant="outline" className="gap-1.5" disabled={busyId === h.id} onClick={() => handleBoltedComplete(h)}>
               <CheckCircle2 className="w-3.5 h-3.5" />Bolted Complete
@@ -139,8 +150,15 @@ export default function HookProductionTerminal({ cranes, pieces, projects, inspe
         ) : completedHooks.map((h) => (
           <div key={h.id} className="flex items-center justify-between gap-2 rounded-lg border border-border p-2 text-sm mb-2">
             <div>
-              <p className="font-medium">{pieceMark(h.piece_mark_id)} — {projectName(h.project_id)}</p>
-              <p className="text-xs text-muted-foreground">{craneName(h.crane_asset_id)} • {h.elapsed_minutes} min on hook</p>
+              <p className="font-medium">
+                <button onClick={() => setViewingPieceId(h.piece_mark_id)} className="text-primary hover:underline">{pieceMark(h.piece_mark_id)}</button>
+                {' — '}
+                <button onClick={() => navigate(`/projects/${h.project_id}`)} className="text-primary hover:underline">{projectName(h.project_id)}</button>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <button onClick={() => navigate(`/field-operations?asset=${h.crane_asset_id}`)} className="hover:underline">{craneName(h.crane_asset_id)}</button>
+                {' '}• {h.elapsed_minutes} min on hook
+              </p>
             </div>
             {estCostFor(h.elapsed_minutes) && (
               <p className="text-xs font-mono text-muted-foreground">~${estCostFor(h.elapsed_minutes)} field labor</p>
@@ -148,6 +166,8 @@ export default function HookProductionTerminal({ cranes, pieces, projects, inspe
           </div>
         ))}
       </div>
+
+      <PieceDetailModal open={!!viewingPieceId} onOpenChange={(o) => !o && setViewingPieceId(null)} pieceId={viewingPieceId} />
     </div>
   );
 }

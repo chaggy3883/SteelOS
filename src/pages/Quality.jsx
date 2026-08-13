@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { CheckSquare, AlertTriangle, XCircle, FileText, Brain, CheckCircle2, Plus, Search, Clock, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,11 +26,15 @@ const emptyRecordForm = () => ({
 
 export default function Quality() {
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('findings');
   const [findings, setFindings] = useState([]);
   const [records, setRecords] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState(null);
   const [showNewRecord, setShowNewRecord] = useState(false);
   const [recordForm, setRecordForm] = useState(emptyRecordForm());
   const [savingRecord, setSavingRecord] = useState(false);
@@ -77,9 +82,18 @@ export default function Quality() {
     }
   };
 
-  const filtered = findings.filter(f =>
-    !search || f.title?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = findings.filter(f => {
+    if (search && !f.title?.toLowerCase().includes(search.toLowerCase())) return false;
+    if (statusFilter !== 'all' && (statusFilter === 'pending' ? f.review_status !== 'pending' : f.status !== statusFilter)) return false;
+    if (categoryFilter && !f.category?.toLowerCase().includes(categoryFilter.toLowerCase().split(' ')[0])) return false;
+    return true;
+  });
+
+  const jumpToFindings = (status, category) => {
+    setStatusFilter(status || 'all');
+    setCategoryFilter(category || null);
+    setActiveTab('findings');
+  };
 
   const stats = {
     total: findings.length,
@@ -102,23 +116,23 @@ export default function Quality() {
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {[
-          { label: 'Total QA Findings', value: stats.total, icon: Brain, color: 'text-blue-500' },
-          { label: 'Fail', value: stats.fail, icon: XCircle, color: 'text-red-500' },
-          { label: 'Warning', value: stats.warning, icon: AlertTriangle, color: 'text-yellow-500' },
-          { label: 'Pass', value: stats.pass, icon: CheckCircle2, color: 'text-green-500' },
-          { label: 'Pending Review', value: stats.pending, icon: FileText, color: 'text-orange-500' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Total QA Findings', value: stats.total, icon: Brain, color: 'text-blue-500', status: 'all' },
+          { label: 'Fail', value: stats.fail, icon: XCircle, color: 'text-red-500', status: 'fail' },
+          { label: 'Warning', value: stats.warning, icon: AlertTriangle, color: 'text-yellow-500', status: 'warning' },
+          { label: 'Pass', value: stats.pass, icon: CheckCircle2, color: 'text-green-500', status: 'pass' },
+          { label: 'Pending Review', value: stats.pending, icon: FileText, color: 'text-orange-500', status: 'pending' },
+        ].map(({ label, value, icon: Icon, color, status }) => (
+          <button key={label} onClick={() => jumpToFindings(status)} className="steel-card p-4 text-left hover:bg-muted/40 transition-colors">
             <div className="flex items-center gap-2 mb-1">
               <Icon className={`w-4 h-4 ${color}`} />
               <p className="text-xs text-muted-foreground">{label}</p>
             </div>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      <Tabs defaultValue="findings">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="findings">AI QA Findings</TabsTrigger>
           <TabsTrigger value="records">Inspection Records</TabsTrigger>
@@ -127,11 +141,19 @@ export default function Quality() {
         </TabsList>
 
         <TabsContent value="findings">
-          <div className="mb-4">
+          <div className="mb-4 flex items-center gap-3 flex-wrap">
             <div className="relative max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="Search QA findings..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
             </div>
+            {(statusFilter !== 'all' || categoryFilter) && (
+              <button
+                onClick={() => { setStatusFilter('all'); setCategoryFilter(null); }}
+                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20"
+              >
+                Filtered: {categoryFilter || statusFilter} — clear
+              </button>
+            )}
           </div>
           <div className="space-y-3">
             {loading ? (
@@ -143,11 +165,15 @@ export default function Quality() {
               </div>
             ) : (
               filtered.map(f => (
-                <div key={f.id} className={`steel-card p-4 border-l-4 ${
-                  f.status === 'fail' ? 'border-l-red-500' :
-                  f.status === 'warning' ? 'border-l-yellow-500' :
-                  f.status === 'pass' ? 'border-l-green-500' : 'border-l-blue-500'
-                }`}>
+                <div
+                  key={f.id}
+                  onClick={() => f.project_id && navigate(`/projects/${f.project_id}`)}
+                  className={`steel-card p-4 border-l-4 ${f.project_id ? 'cursor-pointer hover:bg-muted/40 transition-colors' : ''} ${
+                    f.status === 'fail' ? 'border-l-red-500' :
+                    f.status === 'warning' ? 'border-l-yellow-500' :
+                    f.status === 'pass' ? 'border-l-green-500' : 'border-l-blue-500'
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
@@ -192,7 +218,11 @@ export default function Quality() {
                         <StatusBadge status={r.result?.toLowerCase()} label={r.result} />
                         <span className="text-xs text-muted-foreground">{r.category}</span>
                       </div>
-                      <p className="font-medium text-sm">{projectName(r.project_id)}</p>
+                      <p className="font-medium text-sm">
+                        {r.project_id ? (
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/projects/${r.project_id}`); }} className="text-primary hover:underline">{projectName(r.project_id)}</button>
+                        ) : projectName(r.project_id)}
+                      </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         {r.inspector_name} • {r.inspection_date}
                       </p>
@@ -210,15 +240,19 @@ export default function Quality() {
             <h3 className="font-semibold mb-4">Standard QA Checklist Categories</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {QA_CATEGORIES.map(cat => (
-                <div key={cat} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted transition-colors">
+                <button
+                  key={cat}
+                  onClick={() => jumpToFindings(null, cat)}
+                  className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted transition-colors text-left"
+                >
                   <div className="flex items-center gap-3">
                     <CheckSquare className="w-4 h-4 text-muted-foreground" />
                     <span className="text-sm">{cat}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-primary hover:underline">
                     {findings.filter(f => f.category?.toLowerCase().includes(cat.toLowerCase().split(' ')[0])).length} findings
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -325,7 +359,11 @@ export default function Quality() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-xs text-muted-foreground">Project</p>
-                    <p className="font-medium">{projectName(detailRecord.project_id)}</p>
+                    {detailRecord.project_id ? (
+                      <button onClick={() => navigate(`/projects/${detailRecord.project_id}`)} className="font-medium text-primary hover:underline">{projectName(detailRecord.project_id)}</button>
+                    ) : (
+                      <p className="font-medium">{projectName(detailRecord.project_id)}</p>
+                    )}
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Inspection Date</p>

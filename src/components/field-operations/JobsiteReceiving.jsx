@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 
 const ITEM_TYPES = ['Piece_Mark', 'Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
 
@@ -33,6 +34,7 @@ export default function JobsiteReceiving() {
   const [scanValues, setScanValues] = useState({});
   const [viewingPieceMark, setViewingPieceMark] = useState(null);
   const [viewingLoad, setViewingLoad] = useState(null);
+  const [viewingPieceId, setViewingPieceId] = useState(null);
 
   useEffect(() => {
     db.entities.Project.filter({ is_archived: false }, 'name', 200).then(setProjects).catch(() => setProjects([]));
@@ -396,12 +398,16 @@ export default function JobsiteReceiving() {
                     {items.map((li) => {
                       const piece = pieces.find((p) => p.id === li.piece_id);
                       return (
-                        <div key={li.id} className="flex items-center justify-between text-sm px-2 py-1 rounded border border-border/50">
-                          <span className="font-mono">{piece?.piece_mark || li.piece_id}</span>
+                        <button
+                          key={li.id}
+                          onClick={() => setViewingPieceId(li.piece_id)}
+                          className="flex items-center justify-between w-full text-sm px-2 py-1 rounded border border-border/50 hover:bg-muted/50 transition-colors text-left"
+                        >
+                          <span className="font-mono text-primary hover:underline">{piece?.piece_mark || li.piece_id}</span>
                           <span className={cn('text-xs', li.status === 'Field_Rejected' ? 'text-red-600' : 'text-muted-foreground')}>
                             {li.status === 'Field_Rejected' && <AlertTriangle className="w-3 h-3 inline mr-1" />}{li.status}
                           </span>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -414,6 +420,8 @@ export default function JobsiteReceiving() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PieceDetailModal open={!!viewingPieceId} onOpenChange={(o) => !o && setViewingPieceId(null)} pieceId={viewingPieceId} />
     </div>
   );
 }
