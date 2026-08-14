@@ -13,6 +13,8 @@ import { matchPieceByScan } from '@/lib/pieceScan';
 import { LABEL_STOCK_SIZES, buildZplPayload } from '@/lib/zplLabels';
 import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelSheet';
 import { logStatusChange } from '@/lib/statusHistory';
+import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
+import PieceTimeline from '@/components/shared/PieceTimeline';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
   CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer,
@@ -190,6 +192,14 @@ export default function ShopFabrication() {
       auto_paused: false,
     });
     setStationLogs((prev) => [log, ...prev]);
+    await db.entities.piece_timing_events.create({
+      company_id: selectedPiece.company_id,
+      piece_id: selectedPiece.id,
+      station_id: selectedPiece.current_station_id,
+      event_type: 'start_work',
+      scanned_by: employeeId,
+      scanned_at: new Date().toISOString(),
+    });
     toast({ title: 'Work started' });
   };
 
@@ -264,6 +274,15 @@ export default function ShopFabrication() {
       toValue: 'Inspector_Queue',
       changedBy: employeeId,
     });
+    await db.entities.piece_timing_events.create({
+      company_id: selectedPiece.company_id,
+      piece_id: selectedPiece.id,
+      station_id: selectedPiece.current_station_id,
+      event_type: 'ready_for_inspection',
+      scanned_by: employeeId,
+      scanned_at: new Date().toISOString(),
+      notes: `${pendingStage(selectedPiece).replace('_', ' ')} inspection requested`,
+    });
     toast({ title: 'Sent to Inspector Queue', description: 'Workspace frozen pending approval.' });
   };
 
@@ -292,6 +311,15 @@ export default function ShopFabrication() {
       toValue: status,
       changedBy: employeeId,
       note: qaNotes,
+    });
+    await db.entities.piece_timing_events.create({
+      company_id: selectedPiece.company_id,
+      piece_id: selectedPiece.id,
+      station_id: selectedPiece.current_station_id,
+      event_type: status === 'Approved' ? 'inspection_pass' : 'inspection_fail',
+      scanned_by: employeeId,
+      scanned_at: new Date().toISOString(),
+      notes: qaNotes,
     });
 
     let nextWorkflowStatus;
@@ -362,7 +390,7 @@ export default function ShopFabrication() {
                 <div><span className="text-muted-foreground">Material Shape</span><p className="font-medium">{selectedPiece.material_shape}</p></div>
                 <div><span className="text-muted-foreground">Dimensions</span><p className="font-medium">{selectedPiece.dimensions}</p></div>
                 <div><span className="text-muted-foreground">Weight</span><p className="font-medium">{selectedPiece.weight} lb</p></div>
-                <div><span className="text-muted-foreground">Workflow Status</span><p className="font-medium">{selectedPiece.workflow_status.replace(/_/g, ' ')}</p></div>
+                <div><span className="text-muted-foreground">Workflow Status</span><p className="font-medium">{workflowStatusLabel(selectedPiece.workflow_status)}</p></div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="gap-2" onClick={() => setShowBlueprint(true)}><ScanLine className="w-4 h-4" />View Blueprint</Button>
@@ -386,9 +414,10 @@ export default function ShopFabrication() {
                   <Button variant="outline" className="gap-2" onClick={() => moveToStation(6)}><ArrowRightCircle className="w-4 h-4" />Route to Paint (Station 6)</Button>
                 )}
                 {selectedPiece.workflow_status === 'Rejected' && (
-                  <span className="flex items-center gap-1 text-xs text-red-600"><Ban className="w-3.5 h-3.5" />Rejected — awaiting rework</span>
+                  <span className="flex items-center gap-1 text-xs text-red-600"><Ban className="w-3.5 h-3.5" />{workflowStatusLabel('Rejected')}</span>
                 )}
               </div>
+              <PieceTimeline pieceId={selectedPiece.id} className="border-t border-border pt-3" />
             </div>
           ) : null}
         </div>
@@ -476,7 +505,7 @@ export default function ShopFabrication() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="text-right">
-                  <p className="font-medium">{piece.workflow_status.replace(/_/g, ' ')}</p>
+                  <p className="font-medium">{workflowStatusLabel(piece.workflow_status)}</p>
                   <p className="text-muted-foreground font-mono text-xs">{piece.qr_payload_string}</p>
                 </div>
                 <button

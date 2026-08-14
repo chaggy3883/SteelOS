@@ -2073,6 +2073,57 @@ const backfillStatusHistory = (migrated) => {
   });
 };
 
+// Backfills the piece-lifecycle events (piece_timing_events.event_type
+// qr_created/received) that predate this feature, so every existing piece's
+// PieceTimeline has a starting point instead of an empty history. Guarded by
+// hasEvent exactly like backfillStatusHistory above — this runs on every
+// persist() call, so it must be a no-op once the events already exist rather
+// than re-inserting them.
+//
+// qr_created has no real generation timestamp anywhere in this app (pieces
+// are seed-only — there is no in-app pieces.create() flow — and
+// qr_payload_string is a static seeded string with no companion timestamp
+// field). created_date is used as the best-effort proxy per product
+// decision, not a claim that it's the true QR-generation time.
+const backfillPieceLifecycleEvents = (migrated) => {
+  if (!Array.isArray(migrated.piece_timing_events)) migrated.piece_timing_events = [];
+  const events = migrated.piece_timing_events;
+  const hasEvent = (pieceId, eventType) => events.some((e) => e.piece_id === pieceId && e.event_type === eventType);
+  const pushEvent = (event) => {
+    events.push({
+      id: createId(),
+      company_id: event.company_id || '',
+      piece_id: event.piece_id,
+      station_id: event.station_id ?? null,
+      event_type: event.event_type,
+      scanned_by: event.scanned_by || 'System',
+      scanned_at: event.scanned_at,
+      notes: event.notes || 'Backfilled — no history recorded before this point.',
+      created_date: event.scanned_at,
+      updated_date: event.scanned_at,
+    });
+  };
+
+  (Array.isArray(migrated.pieces) ? migrated.pieces : []).forEach((piece) => {
+    if (!hasEvent(piece.id, 'qr_created')) {
+      pushEvent({
+        company_id: piece.company_id,
+        piece_id: piece.id,
+        event_type: 'qr_created',
+        scanned_at: piece.created_date || new Date().toISOString(),
+      });
+    }
+    if (piece.field_status === 'On_Site' && !hasEvent(piece.id, 'received')) {
+      pushEvent({
+        company_id: piece.company_id,
+        piece_id: piece.id,
+        event_type: 'received',
+        scanned_at: piece.updated_date || piece.created_date || new Date().toISOString(),
+      });
+    }
+  });
+};
+
 const migrateStore = (store) => {
   const seeded = buildSeedData();
   const migrated = { ...store };
@@ -2168,6 +2219,7 @@ const migrateStore = (store) => {
 
   migrateLegacyShippingLoads(migrated);
   backfillStatusHistory(migrated);
+  backfillPieceLifecycleEvents(migrated);
 
   return migrated;
 };

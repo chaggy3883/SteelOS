@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import StatusBadge from '@/components/ui/StatusBadge';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
+import PieceTimeline from '@/components/shared/PieceTimeline';
+import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
 import { Loader2 } from 'lucide-react';
 
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : null);
@@ -126,7 +128,7 @@ export default function PieceDetailModal({ open, onOpenChange, pieceMarkId, piec
                   <span className="text-muted-foreground">{label}</span>
                   {fieldName ? (
                     <button type="button" onClick={() => setHistoryField(fieldName)}>
-                      <StatusBadge status={value} label={String(value).replace(/_/g, ' ')} />
+                      <StatusBadge status={value} label={fieldName === 'workflow_status' ? workflowStatusLabel(value) : String(value).replace(/_/g, ' ')} />
                     </button>
                   ) : (
                     <span className="font-medium text-right">{value}</span>
@@ -134,6 +136,8 @@ export default function PieceDetailModal({ open, onOpenChange, pieceMarkId, piec
                 </div>
               ))}
             </div>
+
+            {piece?.id && <PieceTimeline pieceId={piece.id} className="border-t border-border pt-3" />}
           </>
         )}
 

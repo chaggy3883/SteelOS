@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { logStatusChange } from '@/lib/statusHistory';
+import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
 import { useAuth } from '@/lib/AuthContext';
 
 const emptyLoadForm = () => ({ project_id: '', carrier_vendor_id: '', max_weight_capacity_lbs: 45000 });
@@ -250,7 +251,7 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
                 {(provided) => (
                   <div ref={provided.innerRef} {...provided.droppableProps} className="steel-card p-3">
                     <h4 className="font-semibold text-sm mb-2 flex items-center justify-between">
-                      Paint-Unlocked Pieces <span className="text-xs text-muted-foreground font-normal">{availablePieces.length}</span>
+                      {workflowStatusLabel('Paint_Unlocked')} Pieces <span className="text-xs text-muted-foreground font-normal">{availablePieces.length}</span>
                     </h4>
                     <div className="space-y-2 min-h-[120px]">
                       {availablePiecesByPhase.map((p, i) => {
@@ -290,7 +291,7 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
                       })}
                       {provided.placeholder}
                       {availablePieces.length === 0 && (
-                        <p className="text-xs text-muted-foreground text-center py-6">No Paint-Unlocked pieces waiting.</p>
+                        <p className="text-xs text-muted-foreground text-center py-6">No {workflowStatusLabel('Paint_Unlocked').toLowerCase()} pieces waiting.</p>
                       )}
                     </div>
                   </div>

@@ -10,11 +10,12 @@
     },
     "station_id": {
       "type": "number",
-      "enum": [1, 2, 3, 4, 5, 6]
+      "enum": [1, 2, 3, 4, 5, 6],
+      "description": "Null for lifecycle events not tied to a shop station (qr_created, received)."
     },
     "station_log_id": {
       "type": "string",
-      "description": "FK to the station_logs row this event belongs to — links a 'complete' event back to the 'start'/'resume' event that opened it, so elapsed/target minutes are read from the matching pair rather than inferred by timestamp order."
+      "description": "FK to the station_logs row this event belongs to — links a 'complete' event back to the 'start'/'resume' event that opened it, so elapsed/target minutes are read from the matching pair rather than inferred by timestamp order. Only set by the start/complete/hold/resume clock events."
     },
     "event_type": {
       "type": "string",
@@ -22,8 +23,16 @@
         "start",
         "complete",
         "hold",
-        "resume"
-      ]
+        "resume",
+        "qr_created",
+        "received",
+        "start_work",
+        "ready_for_inspection",
+        "inspection_pass",
+        "inspection_fail",
+        "scan_generic"
+      ],
+      "description": "start/complete/hold/resume are the Shop Floor Command Center's per-station clock audit trail (paired via station_log_id). qr_created/received/start_work/ready_for_inspection/inspection_pass/inspection_fail/scan_generic are the piece-lifecycle timeline (ShopFabrication.jsx, JobsiteReceiving.jsx) — one shared entity/table so a piece's full history is a single query regardless of which flow recorded it."
     },
     "scanned_by": {
       "type": "string",
@@ -52,7 +61,6 @@
   },
   "required": [
     "piece_id",
-    "station_id",
     "event_type",
     "scanned_by",
     "scanned_at"

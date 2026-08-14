@@ -12,9 +12,15 @@ export const STATIONS = [
 export const stationName = (id) => STATIONS.find((s) => s.id === Number(id))?.name || `Station ${id}`;
 export const HEATMAP_COLOR = { Green: 'bg-green-500/20 text-green-700', Yellow: 'bg-yellow-500/30 text-yellow-800', Red: 'bg-red-500/40 text-red-800' };
 
-// piece_timing_events.event_type enum — the scan-driven audit trail
-// (ShopFloorCommandCenter.jsx) alongside station_logs' start/stop sessions.
-export const TIMING_EVENT_TYPES = ['start', 'complete', 'hold', 'resume'];
+// piece_timing_events.event_type enum. start/complete/hold/resume are the
+// scan-driven per-station clock audit trail (ShopFloorCommandCenter.jsx)
+// alongside station_logs' start/stop sessions. The rest are the piece
+// lifecycle timeline (ShopFabrication.jsx, JobsiteReceiving.jsx) — see
+// src/lib/pieceTimeline.js for the shared read side.
+export const TIMING_EVENT_TYPES = [
+  'start', 'complete', 'hold', 'resume',
+  'qr_created', 'received', 'start_work', 'ready_for_inspection', 'inspection_pass', 'inspection_fail', 'scan_generic',
+];
 
 const startOfWeek = (date) => {
   const d = new Date(date);

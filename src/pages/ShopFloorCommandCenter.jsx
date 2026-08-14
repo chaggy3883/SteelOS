@@ -1,17 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '@/api/apiClient';
 import {
   getStationBottlenecks, getStationDwellVariance, getStalePieces, computeEfficiencyPct,
   getCapacityStatus, STATIONS, stationName, HEATMAP_COLOR, normalizeTargetMinutes,
 } from '@/lib/shopOpsMetrics';
 import { matchPieceByScan } from '@/lib/pieceScan';
+import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
+import { pieceEventLabel } from '@/lib/pieceTimeline';
+import PieceTimeline from '@/components/shared/PieceTimeline';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
-import { AlertTriangle, Clock, Gauge, CheckCircle2, ScanLine, PauseCircle, PlayCircle } from 'lucide-react';
+import { AlertTriangle, Clock, Gauge, CheckCircle2, ScanLine, PauseCircle, PlayCircle, ClipboardCheck } from 'lucide-react';
 
 const REFRESH_INTERVAL_MS = 45000;
 
@@ -89,6 +92,8 @@ export default function ShopFloorCommandCenter() {
     [stationLogs, pieces, pieceProductionLogs, headcountBottlenecks, dwellThresholdPct]
   );
   const stalePieces = useMemo(() => getStalePieces(stationLogs, staleHours, now), [stationLogs, staleHours, now]);
+  const inspectorQueuePieces = useMemo(() => pieces.filter((p) => p.workflow_status === 'Inspector_Queue'), [pieces]);
+  const inspectorQueueRef = useRef(null);
 
   const recentCompletions = useMemo(() => {
     return stationLogs
@@ -280,7 +285,7 @@ export default function ShopFloorCommandCenter() {
       </div>
 
       {/* Per-station tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         {STATIONS.map((station) => {
           const signal = stationSignals.find((s) => s.stationId === station.id) || { stationId: station.id, count: 0, avgActualMinutes: null, isBottleneck: false, signal: 'None' };
           const status = stationHeatmapStatus(signal);
@@ -297,6 +302,14 @@ export default function ShopFloorCommandCenter() {
             </button>
           );
         })}
+        <button
+          onClick={() => inspectorQueueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          className={`rounded-2xl border-2 p-4 text-center transition-colors ${inspectorQueuePieces.length > 0 ? HEATMAP_COLOR.Yellow : HEATMAP_COLOR.Green} ${inspectorQueuePieces.length > 0 ? 'border-yellow-500' : 'border-green-600'}`}
+        >
+          <p className="text-sm font-semibold uppercase tracking-wide">Waiting for Inspection</p>
+          <p className="text-4xl font-bold mt-2">{inspectorQueuePieces.length}</p>
+          <p className="text-xs mt-1 opacity-80">pieces queued</p>
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -366,6 +379,27 @@ export default function ShopFloorCommandCenter() {
         )}
       </div>
 
+      {/* Awaiting inspection — target of the "Waiting for Inspection" stat tile above. */}
+      <div ref={inspectorQueueRef} className="rounded-xl border-2 border-blue-600/60 bg-blue-950/30 p-4">
+        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2 text-blue-400"><ClipboardCheck className="w-5 h-5" />Waiting for Inspection ({inspectorQueuePieces.length})</h3>
+        {inspectorQueuePieces.length === 0 ? (
+          <p className="text-neutral-500 py-4 text-center">No pieces queued for inspection right now.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {inspectorQueuePieces.map((piece) => (
+              <button
+                key={piece.id}
+                onClick={() => setDetailPiece(piece)}
+                className="flex items-center justify-between rounded-lg border border-blue-600/40 bg-black/30 px-3 py-2 text-left hover:bg-black/50 transition-colors"
+              >
+                <span className="font-medium">{piece.piece_mark}</span>
+                <span className="text-neutral-400">{stationName(piece.current_station_id)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Recent scan-driven timing events — the audit trail requested
           alongside station_logs; every row is clickable to full detail. */}
       <div className="rounded-xl border border-neutral-700 bg-neutral-900 p-4">
@@ -383,9 +417,14 @@ export default function ShopFloorCommandCenter() {
                   className="w-full flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-left hover:bg-neutral-800 transition-colors"
                 >
                   <span className="font-medium">{piece?.piece_mark || event.piece_id}</span>
-                  <span className="text-neutral-400">{stationName(event.station_id)}</span>
-                  <span className={`text-xs font-semibold uppercase ${event.event_type === 'complete' ? 'text-green-400' : event.event_type === 'hold' ? 'text-yellow-400' : 'text-blue-400'}`}>
-                    {event.event_type}{event.is_override ? ' ⚠' : ''}
+                  <span className="text-neutral-400">{event.station_id != null ? stationName(event.station_id) : '—'}</span>
+                  <span className={`text-xs font-semibold uppercase ${
+                    event.event_type === 'complete' || event.event_type === 'inspection_pass' ? 'text-green-400'
+                    : event.event_type === 'hold' ? 'text-yellow-400'
+                    : event.event_type === 'inspection_fail' ? 'text-red-400'
+                    : 'text-blue-400'
+                  }`}>
+                    {pieceEventLabel(event.event_type)}{event.is_override ? ' ⚠' : ''}
                   </span>
                   <span className="text-neutral-500 text-xs">{new Date(event.scanned_at).toLocaleTimeString()}</span>
                 </button>
@@ -447,7 +486,7 @@ export default function ShopFloorCommandCenter() {
                             <button onClick={() => { setDetailPiece(p); setDetailStation(null); }} className="flex-1 text-left">
                               <span className="font-medium">{p.piece_mark}</span>
                               <span className="text-neutral-400 text-xs block">
-                                {p.workflow_status?.replace(/_/g, ' ')}{openLog ? ' • Running' : pausedLog ? ' • Held' : ''}
+                                {workflowStatusLabel(p.workflow_status)}{openLog ? ' • Running' : pausedLog ? ' • Held' : ''}
                               </span>
                             </button>
                             {openLog && (
@@ -487,9 +526,10 @@ export default function ShopFloorCommandCenter() {
                 <div><p className="text-xs text-neutral-500">Material Shape</p><p className="font-medium">{detailPiece.material_shape || '—'}</p></div>
                 <div><p className="text-xs text-neutral-500">Dimensions</p><p className="font-medium">{detailPiece.dimensions || '—'}</p></div>
                 <div><p className="text-xs text-neutral-500">Weight</p><p className="font-medium">{detailPiece.weight ? `${detailPiece.weight} lbs` : '—'}</p></div>
-                <div><p className="text-xs text-neutral-500">Workflow Status</p><p className="font-medium">{detailPiece.workflow_status?.replace(/_/g, ' ') || '—'}</p></div>
+                <div><p className="text-xs text-neutral-500">Workflow Status</p><p className="font-medium">{detailPiece.workflow_status ? workflowStatusLabel(detailPiece.workflow_status) : '—'}</p></div>
                 <div><p className="text-xs text-neutral-500">Field Status</p><p className="font-medium">{detailPiece.field_status?.replace(/_/g, ' ') || '—'}</p></div>
               </div>
+              <PieceTimeline pieceId={detailPiece.id} className="border-t border-neutral-700 pt-3 [&_.border-l-2]:border-neutral-700" />
               <DialogFooter>
                 <Button variant="outline" className="border-neutral-600" onClick={() => setDetailPiece(null)}>Close</Button>
               </DialogFooter>
@@ -510,9 +550,9 @@ export default function ShopFloorCommandCenter() {
             const varianceMinutes = isComplete && targetMinutes != null ? detailTimingEvent.elapsed_minutes - targetMinutes : null;
             return (
               <>
-                <DialogHeader><DialogTitle>{piece?.piece_mark || detailTimingEvent.piece_id} — {detailTimingEvent.event_type.toUpperCase()}</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>{piece?.piece_mark || detailTimingEvent.piece_id} — {pieceEventLabel(detailTimingEvent.event_type)}</DialogTitle></DialogHeader>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div><p className="text-xs text-neutral-500">Station</p><p className="font-medium">{stationName(detailTimingEvent.station_id)}</p></div>
+                  <div><p className="text-xs text-neutral-500">Station</p><p className="font-medium">{detailTimingEvent.station_id != null ? stationName(detailTimingEvent.station_id) : '—'}</p></div>
                   <div><p className="text-xs text-neutral-500">Scanned By</p><p className="font-medium">{detailTimingEvent.scanned_by}</p></div>
                   <div><p className="text-xs text-neutral-500">Scanned At</p><p className="font-medium">{new Date(detailTimingEvent.scanned_at).toLocaleString()}</p></div>
                   <div><p className="text-xs text-neutral-500">Out-of-Sequence</p><p className="font-medium">{detailTimingEvent.is_override ? 'Yes' : 'No'}</p></div>

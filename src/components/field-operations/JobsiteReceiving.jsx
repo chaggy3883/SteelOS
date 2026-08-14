@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { scanValueMatches } from '@/lib/pieceScan';
 import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 import { logStatusChange } from '@/lib/statusHistory';
+import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
 import { useAuth } from '@/lib/AuthContext';
 
 const ITEM_TYPES = ['Piece_Mark', 'Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
@@ -126,6 +127,13 @@ export default function JobsiteReceiving() {
       fromValue: linked.field_status,
       toValue: 'On_Site',
       changedBy: user?.full_name || user?.email || 'Unknown',
+    });
+    await db.entities.piece_timing_events.create({
+      company_id: linked.company_id,
+      piece_id: linked.id,
+      event_type: 'received',
+      scanned_by: user?.full_name || user?.email || 'Unknown',
+      scanned_at: new Date().toISOString(),
     });
     await loadAll(selectedProjectId);
     toast({ title: `${pm.part_number || pm.piece_mark} received on site` });
@@ -365,7 +373,7 @@ export default function JobsiteReceiving() {
               ['Drawing Number', pm.drawing_number],
               ['Office Status', pm.status],
               ['Shop Floor Field Status', linked ? linked.field_status : 'Not yet shipped'],
-              ['Shop Floor Workflow Status', linked ? linked.workflow_status : '—'],
+              ['Shop Floor Workflow Status', linked ? workflowStatusLabel(linked.workflow_status) : '—'],
             ];
             return (
               <div className="space-y-2">
