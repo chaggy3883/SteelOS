@@ -1,0 +1,44 @@
+{
+  "name": "Deduction",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "deduction_type": {
+      "type": "string",
+      "enum": ["benefits", "garnishment", "other"]
+    },
+    "amount_or_percent": {
+      "type": "number",
+      "default": 0
+    },
+    "is_percent": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, amount_or_percent is a percent of gross pay (e.g. 3 = 3%); when false, it's a flat dollar amount per pay period."
+    },
+    "priority_order": {
+      "type": "number",
+      "default": 1,
+      "description": "Lower numbers are withheld first when pay isn't enough to cover every active deduction — garnishments are typically ordered ahead of voluntary benefit deductions."
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": [
+    "employee_id",
+    "deduction_type",
+    "amount_or_percent",
+    "effective_date"
+  ]
+}

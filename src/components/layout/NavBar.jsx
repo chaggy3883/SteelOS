@@ -63,6 +63,7 @@ const navGroups = [
     items: [
       { icon: CalendarClock, label: 'Hours at a Glance', path: '/payroll/hours' },
       { icon: DollarSign, label: 'Pay Periods & Register', path: '/payroll' },
+      { icon: Settings, label: 'Payroll Setup', path: '/payroll/setup' },
       { icon: FileCheck2, label: 'Certified Payroll', path: '/certified-payroll' },
     ]
   },

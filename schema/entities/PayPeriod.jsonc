@@ -22,10 +22,17 @@
       "enum": ["weekly", "biweekly", "semimonthly", "monthly"],
       "default": "biweekly"
     },
+    "workweek_start_day": {
+      "type": "string",
+      "enum": ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      "default": "Monday",
+      "description": "First day of the FLSA workweek used for overtime calculation — independent of the pay period's own start_date, since a biweekly/semimonthly period doesn't always align to a single 7-day workweek boundary."
+    },
     "status": {
       "type": "string",
-      "enum": ["open", "locked", "exported", "posted"],
-      "default": "open"
+      "enum": ["open", "processing", "locked", "exported", "posted"],
+      "default": "open",
+      "description": "'processing' sits between 'open' (still editable) and 'locked' (register generated/finalized) — set while a period's register is being generated or reviewed."
     },
     "locked_at": {
       "type": "string",

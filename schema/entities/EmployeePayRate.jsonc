@@ -1,0 +1,43 @@
+{
+  "name": "EmployeePayRate",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "pay_type": {
+      "type": "string",
+      "enum": ["hourly", "salary"],
+      "default": "hourly"
+    },
+    "rate": {
+      "type": "number",
+      "description": "Hourly rate in dollars when pay_type is 'hourly', or annual salary in dollars when 'salary'."
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Blank while this is the employee's current rate. A rate change never edits or deletes a past row — it creates a new EmployeePayRate and sets end_date on the row it replaces, preserving full pay-rate history."
+    },
+    "overtime_eligible": {
+      "type": "boolean",
+      "default": true
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "employee_id",
+    "pay_type",
+    "rate",
+    "effective_date"
+  ]
+}

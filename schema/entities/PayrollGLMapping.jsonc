@@ -1,0 +1,25 @@
+{
+  "name": "PayrollGLMapping",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "cost_type": {
+      "type": "string",
+      "enum": ["labor", "tax_liability", "benefits", "accrual"]
+    },
+    "gl_account": {
+      "type": "string",
+      "description": "GL account number/code labor, tax liability, benefits, or accrual dollars post to."
+    },
+    "cost_code_id": {
+      "type": "string",
+      "description": "Optional FK to CostCode — set when this mapping applies to one specific cost code, blank when it's the company-wide default for this cost_type."
+    }
+  },
+  "required": [
+    "cost_type",
+    "gl_account"
+  ]
+}

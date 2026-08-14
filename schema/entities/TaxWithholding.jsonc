@@ -1,0 +1,39 @@
+{
+  "name": "TaxWithholding",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "jurisdiction": {
+      "type": "string",
+      "enum": ["federal", "state", "local"],
+      "description": "An employee normally carries one active row per jurisdiction level simultaneously (e.g. a federal row and a state row) — this is not a single choice, it's a layer."
+    },
+    "filing_status": {
+      "type": "string",
+      "description": "e.g. 'single', 'married_filing_jointly', 'head_of_household' — free text since the valid set differs by jurisdiction/form (federal W-4 vs. a state's own withholding form)."
+    },
+    "allowances_or_credits": {
+      "type": "number",
+      "default": 0
+    },
+    "additional_withholding": {
+      "type": "number",
+      "default": 0,
+      "description": "Extra flat amount withheld per pay period on top of the calculated withholding, in dollars."
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": [
+    "employee_id",
+    "jurisdiction",
+    "effective_date"
+  ]
+}

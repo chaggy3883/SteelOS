@@ -133,6 +133,14 @@ export const PERMISSION_CATALOG = [
     { key: 'tab:/payroll:register', label: 'Register' },
     { key: 'tab:/payroll:jobcost', label: 'Job Cost Posting' },
   ] },
+  { key: 'module:/payroll/setup', label: 'Payroll Setup', tabs: [
+    { key: 'tab:/payroll/setup:rates', label: 'Pay Rates' },
+    { key: 'tab:/payroll/setup:withholding', label: 'Tax Withholding' },
+    { key: 'tab:/payroll/setup:deductions', label: 'Deductions' },
+    { key: 'tab:/payroll/setup:gl', label: 'GL Mappings' },
+    { key: 'tab:/payroll/setup:calendar', label: 'Pay Period Calendar' },
+    { key: 'tab:/payroll/setup:rules', label: 'Payroll Rules' },
+  ] },
   { key: 'module:/executive-analytics', label: 'Executive Analytics' },
   { key: LOCKED_MODULE_KEY, label: 'Employee Center', locked: true, tabs: [
     { key: 'tab:/employee-center:kiosk', label: 'Time Clock Kiosk' },

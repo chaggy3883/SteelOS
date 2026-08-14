@@ -18,6 +18,11 @@
       "type": "string",
       "format": "date"
     },
+    "termination_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Blank while the employee is currently employed. Added for Payroll Setup (end-dating pay rates/deductions/withholding at separation) — distinct from is_active, which has no date attached."
+    },
     "is_active": {
       "type": "boolean",
       "default": true
@@ -65,6 +70,10 @@
     },
     "department": {
       "type": "string"
+    },
+    "job_title": {
+      "type": "string",
+      "description": "General HR job title (e.g. 'Senior Ironworker', 'Shop Supervisor') — distinct from classification, which is the prevailing-wage/certified-payroll labor classification."
     },
     "supervisor_name": {
       "type": "string"

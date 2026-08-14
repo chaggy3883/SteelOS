@@ -1,0 +1,30 @@
+{
+  "name": "PayrollRule",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "rule_type": {
+      "type": "string",
+      "enum": ["overtime", "double_time", "holiday", "pto", "rounding"]
+    },
+    "jurisdiction_state": {
+      "type": "string",
+      "description": "Two-letter state code this rule overrides for (e.g. 'CA' for California daily-overtime rules), or blank for the company-wide/federal-baseline default. Only one jurisdiction is configured today, but every rule carries this field so a state-specific override can be layered on top of the default later without a schema change — resolution should prefer the most specific match (state-specific over blank) as of a given date."
+    },
+    "config": {
+      "type": "object",
+      "description": "rule_type-specific thresholds/values, e.g. overtime: { threshold_hours, multiplier }; double_time: { threshold_hours, multiplier }; rounding: { increment_minutes }; holiday/pto: { accrual_rate, multiplier, ... }. This is the single source of truth for the actual numbers — components must read them from here and must never hardcode a threshold or multiplier."
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": [
+    "rule_type",
+    "config",
+    "effective_date"
+  ]
+}
