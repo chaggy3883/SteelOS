@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { LogIn, Mail, Lock, Loader2, Building2, Eye, EyeOff } from "lucide-react";
 import KioskKeypadLogin from "@/components/auth/KioskKeypadLogin";
 import LoginVaultBackdrop from "@/components/auth/LoginVaultBackdrop";
+import ProductHighlightsSlideshow from "@/components/auth/ProductHighlightsSlideshow";
 import { isKioskModeEnabled, getKioskMode } from "@/lib/kioskMode";
 import { isSuperAdmin } from "@/lib/tenantContext";
 import { startUserSession } from "@/lib/userSessionTracking";
@@ -81,81 +82,87 @@ export default function Login() {
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center px-4 overflow-hidden bg-slate-950">
+    <div className="relative min-h-screen flex items-center justify-center px-4 py-10 overflow-hidden bg-slate-950">
       <LoginVaultBackdrop />
 
-      <div className="relative z-10 w-full max-w-[340px]">
-        <div className="text-center mb-8">
-          <Building2 className="w-10 h-10 text-white mx-auto mb-4" aria-hidden="true" />
-          <h1 className="text-3xl font-bold tracking-tight text-white">SteelOS</h1>
-          <p className="text-slate-400 mt-2">Log in to your account</p>
+      <div className="relative z-10 w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+        <div className="w-full max-w-[340px] mx-auto">
+          <div className="text-center mb-8">
+            <Building2 className="w-10 h-10 text-white mx-auto mb-4" aria-hidden="true" />
+            <h1 className="text-3xl font-bold tracking-tight text-white">SteelOS</h1>
+            <p className="text-slate-400 mt-2">Log in to your account</p>
+          </div>
+
+          <div className="bg-transparent border-none shadow-none p-8 w-full">
+            {error && (
+              <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" aria-hidden="true" />
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    autoFocus
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="bg-black/80 border-2 border-slate-400 focus:border-blue-500 placeholder-slate-400 text-white font-medium h-11 px-4 pl-10"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <button type="button" onClick={() => setShowForgotPassword(true)} className="text-xs text-primary hover:underline">Forgot password?</button>
+                </div>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" aria-hidden="true" />
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="bg-black/80 border-2 border-slate-400 focus:border-blue-500 placeholder-slate-400 text-white font-medium h-11 px-4 pl-10 pr-10"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 z-10 text-slate-400 hover:text-white"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+                  </button>
+                </div>
+              </div>
+              <Button
+                type="submit"
+                className="w-full h-11 bg-white hover:bg-slate-200 text-black font-semibold rounded-md transition-colors tracking-wide"
+                disabled={loading}
+              >
+                {loading ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Entering Vault...</>) : "Enter Vault"}
+              </Button>
+            </form>
+          </div>
+
+          <p className="text-center text-sm text-slate-400 mt-6">
+            Enterprise access only — contact your administrator for access.
+          </p>
         </div>
 
-        <div className="bg-transparent border-none shadow-none p-8 w-full">
-          {error && (
-            <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" aria-hidden="true" />
-                <Input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  autoFocus
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="bg-black/80 border-2 border-slate-400 focus:border-blue-500 placeholder-slate-400 text-white font-medium h-11 px-4 pl-10"
-                  required
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-                <button type="button" onClick={() => setShowForgotPassword(true)} className="text-xs text-primary hover:underline">Forgot password?</button>
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" aria-hidden="true" />
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="bg-black/80 border-2 border-slate-400 focus:border-blue-500 placeholder-slate-400 text-white font-medium h-11 px-4 pl-10 pr-10"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 z-10 text-slate-400 hover:text-white"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
-                </button>
-              </div>
-            </div>
-            <Button
-              type="submit"
-              className="w-full h-11 bg-white hover:bg-slate-200 text-black font-semibold rounded-md transition-colors tracking-wide"
-              disabled={loading}
-            >
-              {loading ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Entering Vault...</>) : "Enter Vault"}
-            </Button>
-          </form>
+        <div className="w-full max-w-md mx-auto lg:order-first">
+          <ProductHighlightsSlideshow />
         </div>
-
-        <p className="text-center text-sm text-slate-400 mt-6">
-          Enterprise access only — contact your administrator for access.
-        </p>
       </div>
 
       <Dialog open={showForgotPassword} onOpenChange={(open) => (open ? setShowForgotPassword(true) : closeForgotPassword())}>
