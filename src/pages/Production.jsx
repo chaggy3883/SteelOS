@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
-  Package, Search, QrCode, Plus, AlertTriangle
+  Package, Search, QrCode, Plus, AlertTriangle, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,6 +77,11 @@ export default function Production() {
   const navigate = useNavigate();
   const tableRef = useRef(null);
   const [pieces, setPieces] = useState([]);
+  // Shop-floor bridge rows (Module 8 `pieces` entity, field_status) for the
+  // selected project only — fetched solely to compute the same "physically
+  // shipped" signal ProjectDetail.jsx's Phasing tab and JobsiteReceiving.jsx
+  // already use, so phase/area completion here isn't a fourth definition.
+  const [shopPieces, setShopPieces] = useState([]);
   const [projects, setProjects] = useState([]);
   const [boltInventory, setBoltInventory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -84,9 +89,13 @@ export default function Production() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
   const [phaseFilter, setPhaseFilter] = useState('all');
+  // Set when a phase/area's Fabricated% or Complete% is clicked through —
+  // narrows the table to exactly the pieces counted in that percentage.
+  const [phaseMetricFilter, setPhaseMetricFilter] = useState(null); // { phase, metric: 'fabricated' | 'complete' }
   const [viewingPiece, setViewingPiece] = useState(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadStaticData(); }, []);
+  useEffect(() => { loadPieces(projectFilter); }, [projectFilter]);
 
   const goToProject = (projectId, e) => {
     e?.stopPropagation();
@@ -95,20 +104,49 @@ export default function Production() {
 
   const filterByStatus = (status) => {
     setStatusFilter(status);
+    setPhaseMetricFilter(null);
     tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const loadData = async () => {
-    setLoading(true);
+  const updateSearch = (value) => { setSearch(value); setPhaseMetricFilter(null); };
+  const updateStatusFilter = (value) => { setStatusFilter(value); setPhaseMetricFilter(null); };
+  const updatePhaseFilter = (value) => { setPhaseFilter(value); setPhaseMetricFilter(null); };
+  // Changing the top-level project also resets the phase filter — a phase
+  // name selected for one project is almost never meaningful for another.
+  const updateProjectFilter = (value) => { setProjectFilter(value); setPhaseFilter('all'); setPhaseMetricFilter(null); };
+
+  const loadStaticData = async () => {
     try {
-      const [pieceData, projectData, boltData] = await Promise.all([
-        db.entities.PieceMark.list('-created_date', 200),
+      const [projectData, boltData] = await Promise.all([
         db.entities.Project.filter({ is_archived: false }, 'name', 50),
         db.entities.InventoryItem.filter({ category: 'bolt' }, '-created_date', 200),
       ]);
-      setPieces(pieceData);
       setProjects(projectData);
       setBoltInventory(boltData);
+    } catch (e) {}
+  };
+
+  // Scoping this fetch to the selected project (instead of always pulling the
+  // newest-200-globally PieceMark.list) is what makes the project selector
+  // actually filter the whole page — every section below derives from
+  // `pieces`/`shopPieces`, so scoping the fetch cascades everywhere without
+  // per-section changes. "All Projects" keeps the prior global-200-cap
+  // behavior unchanged.
+  const loadPieces = async (project) => {
+    setLoading(true);
+    try {
+      if (project === 'all') {
+        const pieceData = await db.entities.PieceMark.list('-created_date', 200);
+        setPieces(pieceData);
+        setShopPieces([]);
+      } else {
+        const [pieceData, shopData] = await Promise.all([
+          db.entities.PieceMark.filter({ project_id: project }, '-created_date', 1000),
+          db.entities.pieces.filter({ project_id: project }, '-created_date', 1000),
+        ]);
+        setPieces(pieceData);
+        setShopPieces(shopData);
+      }
     } catch (e) {} finally { setLoading(false); }
   };
 
@@ -120,6 +158,7 @@ export default function Production() {
   const boltStockFor = (boltSize) => boltInventory.find((inv) => inv.size === boltSize);
 
   const projectName = (id) => projects.find((p) => p.id === id)?.name || '—';
+  const selectedProject = projectFilter !== 'all' ? projects.find((p) => p.id === projectFilter) || null : null;
 
   const piecePhaseKey = (p) => (p.phase || '').trim() || 'Unassigned';
   const phaseOptions = Array.from(new Set(pieces.map(piecePhaseKey))).sort((a, b) => {
@@ -128,12 +167,64 @@ export default function Production() {
     return a.localeCompare(b, undefined, { numeric: true });
   });
 
+  // Bridge to the shop-floor `pieces` entity — piece_mark_id is the primary
+  // join, the (still-scoped-to-this-project) piece_mark string is the
+  // fallback for shop rows created before that bridge was populated. Same
+  // pattern as ProjectDetail.jsx's Phasing tab.
+  const shopFieldStatusByPieceMarkId = new Map();
+  const shopFieldStatusByPieceMarkString = new Map();
+  shopPieces.forEach((sp) => {
+    if (sp.piece_mark_id) shopFieldStatusByPieceMarkId.set(sp.piece_mark_id, sp.field_status);
+    else if (sp.piece_mark) shopFieldStatusByPieceMarkString.set(sp.piece_mark, sp.field_status);
+  });
+  const isCompletePiece = (pm) => {
+    const status = shopFieldStatusByPieceMarkId.get(pm.id) ?? shopFieldStatusByPieceMarkString.get(pm.piece_mark);
+    return status === 'On_Site';
+  };
+
+  // Phase/area completion for the selected project — reuses ProjectDetail.jsx
+  // Phasing tab's exact definitions rather than inventing a new one:
+  // Fabricated = PieceMark.status !== 'not_started'; Complete = the bridged
+  // shop-floor record's field_status === 'On_Site' (physically delivered).
+  const phaseProgress = selectedProject ? (() => {
+    const map = new Map();
+    pieces.forEach((p) => {
+      const key = piecePhaseKey(p);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(p);
+    });
+    return Array.from(map.entries()).map(([phase, rows]) => ({
+      phase,
+      total: rows.length,
+      fabricatedPct: rows.length ? Math.round((rows.filter((p) => p.status !== 'not_started').length / rows.length) * 100) : 0,
+      completePct: rows.length ? Math.round((rows.filter(isCompletePiece).length / rows.length) * 100) : 0,
+    })).sort((a, b) => {
+      if (a.phase === 'Unassigned') return 1;
+      if (b.phase === 'Unassigned') return -1;
+      return a.phase.localeCompare(b.phase, undefined, { numeric: true });
+    });
+  })() : [];
+
+  const selectPhase = (phase) => {
+    setPhaseFilter(phase);
+    setPhaseMetricFilter(null);
+    tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const selectPhaseMetric = (phase, metric) => {
+    setPhaseFilter(phase);
+    setPhaseMetricFilter({ phase, metric });
+    tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const filtered = pieces.filter(p => {
     const matchSearch = !search || p.piece_mark?.toLowerCase().includes(search.toLowerCase()) || p.assembly?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || p.status === statusFilter;
     const matchProject = projectFilter === 'all' || p.project_id === projectFilter;
     const matchPhase = phaseFilter === 'all' || piecePhaseKey(p) === phaseFilter;
-    return matchSearch && matchStatus && matchProject && matchPhase;
+    const matchPhaseMetric = !phaseMetricFilter || piecePhaseKey(p) !== phaseMetricFilter.phase
+      || (phaseMetricFilter.metric === 'fabricated' ? p.status !== 'not_started' : isCompletePiece(p));
+    return matchSearch && matchStatus && matchProject && matchPhase && matchPhaseMetric;
   });
 
   const statusCounts = STATUS_OPTIONS.slice(1).map(s => ({
@@ -187,6 +278,22 @@ export default function Production() {
         }
       />
 
+      {/* Project Selector — filters every section below to this project's
+          pieces (and, once selected, the phase/area breakdown feeding off
+          the shop-floor field_status bridge). */}
+      <div className="mb-6">
+        <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Project</label>
+        <Select value={projectFilter} onValueChange={updateProjectFilter}>
+          <SelectTrigger className="w-full sm:w-96"><SelectValue placeholder="All Projects" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Projects</SelectItem>
+            {projects.map(p => (
+              <SelectItem key={p.id} value={p.id}>{p.project_number} — {p.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {[
@@ -208,8 +315,71 @@ export default function Production() {
         ))}
       </div>
 
-      {/* Project Progress Grid */}
-      {projectProgress.length > 0 && (
+      {/* Project Progress — a single project's Phase/Sequence or Area
+          breakdown once one is selected; otherwise the all-projects grid. */}
+      {selectedProject ? (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+            <h3 className="font-semibold">Project Progress — {selectedProject.name}</h3>
+            <span className="text-xs text-muted-foreground">
+              Grouped by {selectedProject.project_phasing_mode === 'area' ? 'Area' : 'Sequence/Phase'}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            Fabricated = piece status is not "Not Started". Complete = the piece's shop-floor record shows Field Status "On Site" (physically delivered) — same definitions as the Project's Phasing tab.
+          </p>
+          {pieces.length === 0 ? (
+            <div className="steel-card p-6 text-center text-sm text-muted-foreground">
+              No piece marks found for this project yet.
+            </div>
+          ) : (
+            <div className="steel-card overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                      <th className="text-left py-3 px-4">{selectedProject.project_phasing_mode === 'area' ? 'Area' : 'Phase/Sequence'}</th>
+                      <th className="text-right py-3 px-4">Pieces</th>
+                      <th className="text-left py-3 px-4 w-48">Fabricated</th>
+                      <th className="text-left py-3 px-4 w-48">Complete</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {phaseProgress.map(row => (
+                      <tr key={row.phase} className="border-b border-border/50">
+                        <td className="py-3 px-4">
+                          <button className="font-medium text-primary hover:underline text-left" onClick={() => selectPhase(row.phase)}>{row.phase}</button>
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono">{row.total}</td>
+                        <td className="py-3 px-4">
+                          <button type="button" className="w-full text-left" onClick={() => selectPhaseMetric(row.phase, 'fabricated')}>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="font-medium">{row.fabricatedPct}%</span>
+                            </div>
+                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${row.fabricatedPct}%` }} />
+                            </div>
+                          </button>
+                        </td>
+                        <td className="py-3 px-4">
+                          <button type="button" className="w-full text-left" onClick={() => selectPhaseMetric(row.phase, 'complete')}>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="font-medium">{row.completePct}%</span>
+                            </div>
+                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${row.completePct}%` }} />
+                            </div>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : projectProgress.length > 0 && (
         <div className="mb-6">
           <h3 className="font-semibold mb-3">Project Progress</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -442,13 +612,13 @@ export default function Production() {
         </ResponsiveContainer>
       </div>
 
-      {/* Filters */}
+      {/* Filters — project is set via the selector at the top of the page */}
       <div ref={tableRef} className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search piece marks..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search piece marks..." value={search} onChange={e => updateSearch(e.target.value)} className="pl-9" />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={updateStatusFilter}>
           <SelectTrigger className="w-44"><SelectValue placeholder="All Statuses" /></SelectTrigger>
           <SelectContent>
             {STATUS_OPTIONS.map(s => (
@@ -456,16 +626,7 @@ export default function Production() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={projectFilter} onValueChange={setProjectFilter}>
-          <SelectTrigger className="w-56"><SelectValue placeholder="All Projects" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Projects</SelectItem>
-            {projects.map(p => (
-              <SelectItem key={p.id} value={p.id}>{p.project_number} — {p.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={phaseFilter} onValueChange={setPhaseFilter}>
+        <Select value={phaseFilter} onValueChange={updatePhaseFilter}>
           <SelectTrigger className="w-44"><SelectValue placeholder="All Phases" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Phases</SelectItem>
@@ -475,6 +636,15 @@ export default function Production() {
           </SelectContent>
         </Select>
       </div>
+
+      {phaseMetricFilter && (
+        <div className="flex items-center justify-between text-sm mb-4 px-3 py-2 rounded-lg bg-primary/10 text-primary">
+          <span>
+            Showing only {phaseMetricFilter.metric === 'fabricated' ? 'fabricated (status not "Not Started")' : 'complete (Field Status "On Site")'} pieces in {selectedProject?.project_phasing_mode === 'area' ? 'area' : 'phase'} "{phaseMetricFilter.phase}".
+          </span>
+          <button className="flex items-center gap-1 hover:underline flex-shrink-0 ml-3" onClick={() => setPhaseMetricFilter(null)}><X className="w-3.5 h-3.5" />Clear filter</button>
+        </div>
+      )}
 
       {/* Pieces Table */}
       <div className="steel-card overflow-hidden">
