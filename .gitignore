@@ -36,3 +36,8 @@ schema/.app.jsonc
 # vite.config.js /__db-sync) — this is a live local DB snapshot, not source;
 # it travels with the project folder itself (e.g. on a USB drive), not git.
 db.json
+
+# browser-testing skill: local Edge profiles (hold logged-in localStorage
+# per demo role) and captured screenshots — machine-local test artifacts.
+.claude/skills/browser-testing/.edge-profiles
+.claude/skills/browser-testing/.screenshots
