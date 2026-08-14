@@ -43,7 +43,7 @@ const money = (n) => `$${(n || 0).toLocaleString(undefined, { maximumFractionDig
 
 const emptySubcontractForm = () => ({
   project_id: '', vendor_id: '', subcontractor_name: '', scope_description: '',
-  subcontract_number: '', contract_value: 0, scope_of_work: 'erection',
+  subcontract_number: '', cost_code: '', contract_value: 0, scope_of_work: 'erection',
   retention_pct: 0.10, executed_date: '', start_date: '', completion_date: '',
   insurance_verified: false, insurance_expiry_date: '', w9_on_file: false,
   bonded: false, bond_amount: 0, notes: '',
@@ -70,6 +70,7 @@ export default function Subcontracts() {
   const [projects, setProjects] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [certifiedPayrollSubmissions, setCertifiedPayrollSubmissions] = useState([]);
+  const [costCodes, setCostCodes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadData(); }, []);
@@ -77,13 +78,14 @@ export default function Subcontracts() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [scList, paList, lwList, projList, vendorList, cprList] = await Promise.all([
+      const [scList, paList, lwList, projList, vendorList, cprList, costCodeList] = await Promise.all([
         db.entities.Subcontract.list('-created_date', 200),
         db.entities.SubcontractPayApp.list('-created_date', 500),
         db.entities.LienWaiver.list('-created_date', 500),
         db.entities.Project.filter({ is_archived: false }, 'name', 100),
         db.entities.Vendor.filter({ is_active: true }, 'name', 200),
         db.entities.CertifiedPayrollSubmission.list('-week_ending_date', 1000),
+        db.entities.CostCode.filter({ is_active: true }, 'code_name', 200),
       ]);
       setSubcontracts(scList);
       setPayApps(paList);
@@ -91,6 +93,7 @@ export default function Subcontracts() {
       setProjects(projList);
       setVendors(vendorList);
       setCertifiedPayrollSubmissions(cprList);
+      setCostCodes(costCodeList);
     } catch (e) {
       console.error('Failed to load subcontract data', e);
     } finally {
@@ -179,6 +182,7 @@ export default function Subcontracts() {
       subcontractor_name: selectedSubcontract.subcontractor_name || '',
       scope_description: selectedSubcontract.scope_description || '',
       subcontract_number: selectedSubcontract.subcontract_number || '',
+      cost_code: selectedSubcontract.cost_code || '',
       contract_value: selectedSubcontract.contract_value || 0,
       status: selectedSubcontract.status || 'draft',
       scope_of_work: selectedSubcontract.scope_of_work || 'erection',
@@ -238,9 +242,14 @@ export default function Subcontracts() {
   // this ledger entry no matter which UI action triggered the transition.
   const createSubLedgerEntry = async (payApp) => {
     const sc = subcontractById(payApp.subcontract_id);
+    // Prefer the subcontract's real CostCode (matches the job costing axis
+    // Meeting Mode and other job-cost reporting group by) — fall back to the
+    // old subcontract-number pseudo-code only for subcontracts created
+    // before this field existed, so their historical ledger entries don't
+    // change retroactively.
     await db.entities.JobCostLedgerEntry.create({
       project_id: payApp.project_id,
-      cost_code: sc?.subcontract_number || 'SUBCONTRACT',
+      cost_code: sc?.cost_code || sc?.subcontract_number || 'SUBCONTRACT',
       cost_class: 'SUB',
       amount: payApp.amount_approved || 0,
       transaction_date: todayStr(),
@@ -535,6 +544,13 @@ export default function Subcontracts() {
                       <Select value={subcontractForm.scope_of_work} onValueChange={(v) => setSubcontractForm((f) => ({ ...f, scope_of_work: v }))}>
                         <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                         <SelectContent>{SCOPE_OPTIONS.map((s) => <SelectItem key={s} value={s}>{titleCase(s)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Cost Code</Label>
+                      <Select value={subcontractForm.cost_code} onValueChange={(v) => setSubcontractForm((f) => ({ ...f, cost_code: v }))}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="For job cost rollup" /></SelectTrigger>
+                        <SelectContent>{costCodes.map((c) => <SelectItem key={c.id} value={c.code_name}>{c.code_name}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                     <div>
@@ -936,6 +952,13 @@ export default function Subcontracts() {
                     </Select>
                   </div>
                   <div><Label>Subcontract Number</Label><Input value={editSubcontractForm.subcontract_number} onChange={(e) => setEditSubcontractForm((f) => ({ ...f, subcontract_number: e.target.value }))} className="mt-1" /></div>
+                  <div>
+                    <Label>Cost Code</Label>
+                    <Select value={editSubcontractForm.cost_code} onValueChange={(v) => setEditSubcontractForm((f) => ({ ...f, cost_code: v }))}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="For job cost rollup" /></SelectTrigger>
+                      <SelectContent>{costCodes.map((c) => <SelectItem key={c.id} value={c.code_name}>{c.code_name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
                   <div><Label>Contract Value</Label><Input type="number" min={0} value={editSubcontractForm.contract_value} onChange={(e) => setEditSubcontractForm((f) => ({ ...f, contract_value: Number(e.target.value) || 0 }))} className="mt-1" /></div>
                   <div><Label>Retention %</Label><Input type="number" min={0} max={1} step="0.01" value={editSubcontractForm.retention_pct} onChange={(e) => setEditSubcontractForm((f) => ({ ...f, retention_pct: Number(e.target.value) || 0 }))} className="mt-1" /></div>
                   <div><Label>Bond Amount</Label><Input type="number" min={0} value={editSubcontractForm.bond_amount} onChange={(e) => setEditSubcontractForm((f) => ({ ...f, bond_amount: Number(e.target.value) || 0 }))} className="mt-1" /></div>

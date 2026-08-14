@@ -22,6 +22,10 @@
     "subcontract_number": {
       "type": "string"
     },
+    "cost_code": {
+      "type": "string",
+      "description": "CostCode.code_name this subcontract's committed value rolls up under for job costing (e.g. \"SUBCONTRACTOR\"). Older records predating this field have none, and are excluded from committed-cost totals until edited."
+    },
     "contract_value": {
       "type": "number",
       "default": 0

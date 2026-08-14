@@ -60,6 +60,7 @@ const SHARED_MODULES = [
   '/executive-analytics',
   '/employee-center',
   '/system-integrations',
+  '/meeting-mode',
 ];
 
 // Shop-floor: raw material, fabrication production, shipping product out.
