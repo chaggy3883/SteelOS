@@ -1,0 +1,49 @@
+{
+  "name": "CrewAssignment",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "crew_id": {
+      "type": "string",
+      "description": "Reserved for a future Crew entity — there is no Crew entity in this app yet, so this is always null today. Every assignment is by individual employee_id."
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "role_on_job": {
+      "type": "string",
+      "description": "The trade/role this employee is filling on this job for this date range — may differ from the employee's base classification (e.g. a Fitter covering a Laborer slot)."
+    },
+    "assigned_by": {
+      "type": "string",
+      "description": "Display name/email of the user who made the assignment, captured at write time."
+    },
+    "assigned_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "employee_id",
+    "start_date",
+    "end_date",
+    "role_on_job"
+  ]
+}

@@ -166,6 +166,26 @@
       "default": "sequence",
       "description": "How this project's PieceMark.phase values are organized — 'sequence' for numbered erection order, 'area' for named zones."
     },
+    "manpower_needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "trade": { "type": "string" },
+          "headcount_needed": { "type": "number", "default": 0 }
+        }
+      },
+      "default": [],
+      "description": "Current staffing needs by trade for this job, set by a PM (e.g. from Meeting Mode's Manpower section) — compared against active CrewAssignment rows for the same trade to show a staffing gap. Not period-boxed; represents the job's present need, not a history."
+    },
+    "required_certifications": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "employee_certifications.cert_type values this job requires of anyone assigned to it — used by Meeting Mode's Manpower section to warn when assigning someone without a matching valid certification. Empty by default; no job has certification requirements tracked until a PM sets them."
+    },
     "is_prevailing_wage": {
       "type": "boolean",
       "default": false

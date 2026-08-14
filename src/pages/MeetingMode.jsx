@@ -5,7 +5,9 @@ import { X, Lock, ChevronUp, ChevronDown } from 'lucide-react';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { isAdminUser, getEffectiveCompany } from '@/lib/tenantContext';
 import { getAvailableMeetingTypes, loadJobCostAgendaData } from '@/lib/meetingModeData';
+import { loadManpowerAgendaData } from '@/lib/manpowerData';
 import JobCostByJobSlide from '@/components/meeting-mode/JobCostByJobSlide';
+import ManpowerSection from '@/components/meeting-mode/ManpowerSection';
 
 // Who actually runs recurring meetings in this app today. Financial/job-cost
 // data is the only agenda content that exists so far, so this mirrors the
@@ -14,15 +16,13 @@ import JobCostByJobSlide from '@/components/meeting-mode/JobCostByJobSlide';
 // same convention as those pages.
 const MEETING_MODE_ROLES = ['project_manager', 'shop_manager', 'finance_department', 'controller', 'president', 'ceo'];
 
-// Every agenda section built here is universal (job cost applies to both
-// packs per the spec this was built against) — meetingType is threaded
-// through anyway so a future Manpower-only or Project-Review-only section
-// can filter on it without reworking this function's callers.
-function buildAgendaSections(meetingType, jobCostAgendaData) {
-  if (jobCostAgendaData.length === 0) {
-    return [{ id: 'no-jobs', navLabel: 'No Active Jobs', kind: 'empty' }];
-  }
-  return jobCostAgendaData.map(({ project, rows }) => ({
+// Job Cost is universal (applies to both packs per the spec this was built
+// against) — every meeting type gets it. Manpower is erector-only and only
+// relevant to the Manpower meeting itself; Project Review notes (fab-only)
+// don't exist yet. meetingType is threaded through so that addition, when
+// it happens, doesn't require reworking this function's callers.
+function buildAgendaSections(meetingType, jobCostAgendaData, manpowerAgendaData) {
+  const jobCostSections = jobCostAgendaData.map(({ project, rows }) => ({
     id: `job-cost-${project.id}`,
     navLabel: project.name,
     navSubLabel: project.project_number,
@@ -30,15 +30,35 @@ function buildAgendaSections(meetingType, jobCostAgendaData) {
     project,
     rows,
   }));
+
+  let sections = jobCostSections;
+  if (meetingType === 'manpower' && manpowerAgendaData) {
+    // Manpower is what this meeting type is FOR — its slides lead, with Job
+    // Cost (universal across every meeting type) trailing as supplementary.
+    const manpowerSections = manpowerAgendaData.projectData.map(({ project, assignments, staffing }) => ({
+      id: `manpower-${project.id}`,
+      navLabel: project.name,
+      navSubLabel: project.project_number,
+      kind: 'manpower',
+      project,
+      assignments,
+      staffing,
+    }));
+    sections = [...manpowerSections, ...jobCostSections];
+  }
+
+  return sections.length > 0 ? sections : [{ id: 'no-jobs', navLabel: 'No Active Jobs', kind: 'empty' }];
 }
 
 export default function MeetingMode() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [allowed, setAllowed] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [company, setCompany] = useState(null);
   const [meetingType, setMeetingType] = useState(null);
   const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [jobCostAgendaData, setJobCostAgendaData] = useState([]);
+  const [manpowerAgendaData, setManpowerAgendaData] = useState(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
@@ -56,6 +76,7 @@ export default function MeetingMode() {
     (async () => {
       try {
         const me = await db.auth.me();
+        setCurrentUser(me);
         const roles = (me?.roles || ['user']).map(normalizeRoleName);
         setAllowed(isAdminUser(me) || roles.some((r) => MEETING_MODE_ROLES.includes(r)));
       } catch (e) {
@@ -69,21 +90,37 @@ export default function MeetingMode() {
 
   const meetingTypes = useMemo(() => getAvailableMeetingTypes(company), [company]);
 
+  const refreshManpowerData = useCallback(async () => {
+    try {
+      setManpowerAgendaData(await loadManpowerAgendaData());
+    } catch (e) {
+      setManpowerAgendaData({ projectData: [], employees: [], certifications: [], assignments: [], leaveRequests: [], projectsById: new Map() });
+    }
+  }, []);
+
   const selectMeetingType = useCallback(async (typeId) => {
     setMeetingType(typeId);
     setActiveIndex(0);
     setLoadingAgenda(true);
     try {
-      const data = await loadJobCostAgendaData();
-      setJobCostAgendaData(data);
+      const [jobCostData, manpowerData] = await Promise.all([
+        loadJobCostAgendaData(),
+        typeId === 'manpower' ? loadManpowerAgendaData() : Promise.resolve(null),
+      ]);
+      setJobCostAgendaData(jobCostData);
+      setManpowerAgendaData(manpowerData);
     } catch (e) {
       setJobCostAgendaData([]);
+      setManpowerAgendaData(null);
     } finally {
       setLoadingAgenda(false);
     }
   }, []);
 
-  const sections = useMemo(() => (meetingType ? buildAgendaSections(meetingType, jobCostAgendaData) : []), [meetingType, jobCostAgendaData]);
+  const sections = useMemo(
+    () => (meetingType ? buildAgendaSections(meetingType, jobCostAgendaData, manpowerAgendaData) : []),
+    [meetingType, jobCostAgendaData, manpowerAgendaData]
+  );
 
   const goTo = useCallback((index) => {
     setActiveIndex((current) => {
@@ -188,7 +225,10 @@ export default function MeetingMode() {
                 idx === activeIndex ? 'border-blue-500 bg-slate-900 text-white' : 'border-transparent text-slate-400 hover:text-white hover:bg-slate-900/50'
               }`}
             >
-              <div className="text-base font-medium truncate">{section.navLabel}</div>
+              <div className="flex items-center gap-1.5">
+                {section.kind === 'manpower' && <span className="text-[10px] uppercase tracking-wide bg-blue-500/20 text-blue-300 rounded px-1.5 py-0.5 flex-shrink-0">Manpower</span>}
+                <div className="text-base font-medium truncate">{section.navLabel}</div>
+              </div>
               {section.navSubLabel && <div className="text-xs text-slate-500 truncate">{section.navSubLabel}</div>}
             </button>
           ))}
@@ -210,12 +250,21 @@ export default function MeetingMode() {
 
       {/* Active slide */}
       <div className="flex-1 min-w-0">
-        {loadingAgenda ? (
+        {loadingAgenda || !activeSection ? (
           <div className="h-full flex items-center justify-center">
-            <p className="text-2xl text-slate-400">Loading job cost data…</p>
+            <p className="text-2xl text-slate-400">Loading agenda data…</p>
           </div>
-        ) : activeSection?.kind === 'job-cost' ? (
+        ) : activeSection.kind === 'job-cost' ? (
           <JobCostByJobSlide project={activeSection.project} rows={activeSection.rows} />
+        ) : activeSection.kind === 'manpower' ? (
+          <ManpowerSection
+            project={activeSection.project}
+            staffing={activeSection.staffing}
+            assignments={activeSection.assignments}
+            manpowerData={manpowerAgendaData}
+            currentUser={currentUser}
+            onDataChange={refreshManpowerData}
+          />
         ) : (
           <div className="h-full flex items-center justify-center">
             <p className="text-2xl text-slate-400">No active jobs to review right now.</p>

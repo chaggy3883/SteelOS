@@ -5,11 +5,19 @@ import { hasModule } from '@/lib/moduleEntitlement';
 // 'draft' has no signed commitment yet, 'terminated' has none anymore.
 const COMMITTED_SUBCONTRACT_STATUSES = ['executed', 'active', 'complete'];
 
-// Project statuses excluded from the Job Cost by Job agenda — not real,
-// live jobs a recurring cost meeting needs to walk. 'cancelled' is the only
-// hard exclusion; everything else (including 'complete') can still carry
-// open committed value or a closeout variance worth reviewing.
+// Project statuses excluded from Meeting Mode's agenda sections entirely —
+// not real, live jobs a recurring meeting needs to walk. 'cancelled' is the
+// only hard exclusion; everything else (including 'complete') can still
+// carry open committed value, a closeout variance, or a last few days of
+// crew still on site worth reviewing.
 const EXCLUDED_PROJECT_STATUSES = ['cancelled'];
+
+// Shared by every Meeting Mode agenda builder (Job Cost, Manpower, ...) so
+// "what counts as a live job" never drifts between sections.
+export async function getLiveProjects() {
+  const projects = await db.entities.Project.filter({ is_archived: false }, 'name', 200);
+  return projects.filter((p) => !EXCLUDED_PROJECT_STATUSES.includes(p.status));
+}
 
 export const MEETING_TYPES = [
   { id: 'manpower', label: 'Manpower', packHint: 'Erector pack', requiresModulePath: '/field-operations' },
@@ -121,16 +129,14 @@ export function buildJobCostRows({ project, activeCostCodes, jobCostSummaries, l
 }
 
 export async function loadJobCostAgendaData() {
-  const [projects, activeCostCodes, jobCostSummaries, ledgerEntries, subcontracts, payApps] = await Promise.all([
-    db.entities.Project.filter({ is_archived: false }, 'name', 200),
+  const [liveProjects, activeCostCodes, jobCostSummaries, ledgerEntries, subcontracts, payApps] = await Promise.all([
+    getLiveProjects(),
     db.entities.CostCode.filter({ is_active: true }, 'code_name', 200),
     db.entities.ProjectJobCostSummary.list('-created_date', 1000),
     db.entities.JobCostLedgerEntry.list('-created_date', 2000),
     db.entities.Subcontract.list('-created_date', 500),
     db.entities.SubcontractPayApp.list('-created_date', 1000),
   ]);
-
-  const liveProjects = projects.filter((p) => !EXCLUDED_PROJECT_STATUSES.includes(p.status));
 
   return liveProjects.map((project) => ({
     project,
