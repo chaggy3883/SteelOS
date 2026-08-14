@@ -4,9 +4,14 @@ import {
   getStationBottlenecks, getStationDwellVariance, getStalePieces, computeEfficiencyPct,
   getCapacityStatus, STATIONS, stationName, HEATMAP_COLOR, normalizeTargetMinutes,
 } from '@/lib/shopOpsMetrics';
+import { matchPieceByScan } from '@/lib/pieceScan';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Clock, Gauge, CheckCircle2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/components/ui/use-toast';
+import { AlertTriangle, Clock, Gauge, CheckCircle2, ScanLine, PauseCircle, PlayCircle } from 'lucide-react';
 
 const REFRESH_INTERVAL_MS = 45000;
 
@@ -18,28 +23,46 @@ const SHIFT_END_HOUR = 17;
 const currentShiftLabel = (now) => (now.getHours() < SHIFT_END_HOUR ? '1st Shift' : '2nd Shift');
 
 export default function ShopFloorCommandCenter() {
+  const { toast } = useToast();
   const [pieces, setPieces] = useState([]);
   const [stationLogs, setStationLogs] = useState([]);
   const [pieceProductionLogs, setPieceProductionLogs] = useState([]);
+  const [timingEvents, setTimingEvents] = useState([]);
   const [projects, setProjects] = useState([]);
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(new Date());
   const [detailStation, setDetailStation] = useState(null);
   const [detailPiece, setDetailPiece] = useState(null);
+  const [detailTimingEvent, setDetailTimingEvent] = useState(null);
+
+  // Who's operating the scan station right now — plain text, same
+  // "type your employee ID" convention as ShopFabrication.jsx's tablet, not
+  // a real login (this page has no auth-per-station concept).
+  const [employeeId, setEmployeeId] = useState('');
+  const [stationScanValue, setStationScanValue] = useState('');
+  const [stationTargetMinutesInput, setStationTargetMinutesInput] = useState('');
+
+  // Out-of-sequence confirmation gate (cross-phase, or a second station
+  // clock left running elsewhere) — { piece, stationId, reasonText }.
+  const [pendingScan, setPendingScan] = useState(null);
+  const [confirmNote, setConfirmNote] = useState('');
+  const [confirmingScan, setConfirmingScan] = useState(false);
 
   const loadAll = async () => {
     try {
-      const [pieceData, logsData, pplData, projectData, settingsRows] = await Promise.all([
+      const [pieceData, logsData, pplData, timingData, projectData, settingsRows] = await Promise.all([
         db.entities.pieces.list('-created_date', 500),
         db.entities.station_logs.list('-created_date', 500),
         db.entities.piece_production_logs.filter({ status: 'Complete' }, '-created_date', 1000),
+        db.entities.piece_timing_events.list('-scanned_at', 500),
         db.entities.Project.filter({ is_archived: false }, 'name', 200),
         db.entities.SystemSetting.filter({ setting_group: 'production' }, '-created_date', 1),
       ]);
       setPieces(pieceData);
       setStationLogs(logsData);
       setPieceProductionLogs(pplData);
+      setTimingEvents(timingData);
       setProjects(projectData);
       setSettings(settingsRows[0] || null);
     } catch (e) {
@@ -107,6 +130,139 @@ export default function ShopFloorCommandCenter() {
   const projectName = (id) => projects.find((p) => p.id === id)?.name || 'Unassigned';
   const pieceById = (id) => pieces.find((p) => p.id === id);
 
+  // The one place a scan actually writes a timing record — start (no open
+  // session at this station) or complete (an open session exists) against
+  // station_logs (the app's existing dwell/efficiency source of truth),
+  // additive to a piece_timing_events row for the scan audit trail. `note`/
+  // `isOverride` are only ever set by confirmPendingScan below.
+  const recordScanEvent = async ({ piece, stationId, note = '', isOverride = false }) => {
+    const nowIso = new Date().toISOString();
+    const openHere = stationLogs.find((l) => l.piece_id === piece.id && Number(l.station_id) === Number(stationId) && l.status === 'In_Progress');
+
+    if (!openHere) {
+      const targetMinutes = normalizeTargetMinutes(stationTargetMinutesInput);
+      const log = await db.entities.station_logs.create({
+        piece_id: piece.id, employee_id: employeeId || 'Unknown', station_id: stationId,
+        status: 'In_Progress', start_time: nowIso, elapsed_minutes: 0, auto_paused: false,
+      });
+      await db.entities.piece_timing_events.create({
+        company_id: piece.company_id, piece_id: piece.id, station_id: stationId, station_log_id: log.id,
+        event_type: 'start', scanned_by: employeeId || 'Unknown', scanned_at: nowIso,
+        target_minutes: targetMinutes, is_override: isOverride, notes: note,
+      });
+      toast({ title: `Clock started — ${piece.piece_mark} at ${stationName(stationId)}` });
+    } else {
+      const elapsedMinutes = Math.max(1, Math.round((new Date(nowIso).getTime() - new Date(openHere.start_time).getTime()) / 60000));
+      await db.entities.station_logs.update(openHere.id, { status: 'Complete', end_time: nowIso, elapsed_minutes: elapsedMinutes, auto_paused: false });
+      // Target minutes were captured on the start/resume event that opened
+      // this session — read it back via the explicit station_log_id FK
+      // rather than re-deriving it from timestamps or free-text piece_mark.
+      const startEvent = timingEvents.find((e) => e.station_log_id === openHere.id && (e.event_type === 'start' || e.event_type === 'resume'));
+      const targetMinutes = normalizeTargetMinutes(startEvent?.target_minutes);
+      const efficiencyPct = computeEfficiencyPct(elapsedMinutes, targetMinutes);
+      const varianceMinutes = targetMinutes != null ? elapsedMinutes - targetMinutes : null;
+      await db.entities.piece_timing_events.create({
+        company_id: piece.company_id, piece_id: piece.id, station_id: stationId, station_log_id: openHere.id,
+        event_type: 'complete', scanned_by: employeeId || 'Unknown', scanned_at: nowIso,
+        target_minutes: targetMinutes, elapsed_minutes: elapsedMinutes, is_override: isOverride, notes: note,
+      });
+      toast({
+        title: `Completed — ${piece.piece_mark} at ${stationName(stationId)}`,
+        description: efficiencyPct != null
+          ? `${elapsedMinutes}m • ${efficiencyPct}% efficiency (${varianceMinutes > 0 ? '+' : ''}${varianceMinutes}m vs target)`
+          : `${elapsedMinutes}m • No target set`,
+      });
+    }
+    await loadAll();
+  };
+
+  const handleHoldLog = async (log) => {
+    const nowIso = new Date().toISOString();
+    const elapsedMinutes = Math.max(1, Math.round((new Date(nowIso).getTime() - new Date(log.start_time).getTime()) / 60000));
+    await db.entities.station_logs.update(log.id, { status: 'Paused', end_time: nowIso, elapsed_minutes: elapsedMinutes, auto_paused: false });
+    const piece = pieceById(log.piece_id);
+    await db.entities.piece_timing_events.create({
+      company_id: piece?.company_id, piece_id: log.piece_id, station_id: log.station_id, station_log_id: log.id,
+      event_type: 'hold', scanned_by: employeeId || 'Unknown', scanned_at: nowIso, elapsed_minutes: elapsedMinutes, notes: '',
+    });
+    toast({ title: 'Timer held' });
+    await loadAll();
+  };
+
+  const handleResumePiece = async (piece, stationId) => {
+    const nowIso = new Date().toISOString();
+    // Carries the original target forward across the hold/resume gap so a
+    // pause doesn't erase the efficiency math for the eventual completion.
+    const priorStart = [...timingEvents]
+      .filter((e) => e.piece_id === piece.id && Number(e.station_id) === Number(stationId) && (e.event_type === 'start' || e.event_type === 'resume'))
+      .sort((a, b) => new Date(b.scanned_at) - new Date(a.scanned_at))[0];
+    const log = await db.entities.station_logs.create({
+      piece_id: piece.id, employee_id: employeeId || 'Unknown', station_id: stationId,
+      status: 'In_Progress', start_time: nowIso, elapsed_minutes: 0, auto_paused: false,
+    });
+    await db.entities.piece_timing_events.create({
+      company_id: piece.company_id, piece_id: piece.id, station_id: stationId, station_log_id: log.id,
+      event_type: 'resume', scanned_by: employeeId || 'Unknown', scanned_at: nowIso,
+      target_minutes: normalizeTargetMinutes(priorStart?.target_minutes), notes: '',
+    });
+    toast({ title: 'Timer resumed' });
+    await loadAll();
+  };
+
+  // Scan resolution: explicit FK match against the piece's own
+  // qr_payload_string/piece_mark (matchPieceByScan — the same
+  // case-insensitive matcher JobsiteReceiving.jsx uses), never an inferred
+  // cross-entity string join. Cross-phase (piece.current_station_id doesn't
+  // match the station being scanned) and "another station's clock is still
+  // running" are both wrong-order conditions that gate on confirmation
+  // rather than recording silently.
+  const handleStationScan = async (stationId) => {
+    const value = stationScanValue.trim();
+    if (!value) return;
+    const piece = matchPieceByScan(pieces, value);
+    if (!piece) {
+      toast({ title: 'No matching piece found', variant: 'destructive' });
+      return;
+    }
+
+    const openElsewhere = stationLogs.find((l) => l.piece_id === piece.id && l.status === 'In_Progress' && Number(l.station_id) !== Number(stationId));
+    const isCrossPhase = Number(piece.current_station_id) !== Number(stationId);
+
+    if (isCrossPhase) {
+      // Same hint pattern as JobsiteReceiving.jsx's handlePhaseScan — tell
+      // the operator where the piece actually belongs instead of silently
+      // rejecting or silently recording at the wrong station.
+      toast({ title: `${piece.piece_mark} is currently at ${stationName(piece.current_station_id)} — scan there instead`, variant: 'destructive' });
+    }
+
+    if (isCrossPhase || openElsewhere) {
+      const reasonText = openElsewhere
+        ? `${piece.piece_mark} still has an unfinished timer running at ${stationName(openElsewhere.station_id)}. Recording this scan at ${stationName(stationId)} anyway will leave that timer open.`
+        : `${piece.piece_mark}'s station on file is ${stationName(piece.current_station_id)}, not ${stationName(stationId)}.`;
+      setPendingScan({ piece, stationId, reasonText });
+      setConfirmNote('');
+      setStationScanValue('');
+      return;
+    }
+
+    await recordScanEvent({ piece, stationId });
+    setStationScanValue('');
+    setStationTargetMinutesInput('');
+  };
+
+  const confirmPendingScan = async () => {
+    if (!pendingScan || confirmNote.trim().length < 10) return;
+    setConfirmingScan(true);
+    try {
+      await recordScanEvent({ piece: pendingScan.piece, stationId: pendingScan.stationId, note: confirmNote.trim(), isOverride: true });
+      setPendingScan(null);
+      setConfirmNote('');
+      setStationTargetMinutesInput('');
+    } finally {
+      setConfirmingScan(false);
+    }
+  };
+
   if (loading) return <div className="p-6 bg-black min-h-screen"><div className="h-96 bg-neutral-800 rounded-xl animate-pulse" /></div>;
 
   return (
@@ -131,7 +287,7 @@ export default function ShopFloorCommandCenter() {
           return (
             <button
               key={station.id}
-              onClick={() => setDetailStation(signal)}
+              onClick={() => { setDetailStation(signal); setStationScanValue(''); setStationTargetMinutesInput(''); }}
               className={`rounded-2xl border-2 p-4 text-center transition-colors ${HEATMAP_COLOR[status]} ${status === 'Red' ? 'border-red-500 animate-pulse' : status === 'Yellow' ? 'border-yellow-500' : 'border-green-600'}`}
             >
               <p className="text-sm font-semibold uppercase tracking-wide">{station.name}</p>
@@ -210,13 +366,65 @@ export default function ShopFloorCommandCenter() {
         )}
       </div>
 
+      {/* Recent scan-driven timing events — the audit trail requested
+          alongside station_logs; every row is clickable to full detail. */}
+      <div className="rounded-xl border border-neutral-700 bg-neutral-900 p-4">
+        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><ScanLine className="w-5 h-5 text-primary" />Recent Scan Events</h3>
+        {timingEvents.length === 0 ? (
+          <p className="text-neutral-500 py-6 text-center">No scan events recorded yet.</p>
+        ) : (
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {timingEvents.slice(0, 20).map((event) => {
+              const piece = pieceById(event.piece_id);
+              return (
+                <button
+                  key={event.id}
+                  onClick={() => setDetailTimingEvent(event)}
+                  className="w-full flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-left hover:bg-neutral-800 transition-colors"
+                >
+                  <span className="font-medium">{piece?.piece_mark || event.piece_id}</span>
+                  <span className="text-neutral-400">{stationName(event.station_id)}</span>
+                  <span className={`text-xs font-semibold uppercase ${event.event_type === 'complete' ? 'text-green-400' : event.event_type === 'hold' ? 'text-yellow-400' : 'text-blue-400'}`}>
+                    {event.event_type}{event.is_override ? ' ⚠' : ''}
+                  </span>
+                  <span className="text-neutral-500 text-xs">{new Date(event.scanned_at).toLocaleTimeString()}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Station detail dialog */}
-      <Dialog open={!!detailStation} onOpenChange={(open) => !open && setDetailStation(null)}>
+      <Dialog open={!!detailStation} onOpenChange={(open) => { if (!open) { setDetailStation(null); setStationScanValue(''); setStationTargetMinutesInput(''); } }}>
         <DialogContent className="bg-neutral-900 text-white border-neutral-700 max-h-[80vh] overflow-y-auto">
           {detailStation && (
             <>
               <DialogHeader><DialogTitle>{stationName(detailStation.stationId)} — Station Detail</DialogTitle></DialogHeader>
               <div className="space-y-2 text-sm">
+                <div className="space-y-2 border-b border-neutral-700 pb-3">
+                  <Label className="text-xs text-neutral-400">Scanned By (Employee ID)</Label>
+                  <Input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="EMP-101" className="bg-neutral-800 border-neutral-700 text-white" />
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Input
+                      value={stationScanValue}
+                      onChange={(e) => setStationScanValue(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleStationScan(detailStation.stationId)}
+                      placeholder="Scan QR payload or enter piece mark"
+                      className="bg-neutral-800 border-neutral-700 text-white flex-1"
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      value={stationTargetMinutesInput}
+                      onChange={(e) => setStationTargetMinutesInput(e.target.value)}
+                      placeholder="Target min (optional)"
+                      className="bg-neutral-800 border-neutral-700 text-white sm:w-40"
+                    />
+                    <Button onClick={() => handleStationScan(detailStation.stationId)} className="steel-gradient text-white border-0">Scan</Button>
+                  </div>
+                  <p className="text-[11px] text-neutral-500">Scanning starts this station's clock for a piece; scanning it again here completes it.</p>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><p className="text-xs text-neutral-500">Pieces at Station</p><p className="text-lg font-semibold">{detailStation.count}</p></div>
                   <div><p className="text-xs text-neutral-500">Signal</p><p className="text-lg font-semibold">{detailStation.signal}</p></div>
@@ -229,16 +437,32 @@ export default function ShopFloorCommandCenter() {
                     <p className="text-neutral-500 py-3 text-center">No pieces at this station.</p>
                   ) : (
                     <div className="space-y-1">
-                      {pieces.filter((p) => Number(p.current_station_id) === detailStation.stationId).map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() => { setDetailPiece(p); setDetailStation(null); }}
-                          className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-neutral-800 transition-colors"
-                        >
-                          <span className="font-medium">{p.piece_mark}</span>
-                          <span className="text-neutral-400 text-xs">{p.workflow_status?.replace(/_/g, ' ')}</span>
-                        </button>
-                      ))}
+                      {pieces.filter((p) => Number(p.current_station_id) === detailStation.stationId).map((p) => {
+                        const openLog = stationLogs.find((l) => l.piece_id === p.id && Number(l.station_id) === detailStation.stationId && l.status === 'In_Progress');
+                        const pausedLog = stationLogs
+                          .filter((l) => l.piece_id === p.id && Number(l.station_id) === detailStation.stationId && l.status === 'Paused')
+                          .sort((a, b) => new Date(b.end_time) - new Date(a.end_time))[0];
+                        return (
+                          <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 hover:bg-neutral-800 transition-colors">
+                            <button onClick={() => { setDetailPiece(p); setDetailStation(null); }} className="flex-1 text-left">
+                              <span className="font-medium">{p.piece_mark}</span>
+                              <span className="text-neutral-400 text-xs block">
+                                {p.workflow_status?.replace(/_/g, ' ')}{openLog ? ' • Running' : pausedLog ? ' • Held' : ''}
+                              </span>
+                            </button>
+                            {openLog && (
+                              <Button size="sm" variant="outline" className="border-neutral-600 gap-1.5 flex-shrink-0" onClick={() => handleHoldLog(openLog)}>
+                                <PauseCircle className="w-3.5 h-3.5" />Hold
+                              </Button>
+                            )}
+                            {!openLog && pausedLog && (
+                              <Button size="sm" variant="outline" className="border-neutral-600 gap-1.5 flex-shrink-0" onClick={() => handleResumePiece(p, detailStation.stationId)}>
+                                <PlayCircle className="w-3.5 h-3.5" />Resume
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -271,6 +495,84 @@ export default function ShopFloorCommandCenter() {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Timing event detail dialog — standing rule: every data point is
+          clickable to its full detail. */}
+      <Dialog open={!!detailTimingEvent} onOpenChange={(open) => !open && setDetailTimingEvent(null)}>
+        <DialogContent className="bg-neutral-900 text-white border-neutral-700">
+          {detailTimingEvent && (() => {
+            const piece = pieceById(detailTimingEvent.piece_id);
+            const targetMinutes = normalizeTargetMinutes(detailTimingEvent.target_minutes);
+            const isComplete = detailTimingEvent.event_type === 'complete';
+            const efficiencyPct = isComplete ? computeEfficiencyPct(detailTimingEvent.elapsed_minutes, targetMinutes) : null;
+            const varianceMinutes = isComplete && targetMinutes != null ? detailTimingEvent.elapsed_minutes - targetMinutes : null;
+            return (
+              <>
+                <DialogHeader><DialogTitle>{piece?.piece_mark || detailTimingEvent.piece_id} — {detailTimingEvent.event_type.toUpperCase()}</DialogTitle></DialogHeader>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div><p className="text-xs text-neutral-500">Station</p><p className="font-medium">{stationName(detailTimingEvent.station_id)}</p></div>
+                  <div><p className="text-xs text-neutral-500">Scanned By</p><p className="font-medium">{detailTimingEvent.scanned_by}</p></div>
+                  <div><p className="text-xs text-neutral-500">Scanned At</p><p className="font-medium">{new Date(detailTimingEvent.scanned_at).toLocaleString()}</p></div>
+                  <div><p className="text-xs text-neutral-500">Out-of-Sequence</p><p className="font-medium">{detailTimingEvent.is_override ? 'Yes' : 'No'}</p></div>
+                  {isComplete && (
+                    <>
+                      <div><p className="text-xs text-neutral-500">Elapsed</p><p className="font-medium">{detailTimingEvent.elapsed_minutes} min</p></div>
+                      <div><p className="text-xs text-neutral-500">Target</p><p className="font-medium">{targetMinutes != null ? `${targetMinutes} min` : 'No target set'}</p></div>
+                      <div><p className="text-xs text-neutral-500">Efficiency</p><p className="font-medium">{efficiencyPct != null ? `${efficiencyPct}%` : 'No target set'}</p></div>
+                      <div><p className="text-xs text-neutral-500">Variance</p><p className="font-medium">{varianceMinutes != null ? `${varianceMinutes > 0 ? '+' : ''}${varianceMinutes} min` : 'No target set'}</p></div>
+                    </>
+                  )}
+                  {detailTimingEvent.event_type === 'start' && (
+                    <div><p className="text-xs text-neutral-500">Target</p><p className="font-medium">{targetMinutes != null ? `${targetMinutes} min` : 'No target set'}</p></div>
+                  )}
+                </div>
+                {detailTimingEvent.notes && (
+                  <div className="pt-1">
+                    <p className="text-xs text-neutral-500 mb-1">Notes</p>
+                    <p className="text-sm whitespace-pre-wrap">{detailTimingEvent.notes}</p>
+                  </div>
+                )}
+                <DialogFooter>
+                  {piece && (
+                    <Button variant="outline" className="border-neutral-600" onClick={() => { setDetailPiece(piece); setDetailTimingEvent(null); }}>View Piece</Button>
+                  )}
+                  <Button variant="outline" className="border-neutral-600" onClick={() => setDetailTimingEvent(null)}>Close</Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Out-of-sequence confirmation gate — cross-phase or a second open
+          station clock elsewhere. Mirrors FleetRentalRegistry.jsx's
+          override-with-reason pattern rather than a silent recording. */}
+      <Dialog open={!!pendingScan} onOpenChange={(open) => { if (!open) { setPendingScan(null); setConfirmNote(''); } }}>
+        <DialogContent className="bg-neutral-900 text-white border-neutral-700">
+          <DialogHeader><DialogTitle>Confirm Out-of-Sequence Scan</DialogTitle></DialogHeader>
+          <p className="text-sm text-neutral-300">{pendingScan?.reasonText}</p>
+          <div>
+            <Label className="text-xs text-neutral-400">Reason (required, min 10 characters)</Label>
+            <Textarea
+              rows={3}
+              value={confirmNote}
+              onChange={(e) => setConfirmNote(e.target.value)}
+              className="bg-neutral-800 border-neutral-700 text-white mt-1"
+              placeholder="Explain why this scan should be recorded out of sequence…"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="border-neutral-600" onClick={() => { setPendingScan(null); setConfirmNote(''); }}>Cancel</Button>
+            <Button
+              onClick={confirmPendingScan}
+              disabled={confirmNote.trim().length < 10 || confirmingScan}
+              className="bg-amber-600 hover:bg-amber-700 text-white border-0"
+            >
+              {confirmingScan ? 'Recording…' : 'Confirm & Record Anyway'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

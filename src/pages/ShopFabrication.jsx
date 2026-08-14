@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getCertStatus } from '@/lib/certAlerts';
 import { sortPiecesByPriority, hasActiveOverride } from '@/lib/shopOpsMetrics';
+import { matchPieceByScan } from '@/lib/pieceScan';
 import { LABEL_STOCK_SIZES, buildZplPayload } from '@/lib/zplLabels';
 import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelSheet';
 import {
@@ -158,7 +159,7 @@ export default function ShopFabrication() {
   };
 
   const handleScan = () => {
-    const found = pieces.find((piece) => piece.qr_payload_string === scanValue || piece.piece_mark === scanValue);
+    const found = matchPieceByScan(pieces, scanValue);
     if (!found) {
       toast({ title: 'Piece not found', variant: 'destructive' });
       return;

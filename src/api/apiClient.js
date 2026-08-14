@@ -11,6 +11,7 @@ const createLocalApi = () => ({
     ai_contract_reviews: createEntityApi('ai_contract_reviews'),
     blueprint_takeoffs: createEntityApi('blueprint_takeoffs'),
     piece_production_logs: createEntityApi('piece_production_logs'),
+    piece_timing_events: createEntityApi('piece_timing_events'),
     company_templates: createEntityApi('company_templates'),
     frontend_contract_reviews: createEntityApi('frontend_contract_reviews'),
     contract_exception_lines: createEntityApi('contract_exception_lines'),

@@ -12,6 +12,10 @@ export const STATIONS = [
 export const stationName = (id) => STATIONS.find((s) => s.id === Number(id))?.name || `Station ${id}`;
 export const HEATMAP_COLOR = { Green: 'bg-green-500/20 text-green-700', Yellow: 'bg-yellow-500/30 text-yellow-800', Red: 'bg-red-500/40 text-red-800' };
 
+// piece_timing_events.event_type enum — the scan-driven audit trail
+// (ShopFloorCommandCenter.jsx) alongside station_logs' start/stop sessions.
+export const TIMING_EVENT_TYPES = ['start', 'complete', 'hold', 'resume'];
+
 const startOfWeek = (date) => {
   const d = new Date(date);
   const day = d.getDay();

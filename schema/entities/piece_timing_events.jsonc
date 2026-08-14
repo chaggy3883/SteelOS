@@ -1,0 +1,60 @@
+{
+  "name": "piece_timing_events",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "piece_id": {
+      "type": "string"
+    },
+    "station_id": {
+      "type": "number",
+      "enum": [1, 2, 3, 4, 5, 6]
+    },
+    "station_log_id": {
+      "type": "string",
+      "description": "FK to the station_logs row this event belongs to — links a 'complete' event back to the 'start'/'resume' event that opened it, so elapsed/target minutes are read from the matching pair rather than inferred by timestamp order."
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "start",
+        "complete",
+        "hold",
+        "resume"
+      ]
+    },
+    "scanned_by": {
+      "type": "string",
+      "description": "Employee identifier who scanned/recorded this event."
+    },
+    "scanned_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target_minutes": {
+      "type": "number",
+      "description": "Captured on the 'start' event only (optional). normalizeTargetMinutes() must gate every read — null means no target was set, not zero."
+    },
+    "elapsed_minutes": {
+      "type": "number",
+      "description": "Computed on the 'complete' event only, from the matching start/resume event's scanned_at."
+    },
+    "is_override": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when this event was recorded after a wrong-order/cross-phase confirmation prompt rather than the normal happy path."
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "piece_id",
+    "station_id",
+    "event_type",
+    "scanned_by",
+    "scanned_at"
+  ]
+}

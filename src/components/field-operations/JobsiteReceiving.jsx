@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+import { scanValueMatches } from '@/lib/pieceScan';
 import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 
 const ITEM_TYPES = ['Piece_Mark', 'Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
@@ -130,11 +131,8 @@ export default function JobsiteReceiving() {
   const handlePhaseScan = async (phase, rows) => {
     const value = (scanValues[phase] || '').trim();
     if (!value) return;
-    const normValue = value.toLowerCase();
     const matchesValue = (pm) =>
-      pm.piece_mark?.toLowerCase() === normValue ||
-      pm.part_number?.toLowerCase() === normValue ||
-      pieceByPieceMarkId.get(pm.id)?.qr_payload_string?.toLowerCase() === normValue;
+      scanValueMatches([pm.piece_mark, pm.part_number, pieceByPieceMarkId.get(pm.id)?.qr_payload_string], value);
 
     const match = rows.find(matchesValue);
     if (!match) {
