@@ -37,6 +37,7 @@ const SHARED_MODULES = [
   '/subcontracts',
   '/certified-payroll',
   '/intelligence',
+  '/intelligence-signals',
   '/crm',
   '/crm/directory',
   '/purchasing',

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isAdminUser } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
@@ -36,6 +36,7 @@ const TABS = [
 const NAV_LINKS = [
   { path: '/admin/cost-codes', label: 'Cost Codes', icon: Tags },
   { path: '/admin/delivery-pricing', label: 'Delivery Pricing', icon: Truck },
+  { path: '/admin/intelligence-rules', label: 'Intelligence Rules', icon: Radar },
 ];
 
 export default function Admin() {

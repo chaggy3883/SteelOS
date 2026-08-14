@@ -213,6 +213,117 @@ const buildSeedData = () => {
       { id: 'delivery-tier-4', company_id: 'company-hancock', min_miles: 75, max_miles: 100, cost_per_trip: 2100, created_date: now, updated_date: now },
       { id: 'delivery-tier-5', company_id: 'company-hancock', min_miles: 100, max_miles: 125, cost_per_trip: 2550, created_date: now, updated_date: now }
     ],
+    // Seeded as configurable rules, not hardcoded alerts — each mirrors a
+    // signal the app already needs (see src/lib/intelligenceRuleEngine.js for
+    // the candidate-metric builder each entity_watched value maps to).
+    IntelligenceRule: [
+      {
+        id: 'intel-rule-bid-pricing-hold',
+        company_id: 'company-hancock',
+        rule_name: 'Bid pricing past hold window',
+        description: 'Flags active bids whose quoted pricing has aged past the company’s pricing hold window (default 21 days).',
+        entity_watched: 'Bid',
+        condition: { field: 'days_old', operator: '>', threshold: 21 },
+        severity: 'warning',
+        is_active: true,
+        notify_roles: ['estimator', 'admin'],
+        source: 'manual',
+        approval_status: 'approved',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'intel-rule-project-health',
+        company_id: 'company-hancock',
+        rule_name: 'Project health score below threshold',
+        description: 'Flags active projects whose health score has dropped below a healthy range.',
+        entity_watched: 'Project',
+        condition: { field: 'health_score', operator: '<', threshold: 60 },
+        severity: 'critical',
+        is_active: true,
+        notify_roles: ['project_manager', 'admin'],
+        source: 'manual',
+        approval_status: 'approved',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'intel-rule-dwell-time',
+        company_id: 'company-hancock',
+        rule_name: 'Station dwell time bottleneck',
+        description: 'Flags shop stations where average dwell time is running well over the target minutes for that operation.',
+        entity_watched: 'Piece',
+        condition: { field: 'dwell_variance_pct', operator: '>', threshold: 25 },
+        severity: 'warning',
+        is_active: true,
+        notify_roles: ['shop_manager'],
+        source: 'manual',
+        approval_status: 'approved',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'intel-rule-equipment-inspection',
+        company_id: 'company-hancock',
+        rule_name: 'Rigging/equipment inspection overdue',
+        description: 'Flags heavy equipment and rigging inspections past their expiration date.',
+        entity_watched: 'Equipment',
+        condition: { field: 'days_until_expiration', operator: '<=', threshold: 0 },
+        severity: 'critical',
+        is_active: true,
+        notify_roles: ['Maintenance_Manager', 'admin'],
+        source: 'manual',
+        approval_status: 'approved',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'intel-rule-job-cost-overrun',
+        company_id: 'company-hancock',
+        rule_name: 'Job cost exceeding estimate',
+        description: 'Flags cost codes where job-to-date hours exceed the winning bid’s estimate by 15% or more.',
+        entity_watched: 'JobCost',
+        condition: { field: 'overrun_pct', operator: '>=', threshold: 15 },
+        severity: 'warning',
+        is_active: true,
+        notify_roles: ['project_manager', 'controller'],
+        source: 'manual',
+        approval_status: 'approved',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'intel-rule-cert-expiring',
+        company_id: 'company-hancock',
+        rule_name: 'Certification expiring soon',
+        description: 'Flags employee certifications and training expiring within 30 days.',
+        entity_watched: 'Certification',
+        condition: { field: 'days_until_expiration', operator: '<=', threshold: 30 },
+        severity: 'info',
+        is_active: true,
+        notify_roles: ['hr_admin'],
+        source: 'manual',
+        approval_status: 'approved',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'intel-rule-ai-suggested-example',
+        company_id: 'company-hancock',
+        rule_name: 'Bid margin trending below plan',
+        description: 'Suggested rule watching for bids priced with an unusually thin margin percentage — not yet reviewed.',
+        entity_watched: 'Bid',
+        condition: { field: 'days_old', operator: '>', threshold: 10 },
+        severity: 'info',
+        is_active: false,
+        notify_roles: [],
+        source: 'ai_suggested',
+        approval_status: 'pending_review',
+        ai_suggestion_rationale: 'Demonstrates the AI-authored review queue — requires explicit admin approval before it can be activated.',
+        created_date: now,
+        updated_date: now
+      }
+    ],
     Customer: [
       {
         id: 'customer-acme',
@@ -2140,7 +2251,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'SafetyMeeting', 'DisciplinaryAction'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();

@@ -1,0 +1,79 @@
+{
+  "name": "IntelligenceRule",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "rule_name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "entity_watched": {
+      "type": "string",
+      "enum": ["Bid", "Project", "Piece", "Equipment", "JobCost", "Certification"],
+      "description": "Which data source src/lib/intelligenceRuleEngine.js's candidate builders pull from. Bid = bid pricing hold, Project = health score, Piece = station dwell time, Equipment = rigging/equipment inspection expiration, JobCost = cost-code overrun vs estimate, Certification = employee cert/training expiration."
+    },
+    "condition": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "Metric name produced by the entity_watched candidate builder, e.g. days_old, health_score, dwell_variance_pct, days_until_expiration, overrun_pct."
+        },
+        "operator": {
+          "type": "string",
+          "enum": [">", ">=", "<", "<=", "=", "!="]
+        },
+        "threshold": {
+          "type": "number"
+        }
+      },
+      "description": "Generic comparison applied by the engine: metrics[field] operator threshold."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "warning", "critical"],
+      "default": "info"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": false,
+      "description": "Only rules with is_active=true AND approval_status='approved' are evaluated. The engine enforces this even if a caller sets is_active on a pending_review rule directly."
+    },
+    "notify_roles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Role names (BUILTIN_ROLES/CustomRole) surfaced on each signal this rule fires — informational targeting, not a delivery mechanism."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["manual", "ai_suggested"],
+      "default": "manual"
+    },
+    "approval_status": {
+      "type": "string",
+      "enum": ["approved", "pending_review"],
+      "default": "approved",
+      "description": "AI-suggested rules (source='ai_suggested') are always created as pending_review and is_active=false, and require an explicit admin approval action to become active. Manually authored rules default to approved."
+    },
+    "ai_suggestion_rationale": {
+      "type": "string",
+      "description": "Set only when source='ai_suggested' — why the suggester proposed this rule."
+    },
+    "approved_by": {
+      "type": "string"
+    },
+    "approved_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "rule_name",
+    "entity_watched",
+    "condition"
+  ]
+}

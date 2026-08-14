@@ -26,6 +26,9 @@ import ChangeOrders from '@/pages/ChangeOrders';
 import Subcontracts from '@/pages/Subcontracts';
 import CertifiedPayroll from '@/pages/CertifiedPayroll';
 import Intelligence from '@/pages/Intelligence';
+import IntelligenceSignals from '@/pages/IntelligenceSignals';
+import IntelligenceRulesAdmin from '@/pages/IntelligenceRulesAdmin';
+import IntelligenceRuleDetail from '@/pages/IntelligenceRuleDetail';
 import Production from '@/pages/Production';
 import Inventory from '@/pages/Inventory';
 import Quality from '@/pages/Quality';
@@ -128,6 +131,7 @@ const AuthenticatedApp = () => {
           <Route path="/estimating/analytics" element={<EstimatingAnalytics />} />
           <Route path="/estimating/spec-review" element={<FrontEndReview />} />
           <Route path="/intelligence" element={<Intelligence />} />
+          <Route path="/intelligence-signals" element={<IntelligenceSignals />} />
           <Route path="/production" element={<Production />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/quality" element={<Quality />} />
@@ -163,6 +167,8 @@ const AuthenticatedApp = () => {
           <Route path="/admin" element={<Admin />} />
           <Route path="/admin/cost-codes" element={<CostCodesAdmin />} />
           <Route path="/admin/delivery-pricing" element={<DeliveryPricingAdmin />} />
+          <Route path="/admin/intelligence-rules" element={<IntelligenceRulesAdmin />} />
+          <Route path="/admin/intelligence-rules/:id" element={<IntelligenceRuleDetail />} />
           <Route path="/system-integrations" element={<SystemIntegrations />} />
         </Route>
       </Route>
