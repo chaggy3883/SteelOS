@@ -26,15 +26,26 @@ const OPEN_LEAVE_STATUSES = ['Approved', 'Submitted', 'Pending'];
 // status field doesn't require hunting down every call site.
 const dateRangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart <= bEnd && bStart <= aEnd;
 
+// The employee roster + certification records — the only two lookups
+// shared by every meeting-mode section that deals with people (Manpower's
+// full conflict-checking included, but also the lighter Project Review
+// notes panel, which just needs a picker and a name-to-detail lookup).
+export async function loadEmployeeRoster() {
+  const [employees, certifications] = await Promise.all([
+    db.entities.employees.filter({ is_active: true }, 'full_name', 500),
+    db.entities.employee_certifications.list('-created_date', 2000),
+  ]);
+  return { employees, certifications };
+}
+
 export async function loadManpowerAgendaData() {
-  const [liveProjects, allProjects, employees, certifications, assignments, leaveRequests] = await Promise.all([
+  const [liveProjects, allProjects, { employees, certifications }, assignments, leaveRequests] = await Promise.all([
     getLiveProjects(),
     // Unfiltered, so a double-booking against an archived/otherwise-not-live
     // job still resolves to a real project name instead of falling back to
     // "another job".
     db.entities.Project.list('-created_date', 500),
-    db.entities.employees.filter({ is_active: true }, 'full_name', 500),
-    db.entities.employee_certifications.list('-created_date', 2000),
+    loadEmployeeRoster(),
     db.entities.CrewAssignment.list('-created_date', 2000),
     db.entities.time_off_requests.list('-created_date', 1000),
   ]);

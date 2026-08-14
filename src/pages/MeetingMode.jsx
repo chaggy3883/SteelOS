@@ -5,9 +5,10 @@ import { X, Lock, ChevronUp, ChevronDown } from 'lucide-react';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { isAdminUser, getEffectiveCompany } from '@/lib/tenantContext';
 import { getAvailableMeetingTypes, loadJobCostAgendaData } from '@/lib/meetingModeData';
-import { loadManpowerAgendaData } from '@/lib/manpowerData';
+import { loadManpowerAgendaData, loadEmployeeRoster } from '@/lib/manpowerData';
 import JobCostByJobSlide from '@/components/meeting-mode/JobCostByJobSlide';
 import ManpowerSection from '@/components/meeting-mode/ManpowerSection';
+import ProjectReviewNotesPanel from '@/components/meeting-mode/ProjectReviewNotesPanel';
 
 // Who actually runs recurring meetings in this app today. Financial/job-cost
 // data is the only agenda content that exists so far, so this mirrors the
@@ -59,6 +60,7 @@ export default function MeetingMode() {
   const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [jobCostAgendaData, setJobCostAgendaData] = useState([]);
   const [manpowerAgendaData, setManpowerAgendaData] = useState(null);
+  const [employeeRoster, setEmployeeRoster] = useState({ employees: [], certifications: [] });
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
@@ -103,12 +105,14 @@ export default function MeetingMode() {
     setActiveIndex(0);
     setLoadingAgenda(true);
     try {
-      const [jobCostData, manpowerData] = await Promise.all([
+      const [jobCostData, manpowerData, roster] = await Promise.all([
         loadJobCostAgendaData(),
         typeId === 'manpower' ? loadManpowerAgendaData() : Promise.resolve(null),
+        typeId === 'project_review' ? loadEmployeeRoster() : Promise.resolve({ employees: [], certifications: [] }),
       ]);
       setJobCostAgendaData(jobCostData);
       setManpowerAgendaData(manpowerData);
+      setEmployeeRoster(roster);
     } catch (e) {
       setJobCostAgendaData([]);
       setManpowerAgendaData(null);
@@ -271,6 +275,19 @@ export default function MeetingMode() {
           </div>
         )}
       </div>
+
+      {/* Project Review meeting: notes pane docked alongside whatever
+          project-bearing slide is active, rebinding to that project — never
+          its own agenda section. */}
+      {meetingType === 'project_review' && activeSection?.project && (
+        <ProjectReviewNotesPanel
+          project={activeSection.project}
+          currentUser={currentUser}
+          meetingType={meetingType}
+          employees={employeeRoster.employees}
+          certifications={employeeRoster.certifications}
+        />
+      )}
     </div>
   );
 }

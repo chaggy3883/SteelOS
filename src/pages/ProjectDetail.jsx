@@ -4,7 +4,7 @@ import { db } from '@/api/apiClient';
 import {
   ArrowLeft, Brain, MessageSquare, Package,
   DollarSign, Edit, Plus,
-  AlertTriangle, Layers, Gavel, FileSignature, ArrowRight
+  AlertTriangle, Layers, Gavel, FileSignature, ArrowRight, NotebookPen, ListChecks
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -18,6 +18,9 @@ import StatsCard from '@/components/ui/StatsCard';
 import FileExplorer from '@/components/documents/FileExplorer';
 import { useToast } from '@/components/ui/use-toast';
 import { getStatutoryDeadline } from '@/lib/lienStatutes';
+import { getOpenActionItems, isOverdue } from '@/lib/meetingNotes';
+import NoteDetailModal from '@/components/meeting-mode/NoteDetailModal';
+import EmployeeDetailModal from '@/components/meeting-mode/EmployeeDetailModal';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
 const emptyPartForm = () => ({
@@ -76,18 +79,31 @@ export default function ProjectDetail() {
   const [bulkAssigning, setBulkAssigning] = useState(false);
   const [viewingPhasePiece, setViewingPhasePiece] = useState(null);
 
+  // Meeting Notes tab — notes captured live in Meeting Mode's Project
+  // Review type, surfaced here after the meeting.
+  const [meetingNotes, setMeetingNotes] = useState([]);
+  const [noteEmployees, setNoteEmployees] = useState([]);
+  const [noteCertifications, setNoteCertifications] = useState([]);
+  const [noteAuthors, setNoteAuthors] = useState([]);
+  const [viewingNote, setViewingNote] = useState(null);
+  const [viewingEmployee, setViewingEmployee] = useState(null);
+
   useEffect(() => { if (id) loadAll(); }, [id]);
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [proj, finds, rfiList, pieceList, subcontractList, shopPieceList] = await Promise.all([
+      const [proj, finds, rfiList, pieceList, subcontractList, shopPieceList, noteList, employeeList, certList, userList] = await Promise.all([
         db.entities.Project.get(id),
         db.entities.AIFinding.filter({ project_id: id }, '-created_date', 50),
         db.entities.RFI.filter({ project_id: id }, '-created_date', 20),
         db.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 500),
         db.entities.Subcontract.filter({ project_id: id }, '-created_date', 50),
         db.entities.pieces.filter({ project_id: id }, '-created_date', 500),
+        db.entities.ProjectMeetingNote.filter({ project_id: id }, '-created_date', 200),
+        db.entities.employees.filter({ is_active: true }, 'full_name', 500),
+        db.entities.employee_certifications.list('-created_date', 2000),
+        db.entities.User.list('-created_date', 200),
       ]);
       setProject(proj);
       setFindings(finds);
@@ -95,6 +111,10 @@ export default function ProjectDetail() {
       setPieces(pieceList);
       setSubcontracts(subcontractList);
       setShopPieces(shopPieceList);
+      setMeetingNotes(noteList);
+      setNoteEmployees(employeeList);
+      setNoteCertifications(certList);
+      setNoteAuthors(userList);
     } catch (e) {
       console.error(e);
     } finally {
@@ -310,6 +330,10 @@ export default function ProjectDetail() {
   const failFindings = findings.filter(f => f.status === 'fail');
   const warnFindings = findings.filter(f => f.status === 'warning');
 
+  const openActionItems = getOpenActionItems(meetingNotes);
+  const employeeById = (empId) => noteEmployees.find((e) => e.id === empId);
+  const authorNameFor = (authorId) => noteAuthors.find((u) => u.id === authorId)?.full_name || noteAuthors.find((u) => u.id === authorId)?.email || '—';
+
   const parts = pieces.filter((p) => (p.item_type || 'Piece_Mark') !== 'Piece_Mark');
   const partCountByType = parts.reduce((acc, p) => {
     const type = p.item_type || 'Loose_Part';
@@ -408,7 +432,7 @@ export default function ProjectDetail() {
       </div>
 
       {/* Project Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
         <div className="steel-card p-4 flex items-center justify-center lg:col-span-1">
           <HealthRing score={project.health_score || 100} />
         </div>
@@ -416,6 +440,7 @@ export default function ProjectDetail() {
         <StatsCard title="Estimated Tons" value={project.estimated_tons ? `${project.estimated_tons}T` : '—'} icon={Layers} color="blue" />
         <StatsCard title="AI Findings" value={findings.length} subtitle={`${pendingFindings.length} pending review`} icon={Brain} color="orange" />
         <StatsCard title="Open RFIs" value={rfis.filter(r => !['answered','closed'].includes(r.status)).length} icon={MessageSquare} color={rfis.filter(r => !['answered','closed'].includes(r.status)).length > 0 ? 'red' : 'green'} />
+        <StatsCard title="Open Action Items" value={openActionItems.length} subtitle={`${openActionItems.filter(({ item }) => isOverdue(item)).length} overdue`} icon={ListChecks} color={openActionItems.some(({ item }) => isOverdue(item)) ? 'red' : 'blue'} />
       </div>
 
       {/* Tabs */}
@@ -428,6 +453,9 @@ export default function ProjectDetail() {
           </TabsTrigger>
           <TabsTrigger value="rfis">
             RFIs {rfis.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{rfis.length}</span>}
+          </TabsTrigger>
+          <TabsTrigger value="notes">
+            Meeting Notes {meetingNotes.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{meetingNotes.length}</span>}
           </TabsTrigger>
           <TabsTrigger value="pieces">
             Pieces {pieces.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{pieces.length}</span>}
@@ -603,6 +631,76 @@ export default function ProjectDetail() {
                 ))}
               </div>
             )}
+          </div>
+        </TabsContent>
+
+        {/* Meeting Notes — captured live in Meeting Mode's Project Review
+            type (src/components/meeting-mode/ProjectReviewNotesPanel.jsx);
+            this tab is read-only surfacing of what already got saved. */}
+        <TabsContent value="notes">
+          <div className="space-y-4">
+            <div className="steel-card p-5">
+              <h3 className="font-semibold mb-4 flex items-center gap-2">
+                <ListChecks className="w-4 h-4 text-primary" /> Open Action Items
+              </h3>
+              {openActionItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No open action items from meeting notes.</p>
+              ) : (
+                <div className="space-y-2">
+                  {openActionItems.map(({ note, item }, idx) => {
+                    const owner = employeeById(item.owner_id);
+                    const overdue = isOverdue(item);
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setViewingNote(note)}
+                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-left"
+                      >
+                        <span className="flex-1 text-sm">{item.description}</span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">{owner?.full_name || 'Unassigned'}</span>
+                        <span className={`text-xs whitespace-nowrap ${overdue ? 'text-red-500 font-semibold' : 'text-muted-foreground'}`}>
+                          {item.due_date || 'No due date'}{overdue ? ' (overdue)' : ''}
+                        </span>
+                        <StatusBadge status={item.status} label={item.status?.replace('_', ' ')} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="steel-card p-5">
+              <h3 className="font-semibold mb-4 flex items-center gap-2">
+                <NotebookPen className="w-4 h-4 text-primary" /> Meeting Notes
+              </h3>
+              {meetingNotes.length === 0 ? (
+                <div className="text-center py-12">
+                  <NotebookPen className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">No meeting notes captured for this project yet — captured live from Meeting Mode's Project Review type.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {meetingNotes.map((note) => (
+                    <button
+                      key={note.id}
+                      type="button"
+                      onClick={() => setViewingNote(note)}
+                      className="w-full text-left p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-3 mb-1">
+                        <span className="text-sm font-medium">{note.meeting_date} — {(note.meeting_type || 'meeting').replace(/_/g, ' ')}</span>
+                        <span className="text-xs text-muted-foreground">{authorNameFor(note.author_id)}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground line-clamp-2">{note.note_body}</p>
+                      {(note.action_items || []).length > 0 && (
+                        <span className="inline-block mt-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{note.action_items.length} action item{note.action_items.length === 1 ? '' : 's'}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </TabsContent>
 
@@ -1020,6 +1118,21 @@ export default function ProjectDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <NoteDetailModal
+        open={!!viewingNote}
+        onOpenChange={(o) => !o && setViewingNote(null)}
+        note={viewingNote}
+        authorName={viewingNote ? authorNameFor(viewingNote.author_id) : ''}
+        employeesById={new Map(noteEmployees.map((e) => [e.id, e]))}
+        onOpenEmployee={setViewingEmployee}
+      />
+      <EmployeeDetailModal
+        open={!!viewingEmployee}
+        onOpenChange={(o) => !o && setViewingEmployee(null)}
+        employee={viewingEmployee}
+        certifications={noteCertifications}
+      />
     </div>
   );
 }

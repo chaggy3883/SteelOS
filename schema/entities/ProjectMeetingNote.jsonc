@@ -1,0 +1,45 @@
+{
+  "name": "ProjectMeetingNote",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "meeting_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "meeting_type": {
+      "type": "string",
+      "description": "Meeting Mode's meeting type id this note was captured under (e.g. 'project_review') — set automatically from the session, never typed."
+    },
+    "author_id": {
+      "type": "string",
+      "description": "User.id of whoever was logged in when the note was saved."
+    },
+    "note_body": {
+      "type": "string"
+    },
+    "action_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "owner_id": { "type": "string", "description": "employees.id" },
+          "due_date": { "type": "string", "format": "date" },
+          "status": { "type": "string", "enum": ["Open", "In_Progress", "Complete"], "default": "Open" }
+        }
+      },
+      "default": []
+    }
+  },
+  "required": [
+    "project_id",
+    "meeting_date",
+    "note_body"
+  ]
+}
