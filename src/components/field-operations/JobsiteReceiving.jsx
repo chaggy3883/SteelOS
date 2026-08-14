@@ -12,6 +12,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import { scanValueMatches } from '@/lib/pieceScan';
 import PieceDetailModal from '@/components/shipping/PieceDetailModal';
+import { logStatusChange } from '@/lib/statusHistory';
+import { useAuth } from '@/lib/AuthContext';
 
 const ITEM_TYPES = ['Piece_Mark', 'Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
 
@@ -23,6 +25,7 @@ const ITEM_TYPES = ['Piece_Mark', 'Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
 // they're actually found on site, regardless of load status.
 export default function JobsiteReceiving() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [loads, setLoads] = useState([]);
@@ -116,6 +119,14 @@ export default function JobsiteReceiving() {
     const linked = pieceByPieceMarkId.get(pm.id);
     if (!linked) return;
     await db.entities.pieces.update(linked.id, { field_status: 'On_Site' });
+    await logStatusChange({
+      entityType: 'pieces',
+      entityId: linked.id,
+      fieldName: 'field_status',
+      fromValue: linked.field_status,
+      toValue: 'On_Site',
+      changedBy: user?.full_name || user?.email || 'Unknown',
+    });
     await loadAll(selectedProjectId);
     toast({ title: `${pm.part_number || pm.piece_mark} received on site` });
   };
@@ -124,6 +135,15 @@ export default function JobsiteReceiving() {
     const linked = pieceByPieceMarkId.get(pm.id);
     if (!linked) return;
     await db.entities.pieces.update(linked.id, { field_status: 'In_Shop' });
+    await logStatusChange({
+      entityType: 'pieces',
+      entityId: linked.id,
+      fieldName: 'field_status',
+      fromValue: linked.field_status,
+      toValue: 'In_Shop',
+      changedBy: user?.full_name || user?.email || 'Unknown',
+      note: 'Check-in undone.',
+    });
     await loadAll(selectedProjectId);
     toast({ title: `${pm.part_number || pm.piece_mark} check-in undone` });
   };

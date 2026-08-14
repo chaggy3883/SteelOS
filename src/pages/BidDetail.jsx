@@ -27,6 +27,9 @@ import { getEffectiveCompany } from '@/lib/tenantContext';
 import { getBidHoldDays } from '@/lib/bidPricingHold';
 import BidPricingHoldBadge from '@/components/estimating/BidPricingHoldBadge';
 import BidPricingHoldModal from '@/components/estimating/BidPricingHoldModal';
+import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
+import { logStatusChange } from '@/lib/statusHistory';
+import { useAuth } from '@/lib/AuthContext';
 
 const LOSS_REASONS = [
   { value: 'price', label: 'Price — Too High' },
@@ -43,10 +46,12 @@ export default function BidDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [bid, setBid] = useState(null);
   const [loading, setLoading] = useState(true);
   const [bidHoldDays, setBidHoldDays] = useState(() => getBidHoldDays(null));
   const [showPricingHold, setShowPricingHold] = useState(false);
+  const [showStatusHistory, setShowStatusHistory] = useState(false);
   const [activeTab, setActiveTab] = useState(location.state?.tab || 'files');
   const [showLossForm, setShowLossForm] = useState(false);
   const [showDnbModal, setShowDnbModal] = useState(false);
@@ -199,7 +204,16 @@ export default function BidDetail() {
 
   const updateBidStatus = async (status) => {
     try {
+      const fromStatus = bid?.status;
       const updated = await db.entities.Bid.update(id, { status });
+      await logStatusChange({
+        entityType: 'Bid',
+        entityId: id,
+        fieldName: 'status',
+        fromValue: fromStatus,
+        toValue: status,
+        changedBy: user?.full_name || user?.email || 'Unknown',
+      });
       if (status === 'lost') {
         setShowLossForm(true);
       } else if (status === 'won') {
@@ -371,7 +385,9 @@ export default function BidDetail() {
         subtitle={`${bid.bid_number} · ${bid.customer_name} · ${bid.general_contractor_name || 'GC TBD'}`}
         actions={
           <div className="flex items-center gap-2">
-            <StatusBadge status={bid.status} />
+            <button type="button" onClick={() => setShowStatusHistory(true)}>
+              <StatusBadge status={bid.status} />
+            </button>
             <BidPricingHoldBadge bid={bid} holdDays={bidHoldDays} onClick={() => setShowPricingHold(true)} />
             <Button size="sm" onClick={handleSaveEstimate} disabled={savingEstimate} className="steel-gradient text-white border-0">
               {savingEstimate ? 'Saving…' : 'Save Estimate'}
@@ -558,7 +574,17 @@ export default function BidDetail() {
         onOpenChange={setShowDnbModal}
         bidId={id}
         bidLabel={bid.job_name}
+        fromStatus={bid.status}
         onSaved={() => loadBid()}
+      />
+
+      <StatusHistoryModal
+        open={showStatusHistory}
+        onOpenChange={setShowStatusHistory}
+        entityType="Bid"
+        entityId={id}
+        fieldName="status"
+        title={`Bid Status — ${bid.bid_number}`}
       />
 
       <PdfViewerModal

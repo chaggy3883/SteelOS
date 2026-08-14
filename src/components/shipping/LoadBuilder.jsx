@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
+import { logStatusChange } from '@/lib/statusHistory';
+import { useAuth } from '@/lib/AuthContext';
 
 const emptyLoadForm = () => ({ project_id: '', carrier_vendor_id: '', max_weight_capacity_lbs: 45000 });
 
@@ -22,6 +24,7 @@ const nextLoadNumber = (loads) => {
 
 export default function LoadBuilder({ pieces, loads, loadItems, carriers, projects, pieceMarks = [], onReload, onViewLoad, onViewPiece }) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [selectedLoadId, setSelectedLoadId] = useState(loads[0]?.id || null);
   const [showNewLoadForm, setShowNewLoadForm] = useState(false);
   const [newLoadForm, setNewLoadForm] = useState(emptyLoadForm());
@@ -90,6 +93,15 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
         max_weight_capacity_lbs: Number(newLoadForm.max_weight_capacity_lbs) || 45000,
         is_overweight_permit_authorized: false,
       });
+      await logStatusChange({
+        entityType: 'loads',
+        entityId: created.id,
+        fieldName: 'status',
+        fromValue: null,
+        toValue: 'Draft',
+        changedBy: user?.full_name || user?.email || 'Unknown',
+        note: 'Load created.',
+      });
       await onReload();
       setSelectedLoadId(created.id);
       setShowNewLoadForm(false);
@@ -118,10 +130,21 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
         sequence_number: nextSeq,
         status: 'Staged',
       });
+      const nextStatus = selectedLoad.status === 'Draft' ? 'Staged' : selectedLoad.status;
       await db.entities.loads.update(selectedLoad.id, {
         total_weight_lbs: currentLoadWeight + (piece.weight || 0),
-        status: selectedLoad.status === 'Draft' ? 'Staged' : selectedLoad.status,
+        status: nextStatus,
       });
+      if (nextStatus !== selectedLoad.status) {
+        await logStatusChange({
+          entityType: 'loads',
+          entityId: selectedLoad.id,
+          fieldName: 'status',
+          fromValue: selectedLoad.status,
+          toValue: nextStatus,
+          changedBy: user?.full_name || user?.email || 'Unknown',
+        });
+      }
       await onReload();
       toast({ title: `${piece.piece_mark} staged on ${selectedLoad.load_number_id}` });
     } catch (e) {

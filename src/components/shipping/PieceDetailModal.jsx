@@ -4,6 +4,7 @@ import { db } from '@/api/apiClient';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import StatusBadge from '@/components/ui/StatusBadge';
+import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import { Loader2 } from 'lucide-react';
 
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : null);
@@ -21,6 +22,7 @@ export default function PieceDetailModal({ open, onOpenChange, pieceMarkId, piec
   const [piece, setPiece] = useState(null);
   const [project, setProject] = useState(null);
   const [load, setLoad] = useState(null);
+  const [historyField, setHistoryField] = useState(null);
 
   useEffect(() => {
     if (!open || (!pieceMarkId && !pieceId)) return;
@@ -81,8 +83,8 @@ export default function PieceDetailModal({ open, onOpenChange, pieceMarkId, piec
     ['Weight', (pieceMark?.weight_lbs || piece?.weight) ? `${(pieceMark?.weight_lbs || piece?.weight).toLocaleString()} lbs` : null],
     ['Material', pieceMark?.material_grade || piece?.material_shape],
     ['Phase', pieceMark?.phase],
-    ['Workflow Status (Shop)', piece?.workflow_status?.replace(/_/g, ' ')],
-    ['Field Status', piece?.field_status?.replace(/_/g, ' ')],
+    ['Workflow Status (Shop)', piece?.workflow_status, 'workflow_status'],
+    ['Field Status', piece?.field_status, 'field_status'],
     ['Drawing Number', pieceMark?.drawing_number],
     ['Heat Number', pieceMark?.heat_number],
     ['QR Payload', piece?.qr_payload_string],
@@ -119,10 +121,16 @@ export default function PieceDetailModal({ open, onOpenChange, pieceMarkId, piec
             )}
 
             <div className="space-y-1.5 text-sm">
-              {rows.map(([label, value]) => (
+              {rows.map(([label, value, fieldName]) => (
                 <div key={label} className="flex justify-between gap-3 border-b border-border/50 py-1 last:border-0">
                   <span className="text-muted-foreground">{label}</span>
-                  <span className="font-medium text-right">{value}</span>
+                  {fieldName ? (
+                    <button type="button" onClick={() => setHistoryField(fieldName)}>
+                      <StatusBadge status={value} label={String(value).replace(/_/g, ' ')} />
+                    </button>
+                  ) : (
+                    <span className="font-medium text-right">{value}</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -136,6 +144,14 @@ export default function PieceDetailModal({ open, onOpenChange, pieceMarkId, piec
           </DialogFooter>
         )}
       </DialogContent>
+      <StatusHistoryModal
+        open={!!historyField}
+        onOpenChange={(o) => !o && setHistoryField(null)}
+        entityType="pieces"
+        entityId={piece?.id}
+        fieldName={historyField}
+        title={`${mark || 'Piece'} — ${historyField === 'field_status' ? 'Field Status' : 'Workflow Status'} History`}
+      />
     </Dialog>
   );
 }

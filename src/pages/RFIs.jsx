@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { generateDelayImpactNoticePDF } from '@/lib/delayNoticePdf';
 import { useAuth } from '@/lib/AuthContext';
+import { logStatusChange } from '@/lib/statusHistory';
+import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 
 // RFI status lifecycle: draft -> submitted -> answered -> closed, with a
 // void branch reachable from any active state and a reopen path back out of
@@ -196,12 +198,20 @@ export default function RFIs() {
     try {
       const rfiCount = rfis.filter(r => r.project_id === form.project_id).length + 1;
       const createdAt = new Date().toISOString();
-      await db.entities.RFI.create({
+      const created = await db.entities.RFI.create({
         ...form,
         rfi_number: `RFI-${String(rfiCount).padStart(3,'0')}`,
         status: 'draft',
         date_submitted: createdAt.split('T')[0],
-        status_history: [{ from: null, to: 'draft', changed_by: user?.full_name || user?.email || 'Unknown', changed_at: createdAt, note: 'RFI created.' }],
+      });
+      await logStatusChange({
+        entityType: 'RFI',
+        entityId: created.id,
+        fieldName: 'status',
+        fromValue: null,
+        toValue: 'draft',
+        changedBy: user?.full_name || user?.email || 'Unknown',
+        note: 'RFI created.',
       });
       toast({ title: 'RFI created!' });
       setOpen(false);
@@ -349,22 +359,22 @@ Draft the response now.`;
     setSavingStatusChange(true);
     try {
       const changedAt = new Date().toISOString();
-      const historyEntry = {
-        from: selectedRfi.status,
-        to: statusChangeForm.to,
-        changed_by: user?.full_name || user?.email || 'Unknown',
-        changed_at: changedAt,
-        note: statusChangeForm.note.trim(),
-      };
-      const payload = {
-        status: statusChangeForm.to,
-        status_history: [...(selectedRfi.status_history || []), historyEntry],
-      };
+      const fromStatus = selectedRfi.status;
+      const payload = { status: statusChangeForm.to };
       if (statusChangeForm.to === 'answered') {
         payload.response = statusChangeForm.response.trim();
         payload.date_answered = changedAt.split('T')[0];
       }
       const updated = await db.entities.RFI.update(selectedRfi.id, payload);
+      await logStatusChange({
+        entityType: 'RFI',
+        entityId: selectedRfi.id,
+        fieldName: 'status',
+        fromValue: fromStatus,
+        toValue: statusChangeForm.to,
+        changedBy: user?.full_name || user?.email || 'Unknown',
+        note: statusChangeForm.note.trim(),
+      });
       setRfis(prev => prev.map(r => r.id === selectedRfi.id ? updated : r));
       setSelectedRfi(updated);
       setChangingStatus(false);
@@ -777,40 +787,14 @@ Draft the response now.`;
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!historyRfi} onOpenChange={(o) => !o && setHistoryRfi(null)}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto">
-          {historyRfi && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <span className="font-mono text-primary">{historyRfi.rfi_number}</span>
-                  <span className="text-sm text-muted-foreground font-normal">Status History</span>
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3">
-                {(historyRfi.status_history || []).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No status changes recorded yet.</p>
-                ) : (
-                  [...historyRfi.status_history].reverse().map((entry, i) => (
-                    <div key={i} className="p-3 rounded-lg border border-border">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        {entry.from && <StatusBadge status={entry.from} label={RFI_STATUS_LABELS[entry.from] || entry.from} />}
-                        {entry.from && <span className="text-xs text-muted-foreground">→</span>}
-                        <StatusBadge status={entry.to} label={RFI_STATUS_LABELS[entry.to] || entry.to} />
-                      </div>
-                      <p className="text-xs text-muted-foreground">{entry.changed_by} • {new Date(entry.changed_at).toLocaleString()}</p>
-                      {entry.note && <p className="text-sm mt-1 whitespace-pre-wrap">{entry.note}</p>}
-                    </div>
-                  ))
-                )}
-              </div>
-              <div className="flex justify-end pt-2">
-                <Button variant="outline" onClick={() => setHistoryRfi(null)}>Close</Button>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <StatusHistoryModal
+        open={!!historyRfi}
+        onOpenChange={(o) => !o && setHistoryRfi(null)}
+        entityType="RFI"
+        entityId={historyRfi?.id}
+        fieldName="status"
+        title={historyRfi ? `${historyRfi.rfi_number} — Status History` : 'Status History'}
+      />
     </div>
   );
 }

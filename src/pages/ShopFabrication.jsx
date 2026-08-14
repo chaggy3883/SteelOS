@@ -12,6 +12,7 @@ import { sortPiecesByPriority, hasActiveOverride } from '@/lib/shopOpsMetrics';
 import { matchPieceByScan } from '@/lib/pieceScan';
 import { LABEL_STOCK_SIZES, buildZplPayload } from '@/lib/zplLabels';
 import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelSheet';
+import { logStatusChange } from '@/lib/statusHistory';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
   CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer,
@@ -252,8 +253,17 @@ export default function ShopFabrication() {
 
   const requestInspection = async () => {
     if (!selectedPiece) return;
+    const fromStatus = selectedPiece.workflow_status;
     const updated = await db.entities.pieces.update(selectedPiece.id, { workflow_status: 'Inspector_Queue' });
     setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    await logStatusChange({
+      entityType: 'pieces',
+      entityId: selectedPiece.id,
+      fieldName: 'workflow_status',
+      fromValue: fromStatus,
+      toValue: 'Inspector_Queue',
+      changedBy: employeeId,
+    });
     toast({ title: 'Sent to Inspector Queue', description: 'Workspace frozen pending approval.' });
   };
 
@@ -274,6 +284,15 @@ export default function ShopFabrication() {
       inspected_at: new Date().toISOString(),
     });
     setQaInspections((prev) => [created, ...prev]);
+    await logStatusChange({
+      entityType: 'qa_inspections',
+      entityId: created.id,
+      fieldName: 'status',
+      fromValue: null,
+      toValue: status,
+      changedBy: employeeId,
+      note: qaNotes,
+    });
 
     let nextWorkflowStatus;
     if (stage === '1_Layout') {
@@ -281,8 +300,18 @@ export default function ShopFabrication() {
     } else {
       nextWorkflowStatus = status === 'Approved' ? 'Paint_Unlocked' : 'Weld_Unlocked';
     }
+    const fromWorkflowStatus = selectedPiece.workflow_status;
     const updatedPiece = await db.entities.pieces.update(selectedPiece.id, { workflow_status: nextWorkflowStatus });
     setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
+    await logStatusChange({
+      entityType: 'pieces',
+      entityId: selectedPiece.id,
+      fieldName: 'workflow_status',
+      fromValue: fromWorkflowStatus,
+      toValue: nextWorkflowStatus,
+      changedBy: employeeId,
+      note: `${stage.replace('_', ' ')} ${status}`,
+    });
     setStampCredentials('');
     setQaNotes('');
     toast({ title: `${stage.replace('_', ' ')} ${status}` });

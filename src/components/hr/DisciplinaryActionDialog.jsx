@@ -13,6 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import FileDropzone from '@/components/ui/FileDropzone';
 import { useToast } from '@/components/ui/use-toast';
+import { logStatusChange } from '@/lib/statusHistory';
+import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
+import { useAuth } from '@/lib/AuthContext';
 
 export const ACTION_LEVELS = [
   { value: 'verbal_warning', label: 'Verbal Warning' },
@@ -67,9 +70,11 @@ const formFromRecord = (record) => ({
 // Editable until signed_filed; locked (read-only) after that.
 export default function DisciplinaryActionDialog({ open, onOpenChange, employees = [], defaultEmployeeId = '', record = null, onSaved }) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [company, setCompany] = useState(null);
   const [form, setForm] = useState(emptyForm(defaultEmployeeId));
   const [savedRecord, setSavedRecord] = useState(record);
+  const [showStatusHistory, setShowStatusHistory] = useState(false);
   const [priorActions, setPriorActions] = useState([]);
   const [expandedPriorId, setExpandedPriorId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -129,9 +134,21 @@ export default function DisciplinaryActionDialog({ open, onOpenChange, employees
 
   const persist = async (statusOverride) => {
     const payload = buildPayload();
+    const fromStatus = savedRecord?.status;
+    const toStatus = statusOverride || fromStatus || 'draft';
     const result = savedRecord
       ? await db.entities.DisciplinaryAction.update(savedRecord.id, { ...payload, ...(statusOverride ? { status: statusOverride } : {}) })
-      : await db.entities.DisciplinaryAction.create({ ...payload, status: statusOverride || 'draft', signed_document: null });
+      : await db.entities.DisciplinaryAction.create({ ...payload, status: toStatus, signed_document: null });
+    if (!savedRecord || (statusOverride && statusOverride !== fromStatus)) {
+      await logStatusChange({
+        entityType: 'DisciplinaryAction',
+        entityId: result.id,
+        fieldName: 'status',
+        fromValue: savedRecord ? fromStatus : null,
+        toValue: toStatus,
+        changedBy: user?.full_name || user?.email || 'Unknown',
+      });
+    }
     setSavedRecord(result);
     onSaved?.(result);
     return result;
@@ -179,7 +196,17 @@ export default function DisciplinaryActionDialog({ open, onOpenChange, employees
         size: signedFile.size,
         uploadDate: new Date().toISOString(),
       };
+      const fromStatus = savedRecord.status;
       const updated = await db.entities.DisciplinaryAction.update(savedRecord.id, { signed_document, status: 'signed_filed' });
+      await logStatusChange({
+        entityType: 'DisciplinaryAction',
+        entityId: savedRecord.id,
+        fieldName: 'status',
+        fromValue: fromStatus,
+        toValue: 'signed_filed',
+        changedBy: user?.full_name || user?.email || 'Unknown',
+        note: `Signed copy filed: ${signed_document.filename}.`,
+      });
       setSavedRecord(updated);
       onSaved?.(updated);
       setSignedFile(null);
@@ -219,7 +246,11 @@ export default function DisciplinaryActionDialog({ open, onOpenChange, employees
         <DialogHeader className="print:hidden">
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             <span>Disciplinary Action</span>
-            {savedRecord && <Badge className={STATUS_COLORS[savedRecord.status]}>{STATUS_LABELS[savedRecord.status] || savedRecord.status}</Badge>}
+            {savedRecord && (
+              <button type="button" onClick={() => setShowStatusHistory(true)}>
+                <Badge className={STATUS_COLORS[savedRecord.status]}>{STATUS_LABELS[savedRecord.status] || savedRecord.status}</Badge>
+              </button>
+            )}
             {isLocked && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Lock className="w-3 h-3" />Locked</span>}
           </DialogTitle>
         </DialogHeader>
@@ -420,6 +451,14 @@ export default function DisciplinaryActionDialog({ open, onOpenChange, employees
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
       </DialogContent>
+      <StatusHistoryModal
+        open={showStatusHistory}
+        onOpenChange={setShowStatusHistory}
+        entityType="DisciplinaryAction"
+        entityId={savedRecord?.id}
+        fieldName="status"
+        title="Disciplinary Action — Status History"
+      />
     </Dialog>
   );
 }

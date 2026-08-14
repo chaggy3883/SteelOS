@@ -16,10 +16,11 @@ import BidPricingHoldModal from '@/components/estimating/BidPricingHoldModal';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { getBidHoldDays, getBidPricingHoldState } from '@/lib/bidPricingHold';
 import { useClickOutside } from '@/hooks/useClickOutside';
+import { logStatusChange } from '@/lib/statusHistory';
+import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
+import { useAuth } from '@/lib/AuthContext';
 
 const BID_STATUSES = ['draft', 'in_progress', 'submitted', 'won', 'lost', 'cancelled', 'Did_Not_Bid'];
-
-const formatDate = (d) => d ? new Date(d).toLocaleDateString() : null;
 
 const WIDGETS = [
   { key: 'bidList', label: 'Bid List', icon: ListChecks, description: 'Active bids table' },
@@ -31,6 +32,7 @@ const WIDGETS = [
 
 export default function Estimating() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const customerFilterId = searchParams.get('customer');
@@ -104,6 +106,7 @@ export default function Estimating() {
     }
     setSavingEdit(true);
     try {
+      const fromStatus = editingBid.status;
       await db.entities.Bid.update(editingBid.id, {
         job_name: editForm.job_name,
         customer_name: editForm.customer_name,
@@ -111,6 +114,16 @@ export default function Estimating() {
         status: editForm.status,
         tags: editForm.tags.split(',').map(t => t.trim()).filter(Boolean),
       });
+      if (editForm.status !== fromStatus) {
+        await logStatusChange({
+          entityType: 'Bid',
+          entityId: editingBid.id,
+          fieldName: 'status',
+          fromValue: fromStatus,
+          toValue: editForm.status,
+          changedBy: user?.full_name || user?.email || 'Unknown',
+        });
+      }
       toast({ title: 'Bid updated' });
       setEditingBid(null);
       loadData();
@@ -466,6 +479,7 @@ export default function Estimating() {
         onOpenChange={setShowDnbModal}
         bidId={editingBid?.id}
         bidLabel={editingBid?.job_name}
+        fromStatus={editingBid?.status}
         onSaved={() => { setEditingBid(null); loadData(); }}
       />
 
@@ -519,59 +533,32 @@ export default function Estimating() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!statusBid} onOpenChange={(open) => !open && setStatusBid(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Bid Status — {statusBid?.bid_number}</DialogTitle>
-          </DialogHeader>
-          {statusBid && (() => {
-            const rows = [
-              ['Status', statusBid.status.replace(/_/g, ' ')],
-              ['Created', formatDate(statusBid.created_date)],
-              ['Bid Due Date', formatDate(statusBid.bid_due_date)],
-              ['Front End Review', statusBid.front_end_review_status?.replace(/_/g, ' ')],
-              ...(statusBid.status === 'lost' ? [
-                ['Loss Reason', statusBid.loss_reason?.replace(/_/g, ' ')],
-                ['Loss Notes', statusBid.loss_reason_notes],
-                ['Competitor', statusBid.competitor_name],
-              ] : []),
-              ...(statusBid.status === 'Did_Not_Bid' ? [
-                ['DNB Reason', statusBid.dnb_reason?.replace(/_/g, ' ')],
-                ['DNB Notes', statusBid.dnb_reason_notes],
-              ] : []),
-              ['Notes', statusBid.notes],
-            ];
-            return (
-              <div className="space-y-2">
-                {rows.map(([label, value]) => (
-                  <div key={label} className="grid grid-cols-3 gap-2 text-sm border-b border-border/50 pb-2">
-                    <span className="text-muted-foreground">{label}</span>
-                    <span className="col-span-2 font-medium whitespace-pre-wrap break-words">{value || '—'}</span>
-                  </div>
-                ))}
-                {statusBid.status === 'won' && statusBid.won_project_id && (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => { const id = statusBid.won_project_id; setStatusBid(null); navigate(`/projects/${id}`); }}
-                  >
-                    View Won Project
-                  </Button>
-                )}
-              </div>
-            );
-          })()}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setStatusBid(null)}>Close</Button>
+      <StatusHistoryModal
+        open={!!statusBid}
+        onOpenChange={(open) => !open && setStatusBid(null)}
+        entityType="Bid"
+        entityId={statusBid?.id}
+        fieldName="status"
+        title={`Bid Status — ${statusBid?.bid_number}`}
+        footer={statusBid && (
+          <>
+            {statusBid.status === 'won' && statusBid.won_project_id && (
+              <Button
+                variant="outline"
+                onClick={() => { const projectId = statusBid.won_project_id; setStatusBid(null); navigate(`/projects/${projectId}`); }}
+              >
+                View Won Project
+              </Button>
+            )}
             <Button
               className="steel-gradient text-white border-0"
-              onClick={() => { const id = statusBid.id; setStatusBid(null); navigate(`/estimating/${id}`); }}
+              onClick={() => { const bidId = statusBid.id; setStatusBid(null); navigate(`/estimating/${bidId}`); }}
             >
               View Full Bid
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        )}
+      />
 
       <BidPricingHoldModal
         bid={pricingHoldBid}

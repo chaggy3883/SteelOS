@@ -101,6 +101,7 @@ const createLocalApi = () => ({
     ReviewChecklistItem: createEntityApi('ReviewChecklistItem'),
     ShopFloorZone: createEntityApi('ShopFloorZone'),
     SovLine: createEntityApi('SovLine'),
+    StatusHistoryEntry: createEntityApi('StatusHistoryEntry'),
     StatutoryNotice: createEntityApi('StatutoryNotice'),
     Submittal: createEntityApi('Submittal'),
     SystemSetting: createEntityApi('SystemSetting'),

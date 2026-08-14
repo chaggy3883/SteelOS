@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 
 const STATUS_STYLES = {
   Draft: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
@@ -28,6 +29,7 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
   const [project, setProject] = useState(null);
   const [carrier, setCarrier] = useState(null);
   const [manifest, setManifest] = useState(null);
+  const [showStatusHistory, setShowStatusHistory] = useState(false);
 
   useEffect(() => {
     if (!open || !loadId) return;
@@ -82,9 +84,11 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 flex-wrap">
                 <span>{load.load_number_id}</span>
-                <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border', STATUS_STYLES[load.status] || STATUS_STYLES.Draft)}>
-                  {(load.status || 'Draft').replace(/_/g, ' ')}
-                </span>
+                <button type="button" onClick={() => setShowStatusHistory(true)}>
+                  <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border', STATUS_STYLES[load.status] || STATUS_STYLES.Draft)}>
+                    {(load.status || 'Draft').replace(/_/g, ' ')}
+                  </span>
+                </button>
               </DialogTitle>
             </DialogHeader>
 
@@ -186,6 +190,14 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
           </DialogFooter>
         )}
       </DialogContent>
+      <StatusHistoryModal
+        open={showStatusHistory}
+        onOpenChange={setShowStatusHistory}
+        entityType="loads"
+        entityId={load?.id}
+        fieldName="status"
+        title={`${load?.load_number_id || 'Load'} — Status History`}
+      />
     </Dialog>
   );
 }

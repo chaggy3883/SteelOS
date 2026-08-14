@@ -6,6 +6,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { AlertTriangle } from 'lucide-react';
+import { logStatusChange } from '@/lib/statusHistory';
+import { useAuth } from '@/lib/AuthContext';
 
 const DNB_REASONS = [
   { value: 'not_enough_time_to_bid', label: 'Not enough time to Bid' },
@@ -15,8 +17,9 @@ const DNB_REASONS = [
   { value: 'other', label: 'Other' },
 ];
 
-export default function DNBReasonModal({ open, onOpenChange, bidId, bidLabel, onSaved }) {
+export default function DNBReasonModal({ open, onOpenChange, bidId, bidLabel, fromStatus, onSaved }) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -44,6 +47,15 @@ export default function DNBReasonModal({ open, onOpenChange, bidId, bidLabel, on
         status: 'Did_Not_Bid',
         dnb_reason: reason,
         dnb_reason_notes: reason === 'other' ? notes.trim() : '',
+      });
+      await logStatusChange({
+        entityType: 'Bid',
+        entityId: bidId,
+        fieldName: 'status',
+        fromValue: fromStatus,
+        toValue: 'Did_Not_Bid',
+        changedBy: user?.full_name || user?.email || 'Unknown',
+        note: `DNB reason: ${DNB_REASONS.find((r) => r.value === reason)?.label || reason}${notes.trim() ? ` — ${notes.trim()}` : ''}`,
       });
       toast({ title: 'Marked Did Not Bid' });
       handleClose(false);

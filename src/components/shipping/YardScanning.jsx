@@ -10,12 +10,16 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { LABEL_STOCK_SIZES, buildZplPayload } from '@/lib/zplLabels';
 import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelSheet';
+import { logStatusChange } from '@/lib/statusHistory';
+import { useAuth } from '@/lib/AuthContext';
 
 const TRAILER_TYPES = ['Flatbed', 'Drop_Deck', 'Stretch', 'Step_Deck'];
 const emptyManifestForm = () => ({ driver_name: '', driver_phone: '', trailer_type: 'Flatbed', license_plate: '' });
 
 export default function YardScanning({ pieces, loads, loadItems, manifests, onReload, onViewLoad, onViewPiece, onViewManifest }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const changedBy = user?.full_name || user?.email || 'Unknown';
   const [selectedLoadId, setSelectedLoadId] = useState(loads[0]?.id || null);
   const [scanValue, setScanValue] = useState('');
   const [showManifestForm, setShowManifestForm] = useState(false);
@@ -73,6 +77,14 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
         delivery_ticket_file_uri: '',
       });
       await db.entities.loads.update(selectedLoad.id, { status: 'In_Transit' });
+      await logStatusChange({
+        entityType: 'loads',
+        entityId: selectedLoad.id,
+        fieldName: 'status',
+        fromValue: selectedLoad.status,
+        toValue: 'In_Transit',
+        changedBy,
+      });
       await onReload();
       setShowManifestForm(false);
       setManifestForm(emptyManifestForm());
@@ -91,7 +103,25 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
       return;
     }
     await db.entities.loads.update(selectedLoad.id, { status: 'Delivered' });
-    await Promise.all(items.filter((i) => i.status !== 'Field_Rejected').map((i) => db.entities.pieces.update(i.piece_id, { field_status: 'On_Site' })));
+    await logStatusChange({
+      entityType: 'loads',
+      entityId: selectedLoad.id,
+      fieldName: 'status',
+      fromValue: selectedLoad.status,
+      toValue: 'Delivered',
+      changedBy,
+    });
+    const deliveredItems = items.filter((i) => i.status !== 'Field_Rejected');
+    await Promise.all(deliveredItems.map((i) => db.entities.pieces.update(i.piece_id, { field_status: 'On_Site' })));
+    await Promise.all(deliveredItems.map((i) => logStatusChange({
+      entityType: 'pieces',
+      entityId: i.piece_id,
+      fieldName: 'field_status',
+      fromValue: i.piece?.field_status,
+      toValue: 'On_Site',
+      changedBy,
+      note: `Delivered on load ${selectedLoad.load_number_id}.`,
+    })));
     await onReload();
     toast({ title: `${selectedLoad.load_number_id} delivered`, description: 'Linked pieces marked On-Site.' });
     setScanValue('');
@@ -100,6 +130,15 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
   const rejectItem = async (item) => {
     await db.entities.load_items.update(item.id, { status: 'Field_Rejected' });
     await db.entities.loads.update(selectedLoad.id, { status: 'Field_Issue' });
+    await logStatusChange({
+      entityType: 'loads',
+      entityId: selectedLoad.id,
+      fieldName: 'status',
+      fromValue: selectedLoad.status,
+      toValue: 'Field_Issue',
+      changedBy,
+      note: `${item.piece?.piece_mark || 'Item'} flagged as field-rejected.`,
+    });
     await onReload();
     toast({ title: `${item.piece?.piece_mark} flagged as field-rejected`, variant: 'destructive' });
   };

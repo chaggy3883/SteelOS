@@ -1,0 +1,48 @@
+{
+  "name": "StatusHistoryEntry",
+  "type": "object",
+  "description": "Generic append-only status-change log shared by every entity that has a status/workflow_status/field_status field, instead of each entity rolling its own bespoke history array. Written via src/lib/statusHistory.js's logStatusChange() and read via StatusHistoryModal.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "entity_type": {
+      "type": "string",
+      "description": "The record type this entry belongs to, e.g. \"Bid\", \"RFI\", \"Project\", \"pieces\", \"qa_inspections\", \"DisciplinaryAction\", \"loads\"."
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "id of the record in entity_type whose field changed."
+    },
+    "field_name": {
+      "type": "string",
+      "description": "Which status field changed — most entities only ever log one (e.g. \"status\"), but some have several (pieces logs both \"workflow_status\" and \"field_status\")."
+    },
+    "from_value": {
+      "type": "string",
+      "description": "Previous value, or null for the entry logged at record creation."
+    },
+    "to_value": {
+      "type": "string"
+    },
+    "changed_by": {
+      "type": "string",
+      "description": "Display name/email of whoever made the change, or \"System\" for automated transitions."
+    },
+    "changed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "note": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "required": [
+    "entity_type",
+    "entity_id",
+    "field_name",
+    "to_value",
+    "changed_at"
+  ]
+}

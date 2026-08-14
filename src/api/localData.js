@@ -1976,6 +1976,103 @@ const migrateLegacyShippingLoads = (migrated) => {
   migrated.shipping_loads = [];
 };
 
+// Generic backfill for the shared StatusHistoryEntry log (src/lib/
+// statusHistory.js, StatusHistoryModal) — every entity below writes its
+// status changes there now instead of a bespoke per-entity history. Runs on
+// every load but is idempotent per record: a record is only ever backfilled
+// once, since after that its (entity_type, entity_id, field_name) already
+// has a StatusHistoryEntry row and the guard below skips it on every
+// subsequent call.
+const STATUS_HISTORY_BACKFILL_TARGETS = [
+  { entityKey: 'Bid', fieldName: 'status' },
+  { entityKey: 'Project', fieldName: 'status' },
+  { entityKey: 'pieces', fieldName: 'workflow_status' },
+  { entityKey: 'pieces', fieldName: 'field_status' },
+  { entityKey: 'DisciplinaryAction', fieldName: 'status', changedByField: 'supervisor_name' },
+  { entityKey: 'loads', fieldName: 'status' },
+  { entityKey: 'qa_inspections', fieldName: 'status', changedByField: 'inspector_id' },
+];
+
+const backfillStatusHistory = (migrated) => {
+  if (!Array.isArray(migrated.StatusHistoryEntry)) migrated.StatusHistoryEntry = [];
+  const history = migrated.StatusHistoryEntry;
+  const hasEntry = (entityType, entityId, fieldName) =>
+    history.some((h) => h.entity_type === entityType && h.entity_id === entityId && h.field_name === fieldName);
+  const pushEntry = (entry) => {
+    const changedAt = entry.changed_at || new Date().toISOString();
+    history.push({
+      id: createId(),
+      company_id: entry.company_id || '',
+      entity_type: entry.entity_type,
+      entity_id: entry.entity_id,
+      field_name: entry.field_name,
+      from_value: entry.from_value ?? null,
+      to_value: entry.to_value,
+      changed_by: entry.changed_by || 'Unknown',
+      changed_at: changedAt,
+      note: entry.note || '',
+      created_date: changedAt,
+      updated_date: changedAt,
+    });
+  };
+
+  // RFI predates this system and kept its own embedded status_history array
+  // (RFIs.jsx) with a real reconstructed trail for seeded/demo data
+  // (demoDataSeeder.js) — convert every real entry from that array instead
+  // of collapsing it to one synthetic line, so that fidelity isn't lost in
+  // the move to the shared system. Falls back to a single synthetic entry
+  // only for a row that somehow has neither. RFI itself carries no
+  // company_id (it predates tenant scoping too), so the best-effort source
+  // for one is its linked Project.
+  if (Array.isArray(migrated.RFI)) {
+    migrated.RFI.forEach((r) => {
+      if (hasEntry('RFI', r.id, 'status')) return;
+      const project = (migrated.Project || []).find((p) => p.id === r.project_id);
+      const companyId = project?.company_id || '';
+      const sourceEntries = Array.isArray(r.status_history) && r.status_history.length > 0
+        ? r.status_history
+        : [{
+          from: null,
+          to: r.status || 'draft',
+          changed_by: r.submitted_by || 'System',
+          changed_at: r.updated_date || r.created_date,
+          note: 'Backfilled — no history recorded before this point.',
+        }];
+      sourceEntries.forEach((entry) => pushEntry({
+        company_id: companyId,
+        entity_type: 'RFI',
+        entity_id: r.id,
+        field_name: 'status',
+        from_value: entry.from,
+        to_value: entry.to,
+        changed_by: entry.changed_by,
+        changed_at: entry.changed_at || r.created_date,
+        note: entry.note,
+      }));
+    });
+  }
+
+  STATUS_HISTORY_BACKFILL_TARGETS.forEach(({ entityKey, fieldName, changedByField }) => {
+    const rows = Array.isArray(migrated[entityKey]) ? migrated[entityKey] : [];
+    rows.forEach((record) => {
+      if (hasEntry(entityKey, record.id, fieldName)) return;
+      const value = record[fieldName];
+      if (value === undefined || value === null || value === '') return;
+      pushEntry({
+        company_id: record.company_id,
+        entity_type: entityKey,
+        entity_id: record.id,
+        field_name: fieldName,
+        from_value: null,
+        to_value: value,
+        changed_by: (changedByField && record[changedByField]) || 'System',
+        changed_at: record.updated_date || record.created_date,
+        note: 'Backfilled — no history recorded before this point.',
+      });
+    });
+  });
+};
+
 const migrateStore = (store) => {
   const seeded = buildSeedData();
   const migrated = { ...store };
@@ -2061,27 +2158,6 @@ const migrateStore = (store) => {
     });
   }
 
-  // RFI predates the status-change/audit-trail feature (RFIs.jsx), which
-  // reads status_history as an array and appends to it on every transition.
-  // Backfill a synthetic single-entry history on existing rows so it's never
-  // undefined — without this, .map()/.reverse() on an old record's history
-  // would throw the first time its status-history modal is opened.
-  if (Array.isArray(migrated.RFI)) {
-    migrated.RFI = migrated.RFI.map((r) => {
-      if (Array.isArray(r.status_history)) return r;
-      return {
-        ...r,
-        status_history: [{
-          from: null,
-          to: r.status || 'draft',
-          changed_by: r.submitted_by || 'System',
-          changed_at: r.updated_date || r.created_date || new Date().toISOString(),
-          note: 'Backfilled — no prior history recorded for this RFI.',
-        }],
-      };
-    });
-  }
-
   if (!Array.isArray(migrated.change_orders)) {
     migrated.change_orders = [...seeded.change_orders];
   }
@@ -2091,6 +2167,7 @@ const migrateStore = (store) => {
   }
 
   migrateLegacyShippingLoads(migrated);
+  backfillStatusHistory(migrated);
 
   return migrated;
 };
@@ -2251,7 +2328,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();

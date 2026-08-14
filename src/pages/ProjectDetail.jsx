@@ -21,6 +21,9 @@ import { getStatutoryDeadline } from '@/lib/lienStatutes';
 import { getOpenActionItems, isOverdue } from '@/lib/meetingNotes';
 import NoteDetailModal from '@/components/meeting-mode/NoteDetailModal';
 import EmployeeDetailModal from '@/components/meeting-mode/EmployeeDetailModal';
+import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
+import { logStatusChange } from '@/lib/statusHistory';
+import { useAuth } from '@/lib/AuthContext';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
 const emptyPartForm = () => ({
@@ -52,6 +55,8 @@ export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const [showStatusHistory, setShowStatusHistory] = useState(false);
   const [project, setProject] = useState(null);
   const [findings, setFindings] = useState([]);
   const [rfis, setRfis] = useState([]);
@@ -125,8 +130,17 @@ export default function ProjectDetail() {
   const handleMarkAwarded = async () => {
     setMarkingAwarded(true);
     try {
+      const fromStatus = project?.status;
       const updated = await db.entities.Project.update(id, { status: 'awarded' });
       setProject(updated);
+      await logStatusChange({
+        entityType: 'Project',
+        entityId: id,
+        fieldName: 'status',
+        fromValue: fromStatus,
+        toValue: 'awarded',
+        changedBy: user?.full_name || user?.email || 'Unknown',
+      });
 
       const workStartDate = updated.award_date || updated.start_date || new Date().toISOString().slice(0, 10);
       const { days, notice_type, deadlineDate } = getStatutoryDeadline(updated.state, workStartDate);
@@ -398,7 +412,9 @@ export default function ProjectDetail() {
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm text-muted-foreground font-mono">{project.project_number}</span>
-            <StatusBadge status={project.status} />
+            <button type="button" onClick={() => setShowStatusHistory(true)}>
+              <StatusBadge status={project.status} />
+            </button>
             <StatusBadge status={project.risk_level || 'low'} />
           </div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -1132,6 +1148,14 @@ export default function ProjectDetail() {
         onOpenChange={(o) => !o && setViewingEmployee(null)}
         employee={viewingEmployee}
         certifications={noteCertifications}
+      />
+      <StatusHistoryModal
+        open={showStatusHistory}
+        onOpenChange={setShowStatusHistory}
+        entityType="Project"
+        entityId={id}
+        fieldName="status"
+        title={`${project.project_number} — Status History`}
       />
     </div>
   );
