@@ -113,7 +113,11 @@ export function getStationBottlenecks(pieces, threshold = 50) {
 // exists for a station's pieces in the window, avgTargetMinutes/
 // dwellVariancePct are left null for it and only the headcount signal (via
 // headcountBottlenecks) can flag that station — a real limitation of the
-// current data model, not a bug.
+// current data model, not a bug. The join key is `${project_id}::${mark}`,
+// not piece_mark alone — piece_mark repeats legitimately across projects,
+// and both pieces/station_logs and piece_production_logs already carry
+// project_id, so scoping the key by it prevents one project's manually
+// logged target minutes from being attributed to another project's piece.
 //
 // headcountBottlenecks is the array returned by getStationBottlenecks —
 // passed in (rather than recomputed) so the two signals are merged into one
@@ -132,7 +136,7 @@ export function getStationDwellVariance(stationLogs, pieces, pieceProductionLogs
     bucket.actualMinutesSum += log.elapsed_minutes || 0;
     bucket.actualCount += 1;
     const piece = pieces.find((p) => p.id === log.piece_id);
-    if (piece?.piece_mark) bucket.pieceMarks.add(piece.piece_mark.trim().toLowerCase());
+    if (piece?.piece_mark) bucket.pieceMarks.add(`${piece.project_id || ''}::${piece.piece_mark.trim().toLowerCase()}`);
   });
 
   const targetsByPieceMark = {};
@@ -140,7 +144,7 @@ export function getStationDwellVariance(stationLogs, pieces, pieceProductionLogs
     if (log.status !== 'Complete' || !log.piece_mark) return;
     const target = normalizeTargetMinutes(log.target_minutes);
     if (target == null) return; // no target entered — must not drag the piece-mark average toward 0
-    const key = log.piece_mark.trim().toLowerCase();
+    const key = `${log.project_id || ''}::${log.piece_mark.trim().toLowerCase()}`;
     if (!targetsByPieceMark[key]) targetsByPieceMark[key] = [];
     targetsByPieceMark[key].push(target);
   });

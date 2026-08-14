@@ -3,6 +3,7 @@ import { getEffectiveCompany } from '@/lib/tenantContext';
 import { SHAPE_CATALOG } from '@/data/steelShapes';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { computeOvertimeForClockOut } from '@/lib/attendanceMath';
+import { generatePiecePayload } from '@/lib/qrSerialization';
 
 // shapeClass is accepted (and required by callers below for readability) but
 // unused here — SHAPE_CATALOG is keyed by material category (beams, columns,
@@ -760,6 +761,9 @@ export async function seedDemoData() {
           material_shape: group.shape,
           dimensions: group.dims[i - 1],
           weight: group.weights[i - 1],
+          // Globally unique independent of piece_mark (which repeats across
+          // projects by design) — see generatePiecePayload.
+          qr_payload_string: generatePiecePayload(projectId, pieceMark),
           ...stationMap[seedStatus],
         });
         statuses.push(seedStatus);

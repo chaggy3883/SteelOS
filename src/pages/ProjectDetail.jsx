@@ -19,11 +19,13 @@ import FileExplorer from '@/components/documents/FileExplorer';
 import { useToast } from '@/components/ui/use-toast';
 import { getStatutoryDeadline } from '@/lib/lienStatutes';
 import { getOpenActionItems, isOverdue } from '@/lib/meetingNotes';
+import { normalizeScanValue } from '@/lib/pieceScan';
 import NoteDetailModal from '@/components/meeting-mode/NoteDetailModal';
 import EmployeeDetailModal from '@/components/meeting-mode/EmployeeDetailModal';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
+import PieceMarkPdfIntake from '@/components/projects/PieceMarkPdfIntake';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
 const emptyPartForm = () => ({
@@ -235,6 +237,16 @@ export default function ProjectDetail() {
   const handleSavePart = async () => {
     if (!partForm.part_number.trim()) {
       toast({ title: 'Part number is required', variant: 'destructive' });
+      return;
+    }
+    // Piece marks/part numbers are only unique WITHIN a project — the same
+    // detailer part number legitimately repeats across jobs, so this must
+    // never check across projects. `pieces` here is already scoped to this
+    // project (PieceMark.filter({ project_id: id }) in loadAll), so a plain
+    // in-memory check is correctly (project_id, piece_mark) scoped.
+    const normalizedInput = normalizeScanValue(partForm.part_number);
+    if (pieces.some((p) => normalizeScanValue(p.piece_mark) === normalizedInput)) {
+      toast({ title: `Piece mark "${partForm.part_number.trim()}" already exists on this project`, variant: 'destructive' });
       return;
     }
     setSavingPart(true);
@@ -733,30 +745,7 @@ export default function ProjectDetail() {
                 <p className="text-sm text-muted-foreground">No pieces yet — import from Tekla or add manually</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
-                      <th className="text-left py-2 px-3">Piece Mark</th>
-                      <th className="text-left py-2 px-3">Assembly</th>
-                      <th className="text-left py-2 px-3">Grade</th>
-                      <th className="text-right py-2 px-3">Weight</th>
-                      <th className="text-left py-2 px-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pieces.map(p => (
-                      <tr key={p.id} className="border-b border-border/50 hover:bg-muted/50">
-                        <td className="py-2 px-3 font-mono font-medium">{p.piece_mark}</td>
-                        <td className="py-2 px-3 text-muted-foreground">{p.assembly || '—'}</td>
-                        <td className="py-2 px-3">{p.material_grade || '—'}</td>
-                        <td className="py-2 px-3 text-right">{p.weight_lbs ? `${p.weight_lbs} lbs` : '—'}</td>
-                        <td className="py-2 px-3"><StatusBadge status={p.status} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <PieceMarkPdfIntake pieces={pieces} phasingMode={phasingMode} />
             )}
           </div>
 

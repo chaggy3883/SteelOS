@@ -224,7 +224,11 @@ export default function ShopFloorCommandCenter() {
   const handleStationScan = async (stationId) => {
     const value = stationScanValue.trim();
     if (!value) return;
-    const piece = matchPieceByScan(pieces, value);
+    const { piece, ambiguous } = matchPieceByScan(pieces, value);
+    if (ambiguous) {
+      toast({ title: 'Multiple pieces match that piece mark', description: 'This piece mark exists on more than one project — scan the QR code instead of typing the piece mark.', variant: 'destructive' });
+      return;
+    }
     if (!piece) {
       toast({ title: 'No matching piece found', variant: 'destructive' });
       return;

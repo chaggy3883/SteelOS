@@ -162,7 +162,11 @@ export default function ShopFabrication() {
   };
 
   const handleScan = () => {
-    const found = matchPieceByScan(pieces, scanValue);
+    const { piece: found, ambiguous } = matchPieceByScan(pieces, scanValue);
+    if (ambiguous) {
+      toast({ title: 'Multiple pieces match that piece mark', description: 'This piece mark exists on more than one project — scan the QR code instead of typing the piece mark.', variant: 'destructive' });
+      return;
+    }
     if (!found) {
       toast({ title: 'Piece not found', variant: 'destructive' });
       return;

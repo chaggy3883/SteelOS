@@ -14,6 +14,7 @@ import PdfViewerModal from '@/components/shared/PdfViewerModal';
 import CallInspectionModal from '@/components/shipping/CallInspectionModal';
 import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
+import { matchPieceByScan } from '@/lib/pieceScan';
 
 const TRAILER_TYPES = ['Flatbed', 'Drop_Deck', 'Stretch', 'Step_Deck'];
 const emptyManifestForm = () => ({ driver_name: '', driver_phone: '', trailer_type: 'Flatbed', license_plate: '' });
@@ -57,8 +58,16 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, proj
 
   const handleScanToLoad = async () => {
     const value = scanValue.trim();
-    const piece = pieces.find((p) => p.qr_payload_string === value || p.piece_mark === value);
+    // `pieces` here spans every project (Shipping.jsx loads it unscoped) — a
+    // piece_mark-only match must be scoped to this load's own project, since
+    // the same detailer part number can legitimately exist on another job's
+    // load at the same time.
+    const { piece, ambiguous } = matchPieceByScan(pieces, value, selectedLoad?.project_id);
     const item = piece && items.find((i) => i.piece_id === piece.id && i.status !== 'Loaded');
+    if (ambiguous) {
+      toast({ title: 'Multiple pieces match that piece mark', description: 'Scan the QR code instead of typing the piece mark.', variant: 'destructive' });
+      return;
+    }
     if (!piece || !item) {
       toast({ title: 'Scan mismatch — blocked', description: 'This QR payload does not match a staged item on this load.', variant: 'destructive' });
       return;
