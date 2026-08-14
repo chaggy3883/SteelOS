@@ -3,12 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Search, FileText, Building2, FolderKanban, Calculator, X } from 'lucide-react';
 import { useClickOutside } from '@/hooks/useClickOutside';
+import { detectOS } from '@/lib/platformDetect';
 
 export default function GlobalSearchPalette() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState({ bids: [], customers: [], projects: [], documents: [] });
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  // Sync, one-time hint — only changes the displayed glyph (⌘K vs Ctrl K),
+  // never which keys the listener below actually accepts (both are always
+  // handled, regardless of what this guesses).
+  const [os] = useState(() => detectOS());
   const navigate = useNavigate();
   const inputRef = useRef(null);
   const panelRef = useRef(null);
@@ -79,7 +84,7 @@ export default function GlobalSearchPalette() {
       >
         <Search className="w-4 h-4" />
         <span className="flex-1 text-left">Search bids, customers, projects…</span>
-        <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] bg-background border border-border rounded font-mono">⌘K</kbd>
+        <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] bg-background border border-border rounded font-mono">{os === 'macos' ? '⌘K' : 'Ctrl K'}</kbd>
       </button>
 
       {open && (

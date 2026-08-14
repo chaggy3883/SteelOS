@@ -4,6 +4,7 @@ import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet, Spark
 import TemplateVaultPanel from '@/components/settings/TemplateVaultPanel';
 import AiPlatformConfigPanel from '@/components/settings/AiPlatformConfigPanel';
 import DemoDataPanel from '@/components/settings/DemoDataPanel';
+import PlatformDetectionPanel from '@/components/settings/PlatformDetectionPanel';
 import ReviewChecklistPanel from '@/components/settings/ReviewChecklistPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -437,6 +438,10 @@ export default function Settings() {
               {provisioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tablet className="w-4 h-4" />}
               {provisioning ? 'Provisioning…' : 'Provision Local Shop Floor Kiosk Tablet'}
             </Button>
+          </div>
+
+          <div className="mt-6">
+            <PlatformDetectionPanel />
           </div>
         </TabsContent>
 
