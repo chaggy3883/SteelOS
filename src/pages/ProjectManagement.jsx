@@ -149,7 +149,7 @@ export default function ProjectManagement() {
     }
   };
 
-  const carrierName = (vendorId) => carriers.find((c) => c.id === vendorId)?.name || 'No carrier';
+  const carrierName = (load) => load.carrier_name || carriers.find((c) => c.id === load.carrier_vendor_id)?.name || 'No carrier';
 
   const donutData = useMemo(() => {
     const summary = {
@@ -415,7 +415,7 @@ export default function ProjectManagement() {
               {projectLoads.length > 0 ? projectLoads.slice(0, 4).map((load) => (
                 <Link key={load.id} to="/shipping" className="block rounded-lg border border-border p-3 text-sm hover:bg-muted/50 transition-colors">
                   <p className="font-medium">{load.load_number_id}</p>
-                  <p className="text-muted-foreground">{carrierName(load.carrier_vendor_id)} • {((load.total_weight_lbs || 0) / 2000).toFixed(1)}T</p>
+                  <p className="text-muted-foreground">{carrierName(load)} • {((load.total_weight_lbs || 0) / 2000).toFixed(1)}T</p>
                   <p className="text-xs text-muted-foreground">{load.status}</p>
                 </Link>
               )) : <p className="text-sm text-muted-foreground">No shipments logged yet.</p>}
@@ -499,7 +499,7 @@ export default function ProjectManagement() {
                         <p className="font-medium">{load.load_number_id}</p>
                         <span className="text-xs rounded-full bg-muted px-2 py-0.5">{load.status}</span>
                       </div>
-                      <p className="text-muted-foreground">{carrierName(load.carrier_vendor_id)} • {((load.total_weight_lbs || 0) / 2000).toFixed(1)}T of {((load.max_weight_capacity_lbs || 45000) / 2000).toFixed(1)}T capacity</p>
+                      <p className="text-muted-foreground">{carrierName(load)} • {((load.total_weight_lbs || 0) / 2000).toFixed(1)}T of {((load.max_weight_capacity_lbs || 45000) / 2000).toFixed(1)}T capacity</p>
                       {manifest && <p className="text-xs text-muted-foreground">Driver: {manifest.driver_name} • {manifest.trailer_type?.replace('_', ' ')} • Plate {manifest.license_plate || '—'}</p>}
                     </Link>
                   );

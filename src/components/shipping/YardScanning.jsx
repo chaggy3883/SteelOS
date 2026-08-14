@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { QrCode, PackageCheck, Ban, MapPin, Upload, Truck, Printer, Info } from 'lucide-react';
+import { QrCode, PackageCheck, Ban, MapPin, Upload, Truck, Printer, Info, ClipboardCheck, FileCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,13 +10,15 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { LABEL_STOCK_SIZES, buildZplPayload } from '@/lib/zplLabels';
 import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelSheet';
+import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import CallInspectionModal from '@/components/shipping/CallInspectionModal';
 import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
 
 const TRAILER_TYPES = ['Flatbed', 'Drop_Deck', 'Stretch', 'Step_Deck'];
 const emptyManifestForm = () => ({ driver_name: '', driver_phone: '', trailer_type: 'Flatbed', license_plate: '' });
 
-export default function YardScanning({ pieces, loads, loadItems, manifests, onReload, onViewLoad, onViewPiece, onViewManifest }) {
+export default function YardScanning({ pieces, loads, loadItems, manifests, projects = [], onReload, onViewLoad, onViewPiece, onViewManifest }) {
   const { toast } = useToast();
   const { user } = useAuth();
   const changedBy = user?.full_name || user?.email || 'Unknown';
@@ -27,8 +29,11 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
   const [savingManifest, setSavingManifest] = useState(false);
   const [deliveryTicketUri, setDeliveryTicketUri] = useState('');
   const [printSheet, setPrintSheet] = useState(null);
+  const [showInspectionModal, setShowInspectionModal] = useState(false);
+  const [viewingBol, setViewingBol] = useState(false);
 
   const selectedLoad = useMemo(() => loads.find((l) => l.id === selectedLoadId) || null, [loads, selectedLoadId]);
+  const selectedProject = useMemo(() => projects.find((p) => p.id === selectedLoad?.project_id) || null, [projects, selectedLoad]);
   const items = useMemo(
     () => loadItems.filter((li) => li.load_id === selectedLoadId).map((li) => ({ ...li, piece: pieces.find((p) => p.id === li.piece_id) })),
     [loadItems, selectedLoadId, pieces]
@@ -39,9 +44,14 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
   const capacity = selectedLoad?.max_weight_capacity_lbs || 45000;
   const isOverweight = !!selectedLoad && (selectedLoad.total_weight_lbs || 0) > capacity;
   const overweightBlocked = isOverweight && !selectedLoad?.is_overweight_permit_authorized;
-  const canGenerateManifest = allLoaded && !manifest && !overweightBlocked;
+  const canGenerateManifest = selectedLoad?.status === 'Inspected' && !manifest;
 
-  const showLoadingPanel = selectedLoad && ['Draft', 'Staged', 'Loaded'].includes(selectedLoad.status);
+  // Scanning stays open through Loaded so items can keep being scanned onto
+  // the trailer; once every item is scanned, Call Inspection replaces the
+  // scan panel instead of jumping straight to manifest/departure.
+  const showScanningPanel = selectedLoad && ['Draft', 'Staged', 'Partial_Loaded', 'Loaded'].includes(selectedLoad.status) && !allLoaded;
+  const showCallInspectionPanel = selectedLoad && selectedLoad.status === 'Loaded' && allLoaded;
+  const showInspectedPanel = selectedLoad && selectedLoad.status === 'Inspected';
   const showTransitPanel = selectedLoad && ['In_Transit', 'Field_Issue'].includes(selectedLoad.status) && manifest;
   const showDeliveredPanel = selectedLoad && selectedLoad.status === 'Delivered';
 
@@ -205,7 +215,7 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
       ) : (
         <div className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
           <div className="steel-card p-4 space-y-3">
-            {showLoadingPanel && (
+            {showScanningPanel && (
               <>
                 <div className="flex items-center gap-2">
                   <QrCode className="w-5 h-5 text-primary" />
@@ -216,8 +226,32 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
                   <Input value={scanValue} onChange={(e) => setScanValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleScanToLoad()} placeholder="Scan a piece QR payload" />
                   <Button onClick={handleScanToLoad} className="steel-gradient text-white border-0">Scan</Button>
                 </div>
+              </>
+            )}
+
+            {showCallInspectionPanel && (
+              <>
+                <div className="flex items-center gap-2 text-green-600 font-semibold">
+                  <PackageCheck className="w-5 h-5" />All {items.length} pieces scanned onto {selectedLoad.trailer_number || 'the trailer'}
+                </div>
                 {overweightBlocked && (
                   <p className="text-xs text-red-600">This load is overweight and unauthorized — resolve it in Load Builder before continuing.</p>
+                )}
+                <Button className="w-full gap-2 steel-gradient text-white border-0" disabled={overweightBlocked} onClick={() => setShowInspectionModal(true)}>
+                  <ClipboardCheck className="w-4 h-4" />Call Inspection
+                </Button>
+              </>
+            )}
+
+            {showInspectedPanel && (
+              <>
+                <div className="flex items-center gap-2 text-green-600 font-semibold">
+                  <ClipboardCheck className="w-5 h-5" />Inspection passed — BOL generated
+                </div>
+                {selectedLoad.bol_pdf_data_uri && (
+                  <Button variant="outline" className="w-full gap-2" onClick={() => setViewingBol(true)}>
+                    <FileCheck className="w-4 h-4" />View / Print BOL
+                  </Button>
                 )}
                 <Button className="w-full gap-2 steel-gradient text-white border-0" disabled={!canGenerateManifest} onClick={() => setShowManifestForm(true)}>
                   <Truck className="w-4 h-4" />Generate Shipping Manifest
@@ -337,6 +371,22 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, onRe
         title={printSheet?.title}
         subtitle={printSheet?.subtitle}
         qrPayload={printSheet?.qrPayload}
+      />
+
+      <CallInspectionModal
+        open={showInspectionModal}
+        onOpenChange={setShowInspectionModal}
+        load={selectedLoad}
+        project={selectedProject}
+        items={items}
+        onReload={onReload}
+      />
+
+      <PdfViewerModal
+        open={viewingBol}
+        onOpenChange={setViewingBol}
+        source={selectedLoad?.bol_pdf_data_uri}
+        fileName={`BOL-${selectedLoad?.load_number_id || ''}.pdf`}
       />
     </div>
   );

@@ -77,7 +77,6 @@ export const PERMISSION_CATALOG = [
   ] },
   { key: 'module:/shipping', label: 'Shipping', tabs: [
     { key: 'tab:/shipping:list', label: 'Shipping List' },
-    { key: 'tab:/shipping:trailer-matrix', label: 'Trailer Matrix' },
     { key: 'tab:/shipping:load-builder', label: 'Load Builder' },
     { key: 'tab:/shipping:yard-scanning', label: 'Yard Scanning' },
   ] },

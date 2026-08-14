@@ -11,12 +11,17 @@
     "load_number_id": {
       "type": "string"
     },
+    "trailer_number": {
+      "type": "string"
+    },
     "status": {
       "type": "string",
       "enum": [
         "Draft",
         "Staged",
+        "Partial_Loaded",
         "Loaded",
+        "Inspected",
         "In_Transit",
         "Delivered",
         "Field_Issue"
@@ -28,7 +33,12 @@
       "default": 0
     },
     "carrier_vendor_id": {
-      "type": "string"
+      "type": "string",
+      "description": "Legacy FK to a Vendor carrier record. New loads use carrier_name (freeform) instead; kept so pre-existing loads and the migrateLegacyShippingLoads path still resolve a carrier."
+    },
+    "carrier_name": {
+      "type": "string",
+      "description": "Freeform carrier name entered on the load, optional at creation and required before the BOL can be generated."
     },
     "max_weight_capacity_lbs": {
       "type": "number",
@@ -37,6 +47,13 @@
     "is_overweight_permit_authorized": {
       "type": "boolean",
       "default": false
+    },
+    "bol_pdf_data_uri": {
+      "type": "string",
+      "description": "Generated Bill of Lading PDF (data URI), attached at Call Inspection time and viewed/printed later from the Shipping List."
+    },
+    "bol_generated_date": {
+      "type": "string"
     }
   },
   "required": [

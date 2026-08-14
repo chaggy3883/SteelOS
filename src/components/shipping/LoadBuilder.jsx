@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { Plus, GripVertical, AlertTriangle, Trash2, PackageCheck, Info } from 'lucide-react';
+import { Plus, GripVertical, AlertTriangle, Trash2, PackageCheck, Info, CheckCircle2, PauseCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +13,11 @@ import { logStatusChange } from '@/lib/statusHistory';
 import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
 import { useAuth } from '@/lib/AuthContext';
 
-const emptyLoadForm = () => ({ project_id: '', carrier_vendor_id: '', max_weight_capacity_lbs: 45000 });
+const emptyLoadForm = () => ({ project_id: '', trailer_number: '', carrier_name: '', max_weight_capacity_lbs: 45000 });
+
+// Loads still being actively built — everything else (Loaded and beyond)
+// has moved on to the Shipping List and is read-only here.
+const BUILDER_STATUSES = ['Draft', 'Staged', 'Partial_Loaded'];
 
 const nextLoadNumber = (loads) => {
   const max = loads.reduce((m, l) => {
@@ -23,16 +27,32 @@ const nextLoadNumber = (loads) => {
   return `LOAD-${String(max + 1).padStart(3, '0')}`;
 };
 
-export default function LoadBuilder({ pieces, loads, loadItems, carriers, projects, pieceMarks = [], onReload, onViewLoad, onViewPiece }) {
+export default function LoadBuilder({ pieces, loads, loadItems, projects, pieceMarks = [], onReload, onViewLoad, onViewPiece, focusLoadId, onFocusHandled }) {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [selectedLoadId, setSelectedLoadId] = useState(loads[0]?.id || null);
+  const builderLoads = useMemo(() => loads.filter((l) => BUILDER_STATUSES.includes(l.status)), [loads]);
+  const [selectedLoadId, setSelectedLoadId] = useState(builderLoads[0]?.id || null);
   const [showNewLoadForm, setShowNewLoadForm] = useState(false);
   const [newLoadForm, setNewLoadForm] = useState(emptyLoadForm());
   const [creatingLoad, setCreatingLoad] = useState(false);
   const [sequenceWarning, setSequenceWarning] = useState('');
+  const [finalizing, setFinalizing] = useState(false);
 
-  const selectedLoad = useMemo(() => loads.find((l) => l.id === selectedLoadId) || null, [loads, selectedLoadId]);
+  // A load leaving the builder set (Load Complete) drops the selection; an
+  // externally-requested focus (Resume from the Partial Loads section) takes
+  // over, then reports back so Shipping.jsx can clear the request.
+  useEffect(() => {
+    if (focusLoadId && builderLoads.some((l) => l.id === focusLoadId)) {
+      setSelectedLoadId(focusLoadId);
+      onFocusHandled?.();
+      return;
+    }
+    if (selectedLoadId && !builderLoads.some((l) => l.id === selectedLoadId)) {
+      setSelectedLoadId(builderLoads[0]?.id || null);
+    }
+  }, [focusLoadId, builderLoads]);
+
+  const selectedLoad = useMemo(() => builderLoads.find((l) => l.id === selectedLoadId) || null, [builderLoads, selectedLoadId]);
   const selectedLoadItems = useMemo(
     () => loadItems.filter((li) => li.load_id === selectedLoadId).sort((a, b) => (a.sequence_number || 0) - (b.sequence_number || 0)),
     [loadItems, selectedLoadId]
@@ -42,11 +62,12 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
     [selectedLoadItems, pieces]
   );
   const assignedPieceIds = useMemo(() => new Set(loadItems.map((li) => li.piece_id)), [loadItems]);
-  // Hard filter: only pieces that have cleared every Module 8 QA gate, and
-  // aren't already staged on some other load, ever appear in this queue.
+  // Hard filter: only pieces for the load's own job that have cleared every
+  // Module 8 QA gate, and aren't already staged on some other load, ever
+  // appear in this queue.
   const availablePieces = useMemo(
-    () => pieces.filter((p) => p.workflow_status === 'Paint_Unlocked' && !assignedPieceIds.has(p.id)),
-    [pieces, assignedPieceIds]
+    () => pieces.filter((p) => p.project_id === selectedLoad?.project_id && p.workflow_status === 'Paint_Unlocked' && !assignedPieceIds.has(p.id)),
+    [pieces, assignedPieceIds, selectedLoad?.project_id]
   );
 
   // Phase lookup — piece_mark_id is the primary bridge back to a PieceMark;
@@ -83,14 +104,19 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
       toast({ title: 'Project is required', variant: 'destructive' });
       return;
     }
+    if (!newLoadForm.trailer_number.trim()) {
+      toast({ title: 'Trailer number is required', variant: 'destructive' });
+      return;
+    }
     setCreatingLoad(true);
     try {
       const created = await db.entities.loads.create({
         project_id: newLoadForm.project_id,
         load_number_id: nextLoadNumber(loads),
+        trailer_number: newLoadForm.trailer_number.trim(),
         status: 'Draft',
         total_weight_lbs: 0,
-        carrier_vendor_id: newLoadForm.carrier_vendor_id || null,
+        carrier_name: newLoadForm.carrier_name.trim() || null,
         max_weight_capacity_lbs: Number(newLoadForm.max_weight_capacity_lbs) || 45000,
         is_overweight_permit_authorized: false,
       });
@@ -154,8 +180,12 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
   };
 
   const removeFromLoad = async (item) => {
-    if (item.status !== 'Staged') {
-      toast({ title: 'Already scanned onto the trailer — remove it from Yard Scanning instead', variant: 'destructive' });
+    // Load Builder only ever shows Draft/Staged/Partial_Loaded loads
+    // (BUILDER_STATUSES) — a load that's Loaded or beyond has already left
+    // this view, so unassigning here is inherently only reachable on the
+    // allowed statuses. The explicit check just makes that guarantee visible.
+    if (!BUILDER_STATUSES.includes(selectedLoad.status)) {
+      toast({ title: 'This load is already loaded — pieces can no longer be unassigned', variant: 'destructive' });
       return;
     }
     try {
@@ -166,6 +196,59 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
       await onReload();
     } catch (e) {
       toast({ title: 'Unable to remove piece', variant: 'destructive' });
+    }
+  };
+
+  const handlePauseLoading = async () => {
+    if (selectedLoad.status === 'Partial_Loaded') return;
+    setFinalizing(true);
+    try {
+      await db.entities.loads.update(selectedLoad.id, { status: 'Partial_Loaded' });
+      await logStatusChange({
+        entityType: 'loads',
+        entityId: selectedLoad.id,
+        fieldName: 'status',
+        fromValue: selectedLoad.status,
+        toValue: 'Partial_Loaded',
+        changedBy: user?.full_name || user?.email || 'Unknown',
+        note: 'Loading paused — resumable from the Partial Loads section.',
+      });
+      await onReload();
+      toast({ title: `${selectedLoad.load_number_id} paused` });
+    } catch (e) {
+      toast({ title: 'Unable to pause load', variant: 'destructive' });
+    } finally {
+      setFinalizing(false);
+    }
+  };
+
+  const handleLoadComplete = async () => {
+    if (loadPieces.length === 0) {
+      toast({ title: 'Add at least one piece before completing the load', variant: 'destructive' });
+      return;
+    }
+    if (isOverweight && !selectedLoad.is_overweight_permit_authorized) {
+      toast({ title: 'Resolve the overweight authorization before completing this load', variant: 'destructive' });
+      return;
+    }
+    setFinalizing(true);
+    try {
+      await db.entities.loads.update(selectedLoad.id, { status: 'Loaded' });
+      await logStatusChange({
+        entityType: 'loads',
+        entityId: selectedLoad.id,
+        fieldName: 'status',
+        fromValue: selectedLoad.status,
+        toValue: 'Loaded',
+        changedBy: user?.full_name || user?.email || 'Unknown',
+        note: 'Load completed — moved to the Shipping List.',
+      });
+      await onReload();
+      toast({ title: `${selectedLoad.load_number_id} complete`, description: 'Moved to the Shipping List.' });
+    } catch (e) {
+      toast({ title: 'Unable to complete load', variant: 'destructive' });
+    } finally {
+      setFinalizing(false);
     }
   };
 
@@ -189,7 +272,7 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        {loads.map((load) => (
+        {builderLoads.map((load) => (
           <div
             key={load.id}
             className={cn(
@@ -198,8 +281,8 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
             )}
           >
             <button onClick={() => setSelectedLoadId(load.id)} className="text-left">
-              <p className="font-semibold">{load.load_number_id}</p>
-              <p className="text-xs text-muted-foreground">{load.status} • {loadItems.filter((li) => li.load_id === load.id).length} pcs</p>
+              <p className="font-semibold">{load.load_number_id} {load.trailer_number && <span className="font-normal text-muted-foreground">— {load.trailer_number}</span>}</p>
+              <p className="text-xs text-muted-foreground">{load.status.replace(/_/g, ' ')} • {loadItems.filter((li) => li.load_id === load.id).length} pcs</p>
             </button>
             <button
               type="button"
@@ -218,6 +301,21 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
 
       {selectedLoad ? (
         <>
+          <div className="steel-card p-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm">
+              <p className="font-semibold">{selectedLoad.load_number_id} <span className="font-normal text-muted-foreground">— Trailer {selectedLoad.trailer_number || '—'}</span></p>
+              <p className="text-xs text-muted-foreground">Carrier: {selectedLoad.carrier_name || 'Not yet assigned'}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="gap-2" disabled={finalizing || selectedLoad.status === 'Partial_Loaded'} onClick={handlePauseLoading}>
+                <PauseCircle className="w-4 h-4" />Pause Loading
+              </Button>
+              <Button size="sm" className="gap-2 steel-gradient text-white border-0" disabled={finalizing} onClick={handleLoadComplete}>
+                <CheckCircle2 className="w-4 h-4" />Load Complete
+              </Button>
+            </div>
+          </div>
+
           {isOverweight && (
             <div className="steel-card p-4 border-red-500/40 bg-red-500/5 space-y-3">
               <div className="flex items-center gap-2 text-red-600 font-semibold">
@@ -330,12 +428,10 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
                                 </button>
                                 <p className="text-muted-foreground truncate">{lp.piece?.weight ? `${lp.piece.weight.toLocaleString()} lbs` : ''} • {lp.status}</p>
                               </div>
-                              {lp.status === 'Staged' && (
-                                <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => removeFromLoad(lp)}>
-                                  <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                                </Button>
-                              )}
                               {lp.status === 'Loaded' && <PackageCheck className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />}
+                              <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => removeFromLoad(lp)}>
+                                <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                              </Button>
                             </div>
                           )}
                         </Draggable>
@@ -369,13 +465,12 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
               </Select>
             </div>
             <div>
-              <Label>Carrier</Label>
-              <Select value={newLoadForm.carrier_vendor_id} onValueChange={(v) => setNewLoadForm((f) => ({ ...f, carrier_vendor_id: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select a carrier" /></SelectTrigger>
-                <SelectContent>
-                  {carriers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label>Trailer Number</Label>
+              <Input value={newLoadForm.trailer_number} onChange={(e) => setNewLoadForm((f) => ({ ...f, trailer_number: e.target.value }))} className="mt-1" placeholder="e.g. T-4412" />
+            </div>
+            <div>
+              <Label>Carrier <span className="text-xs text-muted-foreground font-normal">(optional — required before the BOL can print)</span></Label>
+              <Input value={newLoadForm.carrier_name} onChange={(e) => setNewLoadForm((f) => ({ ...f, carrier_name: e.target.value }))} className="mt-1" placeholder="e.g. Arrow Logistics" />
             </div>
             <div>
               <Label>Max Legal Weight Capacity (lbs)</Label>
@@ -385,7 +480,7 @@ export default function LoadBuilder({ pieces, loads, loadItems, carriers, projec
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNewLoadForm(false)}>Cancel</Button>
             <Button onClick={handleCreateLoad} disabled={creatingLoad} className="steel-gradient text-white border-0">
-              {creatingLoad ? 'Creating…' : 'Create Load'}
+              {creatingLoad ? 'Starting…' : 'Begin Loading'}
             </Button>
           </DialogFooter>
         </DialogContent>

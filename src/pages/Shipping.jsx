@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { Truck, Package, CheckCircle2, Search, X } from 'lucide-react';
+import { Truck, Package, CheckCircle2, FileCheck, PauseCircle, PlayCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -12,10 +10,16 @@ import YardScanning from '@/components/shipping/YardScanning';
 import LoadDetailModal from '@/components/shipping/LoadDetailModal';
 import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 import ManifestDetailModal from '@/components/shipping/ManifestDetailModal';
+import PdfViewerModal from '@/components/shared/PdfViewerModal';
+
+// Loads that have finished Load Builder (Load Complete) and are ready,
+// inspected, or already moving — the main Shipping List. Draft/Staged
+// (still being actively built) and Partial_Loaded (paused) stay out of this
+// tab; Partial_Loaded gets its own section below it instead.
+const SHIPPING_LIST_STATUSES = ['Loaded', 'Inspected', 'In_Transit', 'Delivered', 'Field_Issue'];
 
 export default function Shipping() {
   const [activeTab, setActiveTab] = useState('list');
-  const [pieceStatusFilter, setPieceStatusFilter] = useState('all');
 
   // Drill-down targets, shared across the Shipping List tab and the
   // LoadBuilder/YardScanning child components (passed down as callbacks) so
@@ -23,12 +27,15 @@ export default function Shipping() {
   const [viewingLoadId, setViewingLoadId] = useState(null);
   const [viewingPiece, setViewingPiece] = useState(null); // { pieceMarkId } | { pieceId }
   const [viewingManifestId, setViewingManifestId] = useState(null);
+  const [viewingBolLoad, setViewingBolLoad] = useState(null);
+
+  // Set when "Resume" is clicked on a Partial Load — tells LoadBuilder which
+  // load to focus once the Load Builder tab is active, then gets cleared.
+  const [resumeLoadId, setResumeLoadId] = useState(null);
 
   const [pieces, setPieces] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [projectFilter, setProjectFilter] = useState('all');
 
   // Module 9 (Load Builder / Yard Scanning) data — kept separate from the
   // PieceMark-based state above, since it operates on the Module 8 `pieces`
@@ -81,52 +88,39 @@ export default function Shipping() {
   const shipped = pieces.filter(p => p.status === 'shipped');
   const erected = pieces.filter(p => p.status === 'erected');
 
-  const filtered = pieces.filter(p => {
-    const matchSearch = !search || p.piece_mark?.toLowerCase().includes(search.toLowerCase());
-    const matchProject = projectFilter === 'all' || p.project_id === projectFilter;
-    const matchStatus = pieceStatusFilter === 'all' || p.status === pieceStatusFilter;
-    return matchSearch && matchProject && matchStatus;
-  });
-
-  const openKpiFilter = (status) => { setPieceStatusFilter(status); setActiveTab('list'); };
-
-  // Bridges a Shipping List row (a PieceMark) to the load that actually
-  // shipped it, via pieces.piece_mark_id (or the same project_id+piece_mark
-  // fallback used elsewhere) -> load_items.piece_id -> loads. Returns null
-  // when no such chain resolves — common, since not every PieceMark has a
-  // corresponding shop `pieces` row wired all the way through to a load.
-  const findLoadIdForPieceMark = (pieceMarkRow) => {
-    const shopPiece = shopPieces.find((sp) => sp.piece_mark_id === pieceMarkRow.id)
-      || shopPieces.find((sp) => sp.project_id === pieceMarkRow.project_id && sp.piece_mark === pieceMarkRow.piece_mark);
-    if (!shopPiece) return null;
-    const item = loadItems.find((li) => li.piece_id === shopPiece.id);
-    return item?.load_id || null;
+  const jobName = (projectId) => {
+    const p = projects.find(pr => pr.id === projectId);
+    return p ? `${p.project_number} — ${p.name}` : '—';
   };
 
-  const openDateDrilldown = (pieceMarkRow) => {
-    const loadId = findLoadIdForPieceMark(pieceMarkRow);
-    if (loadId) setViewingLoadId(loadId);
-    else setViewingPiece({ pieceMarkId: pieceMarkRow.id });
+  const carrierLabel = (load) => load.carrier_name || carriers.find(c => c.id === load.carrier_vendor_id)?.name || '—';
+
+  const shippingListLoads = loads.filter(l => SHIPPING_LIST_STATUSES.includes(l.status));
+  const partialLoads = loads.filter(l => l.status === 'Partial_Loaded');
+
+  const resumePartialLoad = (loadId) => {
+    setResumeLoadId(loadId);
+    setActiveTab('load-builder');
   };
 
   return (
     <div className="p-6 animate-fade-in">
       <PageHeader
         title="Shipping & Delivery"
-        subtitle="Track painted, shipped, and erected pieces"
-        actions={<Button className="steel-gradient text-white border-0"><Truck className="w-4 h-4 mr-2" />Create Shipping List</Button>}
+        subtitle="Build loads, inspect, and track shipments through delivery"
+        actions={<Button className="steel-gradient text-white border-0" onClick={() => setActiveTab('load-builder')}><Truck className="w-4 h-4 mr-2" />Load Builder</Button>}
       />
 
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: 'Ready to Ship', value: readyToShip.length, icon: Package, color: 'text-blue-500', status: 'painted' },
-          { label: 'Shipped', value: shipped.length, icon: Truck, color: 'text-orange-500', status: 'shipped' },
-          { label: 'Erected', value: erected.length, icon: CheckCircle2, color: 'text-green-500', status: 'erected' },
-        ].map(({ label, value, icon: Icon, color, status }) => (
-          <button key={label} type="button" onClick={() => openKpiFilter(status)} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
+          { label: 'Ready to Ship', value: readyToShip.length, icon: Package, color: 'text-blue-500' },
+          { label: 'Shipped', value: shipped.length, icon: Truck, color: 'text-orange-500' },
+          { label: 'Erected', value: erected.length, icon: CheckCircle2, color: 'text-green-500' },
+        ].map(({ label, value, icon: Icon, color }) => (
+          <div key={label} className="steel-card p-4">
             <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </button>
+          </div>
         ))}
       </div>
 
@@ -137,25 +131,42 @@ export default function Shipping() {
           <TabsTrigger value="yard-scanning">Yard Scanning</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="list">
-          <div className="flex gap-3 mb-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search piece marks..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
-            </div>
-            <Select value={projectFilter} onValueChange={setProjectFilter}>
-              <SelectTrigger className="w-56"><SelectValue placeholder="All Projects" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.project_number} — {p.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {pieceStatusFilter !== 'all' && (
-            <div className="flex items-center justify-between text-sm mb-3 px-3 py-2 rounded-lg bg-primary/10 text-primary">
-              <span>Showing only "{pieceStatusFilter}" pieces.</span>
-              <button className="flex items-center gap-1 hover:underline" onClick={() => setPieceStatusFilter('all')}><X className="w-3.5 h-3.5" />Clear filter</button>
+        <TabsContent value="list" className="space-y-6">
+          {partialLoads.length > 0 && (
+            <div className="steel-card overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-yellow-500/5 flex items-center gap-2">
+                <PauseCircle className="w-4 h-4 text-yellow-600" />
+                <h3 className="text-sm font-semibold">Partial Loads</h3>
+                <span className="text-xs text-muted-foreground">{partialLoads.length} paused mid-load</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                      <th className="text-left py-3 px-4">Load Number</th>
+                      <th className="text-left py-3 px-4">Job</th>
+                      <th className="text-left py-3 px-4">Trailer Number</th>
+                      <th className="text-left py-3 px-4">Pieces</th>
+                      <th className="text-right py-3 px-4">Resume</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {partialLoads.map(load => (
+                      <tr key={load.id} onClick={() => setViewingLoadId(load.id)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
+                        <td className="py-3 px-4 font-mono font-bold text-primary">{load.load_number_id}</td>
+                        <td className="py-3 px-4">{jobName(load.project_id)}</td>
+                        <td className="py-3 px-4">{load.trailer_number || '—'}</td>
+                        <td className="py-3 px-4 font-mono">{loadItems.filter(li => li.load_id === load.id).length}</td>
+                        <td className="py-3 px-4 text-right">
+                          <Button size="sm" variant="outline" className="gap-1.5" onClick={(e) => { e.stopPropagation(); resumePartialLoad(load.id); }}>
+                            <PlayCircle className="w-3.5 h-3.5" />Resume
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -164,12 +175,12 @@ export default function Shipping() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
-                    <th className="text-left py-3 px-4">Piece Mark</th>
-                    <th className="text-left py-3 px-4">Assembly</th>
-                    <th className="text-right py-3 px-4">Weight (lbs)</th>
-                    <th className="text-left py-3 px-4">Ship Date</th>
-                    <th className="text-left py-3 px-4">Erect Date</th>
+                    <th className="text-left py-3 px-4">Load Number</th>
+                    <th className="text-left py-3 px-4">Job</th>
+                    <th className="text-left py-3 px-4">Trailer Number</th>
+                    <th className="text-left py-3 px-4">Carrier</th>
                     <th className="text-left py-3 px-4">Status</th>
+                    <th className="text-right py-3 px-4">BOL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -177,27 +188,33 @@ export default function Shipping() {
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i}><td colSpan={6} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
                     ))
-                  ) : filtered.length === 0 ? (
+                  ) : shippingListLoads.length === 0 ? (
                     <tr><td colSpan={6} className="py-16 text-center">
                       <Truck className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                      <p className="text-sm text-muted-foreground">No painted or shipped pieces yet</p>
+                      <p className="text-sm text-muted-foreground">No completed loads yet — finish a load in Load Builder to see it here.</p>
                     </td></tr>
                   ) : (
-                    filtered.map(p => (
-                      <tr key={p.id} onClick={() => setViewingPiece({ pieceMarkId: p.id })} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
-                        <td className="py-3 px-4 font-mono font-bold text-primary">{p.piece_mark}</td>
-                        <td className="py-3 px-4 text-muted-foreground">{p.assembly || '—'}</td>
-                        <td className="py-3 px-4 text-right font-mono">{p.weight_lbs?.toLocaleString() || '—'}</td>
-                        <td className="py-3 px-4 text-xs">
-                          {p.ship_date ? <button onClick={(e) => { e.stopPropagation(); openDateDrilldown(p); }} className="hover:underline">{p.ship_date}</button> : '—'}
-                        </td>
-                        <td className="py-3 px-4 text-xs">
-                          {p.erect_date ? <button onClick={(e) => { e.stopPropagation(); openDateDrilldown(p); }} className="hover:underline">{p.erect_date}</button> : '—'}
-                        </td>
+                    shippingListLoads.map(load => (
+                      <tr key={load.id} onClick={() => setViewingLoadId(load.id)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
+                        <td className="py-3 px-4 font-mono font-bold text-primary">{load.load_number_id}</td>
+                        <td className="py-3 px-4 text-muted-foreground">{jobName(load.project_id)}</td>
+                        <td className="py-3 px-4">{load.trailer_number || '—'}</td>
+                        <td className="py-3 px-4">{carrierLabel(load)}</td>
                         <td className="py-3 px-4">
-                          <button onClick={(e) => { e.stopPropagation(); setViewingPiece({ pieceMarkId: p.id }); }}>
-                            <StatusBadge status={p.status} />
+                          <button onClick={(e) => { e.stopPropagation(); setViewingLoadId(load.id); }}>
+                            <StatusBadge status={load.status} label={(load.status || '').replace(/_/g, ' ')} />
                           </button>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          {load.bol_pdf_data_uri ? (
+                            <button
+                              title="View / Print BOL"
+                              onClick={(e) => { e.stopPropagation(); setViewingBolLoad(load); }}
+                              className="text-muted-foreground hover:text-primary inline-flex"
+                            >
+                              <FileCheck className="w-4 h-4" />
+                            </button>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
                         </td>
                       </tr>
                     ))
@@ -213,12 +230,13 @@ export default function Shipping() {
             pieces={shopPieces}
             loads={loads}
             loadItems={loadItems}
-            carriers={carriers}
             projects={projects}
             pieceMarks={pieceMarks}
             onReload={loadLogisticsData}
             onViewLoad={setViewingLoadId}
             onViewPiece={setViewingPiece}
+            focusLoadId={resumeLoadId}
+            onFocusHandled={() => setResumeLoadId(null)}
           />
         </TabsContent>
 
@@ -228,6 +246,7 @@ export default function Shipping() {
             loads={loads}
             loadItems={loadItems}
             manifests={manifests}
+            projects={projects}
             onReload={loadLogisticsData}
             onViewLoad={setViewingLoadId}
             onViewPiece={setViewingPiece}
@@ -257,6 +276,13 @@ export default function Shipping() {
         onOpenChange={(open) => !open && setViewingManifestId(null)}
         manifestId={viewingManifestId}
         onViewLoad={(loadId) => { setViewingManifestId(null); setViewingLoadId(loadId); }}
+      />
+
+      <PdfViewerModal
+        open={!!viewingBolLoad}
+        onOpenChange={(open) => !open && setViewingBolLoad(null)}
+        source={viewingBolLoad?.bol_pdf_data_uri}
+        fileName={`BOL-${viewingBolLoad?.load_number_id || ''}.pdf`}
       />
     </div>
   );

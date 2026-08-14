@@ -454,7 +454,7 @@ function ShipmentsCalendarWidgetCard() {
 
   if (loads.length === 0) return <WidgetEmpty message="No shipments logged" />;
 
-  const carrierName = (vendorId) => carriers.find((c) => c.id === vendorId)?.name || 'No carrier';
+  const carrierName = (load) => load.carrier_name || carriers.find((c) => c.id === load.carrier_vendor_id)?.name || 'No carrier';
 
   return <div className="space-y-2">{loads.map((load) => (
     <Link key={load.id} to="/shipping" className="block rounded-lg border border-border px-2.5 py-2 text-xs min-h-[44px] cursor-pointer hover:bg-muted/50 transition-colors" title="Open Shipping">
@@ -462,7 +462,7 @@ function ShipmentsCalendarWidgetCard() {
         <span className="font-medium">{load.load_number_id}</span>
         <span className="text-muted-foreground">{load.status}</span>
       </div>
-      <p className="text-muted-foreground">{carrierName(load.carrier_vendor_id)} • {((load.total_weight_lbs || 0) / 2000).toFixed(1)}T</p>
+      <p className="text-muted-foreground">{carrierName(load)} • {((load.total_weight_lbs || 0) / 2000).toFixed(1)}T</p>
     </Link>
   ))}</div>;
 }

@@ -3,14 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { Loader2, AlertTriangle, FileCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
+import PdfViewerModal from '@/components/shared/PdfViewerModal';
 
 const STATUS_STYLES = {
   Draft: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
   Staged: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+  Partial_Loaded: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
   Loaded: 'bg-purple-500/10 text-purple-500 border-purple-500/20',
+  Inspected: 'bg-teal-500/10 text-teal-600 border-teal-500/20',
   In_Transit: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
   Delivered: 'bg-green-500/10 text-green-600 border-green-500/20',
   Field_Issue: 'bg-red-500/10 text-red-500 border-red-500/20',
@@ -30,6 +33,7 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
   const [carrier, setCarrier] = useState(null);
   const [manifest, setManifest] = useState(null);
   const [showStatusHistory, setShowStatusHistory] = useState(false);
+  const [viewingBol, setViewingBol] = useState(false);
 
   useEffect(() => {
     if (!open || !loadId) return;
@@ -103,8 +107,14 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
                 ) : <p className="font-medium">—</p>}
               </div>
               <div>
+                <p className="text-xs text-muted-foreground">Trailer Number</p>
+                <p className="font-medium">{load.trailer_number || '—'}</p>
+              </div>
+              <div>
                 <p className="text-xs text-muted-foreground">Carrier</p>
-                {carrier ? (
+                {load.carrier_name ? (
+                  <p className="font-medium">{load.carrier_name}</p>
+                ) : carrier ? (
                   <button className="font-medium text-primary hover:underline" onClick={() => navigate(`/crm/directory?vendor=${carrier.id}`)}>{carrier.name}</button>
                 ) : <p className="font-medium">—</p>}
               </div>
@@ -187,6 +197,11 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
         {load && (
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+            {load.bol_pdf_data_uri && (
+              <Button variant="outline" className="gap-2" onClick={() => setViewingBol(true)}>
+                <FileCheck className="w-4 h-4" />View / Print BOL
+              </Button>
+            )}
           </DialogFooter>
         )}
       </DialogContent>
@@ -197,6 +212,12 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
         entityId={load?.id}
         fieldName="status"
         title={`${load?.load_number_id || 'Load'} — Status History`}
+      />
+      <PdfViewerModal
+        open={viewingBol}
+        onOpenChange={setViewingBol}
+        source={load?.bol_pdf_data_uri}
+        fileName={`BOL-${load?.load_number_id || ''}.pdf`}
       />
     </Dialog>
   );
