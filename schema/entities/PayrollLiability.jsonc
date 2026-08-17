@@ -1,0 +1,39 @@
+{
+  "name": "PayrollLiability",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string"
+    },
+    "liability_type": {
+      "type": "string",
+      "enum": [
+        "federal_withholding", "state_withholding", "local_withholding",
+        "fica_employee", "fica_employer", "medicare_employee", "medicare_employer",
+        "futa", "suta", "benefits", "garnishment", "other"
+      ],
+      "description": "What this run withheld or accrued that must be remitted to a third party — employee withholding, the employer's own tax match, and benefit/garnishment deductions all become liabilities the company owes out, not just an internal expense."
+    },
+    "amount": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": ["unpaid", "paid"],
+      "default": "unpaid"
+    },
+    "paid_date": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": [
+    "payroll_run_id",
+    "liability_type",
+    "amount"
+  ]
+}

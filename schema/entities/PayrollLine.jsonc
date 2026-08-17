@@ -1,0 +1,52 @@
+{
+  "name": "PayrollLine",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "pay_type_snapshot": {
+      "type": "string",
+      "description": "employee's EmployeePayRate.pay_type at the time this line was generated, so a later rate change doesn't rewrite history — same convention as PayrollRegisterLine.pay_type_snapshot."
+    },
+    "regular_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "ot_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "double_time_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "gross_pay": {
+      "type": "number",
+      "default": 0
+    },
+    "deductions_total": {
+      "type": "number",
+      "default": 0
+    },
+    "tax_total": {
+      "type": "number",
+      "default": 0,
+      "description": "Employee-side withholding only. Employer-paid taxes are tracked separately per employee on EmployerTax."
+    },
+    "net_pay": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "payroll_run_id",
+    "employee_id"
+  ]
+}

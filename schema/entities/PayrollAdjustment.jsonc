@@ -1,0 +1,35 @@
+{
+  "name": "PayrollAdjustment",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "adjustment_type": {
+      "type": "string",
+      "enum": ["bonus", "reimbursement", "correction", "other"]
+    },
+    "amount": {
+      "type": "number",
+      "default": 0
+    },
+    "reason": {
+      "type": "string"
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "payroll_run_id",
+    "employee_id",
+    "adjustment_type",
+    "amount"
+  ]
+}

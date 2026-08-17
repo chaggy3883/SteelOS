@@ -14,7 +14,7 @@ import {
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
-  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2, Crosshair, CalendarClock, Monitor, Presentation
+  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2, Crosshair, CalendarClock, Monitor, Presentation, PlayCircle
 } from 'lucide-react';
 
 const navGroups = [
@@ -63,6 +63,7 @@ const navGroups = [
     items: [
       { icon: CalendarClock, label: 'Hours at a Glance', path: '/payroll/hours' },
       { icon: DollarSign, label: 'Pay Periods & Register', path: '/payroll' },
+      { icon: PlayCircle, label: 'Run Payroll', path: '/payroll/processing' },
       { icon: Settings, label: 'Payroll Setup', path: '/payroll/setup' },
       { icon: FileCheck2, label: 'Certified Payroll', path: '/certified-payroll' },
     ]

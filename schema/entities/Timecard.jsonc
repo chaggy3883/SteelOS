@@ -1,0 +1,44 @@
+{
+  "name": "Timecard",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "pay_period_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["unsubmitted", "submitted", "approved"],
+      "default": "unsubmitted"
+    },
+    "total_regular_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "total_ot_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "total_double_time_hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Added alongside the spec's regular/OT fields so calculateGrossPay()'s regular/OT/double-time breakdown has somewhere to read a double-time total from — allocateLaborToJobs() is what actually computes this, per PayrollRule rule_type='double_time'."
+    },
+    "approved_by": {
+      "type": "string"
+    },
+    "approved_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "employee_id",
+    "pay_period_id"
+  ]
+}

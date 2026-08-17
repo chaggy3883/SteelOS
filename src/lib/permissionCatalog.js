@@ -133,6 +133,11 @@ export const PERMISSION_CATALOG = [
     { key: 'tab:/payroll:register', label: 'Register' },
     { key: 'tab:/payroll:jobcost', label: 'Job Cost Posting' },
   ] },
+  { key: 'module:/payroll/processing', label: 'Run Payroll', tabs: [
+    { key: 'tab:/payroll/processing:time', label: 'Time Entries' },
+    { key: 'tab:/payroll/processing:timecards', label: 'Timecards' },
+    { key: 'tab:/payroll/processing:run', label: 'Run Payroll' },
+  ] },
   { key: 'module:/payroll/setup', label: 'Payroll Setup', tabs: [
     { key: 'tab:/payroll/setup:rates', label: 'Pay Rates' },
     { key: 'tab:/payroll/setup:withholding', label: 'Tax Withholding' },

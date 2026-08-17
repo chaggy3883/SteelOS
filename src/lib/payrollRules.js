@@ -23,7 +23,7 @@ export function getEffectiveRule(rules, ruleType, { state = null, asOfDate = new
   return pickLatest(stateMatches) || pickLatest(companyWide) || null;
 }
 
-export const PAYROLL_RULE_TYPES = ['overtime', 'double_time', 'holiday', 'pto', 'rounding'];
+export const PAYROLL_RULE_TYPES = ['overtime', 'double_time', 'holiday', 'pto', 'rounding', 'employer_tax'];
 
 export const RULE_TYPE_LABELS = {
   overtime: 'Overtime',
@@ -31,6 +31,20 @@ export const RULE_TYPE_LABELS = {
   holiday: 'Holiday Pay',
   pto: 'PTO Accrual',
   rounding: 'Time Rounding',
+  employer_tax: 'Employer Tax',
+};
+
+// One PayrollRule row per employer-paid tax type — calculateEmployerTax() in
+// payrollEngine.js resolves one effective rule per type via this list rather
+// than a single rule_type='employer_tax' row (FICA/Medicare/FUTA/SUTA all
+// need independent rates and effective dates).
+export const EMPLOYER_TAX_TYPES = ['fica_employer', 'medicare_employer', 'futa', 'suta'];
+
+export const EMPLOYER_TAX_TYPE_LABELS = {
+  fica_employer: 'FICA (Employer)',
+  medicare_employer: 'Medicare (Employer)',
+  futa: 'FUTA',
+  suta: 'SUTA',
 };
 
 // Per rule_type, which config keys the setup UI collects — the setup form
@@ -56,5 +70,10 @@ export const RULE_TYPE_CONFIG_FIELDS = {
   ],
   rounding: [
     { key: 'increment_minutes', label: 'Rounding Increment (minutes)', type: 'number', placeholder: 'e.g. 15' },
+  ],
+  employer_tax: [
+    { key: 'tax_type', label: 'Tax Type', type: 'select', options: EMPLOYER_TAX_TYPES.map((t) => ({ value: t, label: EMPLOYER_TAX_TYPE_LABELS[t] })) },
+    { key: 'rate_percent', label: 'Rate (%)', type: 'number', placeholder: 'e.g. 6.2' },
+    { key: 'wage_base_cap', label: 'Annual Wage Base Cap ($, optional)', type: 'number', placeholder: 'e.g. 168600' },
   ],
 };

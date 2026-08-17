@@ -1,0 +1,29 @@
+{
+  "name": "EmployerTax",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "tax_type": {
+      "type": "string",
+      "enum": ["fica_employer", "medicare_employer", "futa", "suta"]
+    },
+    "amount": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "payroll_run_id",
+    "employee_id",
+    "tax_type",
+    "amount"
+  ]
+}

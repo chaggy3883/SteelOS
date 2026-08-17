@@ -7,7 +7,8 @@
     },
     "rule_type": {
       "type": "string",
-      "enum": ["overtime", "double_time", "holiday", "pto", "rounding"]
+      "enum": ["overtime", "double_time", "holiday", "pto", "rounding", "employer_tax"],
+      "description": "'employer_tax' added for the weekly processing pipeline's calculateEmployerTax() — one row per employer-paid tax type (config.tax_type: fica_employer/medicare_employer/futa/suta), so FICA/FUTA/SUTA rates are admin-configurable master data rather than hardcoded in the engine, same as every other rule_type here."
     },
     "jurisdiction_state": {
       "type": "string",
@@ -15,7 +16,7 @@
     },
     "config": {
       "type": "object",
-      "description": "rule_type-specific thresholds/values, e.g. overtime: { threshold_hours, multiplier }; double_time: { threshold_hours, multiplier }; rounding: { increment_minutes }; holiday/pto: { accrual_rate, multiplier, ... }. This is the single source of truth for the actual numbers — components must read them from here and must never hardcode a threshold or multiplier."
+      "description": "rule_type-specific thresholds/values, e.g. overtime: { threshold_hours, multiplier }; double_time: { threshold_hours, multiplier }; rounding: { increment_minutes }; holiday/pto: { accrual_rate, multiplier, ... }; employer_tax: { tax_type, rate_percent, wage_base_cap }. This is the single source of truth for the actual numbers — components must read them from here and must never hardcode a threshold or multiplier."
     },
     "effective_date": {
       "type": "string",

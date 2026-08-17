@@ -1,0 +1,56 @@
+{
+  "name": "TimeEntry",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "work_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "clock_in": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "clock_out": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "phase_id": {
+      "type": ["string", "null"],
+      "description": "Free-text phase label (e.g. 'Fabrication', 'Erection'), matching the same free-text convention as PieceMark.phase — there is no separate Phase master entity in this schema to key an FK against. Nullable: not every project uses phase tracking."
+    },
+    "area_id": {
+      "type": ["string", "null"],
+      "description": "Free-text area/zone label (e.g. 'Area A'), same free-text convention as PieceMark.phase under project_phasing_mode='area'. Nullable: not every project uses area tracking."
+    },
+    "cost_code_id": {
+      "type": "string",
+      "description": "FK to CostCode — the code labor on this entry should post against in job costing."
+    },
+    "hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Computed from clock_in/clock_out (see computeTimeEntryHours in payrollEngine.js) — stored rather than derived on every read so a later clock_in/clock_out edit can't silently redate hours already rolled into an approved Timecard."
+    },
+    "entry_type": {
+      "type": "string",
+      "enum": ["regular", "pto", "holiday"],
+      "default": "regular",
+      "description": "pto/holiday hours are always paid straight time and never count toward an overtime/double_time threshold — only 'regular' hours are subject to those PayrollRule thresholds."
+    }
+  },
+  "required": [
+    "employee_id",
+    "work_date",
+    "project_id",
+    "cost_code_id"
+  ]
+}

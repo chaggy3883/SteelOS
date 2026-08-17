@@ -26,6 +26,11 @@
       "default": 0,
       "description": "Extra flat amount withheld per pay period on top of the calculated withholding, in dollars."
     },
+    "flat_rate_percent": {
+      "type": "number",
+      "default": 0,
+      "description": "Simplified flat withholding rate for this jurisdiction/employee, used by calculateTaxesAndDeductions() in payrollEngine.js. This is NOT a substitute for real IRS Circular E / state percentage-method tables — building those bracket tables is out of scope here — but it keeps the rate admin-configurable master data instead of a number hardcoded into the engine, consistent with how PayrollRule.config works."
+    },
     "effective_date": {
       "type": "string",
       "format": "date"

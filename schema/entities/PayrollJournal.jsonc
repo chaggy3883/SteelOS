@@ -1,0 +1,31 @@
+{
+  "name": "PayrollJournal",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string"
+    },
+    "gl_account": {
+      "type": "string",
+      "description": "Resolved from PayrollGLMapping for the line's cost_type (and cost_code_id when one applies)."
+    },
+    "debit": {
+      "type": "number",
+      "default": 0
+    },
+    "credit": {
+      "type": "number",
+      "default": 0
+    },
+    "description": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "payroll_run_id",
+    "gl_account"
+  ]
+}

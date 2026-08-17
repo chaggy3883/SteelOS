@@ -1,0 +1,68 @@
+{
+  "name": "JobLaborAllocation",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "time_entry_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string",
+      "description": "Set once this allocation has been produced by a PayrollRun — lets a run's allocations be queried/re-run without scanning every TimeEntry."
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "phase_id": {
+      "type": ["string", "null"]
+    },
+    "area_id": {
+      "type": ["string", "null"]
+    },
+    "cost_code_id": {
+      "type": "string"
+    },
+    "hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Equal to the source TimeEntry's own hours — allocation never redistributes hours to a different project/phase/area/cost_code than what was entered on the TimeEntry."
+    },
+    "regular_hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Added so the regular/OT/double-time split (e.g. '40 reg + 2 OT') survives at the allocation level, not just as a blended total — this is what makes estimated vs. actual labor comparable per rate tier, not just in aggregate dollars."
+    },
+    "ot_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "double_time_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "labor_rate": {
+      "type": "number",
+      "default": 0,
+      "description": "Effective blended rate for this entry (labor_cost / hours) — reflects the regular/OT/double-time mix actually worked on this entry, not just the employee's base hourly rate."
+    },
+    "labor_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "posted_to_job_cost": {
+      "type": "boolean",
+      "default": false
+    },
+    "job_cost_ledger_entry_id": {
+      "type": "string",
+      "description": "Set once this allocation has posted its own JobCostLedgerEntry — same posted_to_job_cost/entry-id pattern PayrollRegisterLine already uses for period-level posting, here at the individual allocation level."
+    }
+  },
+  "required": [
+    "time_entry_id",
+    "project_id",
+    "cost_code_id"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "PayrollRun",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "pay_period_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "review", "approved", "locked"],
+      "default": "draft",
+      "description": "'Run Payroll' creates a run directly in 'review' — nothing is final at that point. Moving to 'approved'/'locked' is Part C's job (controls + approve/lock), not this pipeline."
+    },
+    "run_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "total_gross": {
+      "type": "number",
+      "default": 0
+    },
+    "total_net": {
+      "type": "number",
+      "default": 0
+    },
+    "total_employer_tax": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "pay_period_id",
+    "status"
+  ]
+}

@@ -195,6 +195,16 @@ export default function PayrollRulesPanel() {
                       <Switch checked={!!form.config[f.key]} onCheckedChange={(v) => setConfigField(f.key, v)} />
                       <Label className="text-xs">{f.label}</Label>
                     </>
+                  ) : f.type === 'select' ? (
+                    <>
+                      <Label className="text-xs">{f.label}</Label>
+                      <Select value={form.config[f.key] || ''} onValueChange={(v) => setConfigField(f.key, v)}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="Select…" /></SelectTrigger>
+                        <SelectContent>
+                          {f.options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </>
                   ) : (
                     <>
                       <Label className="text-xs">{f.label}</Label>
