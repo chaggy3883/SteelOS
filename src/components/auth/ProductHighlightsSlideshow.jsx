@@ -108,12 +108,6 @@ export default function ProductHighlightsSlideshow({ slides = DEFAULT_SLIDES, cl
           );
         })}
 
-        {!slide.image && (
-          <span className="absolute top-3 right-3 text-[10px] uppercase tracking-wide font-medium text-white/70 bg-black/40 border border-white/10 rounded-full px-2 py-0.5">
-            Illustrative preview
-          </span>
-        )}
-
         {count > 1 && (
           <>
             <button
