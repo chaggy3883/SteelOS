@@ -8,7 +8,6 @@ import { useToast } from "@/components/ui/use-toast";
 import { LogIn, Mail, Lock, Loader2, Building2, Eye, EyeOff } from "lucide-react";
 import KioskKeypadLogin from "@/components/auth/KioskKeypadLogin";
 import LoginVaultBackdrop from "@/components/auth/LoginVaultBackdrop";
-import ProductHighlightsSlideshow from "@/components/auth/ProductHighlightsSlideshow";
 import { isKioskModeEnabled, getKioskMode } from "@/lib/kioskMode";
 import { isSuperAdmin } from "@/lib/tenantContext";
 import { startUserSession } from "@/lib/userSessionTracking";
@@ -85,8 +84,8 @@ export default function Login() {
     <div className="relative min-h-screen flex items-center justify-center px-4 py-10 overflow-hidden bg-slate-950">
       <LoginVaultBackdrop />
 
-      <div className="relative z-10 w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
-        <div className="w-full max-w-[340px] mx-auto">
+      <div className="relative z-10 w-full max-w-[340px]">
+        <div className="w-full">
           <div className="text-center mb-8">
             <Building2 className="w-10 h-10 text-white mx-auto mb-4" aria-hidden="true" />
             <h1 className="text-3xl font-bold tracking-tight text-white">SteelOS</h1>
@@ -158,10 +157,6 @@ export default function Login() {
           <p className="text-center text-sm text-slate-400 mt-6">
             Enterprise access only — contact your administrator for access.
           </p>
-        </div>
-
-        <div className="w-full max-w-md mx-auto lg:order-first">
-          <ProductHighlightsSlideshow />
         </div>
       </div>
 
