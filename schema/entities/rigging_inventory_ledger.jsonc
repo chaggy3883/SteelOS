@@ -5,31 +5,84 @@
     "company_id": {
       "type": "string"
     },
-    "serial_tag": {
+    "rigging_id": {
+      "type": "string",
+      "description": "The tag/serial on the sling or hardware — unique per company (enforced on save in RiggingMatrix.jsx, not schema-level). Renamed from serial_tag; migrateRiggingLedgerFields in src/api/localData.js backfills this from any pre-existing serial_tag."
+    },
+    "rigging_type": {
+      "type": "string",
+      "enum": ["wire_rope_sling", "synthetic_web_sling", "round_sling", "chain_sling", "shackle", "hook", "spreader_bar", "below_the_hook"],
+      "description": "Renamed from rigging_category with a remapped enum (see src/lib/riggingAssetTypes.js) — drives which inspection checklist (sling_findings vs hardware_findings subsection) RiggingInspectionForm.jsx composes for this asset."
+    },
+    "description": {
       "type": "string"
+    },
+    "manufacturer": {
+      "type": "string"
+    },
+    "wll_rated_capacity": {
+      "type": "string",
+      "description": "Working Load Limit as rated by the manufacturer, e.g. \"20 tons\" or \"8,800 lbs\" — free text since units vary by rigging_type."
+    },
+    "length_or_size": {
+      "type": "string",
+      "description": "Primary dimension as a single display string, e.g. \"12 ft\" or \"3/4in x 6ft\". Supersedes the category-specific numeric fields below for new records."
+    },
+    "in_service_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "proof_test_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Primarily relevant for below_the_hook devices, which require a documented proof load test."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["in_service", "removed_from_service", "repair"],
+      "default": "in_service",
+      "description": "Status changes are logged via src/lib/statusHistory.js's logStatusChange (entity_type 'rigging_inventory_ledger', field_name 'status') — never write this field without also logging the change. removed_from_service assets are excluded from RiggingInspectionForm.jsx's asset picker but are never deleted from this ledger."
+    },
+    "removed_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "removed_reason": {
+      "type": "string"
+    },
+    "serial_tag": {
+      "type": "string",
+      "description": "Legacy — superseded by rigging_id. No longer written; pre-existing records get backfilled onto rigging_id by migrateRiggingLedgerFields."
     },
     "rigging_category": {
       "type": "string",
-      "enum": ["Spreader_Bar", "Cable_Sling", "Nylon_Sling", "Endless_Sling", "Shackle_Hook"]
+      "enum": ["Spreader_Bar", "Cable_Sling", "Nylon_Sling", "Endless_Sling", "Shackle_Hook"],
+      "description": "Legacy — superseded by rigging_type."
     },
     "length_inches": {
-      "type": "number"
+      "type": "number",
+      "description": "Legacy dimensional field — superseded by length_or_size."
     },
     "capacity_tons": {
-      "type": "number"
+      "type": "number",
+      "description": "Legacy dimensional field (Spreader_Bar-specific) — superseded by wll_rated_capacity."
     },
     "beam_width_feet": {
-      "type": "number"
+      "type": "number",
+      "description": "Legacy dimensional field (Spreader_Bar-specific) — superseded by length_or_size."
     },
     "diameter_inches": {
-      "type": "number"
+      "type": "number",
+      "description": "Legacy dimensional field — superseded by length_or_size."
     },
     "ply_count": {
       "type": "string",
-      "enum": ["1-Ply", "2-Ply"]
+      "enum": ["1-Ply", "2-Ply"],
+      "description": "Legacy dimensional field (Nylon_Sling-specific) — superseded by length_or_size."
     },
     "width_inches": {
-      "type": "number"
+      "type": "number",
+      "description": "Legacy dimensional field — superseded by length_or_size."
     },
     "created_at": {
       "type": "string",
@@ -37,7 +90,7 @@
     }
   },
   "required": [
-    "serial_tag",
-    "rigging_category"
+    "rigging_id",
+    "rigging_type"
   ]
 }

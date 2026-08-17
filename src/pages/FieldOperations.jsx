@@ -29,6 +29,7 @@ export default function FieldOperations() {
   const [hookLogs, setHookLogs] = useState([]);
   const [repairLogs, setRepairLogs] = useState([]);
   const [riggingLedger, setRiggingLedger] = useState([]);
+  const [riggingInspections, setRiggingInspections] = useState([]);
   const [projects, setProjects] = useState([]);
   const [pieces, setPieces] = useState([]);
   const [vendors, setVendors] = useState([]);
@@ -44,12 +45,13 @@ export default function FieldOperations() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [assetData, inspectionData, hookData, repairData, riggingData, projectData, pieceData, vendorData, poData, employeeData, usageLogData] = await Promise.all([
+      const [assetData, inspectionData, hookData, repairData, riggingData, riggingInspectionData, projectData, pieceData, vendorData, poData, employeeData, usageLogData] = await Promise.all([
         db.entities.erection_fleet_assets.list('-created_date', 200),
         db.entities.heavy_equipment_inspections.list('-created_date', 200),
         db.entities.field_hook_logs.list('-created_date', 500),
         db.entities.fleet_repair_logs.list('-created_date', 200),
         db.entities.rigging_inventory_ledger.list('-created_date', 200),
+        db.entities.RiggingInspection.list('-created_date', 500),
         db.entities.Project.filter({ is_archived: false }, 'name', 100),
         db.entities.pieces.list('-created_date', 500),
         db.entities.Vendor.filter({ is_active: true }, 'name', 200),
@@ -62,6 +64,7 @@ export default function FieldOperations() {
       setHookLogs(hookData);
       setRepairLogs(repairData);
       setRiggingLedger(riggingData);
+      setRiggingInspections(riggingInspectionData);
       setProjects(projectData);
       setPieces(pieceData);
       setVendors(vendorData);
@@ -131,7 +134,7 @@ export default function FieldOperations() {
     <div className="p-4 md:p-6 space-y-4 animate-fade-in">
       <PageHeader
         title="Field Operations"
-        subtitle="Fleet & rental registry, OSHA/DOT inspection radar, crane hook production, repair ledger, and rigging matrix"
+        subtitle="Fleet & rental registry, OSHA/DOT inspection radar, crane hook production, repair ledger, and rigging registry"
         actions={(
           <div className="flex items-center gap-2">
             <Link to="/field-operations/equipment-service">
@@ -151,7 +154,7 @@ export default function FieldOperations() {
           <TabsTrigger value="radar" className="gap-1.5"><ShieldAlert className="w-3.5 h-3.5" />Inspection Radar</TabsTrigger>
           <TabsTrigger value="hooks" className="gap-1.5"><ArrowUpFromLine className="w-3.5 h-3.5" />Hook Production Terminal</TabsTrigger>
           <TabsTrigger value="repairs" className="gap-1.5"><Wrench className="w-3.5 h-3.5" />Repair Ledger</TabsTrigger>
-          <TabsTrigger value="rigging" className="gap-1.5"><Link2 className="w-3.5 h-3.5" />Rigging Matrix</TabsTrigger>
+          <TabsTrigger value="rigging" className="gap-1.5"><Link2 className="w-3.5 h-3.5" />Rigging Registry</TabsTrigger>
           <TabsTrigger value="jobsite-receiving" className="gap-1.5"><PackageCheck className="w-3.5 h-3.5" />Jobsite Receiving</TabsTrigger>
         </TabsList>
 
@@ -196,7 +199,7 @@ export default function FieldOperations() {
         </TabsContent>
 
         <TabsContent value="rigging">
-          <RiggingMatrix ledger={riggingLedger} canManageFleet={canManageFleet} onReload={loadAll} />
+          <RiggingMatrix ledger={riggingLedger} inspections={riggingInspections} canManageFleet={canManageFleet} onReload={loadAll} currentUser={currentUser} />
         </TabsContent>
 
         <TabsContent value="jobsite-receiving">

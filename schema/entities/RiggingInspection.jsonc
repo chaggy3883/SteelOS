@@ -5,13 +5,21 @@
     "company_id": { "type": "string" },
     "inspection_date": { "type": "string", "format": "date" },
     "inspector_name": { "type": "string" },
+    "inspector_employee_id": {
+      "type": "string",
+      "description": "Optional FK to employees.id, set when the inspector is a tracked employee (vs. a third-party inspector, free-text only via inspector_name). Lets the Rigging Registry's inspection history link the inspector to their HR record (/human-resources?employee=<id>) — Standing Rule 1 (every data point clickable)."
+    },
     "inspection_type": {
       "type": "string",
       "enum": ["Daily", "Monthly", "Annual", "Initial", "Idle_Equipment"],
       "default": "Daily"
     },
-    "equipment_id": { "type": "string", "description": "Free-text ID/tag number of the rigging gear being inspected, not a foreign key." },
+    "equipment_id": { "type": "string", "description": "Free-text ID/tag number of the rigging gear being inspected. Kept for backward-compat display; rigging_asset_id is the real link going forward." },
     "equipment_description": { "type": "string" },
+    "rigging_asset_id": {
+      "type": "string",
+      "description": "FK to rigging_inventory_ledger.id. Required going forward by RiggingInspectionForm.jsx (its asset picker excludes status=removed_from_service assets). migrateRiggingInspectionAssetLinks in src/api/localData.js backfills this on pre-existing records by matching trimmed/case-insensitive equipment_id against rigging_inventory_ledger.rigging_id; unmatched records are left with this blank and logged via console.warn rather than dropped."
+    },
     "tag_legible": { "type": "boolean", "default": false, "description": "Manufacturer tags present and readable." },
     "wll_readable": { "type": "boolean", "default": false, "description": "Working Load Limit clearly marked." },
     "sling_type": {
@@ -36,13 +44,13 @@
       "items": {
         "type": "object",
         "properties": {
-          "subsection": { "type": "string", "enum": ["Shackles_Pins", "Hooks", "Spreader_Bars"] },
+          "subsection": { "type": "string", "enum": ["Shackles_Pins", "Hooks", "Spreader_Bars", "Below_The_Hook"] },
           "item": { "type": "string" },
           "checked": { "type": "boolean" },
           "notes": { "type": "string" }
         }
       },
-      "description": "Per-item checklist results across the Shackles/Pins, Hooks, and Spreader Bars hardware subsections."
+      "description": "Per-item checklist results across the Shackles/Pins, Hooks, Spreader Bars, and Below-the-Hook hardware subsections."
     },
     "deficiencies": { "type": "string" },
     "disposal_action": {

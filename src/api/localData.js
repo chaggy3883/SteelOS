@@ -2,6 +2,7 @@ import { stubSignatureHash, verifyPin } from '@/lib/hrSecurity';
 import { encodeFormulaPin } from '@/lib/pinFormula';
 import { SHAPE_CLASSES } from '@/data/steelShapeSelector';
 import { SERVICE_SCHEDULE_SEEDS } from '@/lib/serviceScheduleSeedData';
+import { LEGACY_RIGGING_CATEGORY_MAP } from '@/lib/riggingAssetTypes';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
 const AUTH_STORAGE_KEY = 'steelos_auth_state';
@@ -856,8 +857,14 @@ const buildSeedData = () => {
       {
         id: 'rigging-1',
         company_id: 'company-hancock',
-        serial_tag: 'SB-1001',
-        rigging_category: 'Spreader_Bar',
+        rigging_id: 'SB-1001',
+        rigging_type: 'spreader_bar',
+        description: '12ft spreader bar',
+        manufacturer: 'Caldwell',
+        wll_rated_capacity: '20 tons',
+        length_or_size: '12 ft beam',
+        in_service_date: '2024-02-01',
+        status: 'in_service',
         length_inches: 144,
         capacity_tons: 20,
         beam_width_feet: 12,
@@ -868,8 +875,16 @@ const buildSeedData = () => {
       {
         id: 'rigging-2',
         company_id: 'company-hancock',
-        serial_tag: 'CS-2004',
-        rigging_category: 'Cable_Sling',
+        rigging_id: 'CS-2004',
+        rigging_type: 'wire_rope_sling',
+        description: '3/4in wire rope sling, 72in',
+        manufacturer: 'Slingmax',
+        wll_rated_capacity: '8.5 tons',
+        length_or_size: '3/4in x 72in',
+        in_service_date: '2023-09-15',
+        status: 'removed_from_service',
+        removed_date: '2025-07-20',
+        removed_reason: 'Corrosion progressed to visible wire wear at end termination — removed per 29 CFR 1926.251(c)(4).',
         length_inches: 72,
         diameter_inches: 0.75,
         created_at: now,
@@ -879,12 +894,147 @@ const buildSeedData = () => {
       {
         id: 'rigging-3',
         company_id: 'company-hancock',
-        serial_tag: 'NS-3007',
-        rigging_category: 'Nylon_Sling',
+        rigging_id: 'NS-3007',
+        rigging_type: 'synthetic_web_sling',
+        description: '4in x 96in synthetic web sling, 2-ply',
+        manufacturer: 'Lift-All',
+        wll_rated_capacity: '6 tons',
+        length_or_size: '4in x 96in, 2-ply',
+        in_service_date: '2024-11-01',
+        status: 'in_service',
         length_inches: 96,
         ply_count: '2-Ply',
         width_inches: 4,
         created_at: now,
+        created_date: now,
+        updated_date: now
+      }
+    ],
+    RiggingInspection: [
+      {
+        id: 'rigging-inspection-1',
+        company_id: 'company-hancock',
+        rigging_asset_id: 'rigging-1',
+        inspection_date: '2025-06-01',
+        inspector_name: 'Dale Hutchins',
+        inspection_type: 'Monthly',
+        equipment_id: 'SB-1001',
+        equipment_description: '12ft spreader bar',
+        tag_legible: true,
+        wll_readable: true,
+        hardware_findings: [
+          { subsection: 'Spreader_Bars', item: 'Structural deformation', checked: false, notes: '' },
+          { subsection: 'Spreader_Bars', item: 'Weld integrity', checked: false, notes: '' },
+          { subsection: 'Spreader_Bars', item: 'Proof-load test current', checked: false, notes: '' }
+        ],
+        deficiencies: '',
+        disposal_action: 'Pass',
+        disposal_notes: '',
+        documents: [],
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'rigging-inspection-2',
+        company_id: 'company-hancock',
+        rigging_asset_id: 'rigging-1',
+        inspection_date: '2025-08-10',
+        inspector_name: 'Dale Hutchins',
+        inspection_type: 'Monthly',
+        equipment_id: 'SB-1001',
+        equipment_description: '12ft spreader bar',
+        tag_legible: true,
+        wll_readable: true,
+        hardware_findings: [
+          { subsection: 'Spreader_Bars', item: 'Structural deformation', checked: false, notes: '' },
+          { subsection: 'Spreader_Bars', item: 'Weld integrity', checked: false, notes: '' },
+          { subsection: 'Spreader_Bars', item: 'Proof-load test current', checked: false, notes: '' }
+        ],
+        deficiencies: '',
+        disposal_action: 'Pass',
+        disposal_notes: '',
+        documents: [],
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'rigging-inspection-3',
+        company_id: 'company-hancock',
+        rigging_asset_id: 'rigging-2',
+        inspection_date: '2025-03-01',
+        inspector_name: 'Maria Ortiz',
+        inspection_type: 'Monthly',
+        equipment_id: 'CS-2004',
+        equipment_description: '3/4in wire rope sling, 72in',
+        tag_legible: true,
+        wll_readable: true,
+        sling_type: 'Wire_Rope',
+        sling_findings: [
+          { item: 'Broken wires per lay', checked: false, notes: '' },
+          { item: 'Kinking', checked: false, notes: '' },
+          { item: 'Birdcaging', checked: false, notes: '' },
+          { item: 'Core protrusion', checked: false, notes: '' },
+          { item: 'Corrosion', checked: true, notes: 'Light surface corrosion near mid-span — monitor.' },
+          { item: 'End termination damage', checked: false, notes: '' }
+        ],
+        deficiencies: 'Light surface corrosion noted near mid-span.',
+        disposal_action: 'Pass',
+        disposal_notes: '',
+        documents: [],
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'rigging-inspection-4',
+        company_id: 'company-hancock',
+        rigging_asset_id: 'rigging-2',
+        inspection_date: '2025-05-15',
+        inspector_name: 'Maria Ortiz',
+        inspection_type: 'Monthly',
+        equipment_id: 'CS-2004',
+        equipment_description: '3/4in wire rope sling, 72in',
+        tag_legible: true,
+        wll_readable: true,
+        sling_type: 'Wire_Rope',
+        sling_findings: [
+          { item: 'Broken wires per lay', checked: false, notes: '' },
+          { item: 'Kinking', checked: false, notes: '' },
+          { item: 'Birdcaging', checked: false, notes: '' },
+          { item: 'Core protrusion', checked: false, notes: '' },
+          { item: 'Corrosion', checked: true, notes: 'Corrosion progressing near mid-span.' },
+          { item: 'End termination damage', checked: false, notes: '' }
+        ],
+        deficiencies: 'Corrosion progressing near mid-span since last inspection.',
+        disposal_action: 'Requires_Repair',
+        disposal_notes: 'Schedule for closer inspection/cleaning before next use.',
+        documents: [],
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'rigging-inspection-5',
+        company_id: 'company-hancock',
+        rigging_asset_id: 'rigging-2',
+        inspection_date: '2025-07-20',
+        inspector_name: 'Maria Ortiz',
+        inspection_type: 'Monthly',
+        equipment_id: 'CS-2004',
+        equipment_description: '3/4in wire rope sling, 72in',
+        tag_legible: true,
+        wll_readable: true,
+        sling_type: 'Wire_Rope',
+        sling_findings: [
+          { item: 'Broken wires per lay', checked: false, notes: '' },
+          { item: 'Kinking', checked: false, notes: '' },
+          { item: 'Birdcaging', checked: false, notes: '' },
+          { item: 'Core protrusion', checked: false, notes: '' },
+          { item: 'Corrosion', checked: true, notes: 'Corrosion has progressed further — visible wire wear at end termination.' },
+          { item: 'End termination damage', checked: true, notes: 'Visible wire wear at end termination.' }
+        ],
+        deficiencies: 'Corrosion has progressed to visible wire wear at the end termination.',
+        disposal_action: 'Removed_From_Service',
+        disposal_notes: 'Corrosion progressed to visible wire wear at end termination — removed per 29 CFR 1926.251(c)(4).',
+        documents: [],
         created_date: now,
         updated_date: now
       }
@@ -2008,6 +2158,45 @@ const migrateLegacyShippingLoads = (migrated) => {
   migrated.shipping_loads = [];
 };
 
+// rigging_inventory_ledger's serial_tag/rigging_category -> rigging_id/
+// rigging_type rename+remap. Idempotent: a row already on the new shape
+// (rigging_id set) is left untouched. Shackle_Hook has no clean 1:1 mapping
+// (the old enum merged shackles and hooks) — defaults to 'shackle' and
+// warns, since that's a lossy guess an admin may want to correct to 'hook'.
+const migrateRiggingLedgerFields = (migrated) => {
+  const rows = Array.isArray(migrated.rigging_inventory_ledger) ? migrated.rigging_inventory_ledger : [];
+  migrated.rigging_inventory_ledger = rows.map((row) => {
+    if (row.rigging_id) return row.status ? row : { ...row, status: 'in_service' };
+    const newType = LEGACY_RIGGING_CATEGORY_MAP[row.rigging_category] || 'wire_rope_sling';
+    if (row.rigging_category === 'Shackle_Hook') {
+      console.warn(`[migrateRiggingLedgerFields] rigging_inventory_ledger/${row.id} (serial_tag "${row.serial_tag}") was category Shackle_Hook, which has no exact match in the new rigging_type enum — defaulted to 'shackle'. Correct to 'hook' in the Rigging Registry if this item is actually a hook.`);
+    }
+    return { ...row, rigging_id: row.serial_tag || row.id, rigging_type: newType, status: row.status || 'in_service' };
+  });
+};
+
+// Backfills RiggingInspection.rigging_asset_id by matching trimmed/
+// case-insensitive equipment_id against rigging_inventory_ledger.rigging_id.
+// Must run AFTER migrateRiggingLedgerFields so rigging_id actually exists.
+// Idempotent (skips records that already have the FK). Unmatched records
+// are warned about and left exactly as-is — equipment_id preserved,
+// rigging_asset_id left blank — never dropped.
+const migrateRiggingInspectionAssetLinks = (migrated) => {
+  const inspections = Array.isArray(migrated.RiggingInspection) ? migrated.RiggingInspection : [];
+  if (inspections.length === 0) return;
+  const assets = Array.isArray(migrated.rigging_inventory_ledger) ? migrated.rigging_inventory_ledger : [];
+
+  migrated.RiggingInspection = inspections.map((inspection) => {
+    if (inspection.rigging_asset_id) return inspection;
+    const match = assets.find((a) => toLowerCase(a.rigging_id) === toLowerCase(inspection.equipment_id) && toLowerCase(a.rigging_id) !== '');
+    if (!match) {
+      console.warn(`[migrateRiggingInspectionAssetLinks] RiggingInspection/${inspection.id} has equipment_id "${inspection.equipment_id}" with no matching rigging_inventory_ledger.rigging_id — left unlinked, not dropped. Link it manually from the Rigging Registry if the asset exists under a different tag.`);
+      return inspection;
+    }
+    return { ...inspection, rigging_asset_id: match.id };
+  });
+};
+
 // Generic backfill for the shared StatusHistoryEntry log (src/lib/
 // statusHistory.js, StatusHistoryModal) — every entity below writes its
 // status changes there now instead of a bespoke per-entity history. Runs on
@@ -2023,6 +2212,7 @@ const STATUS_HISTORY_BACKFILL_TARGETS = [
   { entityKey: 'DisciplinaryAction', fieldName: 'status', changedByField: 'supervisor_name' },
   { entityKey: 'loads', fieldName: 'status' },
   { entityKey: 'qa_inspections', fieldName: 'status', changedByField: 'inspector_id' },
+  { entityKey: 'rigging_inventory_ledger', fieldName: 'status' },
 ];
 
 const backfillStatusHistory = (migrated) => {
@@ -2250,6 +2440,8 @@ const migrateStore = (store) => {
   }
 
   migrateLegacyShippingLoads(migrated);
+  migrateRiggingLedgerFields(migrated);
+  migrateRiggingInspectionAssetLinks(migrated);
   backfillStatusHistory(migrated);
   backfillPieceLifecycleEvents(migrated);
 

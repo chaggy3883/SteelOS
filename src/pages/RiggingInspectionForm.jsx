@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { saveDocumentRecords } from '@/lib/inspectionDocumentStore';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
+import { logStatusChange } from '@/lib/statusHistory';
+import { checklistModeForRiggingType } from '@/lib/riggingAssetTypes';
 import { cn } from '@/lib/utils';
 import {
   ArrowLeft, ClipboardCheck, Link2, Wrench, AlertTriangle, Paperclip,
@@ -29,23 +31,18 @@ const INSPECTION_TYPES = [
   { value: 'Idle_Equipment', label: 'Idle Equipment' },
 ];
 
-const SLING_TYPES = [
-  { value: 'Wire_Rope', label: 'Wire Rope' },
-  { value: 'Synthetic_Web', label: 'Synthetic Web' },
-  { value: 'Chain', label: 'Chain' },
-];
-
 const SLING_CHECKLIST_BY_TYPE = {
   Wire_Rope: ['Broken wires per lay', 'Kinking', 'Birdcaging', 'Core protrusion', 'Corrosion', 'End termination damage'],
   Synthetic_Web: ['Cuts', 'Punctures', 'Severe abrasion', 'UV degradation', 'Chemical/heat damage', 'Broken/worn stitching'],
   Chain: ['Link wear', 'Elongation/stretch', 'Nicks/gouges', 'Weld/crown damage'],
 };
 
-const HARDWARE_SECTIONS = [
-  { key: 'Shackles_Pins', label: 'Shackles / Pins', items: ['Bow distortion', 'Pin bending', 'Thread stripping', 'Wear inside bow'] },
-  { key: 'Hooks', label: 'Hooks', items: ['Throat opening stretch', 'Twisting', 'Cracks', 'Safety latch condition'] },
-  { key: 'Spreader_Bars', label: 'Spreader Bars', items: ['Structural deformation', 'Weld integrity', 'Proof-load test current'] },
-];
+const HARDWARE_SECTIONS_BY_SUBSECTION = {
+  Shackles_Pins: { label: 'Shackles / Pins', items: ['Bow distortion', 'Pin bending', 'Thread stripping', 'Wear inside bow'] },
+  Hooks: { label: 'Hooks', items: ['Throat opening stretch', 'Twisting', 'Cracks', 'Safety latch condition'] },
+  Spreader_Bars: { label: 'Spreader Bars', items: ['Structural deformation', 'Weld integrity', 'Proof-load test current'] },
+  Below_The_Hook: { label: 'Below-the-Hook Device', items: ['Structural deformation or cracking', 'Weld integrity', 'Proof-load test current', 'Attachment point wear'] },
+};
 
 const DISPOSAL_ACTIONS = [
   { value: 'Pass', label: 'Pass' },
@@ -58,20 +55,20 @@ const toDocumentRef = ({ id, filename, mimetype, size, uploadDate }) => ({ id, f
 const buildSlingFindings = (slingType) =>
   (SLING_CHECKLIST_BY_TYPE[slingType] || []).map((item) => ({ item, checked: false, notes: '' }));
 
-const buildHardwareFindings = () =>
-  HARDWARE_SECTIONS.flatMap((section) => section.items.map((item) => ({ subsection: section.key, item, checked: false, notes: '' })));
+const buildHardwareFindings = (subsection) =>
+  (HARDWARE_SECTIONS_BY_SUBSECTION[subsection]?.items || []).map((item) => ({ subsection, item, checked: false, notes: '' }));
 
 const emptyForm = () => ({
   inspection_date: new Date().toISOString().slice(0, 10),
   inspector_name: '',
   inspection_type: 'Daily',
-  equipment_id: '',
+  rigging_asset_id: '',
   equipment_description: '',
+  inspector_employee_id: '',
   tag_legible: false,
   wll_readable: false,
-  sling_type: 'Wire_Rope',
-  sling_findings: buildSlingFindings('Wire_Rope'),
-  hardware_findings: buildHardwareFindings(),
+  sling_findings: [],
+  hardware_findings: [],
   deficiencies: '',
   disposal_action: 'Pass',
   disposal_notes: '',
@@ -118,12 +115,15 @@ export default function RiggingInspectionForm() {
   const [currentUser, setCurrentUser] = useState(null);
   const [effectiveCompany, setEffectiveCompany] = useState(null);
   const [checkingAccess, setCheckingAccess] = useState(true);
+  const [assets, setAssets] = useState([]);
+  const [loadingAssets, setLoadingAssets] = useState(true);
+  const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState(emptyForm());
   const [pendingFiles, setPendingFiles] = useState([]);
   const [savedDocuments, setSavedDocuments] = useState([]);
   const [lastSavedId, setLastSavedId] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [openSections, setOpenSections] = useState({ admin: true, slings: true, hardware: true, disposal: true, attachments: true });
+  const [openSections, setOpenSections] = useState({ admin: true, checklist: true, disposal: true, attachments: true });
 
   useEffect(() => {
     Promise.all([db.auth.me().catch(() => null), getEffectiveCompany().catch(() => null)])
@@ -131,9 +131,35 @@ export default function RiggingInspectionForm() {
       .finally(() => setCheckingAccess(false));
   }, []);
 
+  useEffect(() => {
+    setLoadingAssets(true);
+    db.entities.rigging_inventory_ledger.list('-created_date', 500)
+      .catch(() => [])
+      .then(setAssets)
+      .finally(() => setLoadingAssets(false));
+    db.entities.employees.list('-created_date', 500).catch(() => []).then(setEmployees);
+  }, []);
+
+  // Assets pulled off the line — never selectable for a new inspection,
+  // though the Rigging Registry still shows them (and their full history)
+  // permanently.
+  const selectableAssets = useMemo(() => assets.filter((a) => a.status !== 'removed_from_service'), [assets]);
+  const selectedAsset = useMemo(() => assets.find((a) => a.id === form.rigging_asset_id) || null, [assets, form.rigging_asset_id]);
+  const checklistMode = selectedAsset ? checklistModeForRiggingType(selectedAsset.rigging_type) : null;
+
   const toggleSection = (key) => setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const applySlingType = (type) => setForm((f) => ({ ...f, sling_type: type, sling_findings: buildSlingFindings(type) }));
+  const selectAsset = (assetId) => {
+    const asset = assets.find((a) => a.id === assetId);
+    const mode = asset ? checklistModeForRiggingType(asset.rigging_type) : null;
+    setForm((f) => ({
+      ...f,
+      rigging_asset_id: assetId,
+      equipment_description: asset?.description || f.equipment_description,
+      sling_findings: mode?.mode === 'sling' ? buildSlingFindings(mode.sling_type) : [],
+      hardware_findings: mode?.mode === 'hardware' ? buildHardwareFindings(mode.subsection) : [],
+    }));
+  };
 
   const updateSlingFinding = (index, patch) => {
     setForm((f) => ({ ...f, sling_findings: f.sling_findings.map((it, i) => (i === index ? { ...it, ...patch } : it)) }));
@@ -154,8 +180,8 @@ export default function RiggingInspectionForm() {
   };
 
   const handleSave = async () => {
-    if (!form.equipment_id.trim()) {
-      toast({ title: 'Equipment ID is required', variant: 'destructive' });
+    if (!selectedAsset) {
+      toast({ title: 'Select the rigging asset being inspected', variant: 'destructive' });
       return;
     }
     if (!form.inspector_name.trim()) {
@@ -172,12 +198,14 @@ export default function RiggingInspectionForm() {
       const created = await db.entities.RiggingInspection.create({
         inspection_date: form.inspection_date,
         inspector_name: form.inspector_name.trim(),
+        inspector_employee_id: form.inspector_employee_id || '',
         inspection_type: form.inspection_type,
-        equipment_id: form.equipment_id.trim(),
+        rigging_asset_id: selectedAsset.id,
+        equipment_id: selectedAsset.rigging_id,
         equipment_description: form.equipment_description.trim(),
         tag_legible: form.tag_legible,
         wll_readable: form.wll_readable,
-        sling_type: form.sling_type,
+        sling_type: checklistMode?.mode === 'sling' ? checklistMode.sling_type : '',
         sling_findings: form.sling_findings.map((f) => ({ ...f, notes: f.notes.trim() })),
         hardware_findings: form.hardware_findings.map((f) => ({ ...f, notes: f.notes.trim() })),
         deficiencies: form.deficiencies.trim(),
@@ -185,6 +213,26 @@ export default function RiggingInspectionForm() {
         disposal_notes: requiresDisposalNotes ? form.disposal_notes.trim() : '',
         documents: [],
       });
+
+      if (form.disposal_action === 'Removed_From_Service') {
+        const changedBy = currentUser?.full_name || currentUser?.email || form.inspector_name.trim();
+        const reason = form.disposal_notes.trim();
+        await db.entities.rigging_inventory_ledger.update(selectedAsset.id, {
+          status: 'removed_from_service',
+          removed_date: form.inspection_date,
+          removed_reason: reason,
+        });
+        await logStatusChange({
+          entityType: 'rigging_inventory_ledger',
+          entityId: selectedAsset.id,
+          fieldName: 'status',
+          fromValue: selectedAsset.status || 'in_service',
+          toValue: 'removed_from_service',
+          changedBy,
+          note: reason,
+        });
+        setAssets((prev) => prev.map((a) => (a.id === selectedAsset.id ? { ...a, status: 'removed_from_service' } : a)));
+      }
 
       if (pendingFiles.length > 0) {
         const storageKey = `inspection_documents_${created.id}`;
@@ -229,8 +277,17 @@ export default function RiggingInspectionForm() {
       <Section title="Administrative & General" icon={ClipboardCheck} open={openSections.admin} onToggle={() => toggleSection('admin')}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <Label>Equipment ID <span className="text-red-500">*</span></Label>
-            <Input value={form.equipment_id} onChange={(e) => setForm((f) => ({ ...f, equipment_id: e.target.value }))} placeholder="e.g. SLG-0042" className="mt-1" />
+            <Label>Rigging Asset <span className="text-red-500">*</span></Label>
+            <Select value={form.rigging_asset_id} onValueChange={selectAsset} disabled={loadingAssets}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder={loadingAssets ? 'Loading…' : 'Select the asset being inspected'} /></SelectTrigger>
+              <SelectContent>
+                {selectableAssets.length === 0 && !loadingAssets && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">No in-service rigging assets — add one in the Rigging Registry first.</div>
+                )}
+                {selectableAssets.map((a) => <SelectItem key={a.id} value={a.id}>{a.rigging_id} — {a.description || a.rigging_type}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">Removed-from-service assets can't be selected here — see the Rigging Registry to reactivate one.</p>
           </div>
           <div>
             <Label>Equipment Description</Label>
@@ -243,6 +300,16 @@ export default function RiggingInspectionForm() {
           <div>
             <Label>Inspector Name <span className="text-red-500">*</span></Label>
             <Input value={form.inspector_name} onChange={(e) => setForm((f) => ({ ...f, inspector_name: e.target.value }))} className="mt-1" />
+          </div>
+          <div>
+            <Label>Link to Employee (optional)</Label>
+            <Select value={form.inspector_employee_id || '__none__'} onValueChange={(v) => setForm((f) => ({ ...f, inspector_employee_id: v === '__none__' ? '' : v }))}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder="Not linked" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Not linked (third-party inspector)</SelectItem>
+                {employees.map((e) => <SelectItem key={e.id} value={e.id}>{e.full_name || e.id}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label>Inspection Type</Label>
@@ -265,35 +332,27 @@ export default function RiggingInspectionForm() {
         </div>
       </Section>
 
-      <Section title="Slings" icon={Link2} open={openSections.slings} onToggle={() => toggleSection('slings')}>
-        <div>
-          <Label>Sling Type</Label>
-          <Select value={form.sling_type} onValueChange={applySlingType}>
-            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-            <SelectContent>{SLING_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <p className="text-xs text-muted-foreground">Check any condition observed on this sling, and note its location.</p>
-        <div className="space-y-2">
-          {form.sling_findings.map((finding, i) => (
-            <FindingRow key={finding.item} finding={finding} onChange={(patch) => updateSlingFinding(i, patch)} />
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Hardware & Components" icon={Wrench} open={openSections.hardware} onToggle={() => toggleSection('hardware')}>
-        <p className="text-xs text-muted-foreground">Check any condition observed, and note its location.</p>
-        {HARDWARE_SECTIONS.map((section) => (
-          <div key={section.key} className="space-y-2">
-            <Label className="text-xs text-muted-foreground uppercase tracking-wide">{section.label}</Label>
-            {section.items.map((item) => {
-              const index = form.hardware_findings.findIndex((f) => f.subsection === section.key && f.item === item);
-              const finding = form.hardware_findings[index];
-              return <FindingRow key={item} finding={finding} onChange={(patch) => updateHardwareFinding(index, patch)} />;
-            })}
+      {selectedAsset && checklistMode?.mode === 'sling' && (
+        <Section title="Sling Condition" icon={Link2} open={openSections.checklist} onToggle={() => toggleSection('checklist')}>
+          <p className="text-xs text-muted-foreground">Check any condition observed on this sling, and note its location.</p>
+          <div className="space-y-2">
+            {form.sling_findings.map((finding, i) => (
+              <FindingRow key={finding.item} finding={finding} onChange={(patch) => updateSlingFinding(i, patch)} />
+            ))}
           </div>
-        ))}
-      </Section>
+        </Section>
+      )}
+
+      {selectedAsset && checklistMode?.mode === 'hardware' && (
+        <Section title={HARDWARE_SECTIONS_BY_SUBSECTION[checklistMode.subsection]?.label || 'Hardware Condition'} icon={Wrench} open={openSections.checklist} onToggle={() => toggleSection('checklist')}>
+          <p className="text-xs text-muted-foreground">Check any condition observed, and note its location.</p>
+          <div className="space-y-2">
+            {form.hardware_findings.map((finding, i) => (
+              <FindingRow key={finding.item} finding={finding} onChange={(patch) => updateHardwareFinding(i, patch)} />
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section title="Deficiencies & Disposal" icon={AlertTriangle} open={openSections.disposal} onToggle={() => toggleSection('disposal')}>
         <div>
@@ -312,6 +371,9 @@ export default function RiggingInspectionForm() {
             <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
             <SelectContent>{DISPOSAL_ACTIONS.map((a) => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}</SelectContent>
           </Select>
+          {form.disposal_action === 'Removed_From_Service' && (
+            <p className="text-xs text-amber-600 mt-1">Saving will immediately mark this asset removed from service in the Rigging Registry and block it from future inspections.</p>
+          )}
         </div>
         {requiresDisposalNotes && (
           <div>
