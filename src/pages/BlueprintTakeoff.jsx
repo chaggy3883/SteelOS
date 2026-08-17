@@ -1388,22 +1388,28 @@ export default function BlueprintTakeoff() {
     });
   };
 
-  const handleSaveMeasurementsLocally = (measurementRows) => {
+  // Every add/edit/delete on a measurement row already calls persist()
+  // itself (see handleConfirmMeasurement/updateRow/handleDeleteMeasurementRow
+  // etc.), so this button is really a "confirm it's saved" affordance rather
+  // than the only path to the bid record — but it must actually write
+  // through to blueprint_takeoffs, not just localStorage, or "survives a
+  // reload" is a lie.
+  const handleSaveMeasurementsLocally = async (measurementRows) => {
     try {
-      localStorage.setItem(`ironsight_measurements_${takeoffId || 'draft'}`, JSON.stringify(measurementRows));
-      toast({ title: 'Measurements saved locally', description: `${measurementRows.length} row${measurementRows.length === 1 ? '' : 's'} saved to this browser.` });
+      await persist(rows);
+      toast({ title: 'Takeoff saved', description: `${measurementRows.length} row${measurementRows.length === 1 ? '' : 's'} saved to this bid.` });
     } catch (e) {
-      toast({ title: 'Could not save locally', variant: 'destructive' });
+      toast({ title: 'Could not save takeoff', variant: 'destructive' });
     }
   };
 
   const handleExportMeasurementsCsv = (visibleRows) => {
     exportRowsToCsv({
       filename: `${takeoffName || 'takeoff'}_measurements`,
-      columns: ['Page', 'Shape Type', 'Size', 'Quantity', 'Phase', 'Area', 'Notes', 'Status'],
+      columns: ['Page', 'Shape Type', 'Size', 'Quantity', 'Phase/Area', 'Notes', 'Status'],
       rows: visibleRows.map((r) => [
         r.page_number || 1, r.shape_type || '', r.size_designation || '', r.quantity || 0,
-        r.phase || '', r.area || '', r.notes || '', r.marker_color || '',
+        r.phase || r.area || '', r.notes || '', r.marker_color || '',
       ]),
     });
   };
@@ -1449,6 +1455,11 @@ export default function BlueprintTakeoff() {
   // which never touches `rows`), sorted/filtered per the table's own
   // controls.
   const measurementRows = rows.filter((r) => r.source === 'measurement');
+  // Whether this bid/project has any named phases/areas at all — mirrors the
+  // MeasurementConfirmationModal's own phaseRequired check, so the filter
+  // row and column only ever show real phase data, never a meaningless
+  // all-"—" list on an unphased project.
+  const isPhased = Object.keys(areas || {}).length > 0;
   const measurementAreaOptions = Array.from(new Set(measurementRows.map((r) => r.area || '(none)')));
   const visibleMeasurementRows = measurementRows
     .filter((r) => !excludedMeasurementAreas.has(r.area || '(none)'))
@@ -2221,7 +2232,7 @@ export default function BlueprintTakeoff() {
                   </div>
                 </div>
 
-                {measurementAreaOptions.length > 0 && (
+                {isPhased && measurementAreaOptions.length > 0 && (
                   <div className="flex items-center gap-3 flex-wrap mb-2 text-xs">
                     <span className="font-medium text-muted-foreground">Filter Phase/Area:</span>
                     {measurementAreaOptions.map((a) => (
@@ -2251,8 +2262,7 @@ export default function BlueprintTakeoff() {
                             { key: 'shape_type', label: 'Shape Type' },
                             { key: 'size_designation', label: 'Size' },
                             { key: 'quantity', label: 'Quantity' },
-                            { key: 'phase', label: 'Phase' },
-                            { key: 'area', label: 'Area' },
+                            { key: 'phase', label: 'Phase/Area' },
                           ].map((col) => (
                             <th
                               key={col.key}
@@ -2278,8 +2288,7 @@ export default function BlueprintTakeoff() {
                             <td className="p-2">{r.shape_type || '—'}</td>
                             <td className="p-2">{r.size_designation || '—'}</td>
                             <td className="p-2">{r.quantity || 0}</td>
-                            <td className="p-2">{r.phase || '—'}</td>
-                            <td className="p-2">{r.area || '—'}</td>
+                            <td className="p-2">{r.phase || r.area || '—'}</td>
                             <td className="p-2" onClick={(e) => e.stopPropagation()}>
                               <Input
                                 value={r.notes || ''}
