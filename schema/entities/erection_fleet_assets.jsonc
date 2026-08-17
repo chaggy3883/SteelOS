@@ -87,6 +87,40 @@
       "type": "string",
       "format": "date",
       "description": "Set when 'Equipment Called Off' confirms an actual pickup/return, separate from rental_target_off_rent_date (the date it was supposed to leave by)."
+    },
+    "equipment_type": {
+      "type": "string",
+      "enum": [
+        "SEMI_TRACTOR",
+        "SEMI_TRAILER",
+        "MOBILE_CRANE",
+        "AERIAL_BOOM_LIFT",
+        "TELEHANDLER_FORKLIFT",
+        "WELDING_MACHINE",
+        "GENERATOR",
+        "PICKUP_SERVICE_TRUCK"
+      ],
+      "description": "Fine-grained service-schedule category, set from the asset add/edit dialog in FleetRentalRegistry.jsx (or auto-written back from EquipmentServiceForm.jsx the first time a service record picks a type for an asset that doesn't have one yet). Deliberately separate from asset_type (Crane/Truck/Trailer/Rigging_Equipment/Other) — that field drives rental/dispatch/PO-vendor-matching and is untouched by this. Matches ServiceSchedule.equipment_type / EquipmentService.equipment_type."
+    },
+    "odometer_miles": {
+      "type": "number",
+      "default": 0,
+      "description": "Current odometer reading, for equipment_type values on a miles-based ServiceSchedule (e.g. SEMI_TRACTOR). runtime_hours already serves as engine hours — there is no separate engine_hours field."
+    },
+    "severe_duty_multiplier": {
+      "type": "number",
+      "default": 1,
+      "description": "Configurable per-asset multiplier (e.g. 0.7) applied to every ServiceSchedule interval for this asset — construction/heavy-haul duty cycles run shorter than highway/light duty, so this shortens (never lengthens) effective intervals in src/lib/serviceScheduleEngine.js's computeLevelStatus."
+    },
+    "last_service_by_level": {
+      "type": "object",
+      "properties": {
+        "A": { "type": "object", "properties": { "date": { "type": "string", "format": "date" }, "odometer_miles": { "type": "number" }, "runtime_hours": { "type": "number" } } },
+        "B": { "type": "object", "properties": { "date": { "type": "string", "format": "date" }, "odometer_miles": { "type": "number" }, "runtime_hours": { "type": "number" } } },
+        "C": { "type": "object", "properties": { "date": { "type": "string", "format": "date" }, "odometer_miles": { "type": "number" }, "runtime_hours": { "type": "number" } } },
+        "D": { "type": "object", "properties": { "date": { "type": "string", "format": "date" }, "odometer_miles": { "type": "number" }, "runtime_hours": { "type": "number" } } }
+      },
+      "description": "Per-level checkpoint of when/at-what-reading this asset last had that service level performed — the A/B/C/D generalization of last_pm_runtime_hours (which stays untouched and drives the separate single-tier PM Due badge). Written by EquipmentServiceForm.jsx when a service record with a matching asset_id and service_level is saved."
     }
   },
   "required": [

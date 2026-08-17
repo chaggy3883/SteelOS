@@ -2,6 +2,15 @@ import { db } from '@/api/apiClient';
 import { getStationDwellVariance, stationName } from '@/lib/shopOpsMetrics';
 import { getBidPricingHoldState, getBidHoldDays } from '@/lib/bidPricingHold';
 import { flagCostCodeOverruns } from '@/lib/jobCostAnalysis';
+import { SERVICE_LEVELS, computeLevelStatus, daysUntilDueForSignal, equipmentTypeLabel } from '@/lib/serviceScheduleEngine';
+
+// Synthetic day count for a usage-based (miles/engine_hours) service level
+// that's Overdue. There's no usage-rate data anywhere in this app to
+// honestly project a real "days until due" for those — unlike the boolean
+// PM-Due badge in FleetRentalRegistry.jsx, this metric has to be a number,
+// so this sentinel is deliberately far outside any real day count and named
+// so it's unmistakable in code, not a disguised "-1 day overdue".
+const USAGE_OVERDUE_SENTINEL_DAYS = -9999;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -83,12 +92,37 @@ function pieceCandidates(dataset) {
 }
 
 function equipmentCandidates(dataset) {
-  return (dataset.equipmentInspections || []).map((inspection) => ({
+  const inspectionCandidates = (dataset.equipmentInspections || []).map((inspection) => ({
     id: inspection.id,
     label: `${dataset.assetNamesById?.[inspection.asset_id] || inspection.asset_id} — ${inspection.inspection_type}`,
     link: '/field-operations',
     metrics: { days_until_expiration: daysUntil(inspection.expiration_date, dataset.referenceDate) },
   }));
+
+  // ServiceSchedule-driven A/B/C/D overdue levels feed this SAME watched
+  // entity/metric rather than a second rule — see USAGE_OVERDUE_SENTINEL_DAYS
+  // above for why usage-based levels can't get a real day count.
+  const serviceLevelCandidates = (dataset.fleetAssets || []).flatMap((asset) => {
+    if (!asset.equipment_type) return [];
+    return SERVICE_LEVELS.map((level) => {
+      const schedule = (dataset.serviceSchedules || []).find((s) => s.is_active !== false && s.equipment_type === asset.equipment_type && s.service_level === level);
+      if (!schedule) return null;
+      const levelStatus = computeLevelStatus(asset, schedule, dataset.referenceDate);
+      if (!levelStatus || levelStatus.status !== 'Overdue') return null;
+      const realDays = daysUntilDueForSignal(levelStatus);
+      const isSynthetic = realDays === null;
+      return {
+        id: `${asset.id}:${level}`,
+        label: isSynthetic
+          ? `${asset.asset_name} — Level ${level} Service (usage overdue, ${schedule.interval_unit === 'miles' ? 'miles' : 'hours'}-based)`
+          : `${asset.asset_name} — Level ${level} Service (${equipmentTypeLabel(asset.equipment_type)})`,
+        link: `/field-operations?asset=${asset.id}`,
+        metrics: { days_until_expiration: isSynthetic ? USAGE_OVERDUE_SENTINEL_DAYS : realDays },
+      };
+    }).filter(Boolean);
+  });
+
+  return [...inspectionCandidates, ...serviceLevelCandidates];
 }
 
 function jobCostCandidates(dataset) {
@@ -162,7 +196,7 @@ export function evaluateRules(rules, dataset) {
 // testable against plain fixtures, no db access required.
 
 export async function fetchIntelligenceDataset(referenceDate = new Date()) {
-  const [bids, projects, pieces, stationLogs, pieceProductionLogs, equipmentInspections, certifications, fleetAssets, employees] = await Promise.all([
+  const [bids, projects, pieces, stationLogs, pieceProductionLogs, equipmentInspections, certifications, fleetAssets, employees, serviceSchedules] = await Promise.all([
     db.entities.Bid.list('-created_date', 500),
     db.entities.Project.filter({ is_archived: false }, '-created_date', 500),
     db.entities.pieces.list('-created_date', 1000),
@@ -172,6 +206,7 @@ export async function fetchIntelligenceDataset(referenceDate = new Date()) {
     db.entities.employee_certifications.list('-created_date', 500),
     db.entities.erection_fleet_assets.list('-created_date', 200),
     db.entities.employees.list('-created_date', 500),
+    db.entities.ServiceSchedule.list('-created_date', 200),
   ]);
 
   const costOverruns = (await Promise.all(projects.map((project) => flagCostCodeOverruns(project.id)))).flat();
@@ -188,7 +223,7 @@ export async function fetchIntelligenceDataset(referenceDate = new Date()) {
 
   return {
     company, bids, projects, pieces, stationLogs, pieceProductionLogs,
-    equipmentInspections, certifications, costOverruns,
+    equipmentInspections, certifications, costOverruns, fleetAssets, serviceSchedules,
     assetNamesById, employeeNamesById, referenceDate,
   };
 }

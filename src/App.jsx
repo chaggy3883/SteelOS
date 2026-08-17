@@ -29,6 +29,8 @@ import Intelligence from '@/pages/Intelligence';
 import IntelligenceSignals from '@/pages/IntelligenceSignals';
 import IntelligenceRulesAdmin from '@/pages/IntelligenceRulesAdmin';
 import IntelligenceRuleDetail from '@/pages/IntelligenceRuleDetail';
+import ServiceScheduleAdmin from '@/pages/ServiceScheduleAdmin';
+import ServiceScheduleDetail from '@/pages/ServiceScheduleDetail';
 import Production from '@/pages/Production';
 import Inventory from '@/pages/Inventory';
 import Quality from '@/pages/Quality';
@@ -174,6 +176,8 @@ const AuthenticatedApp = () => {
           <Route path="/admin/delivery-pricing" element={<DeliveryPricingAdmin />} />
           <Route path="/admin/intelligence-rules" element={<IntelligenceRulesAdmin />} />
           <Route path="/admin/intelligence-rules/:id" element={<IntelligenceRuleDetail />} />
+          <Route path="/admin/service-schedules" element={<ServiceScheduleAdmin />} />
+          <Route path="/admin/service-schedules/:id" element={<ServiceScheduleDetail />} />
           <Route path="/system-integrations" element={<SystemIntegrations />} />
         </Route>
       </Route>

@@ -848,11 +848,13 @@ export async function seedDemoData() {
   // — mapped to the closest real values (Other for non-crane equipment,
   // Internal_Owned for company-owned gear); the Gradall is left off the
   // erection project's location to informally represent it being down.
+  // equipment_type is the separate, finer-grained field ServiceSchedule
+  // matches against — set here so these assets aren't blank on first login.
   const [groveCrane, manitowocCrane] = await db.entities.erection_fleet_assets.bulkCreate([
-    { asset_name: 'Grove RT760E Rough Terrain Crane', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: 847, project_location_id: costProjects[1].id, cost_per_hour: 185, cost_rate_type: 'owned', default_cost_code: 'EQP-001' },
-    { asset_name: 'Manitowoc 14000 Lattice Boom Crane', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: 1203, project_location_id: costProjects[1].id, rental_rate_per_hour: 220, cost_rate_type: 'rented', default_cost_code: 'EQP-001' },
-    { asset_name: 'Gradall XL4100 Telehandler', asset_type: 'Other', status: 'Internal_Owned', runtime_hours: 2341 },
-    { asset_name: 'JLG 600S Boom Lift', asset_type: 'Other', status: 'Internal_Owned', runtime_hours: 412, project_location_id: costProjects[1].id },
+    { asset_name: 'Grove RT760E Rough Terrain Crane', asset_type: 'Crane', equipment_type: 'MOBILE_CRANE', status: 'Internal_Owned', runtime_hours: 847, project_location_id: costProjects[1].id, cost_per_hour: 185, cost_rate_type: 'owned', default_cost_code: 'EQP-001' },
+    { asset_name: 'Manitowoc 14000 Lattice Boom Crane', asset_type: 'Crane', equipment_type: 'MOBILE_CRANE', status: 'Internal_Owned', runtime_hours: 1203, project_location_id: costProjects[1].id, rental_rate_per_hour: 220, cost_rate_type: 'rented', default_cost_code: 'EQP-001' },
+    { asset_name: 'Gradall XL4100 Telehandler', asset_type: 'Other', equipment_type: 'TELEHANDLER_FORKLIFT', status: 'Internal_Owned', runtime_hours: 2341 },
+    { asset_name: 'JLG 600S Boom Lift', asset_type: 'Other', equipment_type: 'AERIAL_BOOM_LIFT', status: 'Internal_Owned', runtime_hours: 412, project_location_id: costProjects[1].id },
   ]);
 
   // 23b. Equipment Usage Logs — Grove (owned, $185/hr) and Manitowoc (rented,

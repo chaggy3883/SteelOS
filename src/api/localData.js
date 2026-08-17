@@ -1,6 +1,7 @@
 import { stubSignatureHash, verifyPin } from '@/lib/hrSecurity';
 import { encodeFormulaPin } from '@/lib/pinFormula';
 import { SHAPE_CLASSES } from '@/data/steelShapeSelector';
+import { SERVICE_SCHEDULE_SEEDS } from '@/lib/serviceScheduleSeedData';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
 const AUTH_STORAGE_KEY = 'steelos_auth_state';
@@ -693,8 +694,14 @@ const buildSeedData = () => {
         company_id: 'company-hancock',
         asset_name: 'Crane 1 — Grove GMK5250L',
         asset_type: 'Crane',
+        equipment_type: 'MOBILE_CRANE',
         status: 'Internal_Owned',
         runtime_hours: 4820,
+        severe_duty_multiplier: 0.7,
+        last_service_by_level: {
+          A: { date: yesterday.slice(0, 10), runtime_hours: 4800 },
+          B: { date: '2025-06-01', runtime_hours: 4500 }
+        },
         project_location_id: 'project-harbor',
         rental_vendor_id: '',
         rental_target_off_rent_date: '',
@@ -707,8 +714,13 @@ const buildSeedData = () => {
         company_id: 'company-hancock',
         asset_name: 'Rented Man-Lift — 60ft Boom',
         asset_type: 'Rigging_Equipment',
+        equipment_type: 'AERIAL_BOOM_LIFT',
         status: 'Third_Party_Rented',
         runtime_hours: 312,
+        severe_duty_multiplier: 1,
+        last_service_by_level: {
+          A: { date: yesterday.slice(0, 10), runtime_hours: 300 }
+        },
         project_location_id: 'project-harbor',
         rental_vendor_id: 'vendor-arrow-logistics',
         rental_target_off_rent_date: yesterday.slice(0, 10),
@@ -721,8 +733,17 @@ const buildSeedData = () => {
         company_id: 'company-hancock',
         asset_name: 'Truck 4 — Kenworth T880',
         asset_type: 'Truck',
+        equipment_type: 'SEMI_TRACTOR',
         status: 'Internal_Owned',
         runtime_hours: 18320,
+        odometer_miles: 162000,
+        severe_duty_multiplier: 1,
+        last_service_by_level: {
+          A: { date: '2025-07-01', odometer_miles: 150000 },
+          B: { date: '2026-06-01', odometer_miles: 155000 },
+          C: { date: '2026-05-01', odometer_miles: 140000 },
+          D: { date: '2026-06-01', odometer_miles: 130000 }
+        },
         project_location_id: '',
         rental_vendor_id: '',
         rental_target_off_rent_date: '',
@@ -735,8 +756,11 @@ const buildSeedData = () => {
         company_id: 'company-hancock',
         asset_name: 'Crane 2 — Link-Belt 175',
         asset_type: 'Crane',
+        equipment_type: 'MOBILE_CRANE',
         status: 'Internal_Owned',
         runtime_hours: 6104,
+        severe_duty_multiplier: 1,
+        last_service_by_level: {},
         project_location_id: 'project-harbor',
         rental_vendor_id: '',
         rental_target_off_rent_date: '',
@@ -745,6 +769,14 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
+    ServiceSchedule: SERVICE_SCHEDULE_SEEDS.map((s) => ({
+      id: `service-schedule-${s.equipment_type}-${s.service_level}`.toLowerCase(),
+      company_id: 'company-hancock',
+      is_active: true,
+      ...s,
+      created_date: now,
+      updated_date: now
+    })),
     heavy_equipment_inspections: [
       {
         id: 'inspection-1',
@@ -2380,7 +2412,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();

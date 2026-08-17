@@ -9,11 +9,58 @@
       "enum": ["Daily", "Monthly", "Annual", "DOT_Inspection"],
       "default": "Daily"
     },
-    "equipment_id": { "type": "string", "description": "Free-text ID/tag number of the equipment being serviced, not a foreign key." },
+    "equipment_id": { "type": "string", "description": "Free-text ID/tag number of the equipment being serviced. Kept for standalone/one-off records with no linked fleet asset — see asset_id for the tracked path." },
     "equipment_description": { "type": "string" },
     "inspector_name": { "type": "string" },
+    "equipment_type": {
+      "type": "string",
+      "enum": [
+        "SEMI_TRACTOR",
+        "SEMI_TRAILER",
+        "MOBILE_CRANE",
+        "AERIAL_BOOM_LIFT",
+        "TELEHANDLER_FORKLIFT",
+        "WELDING_MACHINE",
+        "GENERATOR",
+        "PICKUP_SERVICE_TRUCK"
+      ],
+      "description": "Selects which company ServiceSchedule rows this record's checklist was composed from. Auto-filled from asset_id's erection_fleet_assets.equipment_type when linked; otherwise chosen directly on the form."
+    },
+    "service_level": {
+      "type": "string",
+      "enum": ["A", "B", "C", "D"],
+      "description": "Which escalating tier this record covers. The saved checklist_sections is the CUMULATIVE checklist through this level (composeCumulativeChecklist in src/lib/serviceScheduleEngine.js), not just this level's own items."
+    },
+    "asset_id": {
+      "type": "string",
+      "description": "Optional FK to erection_fleet_assets.id. When set: equipment_type auto-fills from the asset, saving updates the asset's odometer_miles/runtime_hours and last_service_by_level[service_level] (enabling next-due/overdue tracking). When unset, this record behaves like the legacy free-text-only flow — no persistent due-tracking."
+    },
+    "checklist_sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "section": { "type": "string" },
+          "section_notes": { "type": "string" },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item": { "type": "string" },
+                "checked": { "type": "boolean" },
+                "notes": { "type": "string" },
+                "notes_required": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      },
+      "description": "Replaces the legacy cab_engine_section/brakes_steering_section/tires_suspension_section/trailer_section/hydraulics_section fields (still documented below on old records, unread by any current code) with a generic, section-grouped shape driven by whatever equipment_type + service_level actually composed for this record."
+    },
     "cab_engine_section": {
       "type": "object",
+      "description": "Legacy — superseded by checklist_sections. No longer written by EquipmentServiceForm.jsx; pre-existing records keep this shape untouched.",
       "properties": {
         "findings": {
           "type": "array",
@@ -26,11 +73,11 @@
             }
           }
         }
-      },
-      "description": "Fluid levels, warning lights/horn/wipers, seat belts/mirrors, battery terminals, belt/hose condition — checklist set in src/pages/EquipmentServiceForm.jsx."
+      }
     },
     "brakes_steering_section": {
       "type": "object",
+      "description": "Legacy — superseded by checklist_sections.",
       "properties": {
         "findings": {
           "type": "array",
@@ -43,11 +90,11 @@
             }
           }
         }
-      },
-      "description": "Brake wear, brake line condition, parking brake, steering linkage/ball joints/tie rods."
+      }
     },
     "tires_suspension_section": {
       "type": "object",
+      "description": "Legacy — superseded by checklist_sections.",
       "properties": {
         "findings": {
           "type": "array",
@@ -60,11 +107,11 @@
             }
           }
         }
-      },
-      "description": "Tire tread/pressure, lug nuts, leaf springs/air bags/shocks."
+      }
     },
     "trailer_section": {
       "type": "object",
+      "description": "Legacy — superseded by checklist_sections.",
       "properties": {
         "findings": {
           "type": "array",
@@ -77,11 +124,11 @@
             }
           }
         }
-      },
-      "description": "Kingpin/fifth wheel, breakaway system, landing gear, trailer lights/7-way plug."
+      }
     },
     "hydraulics_section": {
       "type": "object",
+      "description": "Legacy — superseded by checklist_sections.",
       "properties": {
         "findings": {
           "type": "array",
@@ -94,8 +141,7 @@
             }
           }
         }
-      },
-      "description": "Hydraulic fluid/hose leaks, lift cylinders/pins/bushings, safety guards/shut-offs, zerk fittings."
+      }
     },
     "deficiencies": { "type": "string" },
     "service_action": {

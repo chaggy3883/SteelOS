@@ -1,0 +1,58 @@
+{
+  "name": "ServiceSchedule",
+  "type": "object",
+  "properties": {
+    "company_id": { "type": "string" },
+    "equipment_type": {
+      "type": "string",
+      "enum": [
+        "SEMI_TRACTOR",
+        "SEMI_TRAILER",
+        "MOBILE_CRANE",
+        "AERIAL_BOOM_LIFT",
+        "TELEHANDLER_FORKLIFT",
+        "WELDING_MACHINE",
+        "GENERATOR",
+        "PICKUP_SERVICE_TRUCK"
+      ],
+      "description": "Shared enum with erection_fleet_assets.equipment_type and EquipmentService.equipment_type — kept separate from erection_fleet_assets.asset_type (the coarser Crane/Truck/Trailer/Rigging_Equipment/Other enum used by rental/dispatch/PO-matching in FleetRentalRegistry.jsx)."
+    },
+    "service_level": {
+      "type": "string",
+      "enum": ["A", "B", "C", "D"],
+      "description": "Escalating service tier. Each level stores ONLY its own checklist_items — B composes with A, C composes with A+B, D composes with A+B+C, via src/lib/serviceScheduleEngine.js's composeCumulativeChecklist at render time. Never duplicate an item across levels here."
+    },
+    "interval_value": { "type": "number" },
+    "interval_unit": {
+      "type": "string",
+      "enum": ["miles", "engine_hours", "months"],
+      "description": "engine_hours reads/compares against erection_fleet_assets.runtime_hours (no separate engine_hours field exists); miles compares against erection_fleet_assets.odometer_miles; months is calendar-based off last_service_by_level[level].date."
+    },
+    "secondary_interval_value": {
+      "type": "number",
+      "description": "Optional second trigger for equipment serviced by 'whichever comes first' intervals (e.g. mobile crane '1,000 hours or 12 months'). When set, computeLevelStatus evaluates both triggers and the soonest one wins — OR semantics, one row, one checklist_items array."
+    },
+    "secondary_interval_unit": {
+      "type": "string",
+      "enum": ["miles", "engine_hours", "months"]
+    },
+    "interval_label": {
+      "type": "string",
+      "description": "Human display string for the baseline interval, e.g. \"10,000–15,000 mi\" or \"1,000 hrs or 12 months\" — the OEM-range wording the task/spec was given in, since interval_value/interval_unit only store one concrete number per trigger."
+    },
+    "checklist_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "section": { "type": "string" },
+          "item": { "type": "string" },
+          "notes_required": { "type": "boolean", "default": false }
+        }
+      },
+      "description": "This level's OWN items only — composeCumulativeChecklist groups items by section across every contributing level's rows, not per-row, so items from A and B sharing a section name (e.g. 'Engine') merge into one collapsible section."
+    },
+    "is_active": { "type": "boolean", "default": true }
+  },
+  "required": ["equipment_type", "service_level", "interval_value", "interval_unit"]
+}

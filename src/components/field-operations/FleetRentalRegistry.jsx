@@ -14,12 +14,13 @@ import { useToast } from '@/components/ui/use-toast';
 import { resolveAssetRate } from '@/components/field-operations/EquipmentUsagePanel';
 import PurchaseOrderDetailModal from '@/components/purchasing/PurchaseOrderDetailModal';
 import RepairDetailDialog from '@/components/field-operations/RepairDetailDialog';
+import { EQUIPMENT_TYPES } from '@/lib/serviceScheduleEngine';
 
 const ASSET_TYPES = ['Crane', 'Truck', 'Trailer', 'Rigging_Equipment', 'Other'];
 const OWNERSHIP_STATUSES = ['Internal_Owned', 'Third_Party_Rented'];
 const COST_RATE_TYPES = ['owned', 'rented', 'none'];
 const emptyAssetForm = () => ({
-  asset_name: '', asset_type: 'Crane', status: 'Internal_Owned', runtime_hours: '', maintenance_threshold_hours: '500',
+  asset_name: '', asset_type: 'Crane', equipment_type: '', severe_duty_multiplier: '1', status: 'Internal_Owned', runtime_hours: '', maintenance_threshold_hours: '500',
   project_location_id: '', rental_vendor_id: '', rental_target_off_rent_date: '', linked_po_id: '',
 });
 const costRateFormFor = (asset) => ({
@@ -138,6 +139,8 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
       await db.entities.erection_fleet_assets.create({
         asset_name: assetForm.asset_name.trim(),
         asset_type: assetForm.asset_type,
+        equipment_type: assetForm.equipment_type,
+        severe_duty_multiplier: Number(assetForm.severe_duty_multiplier) || 1,
         runtime_hours: Number(assetForm.runtime_hours) || 0,
         last_pm_runtime_hours: 0,
         maintenance_threshold_hours: Number(assetForm.maintenance_threshold_hours) || 500,
@@ -219,6 +222,8 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
     setEditForm({
       asset_name: a.asset_name || '',
       asset_type: a.asset_type || 'Crane',
+      equipment_type: a.equipment_type || '',
+      severe_duty_multiplier: String(a.severe_duty_multiplier || 1),
       status: a.status || 'Internal_Owned',
       project_location_id: a.project_location_id || '',
       rental_vendor_id: a.rental_vendor_id || '',
@@ -254,6 +259,8 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
       const updated = await db.entities.erection_fleet_assets.update(detailAsset.id, {
         asset_name: editForm.asset_name.trim(),
         asset_type: editForm.asset_type,
+        equipment_type: editForm.equipment_type,
+        severe_duty_multiplier: Number(editForm.severe_duty_multiplier) || 1,
         project_location_id: editForm.project_location_id,
         maintenance_threshold_hours: Number(editForm.maintenance_threshold_hours) || 500,
         ...buildOwnershipFields(editForm),
@@ -524,6 +531,19 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
+                <Label>Service Schedule Type</Label>
+                <Select value={assetForm.equipment_type} onValueChange={(v) => setAssetForm((f) => ({ ...f, equipment_type: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Not set" /></SelectTrigger>
+                  <SelectContent>{EQUIPMENT_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Severe-Duty Multiplier</Label>
+                <Input type="number" min={0.1} max={1} step={0.05} value={assetForm.severe_duty_multiplier} onChange={(e) => setAssetForm((f) => ({ ...f, severe_duty_multiplier: e.target.value }))} className="mt-1" placeholder="1" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
                 <Label>Runtime Hours (input)</Label>
                 <Input type="number" value={assetForm.runtime_hours} onChange={(e) => setAssetForm((f) => ({ ...f, runtime_hours: e.target.value }))} className="mt-1" placeholder="0" />
               </div>
@@ -656,6 +676,19 @@ export default function FleetRentalRegistry({ assets, projects, vendors, purchas
                         <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                         <SelectContent>{OWNERSHIP_STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace(/_/g, ' ')}</SelectItem>)}</SelectContent>
                       </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Service Schedule Type</Label>
+                      <Select value={editForm.equipment_type} onValueChange={(v) => setEditForm((f) => ({ ...f, equipment_type: v }))}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>{EQUIPMENT_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Severe-Duty Multiplier</Label>
+                      <Input type="number" min={0.1} max={1} step={0.05} value={editForm.severe_duty_multiplier} onChange={(e) => setEditForm((f) => ({ ...f, severe_duty_multiplier: e.target.value }))} className="mt-1" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
