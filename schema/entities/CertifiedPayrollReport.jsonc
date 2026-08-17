@@ -1,0 +1,34 @@
+{
+  "name": "CertifiedPayrollReport",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "FK to Project — must be is_prevailing_wage."
+    },
+    "payroll_run_id": {
+      "type": "string",
+      "description": "FK to PayrollRun — must be status 'locked' at generation time, so the report matches what was actually paid."
+    },
+    "week_ending": {
+      "type": "string",
+      "format": "date",
+      "description": "The source PayrollRun's pay period end date. A record of when a Hancock-generated WH-347 was produced — not a store of the PDF itself, which is always regenerated on demand from the locked source data (guarantees it can never drift from what the run actually paid)."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generated_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "payroll_run_id",
+    "week_ending"
+  ]
+}

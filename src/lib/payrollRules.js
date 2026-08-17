@@ -23,7 +23,7 @@ export function getEffectiveRule(rules, ruleType, { state = null, asOfDate = new
   return pickLatest(stateMatches) || pickLatest(companyWide) || null;
 }
 
-export const PAYROLL_RULE_TYPES = ['overtime', 'double_time', 'holiday', 'pto', 'rounding', 'employer_tax'];
+export const PAYROLL_RULE_TYPES = ['overtime', 'double_time', 'holiday', 'pto', 'rounding', 'employer_tax', 'excessive_hours'];
 
 export const RULE_TYPE_LABELS = {
   overtime: 'Overtime',
@@ -32,6 +32,7 @@ export const RULE_TYPE_LABELS = {
   pto: 'PTO Accrual',
   rounding: 'Time Rounding',
   employer_tax: 'Employer Tax',
+  excessive_hours: 'Excessive Hours (Control Check)',
 };
 
 // One PayrollRule row per employer-paid tax type — calculateEmployerTax() in
@@ -55,6 +56,7 @@ export const RULE_TYPE_CONFIG_FIELDS = {
   overtime: [
     { key: 'threshold_hours', label: 'Weekly Threshold (hours)', type: 'number', placeholder: 'e.g. 40' },
     { key: 'multiplier', label: 'Multiplier', type: 'number', placeholder: 'e.g. 1.5' },
+    { key: 'requires_approval', label: 'Overtime Requires Sign-Off Before Approval', type: 'boolean' },
   ],
   double_time: [
     { key: 'threshold_hours', label: 'Daily/Weekly Threshold (hours)', type: 'number', placeholder: 'e.g. 12' },
@@ -75,5 +77,14 @@ export const RULE_TYPE_CONFIG_FIELDS = {
     { key: 'tax_type', label: 'Tax Type', type: 'select', options: EMPLOYER_TAX_TYPES.map((t) => ({ value: t, label: EMPLOYER_TAX_TYPE_LABELS[t] })) },
     { key: 'rate_percent', label: 'Rate (%)', type: 'number', placeholder: 'e.g. 6.2' },
     { key: 'wage_base_cap', label: 'Annual Wage Base Cap ($, optional)', type: 'number', placeholder: 'e.g. 168600' },
+  ],
+  // Read by payrollControls.js's excessive_hours check — a warning threshold,
+  // separate from the overtime/double_time PayrollRule thresholds that
+  // actually price hours (an employee can be under the OT/DT pay thresholds
+  // and still be flagged here for review, e.g. a 10hr/day cap tighter than
+  // the 12hr double-time threshold).
+  excessive_hours: [
+    { key: 'daily_threshold_hours', label: 'Daily Threshold (hours)', type: 'number', placeholder: 'e.g. 12' },
+    { key: 'weekly_threshold_hours', label: 'Weekly Threshold (hours)', type: 'number', placeholder: 'e.g. 60' },
   ],
 };

@@ -28,6 +28,7 @@ export default function TimecardsPanel({ employees, payPeriods, payrollRules }) 
   const [loading, setLoading] = useState(true);
   const [periodId, setPeriodId] = useState('');
   const [busyEmployeeId, setBusyEmployeeId] = useState(null);
+  const [lockedPeriodIds, setLockedPeriodIds] = useState(new Set());
 
   useEffect(() => { load(); }, []);
   useEffect(() => { if (payPeriods.length > 0 && !periodId) setPeriodId(payPeriods[0].id); }, [payPeriods]);
@@ -35,14 +36,16 @@ export default function TimecardsPanel({ employees, payPeriods, payrollRules }) 
   const load = async () => {
     setLoading(true);
     try {
-      const [tc, te, rates] = await Promise.all([
+      const [tc, te, rates, lockedRuns] = await Promise.all([
         db.entities.Timecard.list('-approved_at', 2000),
         db.entities.TimeEntry.list('-work_date', 5000),
         db.entities.EmployeePayRate.list('-effective_date', 2000),
+        db.entities.PayrollRun.filter({ status: 'locked' }, '-run_date', 200),
       ]);
       setTimecards(tc);
       setTimeEntries(te);
       setPayRates(rates);
+      setLockedPeriodIds(new Set(lockedRuns.map((r) => r.pay_period_id)));
     } catch (e) {
       toast({ title: 'Unable to load timecards', variant: 'destructive' });
     } finally {
@@ -51,6 +54,7 @@ export default function TimecardsPanel({ employees, payPeriods, payrollRules }) 
   };
 
   const period = payPeriods.find((p) => p.id === periodId) || null;
+  const periodIsLocked = period ? lockedPeriodIds.has(period.id) : false;
   const activeEmployees = useMemo(() => [...employees].filter((e) => e.is_active).sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')), [employees]);
 
   const currentRateFor = (employeeId, asOfDate) => payRates
@@ -80,11 +84,15 @@ export default function TimecardsPanel({ employees, payPeriods, payrollRules }) 
         total_double_time_hours: acc.total_double_time_hours + a.double_time_hours,
       }), { total_regular_hours: 0, total_ot_hours: 0, total_double_time_hours: 0 });
 
+      if (periodIsLocked) {
+        toast({ title: 'Pay period is locked', description: 'The payroll run for this period is locked — reopen it before editing timecards.', variant: 'destructive' });
+        return;
+      }
       const existing = timecardFor(employee.id);
       let saved;
       if (existing) {
         if (existing.status === 'approved') {
-          toast({ title: 'Timecard already approved', description: 'Un-approve is a Part C control action, not available here.', variant: 'destructive' });
+          toast({ title: 'Timecard already approved', description: 'Approve/lock is a payroll-run-level control action, not available here.', variant: 'destructive' });
           return;
         }
         saved = await db.entities.Timecard.update(existing.id, totals);
@@ -173,14 +181,14 @@ export default function TimecardsPanel({ employees, payPeriods, payrollRules }) 
                       </td>
                       <td className="py-2 px-3 text-right">
                         <div className="flex justify-end gap-1.5">
-                          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" disabled={busy || entryCount === 0 || tc?.status === 'approved'} onClick={() => generateTimecard(emp)}>
+                          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" disabled={busy || entryCount === 0 || tc?.status === 'approved' || periodIsLocked} onClick={() => generateTimecard(emp)}>
                             <RefreshCw className="w-3 h-3" />{tc ? 'Refresh' : 'Generate'}
                           </Button>
                           {tc && tc.status === 'unsubmitted' && (
-                            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" disabled={busy} onClick={() => submitTimecard(tc)}><Send className="w-3 h-3" />Submit</Button>
+                            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" disabled={busy || periodIsLocked} onClick={() => submitTimecard(tc)}><Send className="w-3 h-3" />Submit</Button>
                           )}
                           {tc && tc.status === 'submitted' && (
-                            <Button size="sm" className="h-7 gap-1 text-xs steel-gradient text-white border-0" disabled={busy} onClick={() => approveTimecard(tc)}><CheckCircle2 className="w-3 h-3" />Approve</Button>
+                            <Button size="sm" className="h-7 gap-1 text-xs steel-gradient text-white border-0" disabled={busy || periodIsLocked} onClick={() => approveTimecard(tc)}><CheckCircle2 className="w-3 h-3" />Approve</Button>
                           )}
                         </div>
                       </td>

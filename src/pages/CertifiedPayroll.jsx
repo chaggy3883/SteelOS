@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
 import {
-  FileCheck2, Plus, AlertTriangle, CheckCircle2, XCircle, ClipboardList,
+  FileCheck2, Plus, AlertTriangle, CheckCircle2, XCircle, ClipboardList, ShieldAlert, FileDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,24 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/lib/AuthContext';
+import { normalizeRoleName, BUILTIN_ROLES } from '@/components/dashboard/rbacConfig';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { buildCertifiedPayrollReportRows } from '@/lib/certifiedPayrollReport';
+import { generateWH347Pdf } from '@/lib/certifiedPayrollReportPdf';
+
+// Same payroll-adjacent audience already granted the /certified-payroll
+// module in rbacConfig.jsx — this page previously relied entirely on the nav
+// link being hidden (not real enforcement for a direct URL hit), which
+// mattered less while it only tracked subcontractor submissions but is worth
+// closing now that the Hancock Reports tab surfaces Hancock's own generated
+// wage data. Self-validated against BUILTIN_ROLES, same pattern as
+// PayrollProcessing.jsx.
+const CERTIFIED_PAYROLL_ALLOWED_ROLES = ['admin', 'super_admin', 'payroll_admin', 'controller'];
+const VALID_ROLE_NAMES = new Set(BUILTIN_ROLES.map((r) => r.name));
+if (!CERTIFIED_PAYROLL_ALLOWED_ROLES.every((name) => VALID_ROLE_NAMES.has(name))) {
+  throw new Error('CertifiedPayroll.jsx: CERTIFIED_PAYROLL_ALLOWED_ROLES references a role name not present in BUILTIN_ROLES.');
+}
 
 const SUBMISSION_STATUSES = ['pending', 'received', 'deficient', 'accepted', 'filed'];
 const SUBMISSION_STATUS_STYLES = {
@@ -67,12 +85,29 @@ const emptyForm = () => ({
 
 export default function CertifiedPayroll() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const [accessChecked, setAccessChecked] = useState(false);
+  const [allowed, setAllowed] = useState(false);
   const [submissions, setSubmissions] = useState([]);
   const [projects, setProjects] = useState([]);
   const [subcontracts, setSubcontracts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await db.auth.me();
+        const roles = me?.roles || me?.user?.roles || ['user'];
+        setAllowed(roles.some((r) => CERTIFIED_PAYROLL_ALLOWED_ROLES.includes(normalizeRoleName(r))));
+      } catch (e) {
+        setAllowed(false);
+      } finally {
+        setAccessChecked(true);
+      }
+    })();
+  }, []);
+
+  useEffect(() => { if (accessChecked && allowed) loadData(); }, [accessChecked, allowed]);
 
   const loadData = async () => {
     setLoading(true);
@@ -214,6 +249,113 @@ export default function CertifiedPayroll() {
     red: 'text-red-600',
   };
 
+  // ============ TAB 3 — Hancock Reports ============
+  const [lockedRuns, setLockedRuns] = useState([]);
+  const [certifiedReports, setCertifiedReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportProjectId, setReportProjectId] = useState('');
+  const [reportRunId, setReportRunId] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [regeneratingId, setRegeneratingId] = useState(null);
+
+  useEffect(() => {
+    if (!accessChecked || !allowed) return;
+    (async () => {
+      setReportsLoading(true);
+      try {
+        const [runs, reports] = await Promise.all([
+          db.entities.PayrollRun.filter({ status: 'locked' }, '-run_date', 200),
+          db.entities.CertifiedPayrollReport.list('-generated_at', 500),
+        ]);
+        setLockedRuns(runs);
+        setCertifiedReports(reports);
+      } catch (e) {
+        console.error('Failed to load Hancock certified payroll reports', e);
+      } finally {
+        setReportsLoading(false);
+      }
+    })();
+  }, [accessChecked, allowed]);
+
+  const runsForReportProject = lockedRuns; // every locked run is a candidate; generation itself no-ops if the project had no labor on that run
+  const reportProject = prevailingWageProjects.find((p) => p.id === reportProjectId) || null;
+
+  const buildAndDownloadReport = async (project, run) => {
+    const period = await db.entities.PayPeriod.get(run.pay_period_id);
+    const [payrollLines, jobLaborAllocations, timeEntries, allEmployees, payRates, taxWithholdings, deductions] = await Promise.all([
+      db.entities.PayrollLine.filter({ payroll_run_id: run.id }, '-created_date', 500),
+      db.entities.JobLaborAllocation.filter({ payroll_run_id: run.id, project_id: project.id }, '-created_date', 2000),
+      db.entities.TimeEntry.list('-work_date', 5000),
+      db.entities.employees.list('full_name', 1000),
+      db.entities.EmployeePayRate.list('-effective_date', 2000),
+      db.entities.TaxWithholding.list('-effective_date', 2000),
+      db.entities.Deduction.list('priority_order', 2000),
+    ]);
+    const rows = buildCertifiedPayrollReportRows({ project, period, payrollLines, jobLaborAllocations, timeEntries, employees: allEmployees, payRates, taxWithholdings, deductions });
+    if (rows.length === 0) {
+      toast({ title: 'No labor found', description: 'This project has no allocated hours on the selected payroll run.', variant: 'destructive' });
+      return null;
+    }
+    const company = await getEffectiveCompany().catch(() => null);
+    generateWH347Pdf({ project, period, run, company, rows });
+    return period;
+  };
+
+  const handleGenerateReport = async () => {
+    const run = lockedRuns.find((r) => r.id === reportRunId);
+    if (!reportProject || !run) return;
+    setGenerating(true);
+    try {
+      const period = await buildAndDownloadReport(reportProject, run);
+      if (!period) return;
+      const identity = user?.full_name || user?.email || 'Unknown';
+      const created = await db.entities.CertifiedPayrollReport.create({
+        project_id: reportProject.id, payroll_run_id: run.id, week_ending: period.period_end,
+        generated_at: new Date().toISOString(), generated_by: identity,
+      });
+      setCertifiedReports((prev) => [created, ...prev]);
+      toast({ title: 'Certified payroll report generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate report', variant: 'destructive' });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleRegenerateReport = async (report) => {
+    setRegeneratingId(report.id);
+    try {
+      const [project, run] = await Promise.all([
+        db.entities.Project.get(report.project_id),
+        db.entities.PayrollRun.get(report.payroll_run_id),
+      ]);
+      if (run.status !== 'locked') {
+        toast({ title: 'Payroll run is no longer locked', description: 'It was reopened — the source data may have changed since this report was generated.', variant: 'destructive' });
+      }
+      await buildAndDownloadReport(project, run);
+    } catch (e) {
+      toast({ title: 'Unable to regenerate report', variant: 'destructive' });
+    } finally {
+      setRegeneratingId(null);
+    }
+  };
+
+  if (!accessChecked) {
+    return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  if (!allowed) {
+    return (
+      <div className="p-6">
+        <div className="steel-card p-8 text-center max-w-md mx-auto mt-12">
+          <ShieldAlert className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <h2 className="font-semibold text-lg mb-1">Access Restricted</h2>
+          <p className="text-sm text-muted-foreground">Certified payroll is only available to Admin, Payroll Admin, Controller, and Super Admin roles.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="p-6 space-y-3">
@@ -226,7 +368,7 @@ export default function CertifiedPayroll() {
     <div className="p-6 animate-fade-in">
       <PageHeader
         title="Certified Payroll"
-        subtitle="Prevailing wage compliance — WH-347 submissions from erection subcontractors on public/prevailing wage jobs"
+        subtitle="Prevailing wage compliance — WH-347 submissions from erection subcontractors, plus Hancock's own certified payroll reports"
         icon={FileCheck2}
       />
 
@@ -234,6 +376,7 @@ export default function CertifiedPayroll() {
         <TabsList className="mb-4">
           <TabsTrigger value="submissions">Submissions</TabsTrigger>
           <TabsTrigger value="compliance">Compliance Dashboard</TabsTrigger>
+          <TabsTrigger value="reports">Hancock Reports</TabsTrigger>
         </TabsList>
 
         {/* ============ TAB 1 ============ */}
@@ -407,6 +550,72 @@ export default function CertifiedPayroll() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        {/* ============ TAB 3 — Hancock Reports ============ */}
+        <TabsContent value="reports">
+          <div className="steel-card p-4 mb-4 space-y-3">
+            <p className="text-sm text-muted-foreground">Generate a WH-347-style certified payroll report for Hancock's own employees from a <strong>locked</strong> payroll run — only available once the source run is locked, so the report always matches what was actually paid.</p>
+            <div className="flex items-end gap-3 flex-wrap">
+              <div>
+                <Label className="text-xs">Prevailing Wage Project</Label>
+                <Select value={reportProjectId} onValueChange={setReportProjectId}>
+                  <SelectTrigger className="mt-1 w-64"><SelectValue placeholder="Select a project" /></SelectTrigger>
+                  <SelectContent>{prevailingWageProjects.map((p) => <SelectItem key={p.id} value={p.id}>{p.project_number} — {p.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Locked Payroll Run</Label>
+                <Select value={reportRunId} onValueChange={setReportRunId}>
+                  <SelectTrigger className="mt-1 w-56"><SelectValue placeholder="Select a locked run" /></SelectTrigger>
+                  <SelectContent>
+                    {runsForReportProject.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">No locked payroll runs yet</div>
+                    ) : runsForReportProject.map((r) => <SelectItem key={r.id} value={r.id}>{r.run_date} (locked)</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button className="gap-2 steel-gradient text-white border-0" disabled={!reportProjectId || !reportRunId || generating} onClick={handleGenerateReport}>
+                <FileDown className="w-4 h-4" />{generating ? 'Generating…' : 'Generate Report'}
+              </Button>
+            </div>
+          </div>
+
+          <div className="steel-card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                  <th className="text-left py-2 px-3">Project</th>
+                  <th className="text-left py-2 px-3">Week Ending</th>
+                  <th className="text-left py-2 px-3">Generated At</th>
+                  <th className="text-left py-2 px-3">Generated By</th>
+                  <th className="text-right py-2 px-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reportsLoading ? (
+                  <tr><td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">Loading…</td></tr>
+                ) : certifiedReports.length === 0 ? (
+                  <tr><td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">No Hancock certified payroll reports generated yet</td></tr>
+                ) : certifiedReports.map((r) => {
+                  const proj = projectById(r.project_id);
+                  return (
+                    <tr key={r.id} className="border-b border-border/50">
+                      <td className="py-2 px-3 text-muted-foreground">{proj ? `${proj.project_number} — ${proj.name}` : r.project_id}</td>
+                      <td className="py-2 px-3">{r.week_ending}</td>
+                      <td className="py-2 px-3 text-xs text-muted-foreground">{r.generated_at?.slice(0, 10)}</td>
+                      <td className="py-2 px-3 text-xs text-muted-foreground">{r.generated_by}</td>
+                      <td className="py-2 px-3 text-right">
+                        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" disabled={regeneratingId === r.id} onClick={() => handleRegenerateReport(r)}>
+                          <FileDown className="w-3 h-3" />{regeneratingId === r.id ? 'Regenerating…' : 'Regenerate PDF'}
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </TabsContent>
       </Tabs>
 

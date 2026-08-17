@@ -92,7 +92,11 @@ export const PERMISSION_CATALOG = [
   { key: 'module:/documents', label: 'Documents' },
   { key: 'module:/rfis', label: 'RFIs' },
   { key: 'module:/subcontracts', label: 'Subcontracts' },
-  { key: 'module:/certified-payroll', label: 'Certified Payroll' },
+  { key: 'module:/certified-payroll', label: 'Certified Payroll', tabs: [
+    { key: 'tab:/certified-payroll:submissions', label: 'Submissions' },
+    { key: 'tab:/certified-payroll:compliance', label: 'Compliance Dashboard' },
+    { key: 'tab:/certified-payroll:reports', label: 'Hancock Reports' },
+  ] },
   { key: 'module:/accounting', label: 'Accounting', tabs: [
     { key: 'tab:/accounting:job-costing-summary', label: 'Job Costing Summary' },
     { key: 'tab:/accounting:job-cost-detail', label: 'Job Cost Detail' },

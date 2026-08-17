@@ -22,7 +22,7 @@ const emptyForm = () => ({
 // carries the job-allocation dimensions (project/phase/area/cost_code) the
 // payroll engine needs and attendance_punches doesn't model, at a
 // per-day/per-shift grain rather than raw punch events.
-export default function TimeEntryPanel({ employees, projects, costCodes }) {
+export default function TimeEntryPanel({ employees, projects, costCodes, payPeriods = [] }) {
   const { toast } = useToast();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,19 +30,31 @@ export default function TimeEntryPanel({ employees, projects, costCodes }) {
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [employeeFilter, setEmployeeFilter] = useState('all');
+  const [lockedPeriodIds, setLockedPeriodIds] = useState(new Set());
 
   useEffect(() => { load(); }, []);
 
   const load = async () => {
     setLoading(true);
     try {
-      setEntries(await db.entities.TimeEntry.list('-work_date', 3000));
+      const [te, lockedRuns] = await Promise.all([
+        db.entities.TimeEntry.list('-work_date', 3000),
+        db.entities.PayrollRun.filter({ status: 'locked' }, '-run_date', 200),
+      ]);
+      setEntries(te);
+      setLockedPeriodIds(new Set(lockedRuns.map((r) => r.pay_period_id)));
     } catch (e) {
       toast({ title: 'Unable to load time entries', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
+
+  // A work_date inside a pay period whose PayrollRun is 'locked' can't take
+  // new TimeEntry rows — the whole point of locking is that everything
+  // feeding an already-paid run stays exactly what it was when it was paid.
+  // Reopening the run (PayrollRunPanel) is the only way back to editable.
+  const lockedPeriodForDate = (workDate) => payPeriods.find((p) => lockedPeriodIds.has(p.id) && workDate >= p.period_start && workDate <= p.period_end) || null;
 
   const employeeName = (id) => employees.find((e) => e.id === id)?.full_name || '—';
   const projectLabel = (id) => { const p = projects.find((pr) => pr.id === id); return p ? `${p.project_number} — ${p.name}` : '—'; };
@@ -63,6 +75,10 @@ export default function TimeEntryPanel({ employees, projects, costCodes }) {
     const hours = computeTimeEntryHours(form.clock_in, form.clock_out);
     if (hours <= 0) {
       toast({ title: 'Clock out must be after clock in', variant: 'destructive' });
+      return;
+    }
+    if (lockedPeriodForDate(form.work_date)) {
+      toast({ title: 'Pay period is locked', description: 'This work date falls in a locked pay period — reopen the payroll run before adding time entries.', variant: 'destructive' });
       return;
     }
     setSaving(true);

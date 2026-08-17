@@ -7,7 +7,7 @@
     },
     "rule_type": {
       "type": "string",
-      "enum": ["overtime", "double_time", "holiday", "pto", "rounding", "employer_tax"],
+      "enum": ["overtime", "double_time", "holiday", "pto", "rounding", "employer_tax", "excessive_hours"],
       "description": "'employer_tax' added for the weekly processing pipeline's calculateEmployerTax() — one row per employer-paid tax type (config.tax_type: fica_employer/medicare_employer/futa/suta), so FICA/FUTA/SUTA rates are admin-configurable master data rather than hardcoded in the engine, same as every other rule_type here."
     },
     "jurisdiction_state": {

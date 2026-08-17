@@ -12,7 +12,7 @@
       "type": "string",
       "enum": ["draft", "review", "approved", "locked"],
       "default": "draft",
-      "description": "'Run Payroll' creates a run directly in 'review' — nothing is final at that point. Moving to 'approved'/'locked' is Part C's job (controls + approve/lock), not this pipeline."
+      "description": "'Run Payroll' creates a run directly in 'review' — nothing is final at that point. 'approved' requires all blocking pre-finalization control checks resolved or overridden (see PayrollRunPanel.jsx + payrollControls.js); 'locked' makes the source timecards read-only until an authorized role reopens it."
     },
     "run_date": {
       "type": "string",
@@ -29,6 +29,45 @@
     "total_employer_tax": {
       "type": "number",
       "default": 0
+    },
+    "approved_by": {
+      "type": "string"
+    },
+    "approved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "locked_by": {
+      "type": "string"
+    },
+    "locked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reopened_by": {
+      "type": "string"
+    },
+    "reopened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reopen_reason": {
+      "type": "string",
+      "description": "Required whenever a locked run is reopened back to 'review' — also logged as a StatusHistoryEntry (entity_type 'PayrollRun', field_name 'status')."
+    },
+    "control_overrides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "check_key": { "type": "string" },
+          "note": { "type": "string" },
+          "overridden_by": { "type": "string" },
+          "overridden_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "default": [],
+      "description": "One entry per pre-finalization control check an authorized role explicitly overrode (with a required note) to allow Approve despite outstanding issues. Cleared on reopen, since a fresh review pass is required before the run can be approved/locked again."
     }
   },
   "required": [

@@ -1,12 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { PlayCircle, AlertTriangle, Info } from 'lucide-react';
+import { PlayCircle, AlertTriangle, Info, ShieldAlert, CheckCircle2, Lock, Undo2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/lib/AuthContext';
 import { getEffectiveRule } from '@/lib/payrollRules';
 import { allocateLaborToJobs, calculateGrossPay, calculateTaxesAndDeductions, calculateEmployerTax, resolveEmployerTaxRules, resolveGLAccount } from '@/lib/payrollEngine';
+import { runPayrollControlChecks, isRunApprovable } from '@/lib/payrollControls';
+import { hasPayrollApprovalAccess, hasPayrollReopenAccess } from '@/lib/payrollApprovalAccess';
+import { logStatusChange } from '@/lib/statusHistory';
 
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 const titleCase = (s) => (s ? String(s).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : s);
@@ -19,9 +25,17 @@ const DEDUCTION_TYPE_TO_LIABILITY = { benefits: 'benefits', garnishment: 'garnis
 // Costing -> Liabilities for every APPROVED timecard in a pay period. Every
 // dollar figure comes from src/lib/payrollEngine.js's pure functions; this
 // component's job is only to fetch the inputs, call them, and persist the
-// outputs. The run lands in 'review' — nothing here approves or locks it.
+// outputs. The run lands in 'review' from runPayroll() below; the run-detail
+// dialog (openRunDetail) is where pre-finalization control checks
+// (payrollControls.js) run and Review -> Approve -> Lock -> Reopen happens.
 export default function PayrollRunPanel({ employees, projects, costCodes, payPeriods, payrollRules }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const roles = user?.roles || user?.user?.roles || ['user'];
+  const identity = user?.full_name || user?.email || 'Unknown';
+  const canApprove = hasPayrollApprovalAccess(roles);
+  const canReopen = hasPayrollReopenAccess(roles);
+
   const [periodId, setPeriodId] = useState('');
   const [timecards, setTimecards] = useState([]);
   const [runs, setRuns] = useState([]);
@@ -29,6 +43,10 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
   const [running, setRunning] = useState(false);
   const [viewingRun, setViewingRun] = useState(null);
   const [runDetail, setRunDetail] = useState(null);
+  const [overrideNotes, setOverrideNotes] = useState({});
+  const [savingAction, setSavingAction] = useState(false);
+  const [reopenDialogOpen, setReopenDialogOpen] = useState(false);
+  const [reopenReason, setReopenReason] = useState('');
 
   useEffect(() => { load(); }, []);
   useEffect(() => { if (payPeriods.length > 0 && !periodId) setPeriodId(payPeriods[0].id); }, [payPeriods]);
@@ -241,16 +259,123 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
   const openRunDetail = async (run) => {
     setViewingRun(run);
     setRunDetail(null);
+    setOverrideNotes({});
     try {
-      const [lines, employerTax, liabilities, journal] = await Promise.all([
+      const runPeriod = payPeriods.find((p) => p.id === run.pay_period_id) || null;
+      const [lines, employerTax, liabilities, journal, allProjects, allCostCodes, allTimeEntries, periodTimecards, allPayRates, adjustments] = await Promise.all([
         db.entities.PayrollLine.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.EmployerTax.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.PayrollLiability.filter({ payroll_run_id: run.id }, '-created_date', 100),
         db.entities.PayrollJournal.filter({ payroll_run_id: run.id }, '-created_date', 100),
+        db.entities.Project.list('name', 500),
+        db.entities.CostCode.list('code_name', 500),
+        db.entities.TimeEntry.list('-work_date', 5000),
+        db.entities.Timecard.filter({ pay_period_id: run.pay_period_id }, '-approved_at', 2000),
+        db.entities.EmployeePayRate.list('-effective_date', 2000),
+        db.entities.PayrollAdjustment.filter({ payroll_run_id: run.id }, '-created_date', 500),
       ]);
-      setRunDetail({ lines, employerTax, liabilities, journal });
+
+      const checkResults = runPeriod
+        ? runPayrollControlChecks({
+            period: runPeriod,
+            employees,
+            timeEntries: allTimeEntries,
+            timecards: periodTimecards,
+            payRates: allPayRates,
+            adjustments,
+            projects: allProjects,
+            costCodes: allCostCodes,
+            payrollRules,
+          })
+        : [];
+
+      setRunDetail({ lines, employerTax, liabilities, journal, checkResults });
     } catch (e) {
       toast({ title: 'Unable to load run detail', variant: 'destructive' });
+    }
+  };
+
+  const handleOverride = async (checkKey) => {
+    const note = (overrideNotes[checkKey] || '').trim();
+    if (!note) {
+      toast({ title: 'A note is required to override a control check', variant: 'destructive' });
+      return;
+    }
+    setSavingAction(true);
+    try {
+      const nextOverrides = [
+        ...(viewingRun.control_overrides || []),
+        { check_key: checkKey, note, overridden_by: identity, overridden_at: new Date().toISOString() },
+      ];
+      const updated = await db.entities.PayrollRun.update(viewingRun.id, { control_overrides: nextOverrides });
+      setViewingRun(updated);
+      setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      setOverrideNotes((prev) => ({ ...prev, [checkKey]: '' }));
+    } catch (e) {
+      toast({ title: 'Unable to save override', variant: 'destructive' });
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    setSavingAction(true);
+    try {
+      const updated = await db.entities.PayrollRun.update(viewingRun.id, {
+        status: 'approved', approved_by: identity, approved_at: new Date().toISOString(),
+      });
+      await logStatusChange({ entityType: 'PayrollRun', entityId: viewingRun.id, fieldName: 'status', fromValue: 'review', toValue: 'approved', changedBy: identity });
+      setViewingRun(updated);
+      setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      toast({ title: 'Payroll run approved' });
+    } catch (e) {
+      toast({ title: 'Unable to approve run', variant: 'destructive' });
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
+  const handleLock = async () => {
+    setSavingAction(true);
+    try {
+      const updated = await db.entities.PayrollRun.update(viewingRun.id, {
+        status: 'locked', locked_by: identity, locked_at: new Date().toISOString(),
+      });
+      await logStatusChange({ entityType: 'PayrollRun', entityId: viewingRun.id, fieldName: 'status', fromValue: 'approved', toValue: 'locked', changedBy: identity });
+      setViewingRun(updated);
+      setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      toast({ title: 'Payroll run locked', description: 'Timecards for this pay period are now read-only.' });
+    } catch (e) {
+      toast({ title: 'Unable to lock run', variant: 'destructive' });
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
+  const handleReopen = async () => {
+    const reason = reopenReason.trim();
+    if (!reason) {
+      toast({ title: 'A reason is required to reopen a locked run', variant: 'destructive' });
+      return;
+    }
+    setSavingAction(true);
+    try {
+      const updated = await db.entities.PayrollRun.update(viewingRun.id, {
+        status: 'review',
+        reopened_by: identity, reopened_at: new Date().toISOString(), reopen_reason: reason,
+        control_overrides: [], approved_by: null, approved_at: null, locked_by: null, locked_at: null,
+      });
+      await logStatusChange({ entityType: 'PayrollRun', entityId: viewingRun.id, fieldName: 'status', fromValue: 'locked', toValue: 'review', changedBy: identity, note: reason });
+      setViewingRun(updated);
+      setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      setReopenDialogOpen(false);
+      setReopenReason('');
+      toast({ title: 'Payroll run reopened', description: 'Timecards are editable again — a fresh control review is required before re-approving.' });
+      openRunDetail(updated);
+    } catch (e) {
+      toast({ title: 'Unable to reopen run', variant: 'destructive' });
+    } finally {
+      setSavingAction(false);
     }
   };
 
@@ -322,6 +447,78 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
             <p className="text-sm text-muted-foreground py-6 text-center">Loading…</p>
           ) : (
             <div className="space-y-4">
+              {viewingRun?.status === 'review' && (
+                <div className="flex justify-end">
+                  <Button size="sm" className="gap-1.5 steel-gradient text-white border-0" disabled={savingAction || !canApprove || !isRunApprovable(runDetail.checkResults, viewingRun.control_overrides)} onClick={handleApprove} title={!canApprove ? 'Requires Admin, Controller, or Super Admin' : undefined}>
+                    <ShieldCheck className="w-3.5 h-3.5" />Approve
+                  </Button>
+                </div>
+              )}
+              {viewingRun?.status === 'approved' && (
+                <div className="space-y-2">
+                  <div className="text-xs text-muted-foreground">Approved by {viewingRun.approved_by} on {viewingRun.approved_at?.slice(0, 10)}</div>
+                  <div className="flex justify-end">
+                    <Button size="sm" className="gap-1.5 steel-gradient text-white border-0" disabled={savingAction || !canApprove} onClick={handleLock} title={!canApprove ? 'Requires Admin, Controller, or Super Admin' : undefined}>
+                      <Lock className="w-3.5 h-3.5" />Lock
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {viewingRun?.status === 'locked' && (
+                <div className="space-y-2">
+                  <div className="text-xs text-muted-foreground">Locked by {viewingRun.locked_by} on {viewingRun.locked_at?.slice(0, 10)} — timecards for this pay period are read-only.</div>
+                  <div className="flex justify-end">
+                    <Button size="sm" variant="outline" className="gap-1.5" disabled={savingAction || !canReopen} onClick={() => setReopenDialogOpen(true)} title={!canReopen ? 'Requires Admin, Payroll Admin, Controller, or Super Admin' : undefined}>
+                      <Undo2 className="w-3.5 h-3.5" />Reopen
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <h4 className="text-sm font-semibold mb-2">Pre-Finalization Controls</h4>
+                <div className="space-y-2">
+                  {runDetail.checkResults.map((c) => {
+                    const hasIssues = c.issues.length > 0;
+                    const override = (viewingRun.control_overrides || []).find((o) => o.check_key === c.key);
+                    return (
+                      <div key={c.key} className="border border-border rounded-lg p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            {hasIssues ? (
+                              c.blocking ? <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                            ) : (
+                              <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                            )}
+                            <span className="text-sm font-medium">{c.label}</span>
+                            {!c.blocking && <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1">Advisory</span>}
+                          </div>
+                          <span className="text-xs text-muted-foreground">{hasIssues ? `${c.issues.length} issue${c.issues.length === 1 ? '' : 's'}` : 'Clear'}</span>
+                        </div>
+                        {hasIssues && (
+                          <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground list-disc pl-4">
+                            {c.issues.slice(0, 8).map((iss, idx) => <li key={idx}>{iss.message}</li>)}
+                            {c.issues.length > 8 && <li>…and {c.issues.length - 8} more</li>}
+                          </ul>
+                        )}
+                        {hasIssues && c.blocking && viewingRun.status === 'review' && (
+                          override ? (
+                            <p className="mt-2 text-xs text-amber-600">Overridden by {override.overridden_by} on {override.overridden_at?.slice(0, 10)} — "{override.note}"</p>
+                          ) : canApprove ? (
+                            <div className="mt-2 flex gap-2">
+                              <Input value={overrideNotes[c.key] || ''} onChange={(e) => setOverrideNotes((p) => ({ ...p, [c.key]: e.target.value }))} placeholder="Override reason (required)" className="h-8 text-xs" />
+                              <Button size="sm" variant="outline" className="h-8 text-xs flex-shrink-0" disabled={savingAction} onClick={() => handleOverride(c.key)}>Override</Button>
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-xs text-muted-foreground">Only Admin, Controller, or Super Admin can override.</p>
+                          )
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div>
                 <h4 className="text-sm font-semibold mb-2">Payroll Lines</h4>
                 <div className="overflow-x-auto">
@@ -377,6 +574,18 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reopenDialogOpen} onOpenChange={(o) => { setReopenDialogOpen(o); if (!o) setReopenReason(''); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reopen Payroll Run</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Reopening returns this run to Review and clears its approve/lock status — timecards for the pay period become editable again, and a fresh control review is required before re-approving. This is logged to the run's status history.</p>
+          <Textarea value={reopenReason} onChange={(e) => setReopenReason(e.target.value)} placeholder="Why is this run being reopened? (required)" rows={3} />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReopenDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleReopen} disabled={savingAction || !reopenReason.trim()} className="steel-gradient text-white border-0">{savingAction ? 'Reopening…' : 'Reopen'}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

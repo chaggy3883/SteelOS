@@ -23,7 +23,8 @@ if (!PAYROLL_PROCESSING_ALLOWED_ROLES.every((name) => VALID_ROLE_NAMES.has(name)
 // Job Costing -> Liabilities. All math lives in src/lib/payrollEngine.js as
 // pure functions; this page only fetches shared reference data and hosts the
 // three stages as tabs. "Run Payroll" creates a PayrollRun in 'review' —
-// approve/lock is Part C's job, not built here.
+// the pre-finalization control checks + Review -> Approve -> Lock workflow
+// live in PayrollRunPanel.jsx's run-detail dialog (see payrollControls.js).
 export default function PayrollProcessing() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [allowed, setAllowed] = useState(false);
@@ -112,7 +113,7 @@ export default function PayrollProcessing() {
           <TabsTrigger value="run">Run Payroll</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="time"><TimeEntryPanel employees={employees} projects={projects} costCodes={costCodes} /></TabsContent>
+        <TabsContent value="time"><TimeEntryPanel employees={employees} projects={projects} costCodes={costCodes} payPeriods={payPeriods} /></TabsContent>
         <TabsContent value="timecards"><TimecardsPanel employees={employees} payPeriods={payPeriods} payrollRules={payrollRules} /></TabsContent>
         <TabsContent value="run"><PayrollRunPanel employees={employees} projects={projects} costCodes={costCodes} payPeriods={payPeriods} payrollRules={payrollRules} /></TabsContent>
       </Tabs>

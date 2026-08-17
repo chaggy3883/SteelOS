@@ -77,6 +77,7 @@ const createLocalApi = () => ({
     SubcontractPayApp: createEntityApi('SubcontractPayApp'),
     LienWaiver: createEntityApi('LienWaiver'),
     CertifiedPayrollSubmission: createEntityApi('CertifiedPayrollSubmission'),
+    CertifiedPayrollReport: createEntityApi('CertifiedPayrollReport'),
     PayPeriod: createEntityApi('PayPeriod'),
     PayrollRegisterLine: createEntityApi('PayrollRegisterLine'),
     EmployeePayRate: createEntityApi('EmployeePayRate'),
