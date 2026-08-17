@@ -8,10 +8,14 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
-// theme-invert-toggle (src/components/ui/toggle.jsx) always forces this
-// component onto a light/white surface in dark mode, so text must stay dark
-// regardless of theme — bg-primary/text-primary-foreground would be invisible.
-const TOGGLE_ITEM_CLASS = 'px-4 font-medium text-black data-[state=on]:text-primary data-[state=on]:font-semibold data-[state=on]:ring-2 data-[state=on]:ring-inset data-[state=on]:ring-primary';
+// theme-invert-toggle (src/index.css) forces this component onto a light
+// surface in dark mode too (unselected: forced white bg; selected: solid
+// blue bg via Tailwind's data-[state=on]:bg-accent), so unselected text must
+// stay dark regardless of theme — text-foreground would go near-white in
+// dark mode and vanish against that forced-light surface. Selected text
+// uses accent-foreground (white), not primary — primary and accent resolve
+// to the same blue hue here, so text-primary on bg-accent was invisible.
+const TOGGLE_ITEM_CLASS = 'px-4 font-medium text-black data-[state=on]:text-accent-foreground data-[state=on]:font-semibold data-[state=on]:ring-2 data-[state=on]:ring-inset data-[state=on]:ring-primary';
 
 const TYPE_COLORS = {
   general_contractor: 'bg-blue-500/10 text-blue-500',

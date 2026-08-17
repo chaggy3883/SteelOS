@@ -34,7 +34,10 @@ const emptyPartForm = () => ({
 });
 
 const HealthRing = ({ score }) => {
-  const color = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : '#ef4444';
+  // Stroke color is a decorative SVG ring, not text — kept as a direct hex
+  // value since `stroke` doesn't take Tailwind's HSL-var text-color classes.
+  const strokeColor = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : '#ef4444';
+  const textClass = score >= 80 ? 'text-green-600 dark:text-green-400' : score >= 60 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400';
   const r = 36;
   const circ = 2 * Math.PI * r;
   const dash = (score / 100) * circ;
@@ -42,11 +45,11 @@ const HealthRing = ({ score }) => {
     <div className="relative w-24 h-24 flex items-center justify-center">
       <svg className="absolute inset-0 -rotate-90" viewBox="0 0 88 88">
         <circle cx="44" cy="44" r={r} fill="none" stroke="hsl(var(--border))" strokeWidth="6" />
-        <circle cx="44" cy="44" r={r} fill="none" stroke={color} strokeWidth="6"
+        <circle cx="44" cy="44" r={r} fill="none" stroke={strokeColor} strokeWidth="6"
           strokeDasharray={`${dash} ${circ - dash}`} strokeLinecap="round" />
       </svg>
       <div className="text-center">
-        <p className="text-xl font-bold" style={{ color }}>{score}%</p>
+        <p className={`text-xl font-bold ${textClass}`}>{score}%</p>
         <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Health</p>
       </div>
     </div>

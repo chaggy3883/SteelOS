@@ -102,19 +102,24 @@
    forced to the inverse of the ambient theme for maximum contrast:
    solid white surfaces in Dark Mode, solid black boundaries in Light
    Mode. `!important` is required to beat Tailwind's own `dark:` and
-   `data-[state=]` utility classes applied to the same elements. */
+   `data-[state=]` utility classes applied to the same elements.
+   Both "checked"/"unchecked" (Radix Switch) and "on"/"off" (Radix
+   Toggle/ToggleGroup) are matched since `theme-invert-toggle` is shared
+   across both component families, which report state differently. */
 .dark .theme-invert-surface {
   background-color: #fff !important;
   color: #000 !important;
   border-color: #000 !important;
 }
 
-.dark .theme-invert-toggle[data-state="unchecked"] {
+.dark .theme-invert-toggle[data-state="unchecked"],
+.dark .theme-invert-toggle[data-state="off"] {
   background-color: #fff !important;
   border-color: #000 !important;
 }
 
-.dark .theme-invert-toggle[data-state="checked"] {
+.dark .theme-invert-toggle[data-state="checked"],
+.dark .theme-invert-toggle[data-state="on"] {
   background-color: #3b82f6 !important;
   border-color: transparent !important;
 }
