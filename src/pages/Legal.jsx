@@ -21,7 +21,7 @@ const isPdfDocument = (doc) => !!doc?.file_url && (
   /^data:application\/pdf/i.test(doc.file_url)
 );
 
-const LEGAL_ROLES = ['admin', 'president', 'ceo'];
+const LEGAL_ROLES = ['admin', 'president', 'ceo', 'super_admin'];
 
 const emptyContractForm = () => ({ project_id: '', gc_name: '', contract_value: '' });
 const emptyNoticeEdits = {};

@@ -88,13 +88,17 @@ export default function MeasurementConfirmationModal({
   };
 
   const handleAddToTakeoffClick = () => {
-    const result = onConfirm?.({ shape, size, quantity, phaseArea });
+    const result = onConfirm?.({ shape, size, quantity, phaseArea: phaseArea || null });
     if (result?.duplicate) setDuplicateRow(result.duplicate);
   };
 
   if (!open || !pendingMeasurement) return null;
 
   const toolLabel = TOOL_LABELS[pendingMeasurement.tool] || 'Measurement';
+  // Only require a phase/area pick when the bid actually has one or more
+  // areas defined — a project that was never phased shouldn't block every
+  // takeoff row on picking from an empty/meaningless dropdown.
+  const phaseRequired = areaKeys.length > 0;
 
   return (
     <div
@@ -136,20 +140,19 @@ export default function MeasurementConfirmationModal({
           </select>
         </div>
 
-        <div>
-          <label className="text-xs font-medium text-muted-foreground">Phase / Area <span className="text-destructive">*</span></label>
-          <select
-            value={phaseArea}
-            onChange={(e) => setPhaseArea(e.target.value)}
-            className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-          >
-            <option value="">Select a phase/area…</option>
-            {areaKeys.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-          {areaKeys.length === 0 && (
-            <p className="text-[11px] text-amber-600 mt-1">No areas defined yet — use the Area tool to name one first.</p>
-          )}
-        </div>
+        {phaseRequired && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Phase / Area <span className="text-destructive">*</span></label>
+            <select
+              value={phaseArea}
+              onChange={(e) => setPhaseArea(e.target.value)}
+              className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">Select a phase/area…</option>
+              {areaKeys.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+        )}
 
         <div>
           <label className="text-xs font-medium text-muted-foreground">Quantity</label>
@@ -194,7 +197,7 @@ export default function MeasurementConfirmationModal({
               size="sm"
               variant="outline"
               className="flex-1"
-              onClick={() => onKeepSeparate?.({ shape, size, quantity, phaseArea, existingRowKey: duplicateRow._key })}
+              onClick={() => onKeepSeparate?.({ shape, size, quantity, phaseArea: phaseArea || null, existingRowKey: duplicateRow._key })}
             >
               Keep Separate
             </Button>
@@ -210,7 +213,7 @@ export default function MeasurementConfirmationModal({
       ) : (
         <div className="flex items-center justify-end gap-2 px-3 py-2 border-t">
           <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
-          <Button size="sm" onClick={handleAddToTakeoffClick} disabled={!phaseArea || !shape}>
+          <Button size="sm" onClick={handleAddToTakeoffClick} disabled={!shape || (phaseRequired && !phaseArea)}>
             Add to Takeoff
           </Button>
         </div>
