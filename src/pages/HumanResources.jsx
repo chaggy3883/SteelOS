@@ -5,6 +5,7 @@ import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateT
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { verifyPin } from '@/lib/hrSecurity';
 import { getExpiringCertifications } from '@/lib/certAlerts';
+import { decidePtoRequest, runAnniversaryRenewalCheckForCompany } from '@/lib/ptoEngine';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,10 +50,12 @@ export default function HumanResources() {
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(null);
   const [roles, setRoles] = useState(['user']);
+  const [currentUser, setCurrentUser] = useState(null);
   const [permissionOverrides, setPermissionOverrides] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [certifications, setCertifications] = useState([]);
+  const [pendingLeaveBalances, setPendingLeaveBalances] = useState({});
   const [loading, setLoading] = useState(true);
 
   const [showCandidateForm, setShowCandidateForm] = useState(false);
@@ -99,12 +102,18 @@ export default function HumanResources() {
   const init = async () => {
     setLoading(true);
     let currentRoles = ['user'];
+    let me = null;
     try {
-      const me = await db.auth.me();
+      me = await db.auth.me();
       currentRoles = me?.roles || me?.user?.roles || ['user'];
       setPermissionOverrides(me?.permission_overrides || []);
+      setCurrentUser(me);
     } catch (e) {}
     setRoles(currentRoles);
+    // No backend scheduler exists in this app — anniversary PTO renewals are
+    // checked here, on HR page load, instead of a cron job. Idempotent: see
+    // src/lib/ptoEngine.js's policy_year_end comparison.
+    if (me?.company_id) runAnniversaryRenewalCheckForCompany(me.company_id).catch(() => {});
     await loadAll(currentRoles);
     // super_admin is a platform-operator role, not an assignable HR role —
     // never offer it in the Platform Role dropdown here or in AddEmployeeWizard.
@@ -123,7 +132,9 @@ export default function HumanResources() {
       setCandidates(candidateData);
       setEmployees(employeeData);
       setCertifications(certData);
-      setPendingLeave(leaveData.filter((r) => r.status === 'Submitted' || r.status === 'Pending'));
+      const pending = leaveData.filter((r) => r.status === 'Submitted' || r.status === 'Pending');
+      setPendingLeave(pending);
+      loadPendingLeaveBalances(pending);
     } catch (e) {}
   };
 
@@ -268,15 +279,37 @@ export default function HumanResources() {
     }
   };
 
+  // Fetches the PtoBalance for each pending request's employee/leave_type so
+  // the approval queue can show "available" hours before HR clicks Approve.
+  // Unpaid is skipped — it never has a balance.
+  const loadPendingLeaveBalances = async (pending) => {
+    const relevant = pending.filter((r) => r.leave_type !== 'Unpaid');
+    const entries = await Promise.all(relevant.map(async (r) => {
+      const rows = await db.entities.PtoBalance.filter({ employee_id: r.employee_id, leave_type: r.leave_type }, '-created_date', 1);
+      return [r.id, rows[0]?.balance_hours];
+    }));
+    setPendingLeaveBalances(Object.fromEntries(entries.filter(([, hours]) => hours !== undefined)));
+  };
+
   // Persists the outcome + supervisor notes to the request record itself,
   // which is what EmployeeCenter.jsx's "My Time Off Requests" list reads to
-  // show the employee their decision and comments in their own view.
+  // show the employee their decision and comments in their own view. Also
+  // decrements/reverses the PTO ledger via decidePtoRequest (src/lib/ptoEngine.js)
+  // — the single call site both this page and EmployeeCenter.jsx's HR queue
+  // use, so the ledger discipline can't be bypassed from either surface.
   const decideLeaveRequest = async (request, status, notes = '') => {
-    const updated = await db.entities.time_off_requests.update(request.id, { status, supervisor_notes: notes });
-    setPendingLeave((prev) => prev.filter((r) => r.id !== updated.id));
+    const result = await decidePtoRequest({
+      request, newStatus: status, notes,
+      changedBy: currentUser?.full_name || currentUser?.email || 'Unknown',
+    });
+    if (!result.ok) {
+      toast({ title: result.message, variant: 'destructive' });
+      return;
+    }
+    setPendingLeave((prev) => prev.filter((r) => r.id !== result.request.id));
     setDecliningRequestId(null);
     setDeclineNote('');
-    toast({ title: `Leave request ${status.toLowerCase()}` });
+    toast({ title: result.warning || `Leave request ${status.toLowerCase()}`, variant: result.warning ? 'default' : undefined });
   };
 
   const confirmDecline = (request) => {
@@ -520,7 +553,14 @@ export default function HumanResources() {
                           ) : (r.employee_id)}
                           {' '}— {r.leave_type} ({r.start_date} to {r.end_date})
                         </p>
-                        <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {r.total_hours}h • {r.reason}
+                          {r.leave_type !== 'Unpaid' && pendingLeaveBalances[r.id] !== undefined && (
+                            <span className={pendingLeaveBalances[r.id] < r.total_hours ? 'text-red-600 font-medium' : ''}>
+                              {' '}• Available: {Number(pendingLeaveBalances[r.id]).toFixed(1)}h
+                            </span>
+                          )}
+                        </p>
                       </div>
                       <div className="flex gap-2">
                         <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700 text-white border-0" onClick={() => decideLeaveRequest(r, 'Approved')}><CheckCircle2 className="w-3.5 h-3.5" />Approve</Button>

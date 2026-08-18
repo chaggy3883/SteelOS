@@ -1,0 +1,61 @@
+{
+  "name": "PtoTransaction",
+  "type": "object",
+  "description": "Append-only ledger for PtoBalance — the single source of truth for how a balance got to its current value. Never edit balance_hours on PtoBalance without writing one of these alongside it. Written exclusively via src/lib/ptoEngine.js.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "leave_type": {
+      "type": "string",
+      "enum": ["PTO", "Sick", "Bereavement"]
+    },
+    "transaction_type": {
+      "type": "string",
+      "enum": ["accrual", "usage", "adjustment", "carryover", "forfeiture"],
+      "description": "'usage' covers both the original decrement on approval and its reversal (positive hours) if the request is later denied/cancelled after approval — the original entry is never deleted."
+    },
+    "hours": {
+      "type": "number",
+      "description": "Positive for accrual/carryover and usage-reversal; negative for usage and forfeiture. adjustment can be either sign."
+    },
+    "balance_after": {
+      "type": "number",
+      "description": "PtoBalance.balance_hours immediately after this transaction was applied — a point-in-time snapshot so history reads correctly even if later transactions change the running balance."
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["time_off_request", "pto_policy", "manual_adjustment"],
+      "description": "pto_policy is used for engine-driven accrual/carryover/forfeiture entries (source_id is the PtoPolicy id); time_off_request is used for usage and its reversal (source_id is the time_off_requests id); manual_adjustment is used for HR adjustments (source_id blank)."
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Required and human-entered for adjustment transactions (enforced in the Adjust Balance UI, not schema-level). Auto-generated descriptive text for engine-driven transaction types."
+    },
+    "created_by": {
+      "type": "string",
+      "description": "Display name/email of whoever triggered the change, or 'System' for the automated anniversary renewal check."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "employee_id",
+    "leave_type",
+    "transaction_type",
+    "hours",
+    "balance_after"
+  ]
+}

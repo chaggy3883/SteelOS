@@ -1,0 +1,65 @@
+{
+  "name": "PtoBalance",
+  "type": "object",
+  "description": "One row per employee per leave_type. balance_hours is never edited directly — every change is written by src/lib/ptoEngine.js alongside a PtoTransaction ledger entry, same discipline as JobCostLedgerEntry.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "leave_type": {
+      "type": "string",
+      "enum": ["PTO", "Sick", "Unpaid", "Bereavement"],
+      "description": "Unpaid never actually gets a row created for it — decidePtoRequest skips PTO tracking entirely for Unpaid requests."
+    },
+    "policy_id": {
+      "type": "string",
+      "description": "The PtoPolicy governing accrual for this employee/leave_type. Blank if no active policy exists for this leave type yet — the balance row still tracks usage/adjustments, it just never auto-accrues."
+    },
+    "balance_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "accrued_ytd": {
+      "type": "number",
+      "default": 0,
+      "description": "Reset to 0 at the start of each policy year (on anniversary renewal), then incremented by that year's accrual transactions."
+    },
+    "used_ytd": {
+      "type": "number",
+      "default": 0,
+      "description": "Reset to 0 at the start of each policy year, then incremented by that year's usage transactions."
+    },
+    "carried_over_hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Snapshot of the balance actually carried forward at the most recent renewal (after any forfeiture above max_carryover_hours was applied)."
+    },
+    "last_accrual_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of the most recent accrual grant. Blank until the employee's first anniversary renewal fires."
+    },
+    "anniversary_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Fixed service-start anchor used for both years-of-service tenure math and the recurring MM-DD renewal date. Defaults from employees.hire_date when the balance row is first created, but can be overridden by HR for rehires or adjusted service dates — overriding this does not change employees.hire_date."
+    },
+    "policy_year_start": {
+      "type": "string",
+      "format": "date",
+      "description": "Start of the current policy year, aligned to anniversary_date. Advances by exactly one year at each renewal."
+    },
+    "policy_year_end": {
+      "type": "string",
+      "format": "date",
+      "description": "Next renewal due date. src/lib/ptoEngine.js's anniversary check compares this against today and only grants once this date has passed, which is what makes repeated checks idempotent."
+    }
+  },
+  "required": [
+    "employee_id",
+    "leave_type"
+  ]
+}

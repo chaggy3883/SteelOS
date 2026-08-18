@@ -7,6 +7,10 @@ import { getPayrollRateScalesCents } from '@/lib/burdenedLabor';
 import { isMobileDevice, captureLocationCoordinates } from '@/lib/mobilePunch';
 import { normalizeTargetMinutes } from '@/lib/shopOpsMetrics';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
+import {
+  decidePtoRequest, runAnniversaryRenewalCheckForEmployee, listPtoBalancesForEmployee, projectedBalanceIfApproved,
+} from '@/lib/ptoEngine';
+import PtoPanel from '@/components/hr/PtoPanel';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { hasModule } from '@/lib/moduleEntitlement';
 import { isAdminUser } from '@/lib/tenantContext';
@@ -94,6 +98,7 @@ export default function EmployeeCenter() {
   const [allPendingLeave, setAllPendingLeave] = useState([]);
   const [showLeaveForm, setShowLeaveForm] = useState(false);
   const [leaveForm, setLeaveForm] = useState(emptyLeaveForm());
+  const [ptoBalances, setPtoBalances] = useState([]);
 
   const [payrollDocs, setPayrollDocs] = useState([]);
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
@@ -127,7 +132,7 @@ export default function EmployeeCenter() {
             if (!emp) return;
             setEmployee(emp);
             setVaultUnlocked(false);
-            return Promise.all([loadEmployeeData(emp.id), loadCompany(emp.company_id)]);
+            return Promise.all([loadEmployeeData(emp), loadCompany(emp.company_id)]);
           });
         }
         // Office accounts (admin/super_admin) have no employees row backing
@@ -172,17 +177,25 @@ export default function EmployeeCenter() {
 
   const isHrReviewer = hasFullEmployeeAccess(appUserRoles);
 
-  const loadEmployeeData = async (employeeId) => {
-    const [punchData, leaveData, payrollData, expenseData] = await Promise.all([
+  const loadEmployeeData = async (employeeRecord) => {
+    const employeeId = employeeRecord.id;
+    // No backend scheduler exists in this app — anniversary PTO renewals are
+    // checked here, on every Employee Center login, instead of a cron job.
+    // Idempotent (see ptoEngine's policy_year_end comparison), so it's safe
+    // to run on every login rather than only the first one after the date.
+    await runAnniversaryRenewalCheckForEmployee(employeeRecord).catch(() => {});
+    const [punchData, leaveData, payrollData, expenseData, balanceData] = await Promise.all([
       db.entities.attendance_punches.filter({ employee_id: employeeId }, '-created_date', 200),
       db.entities.time_off_requests.filter({ employee_id: employeeId }, '-created_date', 100),
       db.entities.payroll_document_mappings.filter({ employee_id: employeeId }, '-created_date', 100),
       db.entities.credit_card_expenses.filter({ employee_id: employeeId }, '-created_date', 100),
+      listPtoBalancesForEmployee(employeeId),
     ]);
     setPunches(punchData);
     setTimeOffRequests(leaveData);
     setPayrollDocs(payrollData);
     setExpenses(expenseData);
+    setPtoBalances(balanceData);
   };
 
   const loadAdminEmployeePicker = async () => {
@@ -218,7 +231,7 @@ export default function EmployeeCenter() {
       setEmployee(emp);
       setIsAdminViewing(true);
       setVaultUnlocked(true);
-      await Promise.all([loadEmployeeData(emp.id), loadCompany(emp.company_id)]);
+      await Promise.all([loadEmployeeData(emp), loadCompany(emp.company_id)]);
       try {
         await db.entities.AuditLog.create({
           user_id: currentUser?.id,
@@ -263,7 +276,7 @@ export default function EmployeeCenter() {
       setKioskNumber('');
       setKioskPin('');
       setVaultUnlocked(false);
-      await Promise.all([loadEmployeeData(candidate.id), loadCompany(candidate.company_id)]);
+      await Promise.all([loadEmployeeData(candidate), loadCompany(candidate.company_id)]);
       toast({ title: `Welcome, ${candidate.full_name}` });
     } finally {
       setLoggingIn(false);
@@ -277,6 +290,7 @@ export default function EmployeeCenter() {
     setTimeOffRequests([]);
     setPayrollDocs([]);
     setExpenses([]);
+    setPtoBalances([]);
     setVaultUnlocked(false);
     setSelectedProjectId('');
     setLaborCategory('');
@@ -431,16 +445,27 @@ export default function EmployeeCenter() {
   // it doesn't inject fake shop_schedules rows (which would corrupt the
   // capacity heatmap's tonnage math) — ShopOperations.jsx instead queries
   // Approved time_off_requests live and annotates the week columns with them.
+  // decidePtoRequest (src/lib/ptoEngine.js) is the same call HumanResources.jsx
+  // uses — decrements/reverses the PTO ledger so this HR-in-Employee-Center
+  // queue can't bypass that discipline.
   const decideLeaveRequest = async (request, status, notes = '') => {
     if (isAdminViewing) return;
-    const updated = await db.entities.time_off_requests.update(request.id, { status, supervisor_notes: notes });
-    setAllPendingLeave((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+    const result = await decidePtoRequest({
+      request, newStatus: status, notes,
+      changedBy: currentUser?.full_name || currentUser?.email || 'Unknown',
+    });
+    if (!result.ok) {
+      toast({ title: result.message, variant: 'destructive' });
+      return;
+    }
+    setAllPendingLeave((prev) => prev.map((r) => (r.id === result.request.id ? result.request : r)));
     if (employee && request.employee_id === employee.id) {
-      setTimeOffRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      setTimeOffRequests((prev) => prev.map((r) => (r.id === result.request.id ? result.request : r)));
+      listPtoBalancesForEmployee(employee.id).then(setPtoBalances).catch(() => {});
     }
     setDecliningRequestId(null);
     setDeclineNote('');
-    toast({ title: `Leave request ${status.toLowerCase()}` });
+    toast({ title: result.warning || `Leave request ${status.toLowerCase()}`, variant: result.warning ? 'default' : undefined });
   };
 
   const confirmDecline = (request) => {
@@ -754,6 +779,11 @@ export default function EmployeeCenter() {
             </TabsContent>
 
             <TabsContent value="timeoff" className="space-y-4">
+              <div>
+                <h4 className="font-semibold text-sm mb-3">My PTO Balance</h4>
+                <PtoPanel employee={employee} roles={appUserRoles} />
+              </div>
+
               <div className="steel-card p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-semibold text-sm">My Time Off Requests</h4>
@@ -765,22 +795,32 @@ export default function EmployeeCenter() {
                 </div>
                 {timeOffRequests.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">No time off requests yet.</p>
-                ) : timeOffRequests.map((r) => (
-                  <div key={r.id} className="rounded-lg border border-border p-3 text-sm mb-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{r.leave_type} — {r.start_date} to {r.end_date}</p>
-                        <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                ) : timeOffRequests.map((r) => {
+                  const isPending = r.status === 'Submitted' || r.status === 'Pending';
+                  const balance = ptoBalances.find((b) => b.leave_type === r.leave_type);
+                  const projected = isPending && r.leave_type !== 'Unpaid' ? projectedBalanceIfApproved(balance, r.total_hours) : null;
+                  return (
+                    <div key={r.id} className="rounded-lg border border-border p-3 text-sm mb-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">{r.leave_type} — {r.start_date} to {r.end_date}</p>
+                          <p className="text-xs text-muted-foreground">{r.total_hours}h • {r.reason}</p>
+                          {projected !== null && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Would leave <span className={projected < 0 ? 'text-red-600 font-medium' : 'font-medium'}>{projected.toFixed(1)}h</span> remaining if approved
+                            </p>
+                          )}
+                        </div>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${r.status === 'Approved' ? 'bg-green-500/10 text-green-600' : r.status === 'Rejected' ? 'bg-red-500/10 text-red-600' : 'bg-yellow-500/10 text-yellow-700'}`}>{r.status}</span>
                       </div>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${r.status === 'Approved' ? 'bg-green-500/10 text-green-600' : r.status === 'Rejected' ? 'bg-red-500/10 text-red-600' : 'bg-yellow-500/10 text-yellow-700'}`}>{r.status}</span>
+                      {r.supervisor_notes && (
+                        <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
+                          <span className="font-medium">Supervisor comments:</span> {r.supervisor_notes}
+                        </p>
+                      )}
                     </div>
-                    {r.supervisor_notes && (
-                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border/50">
-                        <span className="font-medium">Supervisor comments:</span> {r.supervisor_notes}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {isHrReviewer && !isAdminViewing && (

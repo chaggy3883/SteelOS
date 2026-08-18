@@ -53,6 +53,7 @@ import Settings from '@/pages/Settings';
 import Admin from '@/pages/Admin';
 import CostCodesAdmin from '@/pages/CostCodesAdmin';
 import DeliveryPricingAdmin from '@/pages/DeliveryPricingAdmin';
+import PtoPoliciesAdmin from '@/pages/PtoPoliciesAdmin';
 import Estimating from '@/pages/Estimating';
 import BidNew from '@/pages/BidNew';
 import BidDetail from '@/pages/BidDetail';
@@ -178,6 +179,7 @@ const AuthenticatedApp = () => {
           <Route path="/admin/intelligence-rules/:id" element={<IntelligenceRuleDetail />} />
           <Route path="/admin/service-schedules" element={<ServiceScheduleAdmin />} />
           <Route path="/admin/service-schedules/:id" element={<ServiceScheduleDetail />} />
+          <Route path="/admin/pto-policies" element={<PtoPoliciesAdmin />} />
           <Route path="/system-integrations" element={<SystemIntegrations />} />
         </Route>
       </Route>

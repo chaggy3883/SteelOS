@@ -1605,6 +1605,57 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
+    // Balances/transactions are deliberately NOT hand-seeded here — they're
+    // populated live by src/lib/ptoEngine.js's anniversary check (run on HR
+    // page load / Employee Center login) so demo data always matches what
+    // the real accrual math computes, rather than a hand-authored snapshot
+    // that could silently drift from the algorithm. This also means the
+    // pre-existing Approved timeoff-1 request above (which predates this
+    // feature) is never retroactively decremented — the same way rolling
+    // out a ledger-based balance system for real would require an explicit
+    // opening-balance adjustment, not a magic backfill.
+    PtoPolicy: [
+      {
+        id: 'pto-policy-pto',
+        company_id: 'company-hancock',
+        policy_name: 'Standard PTO',
+        leave_type: 'PTO',
+        accrual_method: 'anniversary_grant',
+        annual_hours: 80,
+        accrual_rate: 0,
+        max_balance: 240,
+        carryover_allowed: true,
+        max_carryover_hours: 40,
+        waiting_period_days: 90,
+        tenure_tiers: [
+          { years_of_service: 0, annual_hours: 80 },
+          { years_of_service: 3, annual_hours: 120 },
+          { years_of_service: 6, annual_hours: 160 }
+        ],
+        overdraft_action: 'hard_block',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'pto-policy-sick',
+        company_id: 'company-hancock',
+        policy_name: 'Standard Sick',
+        leave_type: 'Sick',
+        accrual_method: 'anniversary_grant',
+        annual_hours: 40,
+        accrual_rate: 0,
+        max_balance: 80,
+        carryover_allowed: false,
+        max_carryover_hours: 0,
+        waiting_period_days: 0,
+        tenure_tiers: [],
+        overdraft_action: 'allow_negative',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      }
+    ],
     payroll_document_mappings: [
       {
         id: 'payroll-doc-1',
@@ -2604,7 +2655,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();

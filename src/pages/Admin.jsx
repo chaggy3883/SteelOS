@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isAdminUser } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
@@ -32,12 +32,17 @@ const TABS = [
 ];
 
 // Standalone routed pages (not query-param tabs) that still belong in the
-// Admin nav — rendered as Link items alongside the tab buttons above.
+// Admin nav — rendered as Link items alongside the tab buttons above. Most
+// require full admin (see hasLinkAccess), but a link can opt into a narrower
+// `roles` allowlist the same way TABS above can — PTO Policies also admits
+// hr_admin/payroll_admin, since it's an HR-owned configuration, not a
+// platform-admin one.
 const NAV_LINKS = [
   { path: '/admin/cost-codes', label: 'Cost Codes', icon: Tags },
   { path: '/admin/delivery-pricing', label: 'Delivery Pricing', icon: Truck },
   { path: '/admin/intelligence-rules', label: 'Intelligence Rules', icon: Radar },
   { path: '/admin/service-schedules', label: 'Equipment Service Schedules', icon: Wrench },
+  { path: '/admin/pto-policies', label: 'PTO Policies', icon: CalendarClock, roles: ['hr_admin', 'payroll_admin'] },
 ];
 
 export default function Admin() {
@@ -67,7 +72,7 @@ export default function Admin() {
   // full admins — e.g. hr_admin viewing only "Roles & Permissions".
   const hasTabAccess = (tab) => isAdmin || (tab.roles || []).some(r => normalizedRoles.includes(r.toLowerCase()));
   const visibleTabs = TABS.filter(hasTabAccess);
-  const visibleNavLinks = isAdmin ? NAV_LINKS : [];
+  const visibleNavLinks = NAV_LINKS.filter(hasTabAccess);
 
   if (visibleTabs.length === 0 && visibleNavLinks.length === 0) return (
     <div className="flex flex-col items-center justify-center h-96 gap-3">

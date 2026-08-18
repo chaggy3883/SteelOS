@@ -6,6 +6,7 @@ import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
 import ComplianceDocumentCenter from '@/components/hr/ComplianceDocumentCenter';
 import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
 import DisciplinaryActionsPanel from '@/components/hr/DisciplinaryActionsPanel';
+import PtoPanel from '@/components/hr/PtoPanel';
 import { canManageDisciplinaryActions } from '@/lib/disciplinaryAccess';
 
 export default function EmployeeProfileDialog({ employee, employees = [], roles, open, onOpenChange, onEmployeeUpdated }) {
@@ -32,6 +33,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             <TabsTrigger value="access">System Access</TabsTrigger>
             <TabsTrigger value="emergency">Emergency Contact</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
+            <TabsTrigger value="pto">PTO</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
             {showDisciplinary && <TabsTrigger value="disciplinary">Disciplinary</TabsTrigger>}
           </TabsList>
@@ -43,6 +45,9 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           </TabsContent>
           <TabsContent value="documents">
             <ComplianceDocumentCenter employee={current} />
+          </TabsContent>
+          <TabsContent value="pto">
+            <PtoPanel employee={current} roles={roles} />
           </TabsContent>
           <TabsContent value="permissions">
             <PermissionsGridPanel subject={current} subjectType="employees" onUpdated={handleUpdated} />

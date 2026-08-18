@@ -1,0 +1,84 @@
+{
+  "name": "PtoPolicy",
+  "type": "object",
+  "description": "Company-configured accrual rules for one leave type. PtoBalance rows point at the policy that governs them; PtoTransaction ledger entries carry the actual math this policy authorizes. See src/lib/ptoEngine.js for the engine that reads these fields.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "policy_name": {
+      "type": "string"
+    },
+    "leave_type": {
+      "type": "string",
+      "enum": ["PTO", "Sick", "Bereavement"],
+      "description": "Unpaid is deliberately excluded — it never accrues or decrements a balance, so it never has a policy."
+    },
+    "accrual_method": {
+      "type": "string",
+      "enum": ["anniversary_grant", "per_pay_period", "per_hour_worked"],
+      "default": "anniversary_grant",
+      "description": "Only anniversary_grant is computed by the engine today (src/lib/ptoEngine.js's runAnniversaryRenewalCheckForEmployee) — it grants annual_hours/tenure_tiers on the employee's anniversary_date. per_pay_period and per_hour_worked are recognized values with no accrual trigger wired yet (would need to hook into PayrollRun/attendance_punches processing); balances under those methods only move via approval usage and manual adjustment until that engine is built."
+    },
+    "annual_hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Flat annual grant used when tenure_tiers is empty, or as the floor hours for years_of_service below the lowest tier."
+    },
+    "accrual_rate": {
+      "type": "number",
+      "default": 0,
+      "description": "Documented rate for per_pay_period/per_hour_worked methods (hours per pay period or hours per hour worked) — not yet read by any accrual engine, see accrual_method note."
+    },
+    "max_balance": {
+      "type": "number",
+      "default": 0,
+      "description": "Overall balance cap. 0 means uncapped. Enforced at anniversary renewal as a forfeiture (see PtoTransaction transaction_type 'forfeiture') if a grant would push the balance above this."
+    },
+    "carryover_allowed": {
+      "type": "boolean",
+      "default": true
+    },
+    "max_carryover_hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Only used when carryover_allowed is true. Balance above this at renewal is written off as a 'forfeiture' PtoTransaction rather than silently dropped."
+    },
+    "waiting_period_days": {
+      "type": "number",
+      "default": 0,
+      "description": "Days after hire_date before an employee may use this leave type. Enforced as a hard block at approval time regardless of overdraft_action — see decidePtoRequest in src/lib/ptoEngine.js."
+    },
+    "tenure_tiers": {
+      "type": "array",
+      "description": "Ordered by years_of_service ascending. The engine grants the annual_hours of the highest tier whose years_of_service is <= the employee's years of service at that anniversary. Empty array falls back to the flat annual_hours field.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "years_of_service": {
+            "type": "number"
+          },
+          "annual_hours": {
+            "type": "number"
+          }
+        }
+      },
+      "default": []
+    },
+    "overdraft_action": {
+      "type": "string",
+      "enum": ["hard_block", "allow_negative"],
+      "default": "hard_block",
+      "description": "What happens when approving a request would take the balance negative. hard_block refuses the approval; allow_negative approves anyway and the ledger records a negative balance_after. Only enforced when a policy exists for the leave type — a leave type with no active policy always allows approval (ledger still records usage) rather than blocking HR with no configured rule to point to."
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "policy_name",
+    "leave_type",
+    "accrual_method"
+  ]
+}
