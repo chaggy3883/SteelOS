@@ -51,9 +51,43 @@
       "type": "boolean",
       "default": false
     },
-    "has_i9_approved": {
+    "i9_on_file": {
       "type": "boolean",
-      "default": false
+      "default": false,
+      "description": "Renamed from has_i9_approved. Whether Form I-9 Section 2 is on file. The actual scanned I-9 form is stored separately in employee_documents (document_type_key 'I9_Form') — this is a tracking flag only."
+    },
+    "i9_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the I-9 form was received/completed. Blank until i9_on_file is set."
+    },
+    "i9_reverification_due_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Federal reverification deadline. Auto-set to i9_date + 3 years (the default window for most work-authorization documents) by I9ComplianceCenter.jsx, but manually overridable by HR — e.g. for employees on 1-year visas whose document expires sooner. Also pre-set to hire_date + 3 years at provisioning (see employeesApi.js), before the actual I-9 is on file."
+    },
+    "i9_reverification_completed_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date HR actually completed the reverification. Blank until completed — set by the 'Mark Reverification Complete' action, which also rolls i9_reverification_due_date forward another 3 years."
+    },
+    "e_verify_status": {
+      "type": "string",
+      "enum": ["not_submitted", "pending", "verified", "failed", "expired"],
+      "default": "not_submitted"
+    },
+    "e_verify_initiated_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "e_verify_verified_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "e_verify_recheck_due_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Optional manual recheck deadline (e.g. after a Tentative Nonconfirmation resolution window). Blank if no recheck is required."
     },
     "ssn_last4": {
       "type": "string",

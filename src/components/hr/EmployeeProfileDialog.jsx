@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SystemAccessPortal from '@/components/hr/SystemAccessPortal';
 import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
 import ComplianceDocumentCenter from '@/components/hr/ComplianceDocumentCenter';
+import I9ComplianceCenter from '@/components/hr/I9ComplianceCenter';
 import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
 import DisciplinaryActionsPanel from '@/components/hr/DisciplinaryActionsPanel';
 import PtoPanel from '@/components/hr/PtoPanel';
@@ -36,6 +37,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             <TabsTrigger value="access">System Access</TabsTrigger>
             <TabsTrigger value="emergency">Emergency Contact</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
+            {showTermination && <TabsTrigger value="compliance">Compliance</TabsTrigger>}
             <TabsTrigger value="pto">PTO</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
             {showDisciplinary && <TabsTrigger value="disciplinary">Disciplinary</TabsTrigger>}
@@ -50,6 +52,11 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           <TabsContent value="documents">
             <ComplianceDocumentCenter employee={current} />
           </TabsContent>
+          {showTermination && (
+            <TabsContent value="compliance">
+              <I9ComplianceCenter employee={current} onUpdated={handleUpdated} />
+            </TabsContent>
+          )}
           <TabsContent value="pto">
             <PtoPanel employee={current} roles={roles} />
           </TabsContent>

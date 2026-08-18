@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/use-toast';
 import FileDropzone from '@/components/ui/FileDropzone';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
 
-const DOCUMENT_TYPES = ['Drivers_License', 'SSN_Card', 'Birth_Cert', 'Training_Cert'];
+const DOCUMENT_TYPES = ['Drivers_License', 'SSN_Card', 'Birth_Cert', 'Training_Cert', 'I9_Form', 'EVerify_Confirmation'];
 
 const isPdfDataUri = (uri) => /^data:application\/pdf/i.test(uri || '');
 

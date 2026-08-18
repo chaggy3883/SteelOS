@@ -5,6 +5,7 @@ import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateT
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { verifyPin } from '@/lib/hrSecurity';
 import { getExpiringCertifications } from '@/lib/certAlerts';
+import { getComplianceAlerts } from '@/lib/i9Compliance';
 import { decidePtoRequest, runAnniversaryRenewalCheckForCompany } from '@/lib/ptoEngine';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -321,6 +322,7 @@ export default function HumanResources() {
   };
 
   const expiringCerts = getExpiringCertifications(certifications, 60);
+  const complianceAlerts = getComplianceAlerts(employees, 30);
 
   const isTabVisible = (value) => {
     const tab = HR_TABS.find((t) => t.value === value);
@@ -525,7 +527,7 @@ export default function HumanResources() {
                               <input type="checkbox" checked={!!emp.has_w4_approved} onChange={(e) => toggleCompliance(emp, 'has_w4_approved', e.target.checked)} />W-4
                             </label>
                             <label className="flex items-center gap-1.5">
-                              <input type="checkbox" checked={!!emp.has_i9_approved} onChange={(e) => toggleCompliance(emp, 'has_i9_approved', e.target.checked)} />I-9
+                              <input type="checkbox" checked={!!emp.i9_on_file} onChange={(e) => toggleCompliance(emp, 'i9_on_file', e.target.checked)} />I-9
                             </label>
                           </td>
                         )}
@@ -646,6 +648,35 @@ export default function HumanResources() {
               );
             })}
           </div>
+
+          {isFullAccess && (
+            <div className="steel-card p-4">
+              <h4 className="font-semibold text-sm mb-1 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-600" />I-9 / E-Verify Compliance</h4>
+              <p className="text-xs text-muted-foreground mb-3">Reverification and recheck deadlines overdue or due within 30 days. Informational only — I-9/E-Verify records are kept on file even after termination.</p>
+              {complianceAlerts.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">No I-9 or E-Verify deadlines are due soon.</p>
+              ) : complianceAlerts.map(({ employee, i9Flag, everifyFlag }) => {
+                const worstFlag = i9Flag === 'overdue' || everifyFlag === 'overdue' ? 'overdue' : 'due_soon';
+                return (
+                  <div
+                    key={employee.id}
+                    onClick={() => openProfile(employee)}
+                    className={`rounded-lg border p-3 text-sm mb-2 cursor-pointer hover:bg-muted/40 transition-colors ${worstFlag === 'overdue' ? 'border-red-500/40 bg-red-500/5' : 'border-yellow-500/40 bg-yellow-500/5'}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-primary hover:underline">{employee.full_name}</p>
+                      <span className={`text-xs font-semibold ${worstFlag === 'overdue' ? 'text-red-600' : 'text-yellow-700'}`}>{worstFlag === 'overdue' ? 'Overdue' : 'Due Soon'}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {i9Flag && `I-9 reverification due ${employee.i9_reverification_due_date}`}
+                      {i9Flag && everifyFlag && ' • '}
+                      {everifyFlag && (employee.e_verify_status === 'expired' ? 'E-Verify expired' : `E-Verify recheck due ${employee.e_verify_recheck_due_date}`)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="terminal" className="space-y-3">

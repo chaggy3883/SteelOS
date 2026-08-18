@@ -10,7 +10,7 @@
     },
     "document_type_key": {
       "type": "string",
-      "enum": ["Drivers_License", "SSN_Card", "Birth_Cert", "Training_Cert"]
+      "enum": ["Drivers_License", "SSN_Card", "Birth_Cert", "Training_Cert", "I9_Form", "EVerify_Confirmation"]
     },
     "file_uri": {
       "type": "string"

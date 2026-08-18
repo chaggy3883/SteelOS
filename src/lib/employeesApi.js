@@ -1,6 +1,7 @@
 import { db } from '@/api/apiClient';
 import { encodeFormulaPin } from '@/lib/pinFormula';
 import { encodePin } from '@/lib/hrSecurity';
+import { computeI9ReverificationDueDate } from '@/lib/i9Compliance';
 
 // termination_reason (but not termination_reason_other/final_notes, which can
 // carry sensitive HR detail) is deliberately public — standing rule: it must
@@ -72,6 +73,7 @@ export async function hireCandidate(candidateId) {
   if (!candidate) throw new Error('Candidate not found');
 
   const employee_number = await nextEmployeeNumber();
+  const hire_date = new Date().toISOString().slice(0, 10);
   // PIN is the employee's own last-4 SSN (see pinFormula.js's security
   // caveat) — with ssn_last4 still blank at provisioning time, this computes
   // a placeholder PIN ("0000") that becomes real the moment HR enters the SSN.
@@ -79,12 +81,17 @@ export async function hireCandidate(candidateId) {
     employee_number,
     full_name: candidate.candidate_name,
     classification: candidate.position_applied,
-    hire_date: new Date().toISOString().slice(0, 10),
+    hire_date,
     is_active: true,
     pin_encrypted: encodeFormulaPin({ employee_number, ssn_last4: '' }),
     is_timeclock_locked: true,
     has_w4_approved: false,
-    has_i9_approved: false,
+    i9_on_file: false,
+    // Placeholder due date pre-computed from hire_date so the reverification
+    // clock is visible immediately, even before HR fills in the actual I-9 —
+    // it gets recomputed from i9_date once that's entered.
+    i9_reverification_due_date: computeI9ReverificationDueDate(hire_date),
+    e_verify_status: 'not_submitted',
     ssn_last4: '',
     pay_rate_cents: 0,
     is_active_login: true,
@@ -132,7 +139,11 @@ export async function provisionEmployee(formData) {
     pin_encrypted: encodeFormulaPin({ employee_number, ssn_last4 }),
     is_timeclock_locked: true,
     has_w4_approved: false,
-    has_i9_approved: false,
+    i9_on_file: false,
+    // See hireCandidate's matching comment — placeholder due date from
+    // hire_date, recomputed from i9_date once HR fills in the real I-9.
+    i9_reverification_due_date: computeI9ReverificationDueDate(formData.hire_date),
+    e_verify_status: 'not_submitted',
     is_active: true,
     is_active_login: true,
   });
@@ -141,7 +152,7 @@ export async function provisionEmployee(formData) {
 // PIN-lockout auto-unlock rule: a locked timeclock terminal unlocks the
 // instant BOTH W-4 and I-9 are approved, and re-locks if either is revoked.
 export async function reevaluateTimeclockLock(employee) {
-  const shouldUnlock = !!employee.has_w4_approved && !!employee.has_i9_approved;
+  const shouldUnlock = !!employee.has_w4_approved && !!employee.i9_on_file;
   return db.entities.employees.update(employee.id, { is_timeclock_locked: !shouldUnlock });
 }
 
