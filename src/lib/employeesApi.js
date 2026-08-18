@@ -2,8 +2,29 @@ import { db } from '@/api/apiClient';
 import { encodeFormulaPin } from '@/lib/pinFormula';
 import { encodePin } from '@/lib/hrSecurity';
 
-const PUBLIC_FIELDS = ['id', 'employee_number', 'full_name', 'classification', 'hire_date', 'is_active', 'is_active_login', 'created_date', 'updated_date'];
+// termination_reason (but not termination_reason_other/final_notes, which can
+// carry sensitive HR detail) is deliberately public — standing rule: it must
+// be visible in the HR employee list/reports, not just to full-access roles.
+const PUBLIC_FIELDS = ['id', 'employee_number', 'full_name', 'classification', 'hire_date', 'is_active', 'is_active_login', 'termination_date', 'termination_reason', 'created_date', 'updated_date'];
 const FULL_ACCESS_ROLES = ['hr_admin', 'payroll_admin', 'admin'];
+
+// Shared by TerminationPanel.jsx (the dropdown) and HumanResources.jsx (label
+// lookup for the employee list/reports) so the value<->label mapping only
+// lives in one place.
+export const TERMINATION_REASONS = [
+  { value: 'voluntary_resignation', label: 'Voluntary Resignation' },
+  { value: 'involuntary_discharge', label: 'Involuntary Discharge' },
+  { value: 'reduction_in_force', label: 'Reduction in Force' },
+  { value: 'retirement', label: 'Retirement' },
+  { value: 'deceased', label: 'Deceased' },
+  { value: 'other', label: 'Other' },
+];
+
+export const terminationReasonLabel = (employee) => {
+  if (!employee?.termination_reason) return '';
+  if (employee.termination_reason === 'other') return employee.termination_reason_other || 'Other';
+  return TERMINATION_REASONS.find((r) => r.value === employee.termination_reason)?.label || employee.termination_reason;
+};
 
 const normalizeRoles = (roles) => (Array.isArray(roles) ? roles : [roles]).map((r) => String(r || '').toLowerCase().trim());
 

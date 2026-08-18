@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin } from '@/lib/employeesApi';
+import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel } from '@/lib/employeesApi';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { verifyPin } from '@/lib/hrSecurity';
 import { getExpiringCertifications } from '@/lib/certAlerts';
@@ -460,6 +460,7 @@ export default function HumanResources() {
                       <th className="text-left py-3 px-4">Employee #</th>
                       <th className="text-left py-3 px-4">Name</th>
                       <th className="text-left py-3 px-4">Classification</th>
+                      <th className="text-left py-3 px-4">Employment Status</th>
                       {isFullAccess && <th className="text-left py-3 px-4">SSN (last 4)</th>}
                       {isFullAccess && <th className="text-right py-3 px-4">Pay Rate</th>}
                       <th className="text-left py-3 px-4">Timeclock</th>
@@ -478,6 +479,16 @@ export default function HumanResources() {
                           <button onClick={() => openProfile(emp)} className="text-primary hover:underline">{emp.full_name}</button>
                         </td>
                         <td className="py-3 px-4 text-muted-foreground">{emp.classification}</td>
+                        <td className="py-3 px-4">
+                          {emp.termination_date ? (
+                            <button onClick={() => openProfile(emp)} className="text-left">
+                              <span className="inline-flex items-center text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 mb-0.5">Terminated {emp.termination_date}</span>
+                              <span className="block text-xs text-primary hover:underline">{terminationReasonLabel(emp) || 'Reason on file'}</span>
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-600">Active</span>
+                          )}
+                        </td>
                         {isFullAccess && (
                           <td className="py-3 px-4">
                             <Input defaultValue={emp.ssn_last4} onBlur={(e) => updateSsnLast4(emp, e.target.value)} placeholder="0000" className="h-7 w-20 text-xs font-mono" />

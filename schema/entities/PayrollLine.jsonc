@@ -30,7 +30,7 @@
     "pto_payout_hours": {
       "type": "number",
       "default": 0,
-      "description": "Hours of unused PTO/Sick/Bereavement cashed out on a final_check PayrollRun (see processTerminationPtoSettlement). Deliberately separate from regular_hours — this is not hours worked, has no backing TimeEntry/JobLaborAllocation, and must never be included in job-cost or certified-payroll hours-worked totals."
+      "description": "Hours of unused PTO/Sick/Bereavement cashed out on a final_check PayrollRun (see processTerminationSettlement in src/lib/ptoEngine.js). Deliberately separate from regular_hours — even though the same final_check line's regular_hours/ot_hours/double_time_hours may carry real unpaid wages for the same termination, this field alone has no backing TimeEntry/JobLaborAllocation, and must never be included in job-cost or certified-payroll hours-worked totals."
     },
     "pto_payout_amount": {
       "type": "number",

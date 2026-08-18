@@ -68,7 +68,10 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
   };
 
   const period = payPeriods.find((p) => p.id === periodId) || null;
-  const approvedForPeriod = useMemo(() => timecards.filter((t) => t.pay_period_id === periodId), [timecards, periodId]);
+  // Excludes a timecard already absorbed into a termination final_check run
+  // (see Timecard.payroll_run_id) — otherwise this period's regular run would
+  // pay that employee's hours a second time.
+  const approvedForPeriod = useMemo(() => timecards.filter((t) => t.pay_period_id === periodId && !t.payroll_run_id), [timecards, periodId]);
   const existingRunForPeriod = runs.find((r) => r.pay_period_id === periodId) || null;
   const employeeName = (id) => employees.find((e) => e.id === id)?.full_name || id;
   const projectLabel = (id) => { const p = projects.find((pr) => pr.id === id); return p ? `${p.project_number} — ${p.name}` : id; };
@@ -169,6 +172,11 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
 
       const createdLines = await db.entities.PayrollLine.bulkCreate(lines.map(({ _employerTax, _timecardId, ...line }) => ({ ...line, payroll_run_id: run.id })));
 
+      // Marks each source timecard as paid so it can never be picked up again
+      // by another regular run for this period OR absorbed into a later
+      // termination final_check run (see Timecard.payroll_run_id).
+      await Promise.all(lines.map((l) => db.entities.Timecard.update(l._timecardId, { payroll_run_id: run.id })));
+
       const employerTaxPayloads = [];
       lines.forEach((line) => {
         line._employerTax.forEach((t) => employerTaxPayloads.push({ payroll_run_id: run.id, employee_id: line.employee_id, tax_type: t.tax_type, amount: t.amount }));
@@ -247,6 +255,8 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       }
 
       setRuns((prev) => [run, ...prev]);
+      const paidTimecardIds = new Set(lines.map((l) => l._timecardId));
+      setTimecards((prev) => prev.map((t) => (paidTimecardIds.has(t.id) ? { ...t, payroll_run_id: run.id } : t)));
       toast({ title: `Payroll run created — ${createdLines.length} employee(s)`, description: `Gross ${money(totalGross)} · Net ${money(totalNet)} · in review` });
     } catch (e) {
       console.error(e);

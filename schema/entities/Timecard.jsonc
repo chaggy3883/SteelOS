@@ -35,6 +35,10 @@
     "approved_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "payroll_run_id": {
+      "type": "string",
+      "description": "Set once this timecard's hours have been paid out by ANY PayrollRun — the regular per-period run (PayrollRunPanel.jsx) or a termination final_check run (processTerminationSettlement in ptoEngine.js). A final_check run can absorb an approved timecard whose regular pay period hasn't been run yet; this flag is what stops that same timecard from being paid again when the regular run for its period eventually happens."
     }
   },
   "required": [

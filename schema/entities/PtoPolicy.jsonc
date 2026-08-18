@@ -75,7 +75,7 @@
       "type": "string",
       "enum": ["never", "always", "policy_dependent"],
       "default": "never",
-      "description": "What happens to a terminated employee's remaining balance for this leave type. 'never': the balance is forfeited (written off with an auditable 'forfeiture' PtoTransaction, never silently dropped). 'always': the balance is paid out on the final check (a 'payout' PtoTransaction zeroes it, and a PayrollLine is added to a final_check PayrollRun). 'policy_dependent' is a stub for future state/jurisdiction-driven rules (some states mandate payout, most don't) — src/lib/ptoEngine.js's processTerminationPtoSettlement treats it identically to 'never' until that rule table exists. A leave type with no active policy at all is also treated as 'never' (forfeited, not paid) since there's no configured rule authorizing a payout."
+      "description": "What happens to a terminated employee's remaining balance for this leave type. 'never': the balance is forfeited (written off with an auditable 'forfeiture' PtoTransaction, never silently dropped). 'always': the balance is paid out on the final check (a 'payout' PtoTransaction zeroes it, and a PayrollLine is added to a final_check PayrollRun). 'policy_dependent' is a stub for future state/jurisdiction-driven rules (some states mandate payout, most don't) — src/lib/ptoEngine.js's processTerminationSettlement treats it identically to 'never' until that rule table exists. A leave type with no active policy at all is also treated as 'never' (forfeited, not paid) since there's no configured rule authorizing a payout."
     },
     "is_active": {
       "type": "boolean",

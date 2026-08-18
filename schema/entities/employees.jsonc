@@ -23,6 +23,19 @@
       "format": "date",
       "description": "Blank while the employee is currently employed. Added for Payroll Setup (end-dating pay rates/deductions/withholding at separation) — distinct from is_active, which has no date attached."
     },
+    "termination_reason": {
+      "type": "string",
+      "enum": ["voluntary_resignation", "involuntary_discharge", "reduction_in_force", "retirement", "deceased", "other"],
+      "description": "Set alongside termination_date by TerminationPanel.jsx. Never hidden — visible in the HR employee list and reports, not just the profile dialog."
+    },
+    "termination_reason_other": {
+      "type": "string",
+      "description": "Required free-text detail when termination_reason is 'other' — blank otherwise."
+    },
+    "final_notes": {
+      "type": "string",
+      "description": "Optional HR notes captured at termination (final_check context, exit-interview summary, etc.) — distinct from termination_reason_other, which is only the 'other' reason detail."
+    },
     "is_active": {
       "type": "boolean",
       "default": true

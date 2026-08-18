@@ -1,6 +1,7 @@
 import { db } from '@/api/apiClient';
 import { logStatusChange } from '@/lib/statusHistory';
-import { calculateTaxesAndDeductions } from '@/lib/payrollEngine';
+import { calculateTaxesAndDeductions, calculateGrossPay, allocateLaborToJobs } from '@/lib/payrollEngine';
+import { getEffectiveRule } from '@/lib/payrollRules';
 
 // The only leave types PtoBalance/PtoTransaction ever track. Unpaid is
 // deliberately excluded everywhere in this file — it never accrues and
@@ -357,6 +358,73 @@ async function getExistingPtoBalance(employeeId, leaveType) {
   return rows[0] || null;
 }
 
+// The raw EmployeePayRate row (pay_type/rate/overtime_eligible), not the
+// hourly-equivalent conversion resolveCurrentPayRate above returns — gross
+// pay for actual worked hours must be priced exactly the way
+// PayrollRunPanel.jsx's runPayroll() prices it (same effective_date/end_date
+// window, same "latest wins" tie-break), so a terminated employee's final
+// wages come out identical to what a regular run would have paid.
+async function resolveRawPayRate(employeeId, asOfDate) {
+  const rates = await db.entities.EmployeePayRate.filter({ employee_id: employeeId }, '-effective_date', 200);
+  return rates
+    .filter((r) => r.effective_date <= asOfDate && (!r.end_date || r.end_date > asOfDate))
+    .sort((a, b) => b.effective_date.localeCompare(a.effective_date))[0] || null;
+}
+
+// Every approved Timecard for this employee that no PayrollRun (regular or a
+// prior final_check) has paid yet — see Timecard.payroll_run_id. This is the
+// "unpaid earned wages" side of a termination final check, computed the same
+// way PayrollRunPanel.jsx computes a regular run: TimeEntry -> allocations
+// (job costing) + the approved Timecard's own totals -> gross (via
+// calculateGrossPay), never re-derived from raw hours, so it can never drift
+// from what the normal payroll run would have produced for the same period.
+async function collectUnpaidWageLines(employee, payrollRules) {
+  const timecards = (await db.entities.Timecard.filter({ employee_id: employee.id, status: 'approved' }, '-created_date', 100))
+    .filter((t) => !t.payroll_run_id);
+  if (timecards.length === 0) return { lines: [], allocationPayloads: [] };
+
+  const allTimeEntries = await db.entities.TimeEntry.filter({ employee_id: employee.id }, '-work_date', 2000);
+  const lines = [];
+  const allocationPayloads = [];
+
+  for (const timecard of timecards) {
+    const period = await db.entities.PayPeriod.get(timecard.pay_period_id);
+    if (!period) continue;
+    const asOfDate = period.period_end;
+    const payRate = await resolveRawPayRate(employee.id, asOfDate);
+    if (!payRate) continue; // same "skip, no rate on file" behavior as runPayroll()
+
+    const entries = allTimeEntries.filter((t) => t.work_date >= period.period_start && t.work_date <= period.period_end);
+    const overtimeRule = getEffectiveRule(payrollRules, 'overtime', { asOfDate });
+    const doubleTimeRule = getEffectiveRule(payrollRules, 'double_time', { asOfDate });
+    const allocations = allocateLaborToJobs(entries, { payRate, overtimeRule, doubleTimeRule, workweekStartDay: period.workweek_start_day });
+    const gross = calculateGrossPay(timecard, payRate, payrollRules, { asOfDate, periodFrequency: period.frequency });
+
+    lines.push({
+      timecardId: timecard.id,
+      payType: payRate.pay_type,
+      regularHours: Number(timecard.total_regular_hours) || 0,
+      otHours: Number(timecard.total_ot_hours) || 0,
+      doubleTimeHours: Number(timecard.total_double_time_hours) || 0,
+      grossPay: gross.grossPay,
+    });
+    allocations.forEach((a) => allocationPayloads.push(a));
+  }
+
+  return { lines, allocationPayloads };
+}
+
+// Read-only preview of the wages side of a final check — what HR sees before
+// confirming a termination, alongside the PTO settlement preview.
+export async function computeUnpaidWagesPreview(employee) {
+  const payrollRules = await db.entities.PayrollRule.list('-effective_date', 500);
+  const { lines } = await collectUnpaidWageLines(employee, payrollRules);
+  const totalGross = round2(lines.reduce((sum, l) => sum + l.grossPay, 0));
+  const totalRegularHours = round2(lines.reduce((sum, l) => sum + l.regularHours, 0));
+  const totalOtHours = round2(lines.reduce((sum, l) => sum + l.otHours, 0));
+  return { lines, totalGross, totalRegularHours, totalOtHours };
+}
+
 // What the HR termination checklist shows before anyone confirms anything —
 // per leave type, the current balance, the governing policy, and (if
 // payout_on_termination is 'always') the dollar amount that balance would be
@@ -377,19 +445,29 @@ export async function computeTerminationPtoSettlementPreview(employee, asOfDate 
 }
 
 // The actual termination settlement — call once, when HR confirms a
-// termination. For every tracked leave type: pays out the balance (writing a
-// 'payout' PtoTransaction and adding a PayrollLine to a brand-new off-cycle
-// final_check PayrollRun) if the governing policy's payout_on_termination is
-// 'always', otherwise forfeits it (a 'forfeiture' PtoTransaction — auditable,
-// never a silent balance reset). 'policy_dependent' and "no policy on file"
-// both resolve to forfeiture until a real jurisdiction rule table exists (see
-// PtoPolicy.payout_on_termination). Never touches the regular biweekly
-// PayrollRun/PayPeriod — the final_check run is entirely separate, and
-// because it's built from PtoBalance/EmployeePayRate directly (no TimeEntry
-// involved), it never produces a JobLaborAllocation and can never post to
-// JobCostLedgerEntry against a project cost code.
-export async function processTerminationPtoSettlement({ employee, terminationDate = todayDateOnly(), createdBy = 'System' }) {
-  const payRate = await resolveCurrentPayRate(employee.id, terminationDate);
+// termination. Combines three sources into a single off-cycle final_check
+// PayrollRun/PayrollLine, so a terminated employee is never paid across two
+// separate checks for the same event:
+//   1. PTO/Sick/Bereavement — pays out the balance (a 'payout' PtoTransaction)
+//      if the governing policy's payout_on_termination is 'always', otherwise
+//      forfeits it (a 'forfeiture' PtoTransaction — auditable, never a silent
+//      balance reset). 'policy_dependent' and "no policy on file" both
+//      resolve to forfeiture until a real jurisdiction rule table exists (see
+//      PtoPolicy.payout_on_termination). Priced off PtoBalance/EmployeePayRate
+//      directly — no TimeEntry involved, so this portion never produces a
+//      JobLaborAllocation/JobCostLedgerEntry, same as before this function
+//      also covered wages.
+//   2. Unpaid earned wages — any approved Timecard not yet paid by another
+//      run (collectUnpaidWageLines) as of termination. Priced identically to
+//      a regular PayrollRunPanel run, and — unlike PTO — DOES post
+//      JobLaborAllocation/JobCostLedgerEntry, since these are real worked
+//      hours against a job.
+//   3. An optional one-off adjustment (bonus/correction/etc, HR-entered at
+//      confirm time) recorded as a PayrollAdjustment against the same run.
+// Never touches the regular biweekly PayrollRun/PayPeriod — the final_check
+// run is entirely separate and off-cycle.
+export async function processTerminationSettlement({ employee, terminationDate = todayDateOnly(), createdBy = 'System', adjustmentAmount = 0, adjustmentType = 'bonus', adjustmentReason = '' }) {
+  const ptoPayRate = await resolveCurrentPayRate(employee.id, terminationDate);
   const leaveResults = [];
   let totalPayoutHours = 0;
   let totalPayoutAmount = 0;
@@ -405,12 +483,12 @@ export async function processTerminationPtoSettlement({ employee, terminationDat
     }
 
     const payoutSetting = policy?.payout_on_termination || 'never';
-    if (payoutSetting === 'always' && payRate) {
-      const amount = round2(hours * payRate.hourlyRate);
+    if (payoutSetting === 'always' && ptoPayRate) {
+      const amount = round2(hours * ptoPayRate.hourlyRate);
       const { balance: updated, transaction } = await writePtoTransaction({
         balance, employee, leaveType, transactionType: 'payout', hours: -hours,
         effectiveDate: terminationDate, sourceType: 'termination', sourceId: '',
-        reason: `Termination payout — ${hours}h × $${payRate.hourlyRate.toFixed(2)}/hr per "${policy.policy_name}" (payout_on_termination: always)`,
+        reason: `Termination payout — ${hours}h × $${ptoPayRate.hourlyRate.toFixed(2)}/hr per "${policy.policy_name}" (payout_on_termination: always)`,
         createdBy,
       });
       totalPayoutHours = round2(totalPayoutHours + hours);
@@ -429,10 +507,21 @@ export async function processTerminationPtoSettlement({ employee, terminationDat
     }
   }
 
+  const payrollRules = await db.entities.PayrollRule.list('-effective_date', 500);
+  const { lines: wageLines, allocationPayloads } = await collectUnpaidWageLines(employee, payrollRules);
+  const wagesRegularHours = round2(wageLines.reduce((sum, l) => sum + l.regularHours, 0));
+  const wagesOtHours = round2(wageLines.reduce((sum, l) => sum + l.otHours, 0));
+  const wagesDoubleTimeHours = round2(wageLines.reduce((sum, l) => sum + l.doubleTimeHours, 0));
+  const wagesGross = round2(wageLines.reduce((sum, l) => sum + l.grossPay, 0));
+  const adjustment = round2(Number(adjustmentAmount) || 0);
+
+  const totalGross = round2(wagesGross + totalPayoutAmount + adjustment);
+
   let payrollRun = null;
   let payrollLine = null;
+  let payrollAdjustment = null;
 
-  if (totalPayoutAmount > 0) {
+  if (totalGross > 0) {
     const period = await db.entities.PayPeriod.create({
       company_id: employee.company_id,
       period_start: terminationDate,
@@ -441,7 +530,7 @@ export async function processTerminationPtoSettlement({ employee, terminationDat
       frequency: 'off_cycle',
       workweek_start_day: 'Monday',
       status: 'open',
-      notes: `Final check — ${employee.full_name} termination PTO payout`,
+      notes: `Final check — ${employee.full_name} termination`,
     });
     payrollRun = await db.entities.PayrollRun.create({
       company_id: employee.company_id,
@@ -449,8 +538,8 @@ export async function processTerminationPtoSettlement({ employee, terminationDat
       run_type: 'final_check',
       status: 'review',
       run_date: terminationDate,
-      total_gross: totalPayoutAmount,
-      total_net: totalPayoutAmount,
+      total_gross: totalGross,
+      total_net: totalGross,
       total_employer_tax: 0,
     });
 
@@ -466,26 +555,73 @@ export async function processTerminationPtoSettlement({ employee, terminationDat
         return latestByJurisdiction;
       }, new Map());
     const activeDeductions = deductions.filter((d) => d.effective_date <= terminationDate && (!d.end_date || d.end_date >= terminationDate));
-    const netCalc = calculateTaxesAndDeductions(totalPayoutAmount, [...activeWithholdings.values()], activeDeductions);
+    const netCalc = calculateTaxesAndDeductions(totalGross, [...activeWithholdings.values()], activeDeductions);
 
     payrollLine = await db.entities.PayrollLine.create({
       company_id: employee.company_id,
       payroll_run_id: payrollRun.id,
       employee_id: employee.id,
-      pay_type_snapshot: payRate?.pay_type || 'hourly',
-      regular_hours: 0,
-      ot_hours: 0,
-      double_time_hours: 0,
+      pay_type_snapshot: wageLines[0]?.payType || ptoPayRate?.pay_type || 'hourly',
+      regular_hours: wagesRegularHours,
+      ot_hours: wagesOtHours,
+      double_time_hours: wagesDoubleTimeHours,
       pto_payout_hours: totalPayoutHours,
       pto_payout_amount: totalPayoutAmount,
-      gross_pay: totalPayoutAmount,
+      gross_pay: totalGross,
       deductions_total: netCalc.deductionsTotal,
       tax_total: netCalc.taxTotal,
       net_pay: netCalc.netPay,
     });
 
     payrollRun = await db.entities.PayrollRun.update(payrollRun.id, { total_net: netCalc.netPay });
+
+    if (adjustment !== 0) {
+      payrollAdjustment = await db.entities.PayrollAdjustment.create({
+        company_id: employee.company_id,
+        payroll_run_id: payrollRun.id,
+        employee_id: employee.id,
+        adjustment_type: adjustmentType,
+        amount: adjustment,
+        reason: adjustmentReason || 'Final-check adjustment entered at termination',
+        created_by: createdBy,
+      });
+    }
+
+    // Job costing for the wages portion only — same one-JobLaborAllocation
+    // +one-JobCostLedgerEntry-per-TimeEntry pattern as PayrollRunPanel's
+    // regular run, and marks each absorbed timecard paid (see
+    // Timecard.payroll_run_id) so the regular per-period run can never pay it
+    // again once that period is eventually processed.
+    if (allocationPayloads.length > 0) {
+      const costCodes = await db.entities.CostCode.list('code_name', 500);
+      const createdAllocations = await db.entities.JobLaborAllocation.bulkCreate(
+        allocationPayloads.map((a) => ({ ...a, company_id: employee.company_id, payroll_run_id: payrollRun.id }))
+      );
+      await Promise.all(createdAllocations.map(async (alloc) => {
+        const code = costCodes.find((c) => c.id === alloc.cost_code_id);
+        const entry = await db.entities.JobCostLedgerEntry.create({
+          company_id: employee.company_id,
+          project_id: alloc.project_id,
+          cost_code: code?.code_name || alloc.cost_code_id,
+          cost_class: 'LAB',
+          amount: alloc.labor_cost,
+          transaction_date: terminationDate,
+          source_type: 'labor',
+          source_id: alloc.id,
+          description: `Final check — ${employee.full_name}: ${alloc.regular_hours}reg/${alloc.ot_hours}OT/${alloc.double_time_hours}DT hrs${alloc.phase_id ? ` · ${alloc.phase_id}` : ''}${alloc.area_id ? ` · ${alloc.area_id}` : ''}`,
+        });
+        await db.entities.JobLaborAllocation.update(alloc.id, { posted_to_job_cost: true, job_cost_ledger_entry_id: entry.id });
+      }));
+    }
+    if (wageLines.length > 0) {
+      await Promise.all(wageLines.map((l) => db.entities.Timecard.update(l.timecardId, { payroll_run_id: payrollRun.id })));
+    }
   }
 
-  return { leaveResults, totalPayoutHours, totalPayoutAmount, payrollRun, payrollLine, payRate };
+  return {
+    leaveResults, totalPayoutHours, totalPayoutAmount,
+    wagesRegularHours, wagesOtHours, wagesDoubleTimeHours, wagesGross,
+    adjustment, totalGross,
+    payrollRun, payrollLine, payrollAdjustment, payRate: ptoPayRate,
+  };
 }

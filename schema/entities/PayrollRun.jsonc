@@ -12,7 +12,7 @@
       "type": "string",
       "enum": ["regular", "final_check"],
       "default": "regular",
-      "description": "'final_check' marks an off-cycle run created solely to pay out a terminated employee's remaining PTO (see processTerminationPtoSettlement in src/lib/ptoEngine.js) — kept out of the regular biweekly run entirely, on its own off_cycle PayPeriod, so a termination payout can never land in the same run as everyone else's regular wages."
+      "description": "'final_check' marks an off-cycle run created when an employee is terminated (see processTerminationSettlement in src/lib/ptoEngine.js) — combines any unpaid earned wages, PTO/Sick/Bereavement payout, and an optional one-off adjustment into a single run, kept out of the regular biweekly run entirely, on its own off_cycle PayPeriod, so a termination settlement can never land in the same run as everyone else's regular wages."
     },
     "status": {
       "type": "string",

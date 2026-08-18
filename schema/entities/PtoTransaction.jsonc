@@ -33,7 +33,7 @@
     "source_type": {
       "type": "string",
       "enum": ["time_off_request", "pto_policy", "manual_adjustment", "termination"],
-      "description": "pto_policy is used for engine-driven accrual/carryover/forfeiture entries (source_id is the PtoPolicy id); time_off_request is used for usage and its reversal (source_id is the time_off_requests id); manual_adjustment is used for HR adjustments (source_id blank); termination is used for the payout/forfeiture entries processTerminationPtoSettlement writes when an employee is terminated (source_id blank — the reason field carries the detail, and the PayrollLine it may produce is the auditable link on the payroll side)."
+      "description": "pto_policy is used for engine-driven accrual/carryover/forfeiture entries (source_id is the PtoPolicy id); time_off_request is used for usage and its reversal (source_id is the time_off_requests id); manual_adjustment is used for HR adjustments (source_id blank); termination is used for the payout/forfeiture entries processTerminationSettlement writes when an employee is terminated (source_id blank — the reason field carries the detail, and the PayrollLine it may produce is the auditable link on the payroll side)."
     },
     "source_id": {
       "type": "string"
