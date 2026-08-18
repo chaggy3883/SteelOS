@@ -92,7 +92,7 @@ export default function ProjectManagement() {
   };
 
   const createChangeOrder = async (event) => {
-    event.preventDefault();
+    event?.preventDefault?.();
     if (!project) return;
 
     const nextOrder = {
@@ -137,6 +137,13 @@ export default function ProjectManagement() {
     if (target === 'co') {
       setCoForm((current) => ({ ...current, attachment_path: file.name }));
     }
+  };
+
+  const handleChangeOrderKeyDown = (event) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'BUTTON') return;
+    event.preventDefault();
+    createChangeOrder(event);
   };
 
   const handleDrop = (event, target) => {
@@ -310,7 +317,7 @@ export default function ProjectManagement() {
             </div>
             <div className="rounded-full bg-muted px-3 py-1 text-xs">{changeOrders.length} logged</div>
           </div>
-          <form onSubmit={createChangeOrder} className="grid gap-3 md:grid-cols-2">
+          <div onKeyDown={handleChangeOrderKeyDown} className="grid gap-3 md:grid-cols-2">
             <div className="md:col-span-2">
               <Label>Change Order ID</Label>
               <Input value={coForm.change_order_id} onChange={(event) => setCoForm((current) => ({ ...current, change_order_id: event.target.value }))} className="mt-2" placeholder="CO-001" />
@@ -347,11 +354,11 @@ export default function ProjectManagement() {
               </div>
             </div>
             <div className="md:col-span-2">
-              <Button type="submit" className="w-full gap-2">
+              <Button type="button" onClick={createChangeOrder} className="w-full gap-2">
                 <Plus className="w-4 h-4" /> Add Change Order
               </Button>
             </div>
-          </form>
+          </div>
 
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">

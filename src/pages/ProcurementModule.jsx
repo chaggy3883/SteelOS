@@ -75,7 +75,7 @@ export default function ProcurementModule() {
   };
 
   const createPurchaseOrder = async (event) => {
-    event.preventDefault();
+    event?.preventDefault?.();
     const selectedVendor = vendors.find((vendor) => vendor.id === poForm.vendor_id) || vendors[0];
     const created = await db.entities.purchase_orders.create({
       po_number: poForm.po_number || `PO-${String(purchaseOrders.length + 1001)}`,
@@ -95,7 +95,7 @@ export default function ProcurementModule() {
   };
 
   const createRequisition = async (event) => {
-    event.preventDefault();
+    event?.preventDefault?.();
     const total = Number(reqForm.requisition_total || 0);
     const requiresSignature = total > AUTO_APPROVE_THRESHOLD;
     const created = await db.entities.purchase_requisitions.create({
@@ -146,7 +146,7 @@ export default function ProcurementModule() {
   };
 
   const createReceivingLog = async (event) => {
-    event.preventDefault();
+    event?.preventDefault?.();
     const matchingPo = purchaseOrders.find((po) => po.po_number === receivingForm.po_number) || purchaseOrders[0];
 
     let attachmentPath = '';
@@ -185,7 +185,7 @@ export default function ProcurementModule() {
   };
 
   const createInvoice = async (event) => {
-    event.preventDefault();
+    event?.preventDefault?.();
     const selectedPo = purchaseOrders.find((po) => po.id === invoiceForm.po_id) || purchaseOrders[0];
     const expectedCost = Number(invoiceForm.expected_cost || 0);
     const expectedQty = Number(invoiceForm.expected_quantity || 0);
@@ -207,6 +207,13 @@ export default function ProcurementModule() {
     setPayables([created, ...payables]);
     setInvoiceForm({ invoice_number: '', po_id: '', invoice_amount: '', quantity_received: '', expected_cost: '', expected_quantity: '' });
     toast({ title: status === 'Approved for Payment' ? 'Invoice approved' : 'Invoice routed for review' });
+  };
+
+  const makeFormKeyDown = (submitHandler) => (event) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'BUTTON') return;
+    event.preventDefault();
+    submitHandler(event);
   };
 
   const stats = useMemo(() => {
@@ -246,7 +253,7 @@ export default function ProcurementModule() {
         </TabsList>
 
         <TabsContent value="buyouts" className="space-y-4">
-          <form onSubmit={createPurchaseOrder} className="steel-card p-4 space-y-4">
+          <div onKeyDown={makeFormKeyDown(createPurchaseOrder)} className="steel-card p-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <Label>PO Number</Label>
@@ -284,9 +291,9 @@ export default function ProcurementModule() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" className="steel-gradient text-white border-0"><Plus className="mr-2 h-4 w-4" />Create Buyout</Button>
+              <Button type="button" onClick={createPurchaseOrder} className="steel-gradient text-white border-0"><Plus className="mr-2 h-4 w-4" />Create Buyout</Button>
             </div>
-          </form>
+          </div>
 
           <div className="steel-card overflow-hidden">
             <div className="overflow-x-auto">
@@ -325,7 +332,7 @@ export default function ProcurementModule() {
         </TabsContent>
 
         <TabsContent value="requisitions" className="space-y-4">
-          <form onSubmit={createRequisition} className="steel-card p-4 space-y-4">
+          <div onKeyDown={makeFormKeyDown(createRequisition)} className="steel-card p-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <Label>Job Number</Label>
@@ -351,9 +358,9 @@ export default function ProcurementModule() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" className="steel-gradient text-white border-0">Submit Requisition</Button>
+              <Button type="button" onClick={createRequisition} className="steel-gradient text-white border-0">Submit Requisition</Button>
             </div>
-          </form>
+          </div>
 
           <div className="space-y-3">
             {requisitions.map((item) => (
@@ -382,7 +389,7 @@ export default function ProcurementModule() {
         </TabsContent>
 
         <TabsContent value="receiving" className="space-y-4">
-          <form onSubmit={createReceivingLog} className="steel-card p-4 space-y-4">
+          <div onKeyDown={makeFormKeyDown(createReceivingLog)} className="steel-card p-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <Label>PO Number</Label>
@@ -423,9 +430,9 @@ export default function ProcurementModule() {
               Inspected &amp; verified against packing list — required for AP 3-way match auto-approval
             </label>
             <div className="flex justify-end">
-              <Button type="submit" className="steel-gradient text-white border-0"><Truck className="mr-2 h-4 w-4" />Log Receiving</Button>
+              <Button type="button" onClick={createReceivingLog} className="steel-gradient text-white border-0"><Truck className="mr-2 h-4 w-4" />Log Receiving</Button>
             </div>
-          </form>
+          </div>
 
           <div className="space-y-3">
             {receivingLogs.map((item) => {
@@ -454,7 +461,7 @@ export default function ProcurementModule() {
         </TabsContent>
 
         <TabsContent value="invoices" className="space-y-4">
-          <form onSubmit={createInvoice} className="steel-card p-4 space-y-4">
+          <div onKeyDown={makeFormKeyDown(createInvoice)} className="steel-card p-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <Label>Invoice Number</Label>
@@ -484,9 +491,9 @@ export default function ProcurementModule() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button type="submit" className="steel-gradient text-white border-0"><CheckCircle2 className="mr-2 h-4 w-4" />Run Match</Button>
+              <Button type="button" onClick={createInvoice} className="steel-gradient text-white border-0"><CheckCircle2 className="mr-2 h-4 w-4" />Run Match</Button>
             </div>
-          </form>
+          </div>
 
           <div className="space-y-3">
             {payables.map((item) => (

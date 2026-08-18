@@ -17,8 +17,12 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
     setError("");
+    if (!newPassword || !confirmPassword) {
+      setError("Both password fields are required");
+      return;
+    }
     if (newPassword !== confirmPassword) {
       setError("Passwords do not match");
       return;
@@ -32,6 +36,13 @@ export default function ResetPassword() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.tagName === "TEXTAREA" || e.target.tagName === "BUTTON") return;
+    e.preventDefault();
+    handleSubmit(e);
   };
 
   if (!resetToken) {
@@ -64,7 +75,7 @@ export default function ResetPassword() {
           {error}
         </div>
       )}
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <div onKeyDown={handleKeyDown} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="password">New Password</Label>
           <div className="relative">
@@ -98,7 +109,7 @@ export default function ResetPassword() {
             />
           </div>
         </div>
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+        <Button type="button" onClick={handleSubmit} className="w-full h-12 font-medium" disabled={loading}>
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -108,7 +119,7 @@ export default function ResetPassword() {
             "Reset password"
           )}
         </Button>
-      </form>
+      </div>
     </AuthLayout>
   );
 }

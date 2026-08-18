@@ -34,7 +34,7 @@ export default function ProjectNew() {
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
     if (!form.project_number || !form.name) {
       toast({ title: 'Required fields missing', description: 'Project number and name are required.', variant: 'destructive' });
       return;
@@ -57,6 +57,13 @@ export default function ProjectNew() {
     }
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') return;
+    e.preventDefault();
+    handleSubmit(e);
+  };
+
   return (
     <div className="p-6 max-w-3xl mx-auto animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
@@ -71,7 +78,7 @@ export default function ProjectNew() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <div onKeyDown={handleKeyDown} className="space-y-6">
         {/* Basic Info */}
         <div className="steel-card p-6">
           <h2 className="font-semibold mb-4 flex items-center gap-2">
@@ -181,7 +188,7 @@ export default function ProjectNew() {
 
         <div className="flex gap-3 justify-end">
           <Link to="/projects"><Button variant="outline" type="button">Cancel</Button></Link>
-          <Button type="submit" disabled={saving} className="steel-gradient text-white border-0 min-w-32">
+          <Button type="button" onClick={handleSubmit} disabled={saving} className="steel-gradient text-white border-0 min-w-32">
             {saving ? (
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
@@ -189,7 +196,7 @@ export default function ProjectNew() {
             )}
           </Button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

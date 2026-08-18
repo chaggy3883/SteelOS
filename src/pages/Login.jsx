@@ -25,6 +25,7 @@ export default function Login() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSent, setForgotSent] = useState(false);
+  const [forgotError, setForgotError] = useState("");
 
   // The Login Vault is an always-dark experience regardless of the app's own
   // light/dark toggle (that state lives in AppLayout, which doesn't render
@@ -43,8 +44,12 @@ export default function Login() {
   }
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
     setError("");
+    if (!email.trim() || !password) {
+      setError("Email and password are required");
+      return;
+    }
     setLoading(true);
     try {
       const { user } = await db.auth.loginViaEmailPassword(email, password);
@@ -66,7 +71,12 @@ export default function Login() {
   };
 
   const handleRequestPasswordReset = (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
+    if (!forgotEmail.trim()) {
+      setForgotError("Email is required");
+      return;
+    }
+    setForgotError("");
     setForgotSent(true);
     toast({
       title: "Verification token sent",
@@ -78,6 +88,21 @@ export default function Login() {
     setShowForgotPassword(false);
     setForgotSent(false);
     setForgotEmail("");
+    setForgotError("");
+  };
+
+  const handleAuthKeyDown = (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.tagName === "TEXTAREA" || e.target.tagName === "BUTTON") return;
+    e.preventDefault();
+    handleSubmit(e);
+  };
+
+  const handleForgotKeyDown = (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.tagName === "TEXTAREA" || e.target.tagName === "BUTTON") return;
+    e.preventDefault();
+    handleRequestPasswordReset(e);
   };
 
   return (
@@ -99,7 +124,7 @@ export default function Login() {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <div onKeyDown={handleAuthKeyDown} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <div className="relative">
@@ -145,13 +170,14 @@ export default function Login() {
                 </div>
               </div>
               <Button
-                type="submit"
+                type="button"
+                onClick={handleSubmit}
                 className="w-full h-11 bg-white hover:bg-slate-200 text-black font-semibold rounded-md transition-colors tracking-wide"
                 disabled={loading}
               >
                 {loading ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Entering Vault...</>) : "Enter Vault"}
               </Button>
-            </form>
+            </div>
           </div>
 
           <p className="text-center text-sm text-slate-400 mt-6">
@@ -168,7 +194,7 @@ export default function Login() {
               <LogIn className="w-4 h-4 text-primary" />A verification token has been routed to your inbox. Follow the link there to finish resetting your password.
             </p>
           ) : (
-            <form onSubmit={handleRequestPasswordReset} className="space-y-3">
+            <div onKeyDown={handleForgotKeyDown} className="space-y-3">
               <div>
                 <Label htmlFor="forgot-email">Email</Label>
                 <Input
@@ -181,12 +207,13 @@ export default function Login() {
                   className="mt-1"
                   required
                 />
+                {forgotError && <p className="text-xs text-destructive mt-1">{forgotError}</p>}
               </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={closeForgotPassword}>Cancel</Button>
-                <Button type="submit" className="steel-gradient text-white border-0">Send Verification Token</Button>
+                <Button type="button" onClick={handleRequestPasswordReset} className="steel-gradient text-white border-0">Send Verification Token</Button>
               </DialogFooter>
-            </form>
+            </div>
           )}
         </DialogContent>
       </Dialog>

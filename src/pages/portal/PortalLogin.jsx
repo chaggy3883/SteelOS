@@ -16,8 +16,12 @@ export default function PortalLogin() {
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
     setError('');
+    if (!email.trim() || !password) {
+      setError('Email and password are required');
+      return;
+    }
     setLoading(true);
     try {
       const session = await portalLogin(orgType, email, password);
@@ -27,6 +31,13 @@ export default function PortalLogin() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') return;
+    e.preventDefault();
+    handleSubmit(e);
   };
 
   return (
@@ -55,7 +66,7 @@ export default function PortalLogin() {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <div onKeyDown={handleKeyDown} className="space-y-3">
           <div>
             <Label>Email</Label>
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1" placeholder="you@company.com" />
@@ -65,10 +76,10 @@ export default function PortalLogin() {
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1" />
           </div>
           {error && <p className="text-xs text-red-500">{error}</p>}
-          <Button type="submit" disabled={loading} className="w-full steel-gradient text-white border-0">
+          <Button type="button" onClick={handleSubmit} disabled={loading} className="w-full steel-gradient text-white border-0">
             {loading ? 'Signing in…' : 'Sign In'}
           </Button>
-        </form>
+        </div>
       </div>
     </div>
   );

@@ -9,11 +9,17 @@ import AuthLayout from "@/components/AuthLayout";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
+    if (!email.trim()) {
+      setError("Email address is required");
+      return;
+    }
+    setError("");
     setLoading(true);
     try {
       await db.auth.resetPasswordRequest(email);
@@ -23,6 +29,13 @@ export default function ForgotPassword() {
       setLoading(false);
       setSent(true);
     }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.tagName === "TEXTAREA" || e.target.tagName === "BUTTON") return;
+    e.preventDefault();
+    handleSubmit(e);
   };
 
   return (
@@ -41,7 +54,10 @@ export default function ForgotPassword() {
           If an account exists with that email, you'll receive a password reset link shortly.
         </p>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div onKeyDown={handleKeyDown} className="space-y-4">
+          {error && (
+            <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="email">Email address</Label>
             <div className="relative">
@@ -59,7 +75,7 @@ export default function ForgotPassword() {
               />
             </div>
           </div>
-          <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+          <Button type="button" onClick={handleSubmit} className="w-full h-12 font-medium" disabled={loading}>
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -69,7 +85,7 @@ export default function ForgotPassword() {
               "Send reset link"
             )}
           </Button>
-        </form>
+        </div>
       )}
     </AuthLayout>
   );
