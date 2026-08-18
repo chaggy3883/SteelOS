@@ -17,6 +17,7 @@ const TRANSACTION_LABELS = {
   adjustment: { label: 'Adjustment', class: 'bg-purple-500/10 text-purple-600' },
   carryover: { label: 'Carryover', class: 'bg-teal-500/10 text-teal-600' },
   forfeiture: { label: 'Forfeiture', class: 'bg-red-500/10 text-red-600' },
+  payout: { label: 'Termination Payout', class: 'bg-amber-500/10 text-amber-600' },
 };
 
 const fmtHours = (n) => `${Number(n) > 0 ? '+' : ''}${Number(n || 0).toFixed(1)}h`;

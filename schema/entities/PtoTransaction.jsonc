@@ -15,12 +15,12 @@
     },
     "transaction_type": {
       "type": "string",
-      "enum": ["accrual", "usage", "adjustment", "carryover", "forfeiture"],
-      "description": "'usage' covers both the original decrement on approval and its reversal (positive hours) if the request is later denied/cancelled after approval — the original entry is never deleted."
+      "enum": ["accrual", "usage", "adjustment", "carryover", "forfeiture", "payout"],
+      "description": "'usage' covers both the original decrement on approval and its reversal (positive hours) if the request is later denied/cancelled after approval — the original entry is never deleted. 'payout' is written exactly once, at termination, when PtoPolicy.payout_on_termination is 'always' — it zeroes the balance the same way 'forfeiture' does, but represents cash paid out (via a final_check PayrollRun/PayrollLine) rather than hours written off."
     },
     "hours": {
       "type": "number",
-      "description": "Positive for accrual/carryover and usage-reversal; negative for usage and forfeiture. adjustment can be either sign."
+      "description": "Positive for accrual/carryover and usage-reversal; negative for usage, forfeiture, and payout. adjustment can be either sign."
     },
     "balance_after": {
       "type": "number",
@@ -32,8 +32,8 @@
     },
     "source_type": {
       "type": "string",
-      "enum": ["time_off_request", "pto_policy", "manual_adjustment"],
-      "description": "pto_policy is used for engine-driven accrual/carryover/forfeiture entries (source_id is the PtoPolicy id); time_off_request is used for usage and its reversal (source_id is the time_off_requests id); manual_adjustment is used for HR adjustments (source_id blank)."
+      "enum": ["time_off_request", "pto_policy", "manual_adjustment", "termination"],
+      "description": "pto_policy is used for engine-driven accrual/carryover/forfeiture entries (source_id is the PtoPolicy id); time_off_request is used for usage and its reversal (source_id is the time_off_requests id); manual_adjustment is used for HR adjustments (source_id blank); termination is used for the payout/forfeiture entries processTerminationPtoSettlement writes when an employee is terminated (source_id blank — the reason field carries the detail, and the PayrollLine it may produce is the auditable link on the payroll side)."
     },
     "source_id": {
       "type": "string"

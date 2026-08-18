@@ -18,11 +18,17 @@ const ACCRUAL_METHODS = [
   { value: 'per_hour_worked', label: 'Per Hour Worked' },
 ];
 
+const PAYOUT_ON_TERMINATION_OPTIONS = [
+  { value: 'never', label: 'Never — forfeit unused balance' },
+  { value: 'always', label: 'Always — pay out on final check' },
+  { value: 'policy_dependent', label: 'Jurisdiction-dependent (stub — treated as Never)' },
+];
+
 const emptyForm = () => ({
   policy_name: '', leave_type: 'PTO', accrual_method: 'anniversary_grant',
   annual_hours: '', accrual_rate: '', max_balance: '', carryover_allowed: true,
   max_carryover_hours: '', waiting_period_days: '', overdraft_action: 'hard_block',
-  tenure_tiers: [], is_active: true,
+  payout_on_termination: 'never', tenure_tiers: [], is_active: true,
 });
 
 export default function PtoPoliciesAdmin() {
@@ -68,6 +74,7 @@ export default function PtoPoliciesAdmin() {
       max_carryover_hours: String(policy.max_carryover_hours ?? ''),
       waiting_period_days: String(policy.waiting_period_days ?? ''),
       overdraft_action: policy.overdraft_action || 'hard_block',
+      payout_on_termination: policy.payout_on_termination || 'never',
       tenure_tiers: Array.isArray(policy.tenure_tiers) ? policy.tenure_tiers.map((t) => ({ years_of_service: String(t.years_of_service ?? ''), annual_hours: String(t.annual_hours ?? '') })) : [],
       is_active: policy.is_active !== false,
     });
@@ -103,6 +110,7 @@ export default function PtoPoliciesAdmin() {
       max_carryover_hours: Number(form.max_carryover_hours) || 0,
       waiting_period_days: Number(form.waiting_period_days) || 0,
       overdraft_action: form.overdraft_action,
+      payout_on_termination: form.payout_on_termination,
       tenure_tiers: tenureTiers,
       is_active: form.is_active,
     };
@@ -168,6 +176,7 @@ export default function PtoPoliciesAdmin() {
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Method</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Annual Hours</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Carryover</th>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Termination Payout</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
               <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
             </tr>
@@ -194,6 +203,11 @@ export default function PtoPoliciesAdmin() {
                 <td className="px-4 py-3 text-xs text-muted-foreground">{ACCRUAL_METHODS.find((m) => m.value === policy.accrual_method)?.label || policy.accrual_method}</td>
                 <td className="px-4 py-3 font-mono text-xs">{policy.annual_hours}h</td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">{policy.carryover_allowed ? `Up to ${policy.max_carryover_hours}h` : 'None'}</td>
+                <td className="px-4 py-3">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${(policy.payout_on_termination || 'never') === 'always' ? 'bg-amber-500/10 text-amber-600' : 'bg-gray-500/10 text-gray-500'}`}>
+                    {(policy.payout_on_termination || 'never') === 'always' ? 'Paid out' : (policy.payout_on_termination === 'policy_dependent' ? 'Jurisdiction (→ forfeit)' : 'Forfeited')}
+                  </span>
+                </td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${policy.is_active ? 'bg-green-500/10 text-green-600' : 'bg-gray-500/10 text-gray-500'}`}>{policy.is_active ? 'Active' : 'Inactive'}</span>
                 </td>
@@ -260,6 +274,15 @@ export default function PtoPoliciesAdmin() {
                     <SelectContent>
                       <SelectItem value="hard_block">Hard block approval</SelectItem>
                       <SelectItem value="allow_negative">Allow negative balance</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs">On Termination</Label>
+                  <Select value={form.payout_on_termination} onValueChange={(v) => setForm((f) => ({ ...f, payout_on_termination: v }))}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PAYOUT_ON_TERMINATION_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>

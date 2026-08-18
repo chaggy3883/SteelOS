@@ -27,6 +27,16 @@
       "type": "number",
       "default": 0
     },
+    "pto_payout_hours": {
+      "type": "number",
+      "default": 0,
+      "description": "Hours of unused PTO/Sick/Bereavement cashed out on a final_check PayrollRun (see processTerminationPtoSettlement). Deliberately separate from regular_hours — this is not hours worked, has no backing TimeEntry/JobLaborAllocation, and must never be included in job-cost or certified-payroll hours-worked totals."
+    },
+    "pto_payout_amount": {
+      "type": "number",
+      "default": 0,
+      "description": "Dollar amount of the pto_payout_hours cash-out, included in gross_pay so it's taxed like any other gross wages."
+    },
     "gross_pay": {
       "type": "number",
       "default": 0

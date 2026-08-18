@@ -1,10 +1,46 @@
 import { db } from '@/api/apiClient';
 import { logStatusChange } from '@/lib/statusHistory';
+import { calculateTaxesAndDeductions } from '@/lib/payrollEngine';
 
 // The only leave types PtoBalance/PtoTransaction ever track. Unpaid is
 // deliberately excluded everywhere in this file — it never accrues and
 // never decrements anything.
 export const PTO_TRACKED_LEAVE_TYPES = ['PTO', 'Sick', 'Bereavement'];
+
+// Used only to convert a salaried employee's annual rate into an
+// hourly-equivalent for a termination PTO payout — there's no other
+// salary->hourly conversion in the app to defer to, so this is a documented
+// approximation, not a payroll-wide standard.
+const STANDARD_ANNUAL_HOURS = 2080;
+
+// ---------------------------------------------------------------------------
+// Future accrual-engine guard (per_pay_period / per_hour_worked)
+// ---------------------------------------------------------------------------
+// Neither accrual_method is wired to anything yet (see PtoPolicy.accrual_method
+// description) — only anniversary_grant runs today, triggered from page load,
+// which is naturally idempotent because it advances policy_year_end forward
+// and only grants for cycles already elapsed.
+//
+// Once per_pay_period/per_hour_worked accrual is built and hooked into
+// PayrollRunPanel's run-processing loop, it will face a hazard the anniversary
+// check doesn't: a PayrollRun can be reopened (locked -> review) and
+// reprocessed (see PayrollRun.status docs), and naively re-running "grant
+// accrual for this run's hours" a second time would double-accrue.
+//
+// The guard: that engine must treat (employee_id, leave_type,
+// transaction_type: 'accrual', source_type: 'pto_policy', source_id:
+// <payroll_run_id>) as a uniqueness key — before writing a new accrual
+// transaction for a run, query PtoTransaction for an existing row matching
+// that exact tuple and skip if one is found. This means a payroll-run-driven
+// accrual must repurpose source_id to carry the payroll_run_id instead of the
+// PtoPolicy id (today's convention for pto_policy-sourced transactions) —
+// document that deviation clearly in the transaction's `reason` text so the
+// ledger stays human-readable. This mirrors the exact pattern
+// JobLaborAllocation already uses (posted_to_job_cost boolean +
+// job_cost_ledger_entry_id) to make its own payroll-run posting idempotent —
+// PtoTransaction has no boolean flag to check, so the equivalent here is an
+// existence query instead of a flag read, but the intent is identical: never
+// let reprocessing a reopened run write the same grant twice.
 
 const round2 = (n) => Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100;
 
@@ -292,4 +328,164 @@ export async function listPtoTransactionsForEmployee(employeeId, limit = 500) {
 export function projectedBalanceIfApproved(balance, requestTotalHours) {
   if (!balance) return null;
   return round2((Number(balance.balance_hours) || 0) - (Number(requestTotalHours) || 0));
+}
+
+// Most-recent EmployeePayRate effective as of a given date, same
+// effective_date/end_date window PayrollRunPanel.jsx uses when it prices a
+// TimeEntry — kept here rather than imported so this file's only dependency
+// stays the pure payrollEngine helpers, not the payroll UI. Salary is
+// converted to an hourly-equivalent via STANDARD_ANNUAL_HOURS purely for
+// pricing a PTO payout; it never touches the employee's actual salary pricing
+// elsewhere.
+async function resolveCurrentPayRate(employeeId, asOfDate) {
+  const rates = await db.entities.EmployeePayRate.filter({ employee_id: employeeId }, '-effective_date', 200);
+  const rate = rates
+    .filter((r) => r.effective_date <= asOfDate && (!r.end_date || r.end_date > asOfDate))
+    .sort((a, b) => b.effective_date.localeCompare(a.effective_date))[0] || null;
+  if (!rate) return null;
+  const hourlyRate = rate.pay_type === 'salary'
+    ? round2((Number(rate.rate) || 0) / STANDARD_ANNUAL_HOURS)
+    : round2(Number(rate.rate) || 0);
+  return { ...rate, hourlyRate };
+}
+
+// Read-only — never creates a PtoBalance row for a leave type the employee
+// never touched, unlike getOrCreatePtoBalance (used by the write path below,
+// where a row is actually about to be written against).
+async function getExistingPtoBalance(employeeId, leaveType) {
+  const rows = await db.entities.PtoBalance.filter({ employee_id: employeeId, leave_type: leaveType }, '-created_date', 1);
+  return rows[0] || null;
+}
+
+// What the HR termination checklist shows before anyone confirms anything —
+// per leave type, the current balance, the governing policy, and (if
+// payout_on_termination is 'always') the dollar amount that balance would be
+// worth on a final check. Writes nothing.
+export async function computeTerminationPtoSettlementPreview(employee, asOfDate = todayDateOnly()) {
+  const payRate = await resolveCurrentPayRate(employee.id, asOfDate);
+  const lines = [];
+  for (const leaveType of PTO_TRACKED_LEAVE_TYPES) {
+    const policy = await getActivePolicy(employee.company_id, leaveType);
+    const balance = await getExistingPtoBalance(employee.id, leaveType);
+    const hours = Number(balance?.balance_hours) || 0;
+    const payoutSetting = policy?.payout_on_termination || 'never';
+    const willPayOut = payoutSetting === 'always' && hours > 0;
+    const amount = willPayOut && payRate ? round2(hours * payRate.hourlyRate) : 0;
+    lines.push({ leaveType, policy, balance, hours, payoutSetting, willPayOut, amount });
+  }
+  return { payRate, lines };
+}
+
+// The actual termination settlement — call once, when HR confirms a
+// termination. For every tracked leave type: pays out the balance (writing a
+// 'payout' PtoTransaction and adding a PayrollLine to a brand-new off-cycle
+// final_check PayrollRun) if the governing policy's payout_on_termination is
+// 'always', otherwise forfeits it (a 'forfeiture' PtoTransaction — auditable,
+// never a silent balance reset). 'policy_dependent' and "no policy on file"
+// both resolve to forfeiture until a real jurisdiction rule table exists (see
+// PtoPolicy.payout_on_termination). Never touches the regular biweekly
+// PayrollRun/PayPeriod — the final_check run is entirely separate, and
+// because it's built from PtoBalance/EmployeePayRate directly (no TimeEntry
+// involved), it never produces a JobLaborAllocation and can never post to
+// JobCostLedgerEntry against a project cost code.
+export async function processTerminationPtoSettlement({ employee, terminationDate = todayDateOnly(), createdBy = 'System' }) {
+  const payRate = await resolveCurrentPayRate(employee.id, terminationDate);
+  const leaveResults = [];
+  let totalPayoutHours = 0;
+  let totalPayoutAmount = 0;
+
+  for (const leaveType of PTO_TRACKED_LEAVE_TYPES) {
+    const policy = await getActivePolicy(employee.company_id, leaveType);
+    let balance = await getOrCreatePtoBalance(employee, leaveType, policy);
+    const hours = Number(balance.balance_hours) || 0;
+
+    if (hours === 0) {
+      leaveResults.push({ leaveType, policy, hours: 0, action: 'none' });
+      continue;
+    }
+
+    const payoutSetting = policy?.payout_on_termination || 'never';
+    if (payoutSetting === 'always' && payRate) {
+      const amount = round2(hours * payRate.hourlyRate);
+      const { balance: updated, transaction } = await writePtoTransaction({
+        balance, employee, leaveType, transactionType: 'payout', hours: -hours,
+        effectiveDate: terminationDate, sourceType: 'termination', sourceId: '',
+        reason: `Termination payout — ${hours}h × $${payRate.hourlyRate.toFixed(2)}/hr per "${policy.policy_name}" (payout_on_termination: always)`,
+        createdBy,
+      });
+      totalPayoutHours = round2(totalPayoutHours + hours);
+      totalPayoutAmount = round2(totalPayoutAmount + amount);
+      leaveResults.push({ leaveType, policy, hours, amount, action: 'payout', balance: updated, transaction });
+    } else {
+      const reason = policy
+        ? `Termination — unused ${leaveType} forfeited per "${policy.policy_name}" (payout_on_termination: ${payoutSetting})`
+        : `Termination — unused ${leaveType} forfeited (no active ${leaveType} policy on file)`;
+      const { balance: updated, transaction } = await writePtoTransaction({
+        balance, employee, leaveType, transactionType: 'forfeiture', hours: -hours,
+        effectiveDate: terminationDate, sourceType: 'termination', sourceId: '',
+        reason, createdBy,
+      });
+      leaveResults.push({ leaveType, policy, hours, action: 'forfeit', balance: updated, transaction });
+    }
+  }
+
+  let payrollRun = null;
+  let payrollLine = null;
+
+  if (totalPayoutAmount > 0) {
+    const period = await db.entities.PayPeriod.create({
+      company_id: employee.company_id,
+      period_start: terminationDate,
+      period_end: terminationDate,
+      pay_date: terminationDate,
+      frequency: 'off_cycle',
+      workweek_start_day: 'Monday',
+      status: 'open',
+      notes: `Final check — ${employee.full_name} termination PTO payout`,
+    });
+    payrollRun = await db.entities.PayrollRun.create({
+      company_id: employee.company_id,
+      pay_period_id: period.id,
+      run_type: 'final_check',
+      status: 'review',
+      run_date: terminationDate,
+      total_gross: totalPayoutAmount,
+      total_net: totalPayoutAmount,
+      total_employer_tax: 0,
+    });
+
+    const [taxWithholdings, deductions] = await Promise.all([
+      db.entities.TaxWithholding.filter({ employee_id: employee.id }, '-effective_date', 50),
+      db.entities.Deduction.filter({ employee_id: employee.id }, '-effective_date', 50),
+    ]);
+    const activeWithholdings = taxWithholdings
+      .filter((w) => w.effective_date <= terminationDate)
+      .reduce((latestByJurisdiction, w) => {
+        const existing = latestByJurisdiction.get(w.jurisdiction);
+        if (!existing || w.effective_date > existing.effective_date) latestByJurisdiction.set(w.jurisdiction, w);
+        return latestByJurisdiction;
+      }, new Map());
+    const activeDeductions = deductions.filter((d) => d.effective_date <= terminationDate && (!d.end_date || d.end_date >= terminationDate));
+    const netCalc = calculateTaxesAndDeductions(totalPayoutAmount, [...activeWithholdings.values()], activeDeductions);
+
+    payrollLine = await db.entities.PayrollLine.create({
+      company_id: employee.company_id,
+      payroll_run_id: payrollRun.id,
+      employee_id: employee.id,
+      pay_type_snapshot: payRate?.pay_type || 'hourly',
+      regular_hours: 0,
+      ot_hours: 0,
+      double_time_hours: 0,
+      pto_payout_hours: totalPayoutHours,
+      pto_payout_amount: totalPayoutAmount,
+      gross_pay: totalPayoutAmount,
+      deductions_total: netCalc.deductionsTotal,
+      tax_total: netCalc.taxTotal,
+      net_pay: netCalc.netPay,
+    });
+
+    payrollRun = await db.entities.PayrollRun.update(payrollRun.id, { total_net: netCalc.netPay });
+  }
+
+  return { leaveResults, totalPayoutHours, totalPayoutAmount, payrollRun, payrollLine, payRate };
 }

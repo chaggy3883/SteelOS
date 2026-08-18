@@ -7,11 +7,14 @@ import ComplianceDocumentCenter from '@/components/hr/ComplianceDocumentCenter';
 import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
 import DisciplinaryActionsPanel from '@/components/hr/DisciplinaryActionsPanel';
 import PtoPanel from '@/components/hr/PtoPanel';
+import TerminationPanel from '@/components/hr/TerminationPanel';
 import { canManageDisciplinaryActions } from '@/lib/disciplinaryAccess';
+import { hasFullEmployeeAccess } from '@/lib/employeesApi';
 
 export default function EmployeeProfileDialog({ employee, employees = [], roles, open, onOpenChange, onEmployeeUpdated }) {
   const [current, setCurrent] = useState(employee);
   const showDisciplinary = canManageDisciplinaryActions(roles);
+  const showTermination = hasFullEmployeeAccess(roles);
 
   useEffect(() => { setCurrent(employee); }, [employee?.id]);
 
@@ -36,6 +39,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             <TabsTrigger value="pto">PTO</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
             {showDisciplinary && <TabsTrigger value="disciplinary">Disciplinary</TabsTrigger>}
+            {showTermination && <TabsTrigger value="termination">Termination</TabsTrigger>}
           </TabsList>
           <TabsContent value="access">
             <SystemAccessPortal employee={current} roles={roles} onUpdated={handleUpdated} />
@@ -55,6 +59,11 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           {showDisciplinary && (
             <TabsContent value="disciplinary">
               <DisciplinaryActionsPanel employee={current} employees={employees} roles={roles} />
+            </TabsContent>
+          )}
+          {showTermination && (
+            <TabsContent value="termination">
+              <TerminationPanel employee={current} roles={roles} onUpdated={handleUpdated} />
             </TabsContent>
           )}
         </Tabs>

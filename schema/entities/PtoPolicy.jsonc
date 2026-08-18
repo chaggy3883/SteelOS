@@ -71,6 +71,12 @@
       "default": "hard_block",
       "description": "What happens when approving a request would take the balance negative. hard_block refuses the approval; allow_negative approves anyway and the ledger records a negative balance_after. Only enforced when a policy exists for the leave type — a leave type with no active policy always allows approval (ledger still records usage) rather than blocking HR with no configured rule to point to."
     },
+    "payout_on_termination": {
+      "type": "string",
+      "enum": ["never", "always", "policy_dependent"],
+      "default": "never",
+      "description": "What happens to a terminated employee's remaining balance for this leave type. 'never': the balance is forfeited (written off with an auditable 'forfeiture' PtoTransaction, never silently dropped). 'always': the balance is paid out on the final check (a 'payout' PtoTransaction zeroes it, and a PayrollLine is added to a final_check PayrollRun). 'policy_dependent' is a stub for future state/jurisdiction-driven rules (some states mandate payout, most don't) — src/lib/ptoEngine.js's processTerminationPtoSettlement treats it identically to 'never' until that rule table exists. A leave type with no active policy at all is also treated as 'never' (forfeited, not paid) since there's no configured rule authorizing a payout."
+    },
     "is_active": {
       "type": "boolean",
       "default": true

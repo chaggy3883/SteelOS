@@ -19,8 +19,9 @@
     },
     "frequency": {
       "type": "string",
-      "enum": ["weekly", "biweekly", "semimonthly", "monthly"],
-      "default": "biweekly"
+      "enum": ["weekly", "biweekly", "semimonthly", "monthly", "off_cycle"],
+      "default": "biweekly",
+      "description": "'off_cycle' is a one-off period backing a single final_check PayrollRun (period_start/period_end/pay_date all equal the termination date) — it never participates in the recurring cadence the other four values imply."
     },
     "workweek_start_day": {
       "type": "string",

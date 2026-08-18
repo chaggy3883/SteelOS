@@ -8,6 +8,12 @@
     "pay_period_id": {
       "type": "string"
     },
+    "run_type": {
+      "type": "string",
+      "enum": ["regular", "final_check"],
+      "default": "regular",
+      "description": "'final_check' marks an off-cycle run created solely to pay out a terminated employee's remaining PTO (see processTerminationPtoSettlement in src/lib/ptoEngine.js) — kept out of the regular biweekly run entirely, on its own off_cycle PayPeriod, so a termination payout can never land in the same run as everyone else's regular wages."
+    },
     "status": {
       "type": "string",
       "enum": ["draft", "review", "approved", "locked"],
