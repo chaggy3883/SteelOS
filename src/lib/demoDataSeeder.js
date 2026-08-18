@@ -946,6 +946,12 @@ export async function seedDemoData() {
     { employee: fieldEmployees.find((e) => e.full_name === 'Carlos Ramirez'), cert_type: 'Rigging', issuedOffset: -337, expirationOffset: 28, statusOverride: 'Expiring_Soon' },
     { employee: fieldEmployees.find((e) => e.full_name === "Brian O'Connell"), cert_type: 'OSHA_30', issuedOffset: -800, expirationOffset: 600 },
     { employee: fieldEmployees.find((e) => e.full_name === "Brian O'Connell"), cert_type: 'Rigging', issuedOffset: -300, expirationOffset: 450 },
+    // OSHA 1926.1427 crane-operator cert — Brian is on file and valid;
+    // Carlos deliberately has none, so assigning him to the erection job
+    // (costProjects[1], which has two Mobile_Crane assets on-site) surfaces
+    // the "missing Crane_Operator" warning in ManpowerSection.jsx out of
+    // the box, without needing fabricated conflict data.
+    { employee: fieldEmployees.find((e) => e.full_name === "Brian O'Connell"), cert_type: 'Crane_Operator', issuedOffset: -450, expirationOffset: 400 },
     { employee: pmEmployee, cert_type: 'OSHA_30', issuedOffset: -900, expirationOffset: 500 },
     { employee: shopManager, cert_type: 'OSHA_30', issuedOffset: -850, expirationOffset: 520 },
   ];

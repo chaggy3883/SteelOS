@@ -96,7 +96,7 @@ export default function MeetingMode() {
     try {
       setManpowerAgendaData(await loadManpowerAgendaData());
     } catch (e) {
-      setManpowerAgendaData({ projectData: [], employees: [], certifications: [], assignments: [], leaveRequests: [], projectsById: new Map() });
+      setManpowerAgendaData({ projectData: [], employees: [], certifications: [], assignments: [], leaveRequests: [], projectsById: new Map(), assets: [] });
     }
   }, []);
 

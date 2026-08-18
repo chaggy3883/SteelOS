@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Plus, X, UserPlus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, Plus, X, UserPlus, Lock } from 'lucide-react';
 import { db } from '@/api/apiClient';
 import { useToast } from '@/components/ui/use-toast';
-import { TRADE_OPTIONS, CERT_TYPE_OPTIONS, findDoubleBookings, findMissingCertifications, findLeaveConflicts } from '@/lib/manpowerData';
+import {
+  TRADE_OPTIONS, CERT_TYPE_OPTIONS, findDoubleBookings, findMissingCertifications, findLeaveConflicts,
+  getCraneAssetsForProject, getEffectiveRequiredCertifications,
+} from '@/lib/manpowerData';
 import EmployeePicker from '@/components/meeting-mode/EmployeePicker';
 import EmployeeDetailModal from '@/components/meeting-mode/EmployeeDetailModal';
 import ProjectDetailModal from '@/components/meeting-mode/ProjectDetailModal';
@@ -58,7 +62,10 @@ function StaffingRow({ row, onRemoveNeed, onChangeNeeded }) {
 
 export default function ManpowerSection({ project, staffing, assignments, manpowerData, currentUser, onDataChange, onOpenProject }) {
   const { toast } = useToast();
-  const { employees, certifications, assignments: allAssignments, leaveRequests, projectsById } = manpowerData;
+  const navigate = useNavigate();
+  const { employees, certifications, assignments: allAssignments, leaveRequests, projectsById, assets } = manpowerData;
+  const craneAssets = getCraneAssetsForProject(assets, project.id);
+  const autoRequiredCerts = craneAssets.length > 0 ? ['Crane_Operator'] : [];
 
   const [addingNeed, setAddingNeed] = useState(false);
   const [newNeedTrade, setNewNeedTrade] = useState('');
@@ -116,6 +123,7 @@ export default function ManpowerSection({ project, staffing, assignments, manpow
   };
 
   const toggleRequiredCert = (certType) => {
+    if (autoRequiredCerts.includes(certType)) return; // OSHA-driven — not a PM toggle (see getCraneAssetsForProject)
     const current = project.required_certifications || [];
     const next = current.includes(certType) ? current.filter((c) => c !== certType) : [...current, certType];
     db.entities.Project.update(project.id, { required_certifications: next }).then(onDataChange);
@@ -126,7 +134,7 @@ export default function ManpowerSection({ project, staffing, assignments, manpow
       employeeId: pickedEmployee.id, startDate, endDate, excludeProjectId: project.id, allAssignments, projectsById,
     });
     const missingCerts = findMissingCertifications({
-      requiredCertTypes: project.required_certifications || [], employeeId: pickedEmployee.id, endDate, allCertifications: certifications,
+      requiredCertTypes: getEffectiveRequiredCertifications(project, craneAssets), employeeId: pickedEmployee.id, endDate, allCertifications: certifications,
     });
     const leaveConflicts = findLeaveConflicts({ employeeId: pickedEmployee.id, startDate, endDate, allLeaveRequests: leaveRequests });
     return { doubleBookings, missingCerts, leaveConflicts };
@@ -181,7 +189,7 @@ export default function ManpowerSection({ project, staffing, assignments, manpow
   };
 
   const usedTrades = new Set((project.manpower_needs || []).map((n) => n.trade));
-  const requiredCerts = project.required_certifications || [];
+  const requiredCerts = getEffectiveRequiredCertifications(project, craneAssets);
 
   return (
     <div className="flex flex-col h-full text-white">
@@ -230,19 +238,37 @@ export default function ManpowerSection({ project, staffing, assignments, manpow
         <div>
           <p className="text-sm text-slate-500 uppercase tracking-wide mb-2">Required Certifications For This Job</p>
           <div className="flex flex-wrap gap-2">
-            {CERT_TYPE_OPTIONS.map((cert) => (
-              <button
-                key={cert}
-                type="button"
-                onClick={() => toggleRequiredCert(cert)}
-                className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${
-                  requiredCerts.includes(cert) ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-700 text-slate-400 hover:border-slate-500'
-                }`}
-              >
-                {cert.replace(/_/g, ' ')}
-              </button>
-            ))}
+            {CERT_TYPE_OPTIONS.map((cert) => {
+              const isAutoRequired = autoRequiredCerts.includes(cert);
+              return (
+                <button
+                  key={cert}
+                  type="button"
+                  onClick={() => toggleRequiredCert(cert)}
+                  disabled={isAutoRequired}
+                  title={isAutoRequired ? 'Required automatically — this job has a mobile crane on-site (OSHA 1926.1427)' : undefined}
+                  className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-full border transition-colors ${
+                    requiredCerts.includes(cert) ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-700 text-slate-400 hover:border-slate-500'
+                  } ${isAutoRequired ? 'cursor-default' : ''}`}
+                >
+                  {isAutoRequired && <Lock className="w-3 h-3" />}
+                  {cert.replace(/_/g, ' ')}
+                </button>
+              );
+            })}
           </div>
+          {autoRequiredCerts.length > 0 && (
+            <p className="text-xs text-slate-500 mt-1.5 flex items-center gap-1 flex-wrap">
+              <Lock className="w-3 h-3" />Crane Operator is required automatically —{' '}
+              {craneAssets.map((a, i) => (
+                <React.Fragment key={a.id}>
+                  {i > 0 && ', '}
+                  <button type="button" onClick={() => navigate(`/field-operations?asset=${a.id}`)} className="hover:text-white hover:underline">{a.asset_name}</button>
+                </React.Fragment>
+              ))}
+              {' '}{craneAssets.length === 1 ? 'is' : 'are'} on-site (OSHA 1926.1427).
+            </p>
+          )}
         </div>
 
         {/* Current assignments */}
@@ -330,10 +356,15 @@ export default function ManpowerSection({ project, staffing, assignments, manpow
                         </p>
                       ))}
                       {conflicts.missingCerts.map((c) => (
-                        <p key={c.cert_type} className="text-sm text-amber-200">
+                        <button
+                          key={c.cert_type}
+                          type="button"
+                          onClick={() => setEmployeeModal(pickedEmployee)}
+                          className="block w-full text-left text-sm text-amber-200 hover:text-white hover:underline"
+                        >
                           Missing or expired <strong>{c.cert_type.replace(/_/g, ' ')}</strong>, required for this job
                           {c.existingRecord?.expiration_date ? ` (on file, expired ${c.existingRecord.expiration_date})` : ' (none on file)'}.
-                        </p>
+                        </button>
                       ))}
                       {conflicts.leaveConflicts.map((c) => (
                         <p key={c.id} className="text-sm text-amber-200">

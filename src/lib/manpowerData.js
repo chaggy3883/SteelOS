@@ -39,7 +39,7 @@ export async function loadEmployeeRoster() {
 }
 
 export async function loadManpowerAgendaData() {
-  const [liveProjects, allProjects, { employees, certifications }, assignments, leaveRequests] = await Promise.all([
+  const [liveProjects, allProjects, { employees, certifications }, assignments, leaveRequests, assets] = await Promise.all([
     getLiveProjects(),
     // Unfiltered, so a double-booking against an archived/otherwise-not-live
     // job still resolves to a real project name instead of falling back to
@@ -48,6 +48,7 @@ export async function loadManpowerAgendaData() {
     loadEmployeeRoster(),
     db.entities.CrewAssignment.list('-created_date', 2000),
     db.entities.time_off_requests.list('-created_date', 1000),
+    db.entities.erection_fleet_assets.list('-created_date', 500),
   ]);
 
   const employeeById = new Map(employees.map((e) => [e.id, e]));
@@ -85,7 +86,26 @@ export async function loadManpowerAgendaData() {
     return { project, assignments: projectAssignments, staffing };
   });
 
-  return { projectData, employees, certifications, assignments, leaveRequests, projectsById };
+  return { projectData, employees, certifications, assignments, leaveRequests, projectsById, assets };
+}
+
+// OSHA 1926.1427 requires the crane OPERATOR to be certified, separate from
+// craneDispatchGuard.js's asset-inspection gate (which only covers the crane
+// ITSELF, not who's running it). A job with a mobile crane on-site should
+// require Crane_Operator without a PM having to remember to toggle it on —
+// this is the auto-derived half of that requirement.
+export function getCraneAssetsForProject(assets, projectId) {
+  return (assets || []).filter((a) => a.project_location_id === projectId && a.equipment_type === 'MOBILE_CRANE');
+}
+
+// Union of the job's manually-toggled required_certifications and whatever
+// OSHA requires automatically given the assets on-site — manual toggles
+// stay fully in the PM's control, auto-derived ones can't be un-toggled off
+// (see the "isAutoRequired" lock in ManpowerSection.jsx's chip UI).
+export function getEffectiveRequiredCertifications(project, craneAssets) {
+  const manual = project?.required_certifications || [];
+  const auto = (craneAssets || []).length > 0 ? ['Crane_Operator'] : [];
+  return Array.from(new Set([...manual, ...auto]));
 }
 
 // Every conflict-check below is required to run before a write per the
