@@ -43,7 +43,8 @@
       "default": false
     },
     "ssn_last4": {
-      "type": "string"
+      "type": "string",
+      "description": "Also doubles as this employee's default kiosk/timeclock PIN (see src/lib/pinFormula.js) — HR can override with an independently chosen PIN via System Access Portal's setManualPin."
     },
     "pay_rate_cents": {
       "type": "number",

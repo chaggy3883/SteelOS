@@ -431,8 +431,8 @@ export default function Settings() {
             <h3 className="font-semibold mb-1 flex items-center gap-2"><Tablet className="w-4 h-4 text-primary" /> Shop Floor Kiosk Provisioning</h3>
             <p className="text-sm text-muted-foreground mb-4">
               Locks THIS physical device to your company permanently. Every future visit skips straight to a touch-friendly
-              3-Digit Badge + 5-Digit PIN keypad — no email login, no company code screen. Only provision a device you
-              intend to leave on the shop floor as a shared terminal.
+              3-Digit Employee Number + 4-Digit PIN (last 4 of SSN) keypad — no email login, no company code screen. Only
+              provision a device you intend to leave on the shop floor as a shared terminal.
             </p>
             <Button onClick={handleProvisionKiosk} disabled={provisioning} className="gap-2 steel-gradient text-white border-0">
               {provisioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tablet className="w-4 h-4" />}

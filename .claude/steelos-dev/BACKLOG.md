@@ -37,6 +37,25 @@ right heading. Ask which section if it's ambiguous.
   one-time `migrateLegacyShippingLoads` migration in `src/api/localData.js`
   folds any pre-existing legacy records/assignments forward on load rather
   than dropping them.
+- Termination access-revocation cascade — `src/lib/employeeAuth.js`'s
+  `isEmployeeActive()` is now checked by every employee-linked login path
+  (kiosk PIN, Employee Center's manual PIN card, and `db.auth.me()`'s
+  per-call re-validation for any already-open session). `User` accounts can
+  now optionally link to an `employees` row via `employee_id` (Users.jsx's
+  "Link to Employee" picker), so a portal (email/password) login is also
+  revoked the instant that linked employee is terminated — not just kiosk
+  access. `TerminationPanel.jsx` writes a `StatusHistoryEntry` on both
+  termination ("Access Revoked") and the new Reinstate Employee action
+  ("Access Restored"), and a forced logout mid-session shows "Your account
+  has been deactivated. Please contact HR." on next auth check (route change
+  or the existing 60s heartbeat). Kiosk-only nav/UI (NavBar's hidden groups,
+  Employee Center's "Exit Terminal" button) now keys off an explicit
+  `is_kiosk_pin_session` flag rather than employee_id presence, since
+  employee_id no longer implies a shared shop-floor terminal.
+- Kiosk/timeclock PIN scheme changed from a derived 5-digit formula to the
+  employee's own last-4 SSN, entered directly as a 4-digit PIN (see
+  `src/lib/pinFormula.js`'s security caveat). Demo seed employees now have
+  distinct `ssn_last4` values, which also fixes the PIN-collision bug below.
 
 ## Given As Prompts — Not Yet Confirmed Landed
 
@@ -119,7 +138,6 @@ closed:
   persists nothing
 - Accounting tab-level permissions not enforced — any role with
   `/accounting` sees Cash Management + Budget
-- Demo employee PIN collision — all PINs resolve to `00001`
 
 ## Deferred — Needs Real Backend/VPS
 

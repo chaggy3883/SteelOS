@@ -1,11 +1,26 @@
 import { stubSignatureHash, verifyPin } from '@/lib/hrSecurity';
 import { encodeFormulaPin } from '@/lib/pinFormula';
+import { isEmployeeActive, DEACTIVATION_MESSAGE } from '@/lib/employeeAuth';
 import { SHAPE_CLASSES } from '@/data/steelShapeSelector';
 import { SERVICE_SCHEDULE_SEEDS } from '@/lib/serviceScheduleSeedData';
 import { LEGACY_RIGGING_CATEGORY_MAP } from '@/lib/riggingAssetTypes';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
 const AUTH_STORAGE_KEY = 'steelos_auth_state';
+// One-time hand-off for the "you were logged out because your account was
+// deactivated" message: db.auth.me() sets this the instant it detects a
+// forced logout, then a full-page redirect lands on Login.jsx, which reads
+// and clears it. This is a UI message relay ONLY — the actual liveness check
+// always re-reads the employees record fresh (see isEmployeeActive callers
+// below), so this key is never treated as a source of truth for access.
+const DEACTIVATION_MESSAGE_KEY = 'steelos_deactivation_message';
+
+export const getAndClearDeactivationMessage = () => {
+  const storage = getStorage();
+  const message = storage.getItem(DEACTIVATION_MESSAGE_KEY);
+  if (message) storage.removeItem(DEACTIVATION_MESSAGE_KEY);
+  return message;
+};
 const fallbackStorage = (() => {
   const store = new Map();
   return {
@@ -1447,11 +1462,11 @@ const buildSeedData = () => {
         classification: 'Welder',
         hire_date: '2024-03-10',
         is_active: true,
-        pin_encrypted: encodeFormulaPin({ employee_number: '001', ssn_last4: '0000' }),
+        pin_encrypted: encodeFormulaPin({ employee_number: '001', ssn_last4: '4471' }),
         is_timeclock_locked: false,
         has_w4_approved: true,
         has_i9_approved: true,
-        ssn_last4: '0000',
+        ssn_last4: '4471',
         pay_rate_cents: 2800,
         is_active_login: true,
         created_date: now,
@@ -1465,11 +1480,11 @@ const buildSeedData = () => {
         classification: 'Fabricator',
         hire_date: '2026-07-20',
         is_active: true,
-        pin_encrypted: encodeFormulaPin({ employee_number: '002', ssn_last4: '0000' }),
+        pin_encrypted: encodeFormulaPin({ employee_number: '002', ssn_last4: '8823' }),
         is_timeclock_locked: true,
         has_w4_approved: true,
         has_i9_approved: false,
-        ssn_last4: '0000',
+        ssn_last4: '8823',
         pay_rate_cents: 2400,
         is_active_login: false,
         created_date: now,
@@ -2851,6 +2866,22 @@ export const createAuthApi = () => {
       if (!user) {
         throw new Error('Invalid email or password');
       }
+      if (user.is_active === false) {
+        throw new Error('This account has been deactivated. Please contact your administrator.');
+      }
+      // Office/portal accounts can optionally be linked to an employees row
+      // (System Access Portal / Users.jsx's "Link to Employee" picker) — a
+      // person who is BOTH a portal user and a timeclock employee loses
+      // portal access the same instant they're terminated. Read live rather
+      // than the `employees` closure captured at db construction time, since
+      // that copy never sees writes made through db.entities.employees.
+      if (user.employee_id) {
+        const liveEmployees = ensureCollection(getLocalStore(), 'employees');
+        const linkedEmployee = liveEmployees.find((e) => e.id === user.employee_id);
+        if (!isEmployeeActive(linkedEmployee)) {
+          throw new Error(DEACTIVATION_MESSAGE);
+        }
+      }
 
       const token = `local-${user.id}`;
       setAuthState({ user: { ...user, password: undefined }, token });
@@ -2859,22 +2890,31 @@ export const createAuthApi = () => {
 
     // Shop/Field Labor login — completely uncoupled from the email/password
     // path above. Employees aren't User accounts in this app, so a
-    // successful Employee Number + formula PIN match (the same check
+    // successful Employee Number + PIN match (the same check
     // EmployeeCenter.jsx's kiosk login already does) synthesizes a session
     // the same way loginViaEmailPassword does, just sourced from an
-    // `employees` row instead of a `User` row.
+    // `employees` row instead of a `User` row. is_kiosk_pin_session marks
+    // this as a shared-terminal identity — NavBar.jsx/EmployeeCenter.jsx key
+    // off that flag (not employee_id alone) to decide kiosk-only UI, since
+    // employee_id can now also appear on a real portal session (see
+    // loginViaEmailPassword above) that must NOT be treated as a shared kiosk.
     async loginViaEmployeePin(companyCode, employeeNumber, pin) {
       const normalizedCode = toLowerCase(companyCode);
       const company = companies.find((c) => toLowerCase(c.company_code) === normalizedCode);
       if (!company) {
         throw new Error('Company code not found');
       }
-      const employee = employees.find((e) => e.company_id === company.id && e.employee_number === String(employeeNumber).trim());
+      // Fresh read, not the `employees` closure — see the comment above.
+      const liveEmployees = ensureCollection(getLocalStore(), 'employees');
+      const employee = liveEmployees.find((e) => e.company_id === company.id && e.employee_number === String(employeeNumber).trim());
       if (!employee || !verifyPin(pin, employee.pin_encrypted)) {
         throw new Error('Invalid employee number or PIN');
       }
       if (employee.is_active_login === false) {
         throw new Error('Account suspended. Please contact system administration.');
+      }
+      if (!isEmployeeActive(employee)) {
+        throw new Error(DEACTIVATION_MESSAGE);
       }
 
       const syntheticUser = {
@@ -2885,6 +2925,7 @@ export const createAuthApi = () => {
         company_id: company.id,
         employee_id: employee.id,
         is_active: true,
+        is_kiosk_pin_session: true,
       };
       const token = `local-employee-${employee.id}`;
       setAuthState({ user: syntheticUser, token });
@@ -2957,7 +2998,23 @@ export const createAuthApi = () => {
     },
 
     async me() {
-      return getAuthenticatedUser();
+      const user = getAuthenticatedUser();
+      // Re-validated on every call (not just at login) so a session already
+      // sitting on a page — a kiosk tablet mid-shift, or an office tab left
+      // open — is caught the moment the app next checks auth, without
+      // waiting for that browser to log out and back in. Read live rather
+      // than the `employees` closure captured at db construction time; see
+      // loginViaEmailPassword's comment for why that copy is unusable here.
+      if (user.employee_id) {
+        const liveEmployees = ensureCollection(getLocalStore(), 'employees');
+        const liveEmployee = liveEmployees.find((e) => e.id === user.employee_id);
+        if (!isEmployeeActive(liveEmployee)) {
+          setAuthState(null);
+          getStorage().setItem(DEACTIVATION_MESSAGE_KEY, DEACTIVATION_MESSAGE);
+          throw Object.assign(new Error(DEACTIVATION_MESSAGE), { status: 401, reason: 'employee_deactivated' });
+        }
+      }
+      return user;
     },
 
     logout(redirectTo = '/') {

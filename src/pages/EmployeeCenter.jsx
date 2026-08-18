@@ -7,6 +7,7 @@ import { getPayrollRateScalesCents } from '@/lib/burdenedLabor';
 import { isMobileDevice, captureLocationCoordinates } from '@/lib/mobilePunch';
 import { normalizeTargetMinutes } from '@/lib/shopOpsMetrics';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
+import { isEmployeeActive, DEACTIVATION_MESSAGE } from '@/lib/employeeAuth';
 import {
   decidePtoRequest, runAnniversaryRenewalCheckForEmployee, listPtoBalancesForEmployee, projectedBalanceIfApproved,
 } from '@/lib/ptoEngine';
@@ -122,12 +123,16 @@ export default function EmployeeCenter() {
       .then((me) => {
         setAppUserRoles(me?.roles || ['user']);
         setCurrentUser(me);
-        // A kiosk-PIN session (Login.jsx / KioskKeypadLogin.jsx) already
-        // proved identity via employee_id — resolving it here means the
-        // worker never re-enters their Employee Number + PIN a second time
-        // through the Kiosk Login card below.
+        // A kiosk-PIN session (Login.jsx / KioskKeypadLogin.jsx) or a portal
+        // (email/password) account linked to an employees row already proved
+        // identity via employee_id — resolving it here means the worker
+        // never re-enters their Employee Number + PIN a second time through
+        // the Kiosk Login card below. is_kiosk_pin_session (not employee_id
+        // alone) decides whether this is treated as a shared-terminal
+        // session — a linked portal login is a real personal account, not a
+        // shop-floor kiosk, even though it also resolves an employee record here.
         if (me?.employee_id) {
-          setIsKioskSession(true);
+          setIsKioskSession(!!me.is_kiosk_pin_session);
           return db.entities.employees.get(me.employee_id).then((emp) => {
             if (!emp) return;
             setEmployee(emp);
@@ -146,7 +151,18 @@ export default function EmployeeCenter() {
           return loadAdminEmployeePicker();
         }
       })
-      .catch(() => setAppUserRoles(['user']));
+      .catch((e) => {
+        // db.auth.me() throws this the instant it detects the linked
+        // employees row is no longer active (see localData.js's me()) — force
+        // a full-page redirect so every piece of in-memory session state
+        // (including this page's own `employee` state) is discarded, not
+        // just the auth token. Login.jsx reads and displays the message.
+        if (e?.reason === 'employee_deactivated') {
+          window.location.href = '/login';
+          return;
+        }
+        setAppUserRoles(['user']);
+      });
     loadPendingLeaveQueue();
     getPayrollRateScalesCents().then(setRateScale).catch(() => setRateScale(null));
   }, []);
@@ -269,6 +285,14 @@ export default function EmployeeCenter() {
         } else {
           toast({ title: 'Invalid employee number or PIN', variant: 'destructive' });
         }
+        return;
+      }
+      if (candidate.is_active_login === false) {
+        toast({ title: 'Account suspended. Please contact system administration.', variant: 'destructive' });
+        return;
+      }
+      if (!isEmployeeActive(candidate)) {
+        toast({ title: DEACTIVATION_MESSAGE, variant: 'destructive' });
         return;
       }
       await recordSuccessfulLogin(terminalId, candidate.id);
@@ -548,8 +572,8 @@ export default function EmployeeCenter() {
                   <Input value={kioskNumber} onChange={(e) => setKioskNumber(e.target.value)} placeholder="001" className="mt-1" />
                 </div>
                 <div>
-                  <Label className="text-xs">5-Digit PIN</Label>
-                  <Input type="password" maxLength={5} value={kioskPin} onChange={(e) => setKioskPin(e.target.value.replace(/\D/g, ''))} placeholder="•••••" className="mt-1" onKeyDown={(e) => e.key === 'Enter' && handleKioskLogin()} />
+                  <Label className="text-xs">4-Digit PIN (last 4 of SSN)</Label>
+                  <Input type="password" maxLength={4} value={kioskPin} onChange={(e) => setKioskPin(e.target.value.replace(/\D/g, ''))} placeholder="••••" className="mt-1" onKeyDown={(e) => e.key === 'Enter' && handleKioskLogin()} />
                 </div>
                 <Button onClick={handleKioskLogin} disabled={loggingIn} className="w-full steel-gradient text-white border-0">Log In</Button>
               </>
@@ -946,7 +970,7 @@ export default function EmployeeCenter() {
           <DialogHeader><DialogTitle>Re-Enter Your PIN</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground flex items-center gap-2"><Lock className="w-4 h-4" />Payroll access requires re-authentication.</p>
-            <Input type="password" maxLength={5} value={vaultPin} onChange={(e) => setVaultPin(e.target.value.replace(/\D/g, ''))} placeholder="•••••" onKeyDown={(e) => e.key === 'Enter' && submitVaultPin()} />
+            <Input type="password" maxLength={4} value={vaultPin} onChange={(e) => setVaultPin(e.target.value.replace(/\D/g, ''))} placeholder="••••" onKeyDown={(e) => e.key === 'Enter' && submitVaultPin()} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowVaultGate(false)}>Cancel</Button>

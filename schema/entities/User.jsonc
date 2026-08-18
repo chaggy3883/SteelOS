@@ -30,6 +30,10 @@
       "type": "string",
       "description": "The tenant this user belongs to. Platform-level super_admin users have no home tenant and leave this blank."
     },
+    "employee_id": {
+      "type": "string",
+      "description": "Optional link to an employees row, for a portal (email/password) account that belongs to the same person as a timeclock employee record. When set, login is also gated on that employees row's active status (see isEmployeeActive in employeeAuth.js) — terminating the employee revokes this portal login too. Blank for accounts with no matching employees row (e.g. a pure office/admin account, or a customer/vendor login)."
+    },
     "permission_overrides": {
       "type": "array",
       "items": {

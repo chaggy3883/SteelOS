@@ -1,22 +1,19 @@
 import { encodePin } from '@/lib/hrSecurity';
 
 // SECURITY CAVEAT — read before touching this file.
-// This PIN is a deterministic FORMULA of two employee fields, not an
-// independently chosen secret: the last two digits of ssn_last4, plus the
-// 3-digit employee_number. employee_number is sequential and already
-// treated as a public field elsewhere in this app (employeesApi.js's own
-// masking layer exposes it to every role) — so the only actual unknown is 2
-// SSN digits, a 100-value search space that a 3-attempt/5-minute lockout
-// slows but does not meaningfully prevent from being brute-forced. This is
-// implemented exactly as specified because this app only ever contains fake,
-// non-real employee data. It is NOT a pattern to reuse for a real
-// payroll/HR system — a PIN should be an independently chosen secret, never
-// derived from other stored fields.
+// The kiosk/timeclock PIN is the employee's own last-4 Social Security
+// digits, entered directly — identified separately by the 3-digit
+// employee_number (already a public, sequential field elsewhere in this app;
+// see employeesApi.js's masking layer). This mirrors a common real-world
+// convention (many HR/benefits self-service kiosks already use SSN-last-4 as
+// the "PIN"), but it is still only a 10,000-value space and is the same 4
+// digits already printed on this employee's own paperwork — the
+// 3-attempt/5-minute terminal lockout (terminalSession.js) slows brute
+// forcing, it does not prevent someone who already knows the digits. HR can
+// always override it with an independently chosen PIN via setManualPin
+// (System Access Portal) for a company that wants stronger credentials.
 export function computeFormulaPin(employee) {
-  const ssnLast4 = String(employee?.ssn_last4 || '').padStart(4, '0').slice(-4);
-  const ssnDigits34 = ssnLast4.slice(2, 4); // "digits 3 & 4" of the 4-digit suffix = its final two characters
-  const employeeNumber = String(employee?.employee_number || '').padStart(3, '0').slice(-3);
-  return `${ssnDigits34}${employeeNumber}`;
+  return String(employee?.ssn_last4 || '').padStart(4, '0').slice(-4);
 }
 
 export function encodeFormulaPin(employee) {

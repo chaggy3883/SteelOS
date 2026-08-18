@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Users as UsersIcon, Plus, Search, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { isSuperAdmin } from '@/lib/tenantContext';
 import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
 
@@ -41,17 +43,27 @@ export default function Users() {
   const [formEmail, setFormEmail] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formPin, setFormPin] = useState('');
+  const [formEmployeeId, setFormEmployeeId] = useState('');
   const [createRoles, setCreateRoles] = useState(['estimator']);
   const [creating, setCreating] = useState(false);
   const [newUserId, setNewUserId] = useState(null);
   const [viewerIsSuperAdmin, setViewerIsSuperAdmin] = useState(false);
   const [permissionsUser, setPermissionsUser] = useState(null);
+  const [employees, setEmployees] = useState([]);
   const rowRefs = useRef({});
 
   useEffect(() => {
     loadUsers();
     db.auth.me().then((me) => setViewerIsSuperAdmin(isSuperAdmin(me))).catch(() => setViewerIsSuperAdmin(false));
+    db.entities.employees.list('full_name', 500).then(setEmployees).catch(() => setEmployees([]));
   }, []);
+
+  // Only offer employees not already linked to a different portal account —
+  // one employees row should map to at most one portal login, so termination
+  // has exactly one User session to revoke, not an ambiguous set.
+  const linkedEmployeeIds = new Set(users.map((u) => u.employee_id).filter(Boolean));
+  const linkableEmployees = employees.filter((e) => !linkedEmployeeIds.has(e.id));
+  const employeeById = Object.fromEntries(employees.map((e) => [e.id, e]));
 
   const loadUsers = async () => {
     setLoading(true);
@@ -70,6 +82,7 @@ export default function Users() {
     setFormEmail('');
     setFormPassword('');
     setFormPin('');
+    setFormEmployeeId('');
     setCreateRoles(['estimator']);
   };
 
@@ -97,6 +110,7 @@ export default function Users() {
         security_pin: formPin,
         roles: mappedRoles.length > 0 ? mappedRoles : ['user'],
         is_active: true,
+        employee_id: formEmployeeId || undefined,
       });
       toast({ title: 'User created', description: `${formFullName} can log in immediately.` });
       setCreateOpen(false);
@@ -177,6 +191,21 @@ export default function Users() {
                     onChange={e => setFormPin(e.target.value.replace(/\D/g, '').slice(0, 5))}
                     className="mt-1"
                   />
+                </div>
+                <div>
+                  <Label>Link to Employee (optional)</Label>
+                  <Select value={formEmployeeId || '__none__'} onValueChange={(v) => setFormEmployeeId(v === '__none__' ? '' : v)}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="No linked employee" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No linked employee</SelectItem>
+                      {linkableEmployees.map((e) => (
+                        <SelectItem key={e.id} value={e.id}>{e.full_name} — #{e.employee_number}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    If this person is also a timeclock employee, linking gives them one-click access to Employee Center and ties this login's access to that employee record — terminating the employee also revokes this login.
+                  </p>
                 </div>
                 <div>
                   <Label>Role(s) — select one or more</Label>
@@ -261,6 +290,14 @@ export default function Users() {
                         <div>
                           <p className="font-medium">{user.full_name || 'No name'}</p>
                           <p className="text-xs text-muted-foreground">{user.email}</p>
+                          {user.employee_id && (
+                            <Link
+                              to={`/human-resources?employee=${user.employee_id}`}
+                              className="text-xs text-primary hover:underline"
+                            >
+                              Linked: {employeeById[user.employee_id]?.full_name || 'Employee'} (#{employeeById[user.employee_id]?.employee_number || '—'})
+                            </Link>
+                          )}
                         </div>
                       </div>
                     </td>

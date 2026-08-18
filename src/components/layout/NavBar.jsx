@@ -167,7 +167,11 @@ export default function NavBar() {
           }
           setAllowedModules(modules);
         }
-        setIsKioskSession(!!u?.employee_id);
+        // is_kiosk_pin_session (not employee_id alone) is the shared-terminal
+        // signal: a portal (email/password) login can also carry employee_id
+        // now that User accounts can be linked to an employees row, and that
+        // session must keep its real role's nav, not the kiosk-only subset.
+        setIsKioskSession(!!u?.is_kiosk_pin_session);
       } catch (e) {
         setAllowedModules(['*']);
       }

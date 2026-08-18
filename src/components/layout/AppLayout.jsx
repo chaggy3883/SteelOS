@@ -24,11 +24,19 @@ export default function AppLayout() {
   }, [location.pathname]);
 
   // Runs once for this tab's lifetime, independent of the loadUser effect
-  // above (which re-fires on every route change) — sendHeartbeat() itself
+  // above (which only re-fires on route change) — sendHeartbeat() itself
   // is a no-op until a session row actually exists, so it's safe to start
-  // this before loadUser's first pass has resolved.
+  // this before loadUser's first pass has resolved. Re-running loadUser on
+  // the same tick catches a terminated employee's session even if they never
+  // navigate away (e.g. a kiosk tablet sitting on one page all shift) —
+  // db.auth.me() re-validates a linked employee's active status on every
+  // call, so this is what makes the "still valid in localStorage but
+  // terminated since" case self-correct within one heartbeat interval.
   useEffect(() => {
-    const interval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+    const interval = setInterval(() => {
+      sendHeartbeat();
+      loadUser();
+    }, HEARTBEAT_INTERVAL_MS);
     return () => clearInterval(interval);
   }, []);
 
@@ -58,7 +66,15 @@ export default function AppLayout() {
           await startUserSession(me);
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      // db.auth.me() throws this the moment it detects the session's linked
+      // employee is no longer active (termination or is_active flip) — a
+      // full-page redirect discards every piece of in-memory app state, not
+      // just the auth token. Login.jsx reads and displays the message.
+      if (e?.reason === 'employee_deactivated') {
+        window.location.href = '/login';
+      }
+    }
   };
 
   // Super-admin dashboard must always be reachable, even while impersonating

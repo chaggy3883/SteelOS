@@ -57,9 +57,9 @@ export default function KioskKeypadLogin({ companyCode, companyName }) {
       if (next.length === 3) setActiveField('pin');
       return;
     }
-    const nextPin = (pin + key).slice(0, 5);
+    const nextPin = (pin + key).slice(0, 4);
     setPin(nextPin);
-    if (nextPin.length === 5) attemptLogin(employeeNumber, nextPin);
+    if (nextPin.length === 4) attemptLogin(employeeNumber, nextPin);
   };
 
   const handleExitKiosk = () => {
@@ -96,7 +96,7 @@ export default function KioskKeypadLogin({ companyCode, companyName }) {
           className={`rounded-lg border-2 p-3 text-center transition-colors ${activeField === 'pin' ? 'border-primary bg-primary/5' : 'border-border'}`}
         >
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">PIN</p>
-          <p className="text-2xl font-mono font-bold">{'•'.repeat(pin.length).padEnd(5, '·')}</p>
+          <p className="text-2xl font-mono font-bold">{'•'.repeat(pin.length).padEnd(4, '·')}</p>
         </button>
       </div>
 

@@ -27,8 +27,8 @@ export default function SystemAccessPortal({ employee, roles, onUpdated }) {
   const canEditWage = (roles || []).some((r) => WAGE_EDIT_ROLES.includes(String(r).toLowerCase()));
 
   const handleSavePin = async () => {
-    if (newPin.length !== 5) {
-      toast({ title: 'PIN must be exactly 5 digits', variant: 'destructive' });
+    if (newPin.length !== 4) {
+      toast({ title: 'PIN must be exactly 4 digits', variant: 'destructive' });
       return;
     }
     setSaving(true);
@@ -150,14 +150,14 @@ export default function SystemAccessPortal({ employee, roles, onUpdated }) {
         )}
 
         <div className="mt-4 pt-4 border-t border-border">
-          <Label className="text-xs">Overwrite Login PIN (5 digits)</Label>
+          <Label className="text-xs">Overwrite Login PIN (4 digits)</Label>
           <div className="flex gap-2 mt-1">
             <Input
               type="password"
-              maxLength={5}
+              maxLength={4}
               value={newPin}
-              onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 5))}
-              placeholder="•••••"
+              onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
               className="font-mono"
             />
             <Button onClick={handleSavePin} disabled={saving} className="gap-1.5 steel-gradient text-white border-0 flex-shrink-0">
@@ -165,7 +165,7 @@ export default function SystemAccessPortal({ employee, roles, onUpdated }) {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-1.5">
-            Overwrites the formula-derived default. Editing this employee's SSN or Badge ID later recomputes the formula and replaces this override.
+            Overwrites the default (this employee's own last-4 SSN). Editing this employee's SSN later recomputes that default and replaces this override.
           </p>
         </div>
       </div>

@@ -645,8 +645,8 @@ export default function HumanResources() {
               <Input value={terminalEmployeeNumber} onChange={(e) => setTerminalEmployeeNumber(e.target.value)} placeholder="001" className="mt-1" />
             </div>
             <div>
-              <Label className="text-xs">5-Digit PIN</Label>
-              <Input type="password" maxLength={5} value={terminalPin} onChange={(e) => setTerminalPin(e.target.value.replace(/\D/g, ''))} placeholder="•••••" className="mt-1" />
+              <Label className="text-xs">4-Digit PIN (last 4 of SSN)</Label>
+              <Input type="password" maxLength={4} value={terminalPin} onChange={(e) => setTerminalPin(e.target.value.replace(/\D/g, ''))} placeholder="••••" className="mt-1" />
             </div>
             <Button onClick={handleClockIn} className="w-full steel-gradient text-white border-0">Clock In</Button>
             <p className="text-xs text-muted-foreground">Terminal rejects the punch if the employee's timeclock is locked, regardless of PIN correctness.</p>

@@ -11,6 +11,7 @@ import LoginVaultBackdrop from "@/components/auth/LoginVaultBackdrop";
 import { isKioskModeEnabled, getKioskMode } from "@/lib/kioskMode";
 import { isSuperAdmin } from "@/lib/tenantContext";
 import { startUserSession } from "@/lib/userSessionTracking";
+import { getAndClearDeactivationMessage } from "@/api/localData";
 
 export default function Login() {
   const { toast } = useToast();
@@ -33,6 +34,18 @@ export default function Login() {
   // primitive (Input, Button, Dialog) consistent with the vault's dark card.
   useEffect(() => {
     document.documentElement.classList.add("dark");
+  }, []);
+
+  // A forced logout from a deactivated/terminated account (see
+  // db.auth.me() and AppLayout's loadUser) lands here via a full-page
+  // redirect and leaves this one-time message behind for us to surface —
+  // read-and-clear so it never reappears on a later, unrelated visit.
+  useEffect(() => {
+    const message = getAndClearDeactivationMessage();
+    if (message) {
+      toast({ title: message, variant: "destructive" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Devices provisioned via Settings > Devices (see AdminSettings' "Provision

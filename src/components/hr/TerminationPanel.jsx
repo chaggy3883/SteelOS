@@ -2,12 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
 import { computeTerminationPtoSettlementPreview, processTerminationPtoSettlement, listPtoTransactionsForEmployee } from '@/lib/ptoEngine';
+import { logStatusChange } from '@/lib/statusHistory';
+import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { UserX, Loader2, ShieldAlert } from 'lucide-react';
+import { UserX, UserCheck, Loader2, ShieldAlert, History } from 'lucide-react';
 
 const todayDateOnly = () => new Date().toISOString().slice(0, 10);
 
@@ -26,6 +28,9 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
   const [saving, setSaving] = useState(false);
   const [viewingPolicy, setViewingPolicy] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmReinstateOpen, setConfirmReinstateOpen] = useState(false);
+  const [reinstating, setReinstating] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => { db.auth.me().then(setCurrentUser).catch(() => setCurrentUser(null)); }, []);
   useEffect(() => { load(); }, [employee?.id, employee?.termination_date, terminationDate]);
@@ -45,13 +50,32 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
     }
   };
 
+  const identity = () => currentUser?.full_name || currentUser?.email || 'Unknown';
+
   const handleConfirm = async () => {
     setSaving(true);
     try {
       const settlement = await processTerminationPtoSettlement({
-        employee, terminationDate, createdBy: currentUser?.full_name || currentUser?.email || 'Unknown',
+        employee, terminationDate, createdBy: identity(),
       });
       const updated = await db.entities.employees.update(employee.id, { termination_date: terminationDate, is_active: false });
+      // Every access-affecting flip on this record gets a StatusHistoryEntry
+      // so there's an audit trail of when/why login access changed — this is
+      // the one write path for that (see also handleReinstate below). Kiosk
+      // PIN login, the Employee Center manual PIN card, and any linked
+      // portal User account all key off is_active/termination_date directly
+      // (isEmployeeActive in employeeAuth.js), so this update alone already
+      // revokes access everywhere; the entry below is the paper trail, not
+      // an additional enforcement step.
+      await logStatusChange({
+        entityType: 'employees',
+        entityId: employee.id,
+        fieldName: 'access_status',
+        fromValue: 'Active',
+        toValue: 'Access Revoked',
+        changedBy: identity(),
+        note: `Terminated effective ${terminationDate}.`,
+      });
       onUpdated?.(updated);
       setConfirmOpen(false);
       toast({
@@ -63,6 +87,34 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
       toast({ title: 'Unable to complete termination', description: e.message, variant: 'destructive' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Rehire path — there was previously no way to undo a termination from
+  // this panel at all. Clearing both fields (not just one) matters because
+  // isEmployeeActive() treats EITHER is_active === false OR a past-or-today
+  // termination_date as terminated — leaving termination_date set would
+  // immediately re-lock the account out again on the next login check.
+  const handleReinstate = async () => {
+    setReinstating(true);
+    try {
+      const updated = await db.entities.employees.update(employee.id, { termination_date: '', is_active: true });
+      await logStatusChange({
+        entityType: 'employees',
+        entityId: employee.id,
+        fieldName: 'access_status',
+        fromValue: 'Access Revoked',
+        toValue: 'Access Restored',
+        changedBy: identity(),
+        note: 'Rehired — termination reversed.',
+      });
+      onUpdated?.(updated);
+      setConfirmReinstateOpen(false);
+      toast({ title: `${employee.full_name} reinstated`, description: 'Login access restored across kiosk, Employee Center, and portal.' });
+    } catch (e) {
+      toast({ title: 'Unable to reinstate employee', description: e.message, variant: 'destructive' });
+    } finally {
+      setReinstating(false);
     }
   };
 
@@ -83,8 +135,18 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
     return (
       <div className="space-y-4">
         <div className="steel-card p-4">
-          <p className="text-sm font-semibold">Terminated {employee.termination_date}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Employment status: {employee.is_active ? 'Active' : 'Inactive'}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Terminated {employee.termination_date}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Employment status: {employee.is_active ? 'Active' : 'Inactive'} — all kiosk, Employee Center, and linked portal login are revoked.</p>
+            </div>
+            <Button size="sm" variant="outline" className="gap-1.5 flex-shrink-0" onClick={() => setHistoryOpen(true)}>
+              <History className="w-3.5 h-3.5" />Access History
+            </Button>
+          </div>
+          <Button className="gap-2 mt-3 bg-green-600 hover:bg-green-700 text-white border-0" onClick={() => setConfirmReinstateOpen(true)}>
+            <UserCheck className="w-4 h-4" />Reinstate Employee
+          </Button>
         </div>
         <div className="steel-card p-4">
           <h4 className="font-semibold text-sm mb-3">PTO Settlement at Termination</h4>
@@ -106,6 +168,28 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
             </div>
           )}
         </div>
+
+        <Dialog open={confirmReinstateOpen} onOpenChange={setConfirmReinstateOpen}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Reinstate {employee.full_name}?</DialogTitle></DialogHeader>
+            <div className="space-y-2 text-sm">
+              <p className="text-muted-foreground">Clears the termination date, marks this employee active again, and immediately restores kiosk, Employee Center, and any linked portal login.</p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmReinstateOpen(false)}>Cancel</Button>
+              <Button className="bg-green-600 hover:bg-green-700 text-white border-0" disabled={reinstating} onClick={handleReinstate}>{reinstating ? 'Processing…' : 'Confirm Reinstatement'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <StatusHistoryModal
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          entityType="employees"
+          entityId={employee.id}
+          fieldName="access_status"
+          title={`${employee.full_name} — Access History`}
+        />
       </div>
     );
   }
@@ -114,9 +198,14 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <Label className="text-xs">Termination Date</Label>
-        <Input type="date" value={terminationDate} onChange={(e) => setTerminationDate(e.target.value)} className="mt-1 max-w-xs" />
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <Label className="text-xs">Termination Date</Label>
+          <Input type="date" value={terminationDate} onChange={(e) => setTerminationDate(e.target.value)} className="mt-1 max-w-xs" />
+        </div>
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setHistoryOpen(true)}>
+          <History className="w-3.5 h-3.5" />Access History
+        </Button>
       </div>
 
       <div className="steel-card p-4">
@@ -162,7 +251,7 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
           <DialogHeader><DialogTitle>Confirm Termination — {employee.full_name}</DialogTitle></DialogHeader>
           <div className="space-y-2 text-sm">
             <p>Termination date: <span className="font-medium">{terminationDate}</span></p>
-            <p className="text-muted-foreground">This forfeits or pays out unused PTO/Sick/Bereavement per each leave type's policy, and marks this employee inactive. It cannot be undone from here.</p>
+            <p className="text-muted-foreground">This forfeits or pays out unused PTO/Sick/Bereavement per each leave type's policy, marks this employee inactive, and revokes kiosk, Employee Center, and linked portal login. It can be reversed afterward with Reinstate Employee.</p>
             {totalPayout > 0 && <p className="font-semibold text-amber-600">A final_check payroll run will be created for ${totalPayout.toFixed(2)}.</p>}
           </div>
           <DialogFooter>
@@ -191,6 +280,15 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
           )}
         </DialogContent>
       </Dialog>
+
+      <StatusHistoryModal
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        entityType="employees"
+        entityId={employee.id}
+        fieldName="access_status"
+        title={`${employee.full_name} — Access History`}
+      />
     </div>
   );
 }

@@ -51,9 +51,9 @@ export async function hireCandidate(candidateId) {
   if (!candidate) throw new Error('Candidate not found');
 
   const employee_number = await nextEmployeeNumber();
-  // PIN is a pure formula of ssn_last4 + employee_number (see pinFormula.js's
-  // security caveat) — with ssn_last4 still blank at provisioning time, this
-  // computes a placeholder PIN that becomes real the moment HR enters the SSN.
+  // PIN is the employee's own last-4 SSN (see pinFormula.js's security
+  // caveat) — with ssn_last4 still blank at provisioning time, this computes
+  // a placeholder PIN ("0000") that becomes real the moment HR enters the SSN.
   const employee = await db.entities.employees.create({
     employee_number,
     full_name: candidate.candidate_name,
