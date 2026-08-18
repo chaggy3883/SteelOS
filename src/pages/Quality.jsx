@@ -14,6 +14,13 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
+import { getCertStatus } from '@/lib/certAlerts';
+import { listEmployeesForRole } from '@/lib/employeesApi';
+
+// Live/expired ordering for the qualified-welders drill-down — expired
+// welders surface first so QA can see who dropped off, not just who's
+// currently active.
+const WELD_CERT_STATUS_SORT = { Expired: 0, Expiring_Soon: 1, Valid: 2 };
 
 // The two AISC certification programs this page tracks. They're distinct
 // certs with distinct requirements (shop vs. field), so QA categories,
@@ -90,6 +97,9 @@ export default function Quality() {
   const [detailRecord, setDetailRecord] = useState(null);
   const [company, setCompany] = useState(null);
   const [selectedTrack, setSelectedTrack] = useState(null);
+  const [certifications, setCertifications] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [showWeldersList, setShowWeldersList] = useState(false);
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => { getEffectiveCompany().then(setCompany).catch(() => setCompany(null)); }, []);
@@ -109,18 +119,49 @@ export default function Quality() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [findingsData, recordsData, projectsData] = await Promise.all([
+      const [findingsData, recordsData, projectsData, certData] = await Promise.all([
         db.entities.AIFinding.filter({ review_package: 'quality_assurance' }, '-created_date', 100),
         db.entities.quality_inspection_records.list('-created_date', 200),
         db.entities.Project.list('-created_date', 200),
+        db.entities.employee_certifications.list('-created_date', 2000),
       ]);
       setFindings(findingsData);
       setRecords(recordsData);
       setProjects(projectsData);
+      setCertifications(certData);
+      // Routed through listEmployeesForRole rather than db.entities.employees
+      // directly — same masking chokepoint HR itself is built around, so a
+      // QA-only role never sees SSN/pay-rate/PIN fields just because this
+      // page needs employee names for the welder roster.
+      let currentRoles = ['user'];
+      try {
+        const me = await db.auth.me();
+        currentRoles = me?.roles || me?.user?.roles || ['user'];
+      } catch (e) {}
+      setEmployees(await listEmployeesForRole(currentRoles));
     } catch (e) {} finally { setLoading(false); }
   };
 
   const projectName = (id) => projects.find(p => p.id === id)?.name || 'Unassigned';
+
+  const employeeById = new Map(employees.map((e) => [e.id, e]));
+  // Position-code granularity only — cert_type IS the AWS qualification
+  // (6G/3G), there's no finer process/thickness data anywhere in this app
+  // to check against (see the WPS/PQR audit — that's a separate, unbuilt
+  // data model, not something this page can read yet).
+  const weldingCerts = certifications
+    .filter((c) => c.cert_type === 'Welding_6G' || c.cert_type === 'Welding_3G')
+    .map((c) => ({ ...c, liveStatus: getCertStatus(c.expiration_date) }));
+  const activeWeldingCerts = weldingCerts.filter((c) => c.liveStatus !== 'Expired');
+  const activeWelderCount = new Set(activeWeldingCerts.map((c) => c.employee_id)).size;
+  const awsWeldersStatus = weldingCerts.length === 0 ? 'not_started' : activeWeldingCerts.length > 0 ? 'verified' : 'pending';
+  const nextWeldingExpiry = activeWeldingCerts.length > 0
+    ? [...activeWeldingCerts].sort((a, b) => (a.expiration_date || '').localeCompare(b.expiration_date || ''))[0].expiration_date
+    : null;
+  const sortedWeldingCerts = [...weldingCerts].sort((a, b) => {
+    const byStatus = (WELD_CERT_STATUS_SORT[a.liveStatus] ?? 2) - (WELD_CERT_STATUS_SORT[b.liveStatus] ?? 2);
+    return byStatus !== 0 ? byStatus : (a.expiration_date || '').localeCompare(b.expiration_date || '');
+  });
 
   const handleCreateRecord = async () => {
     if (!recordForm.inspector_name.trim() || !recordForm.inspection_date) {
@@ -360,26 +401,44 @@ export default function Quality() {
               )}
             </div>
             <div className="space-y-3">
-              {QA_CERTIFICATIONS.filter(item => item.tracks.includes(activeTrack)).map(item => (
-                <div key={item.cert} className="flex items-center justify-between p-4 rounded-lg border border-border">
-                  <div className="flex items-center gap-3">
-                    {item.status === 'verified'
-                      ? <CheckCircle2 className="w-5 h-5 text-green-500" />
-                      : item.status === 'pending'
-                      ? <Clock className="w-5 h-5 text-yellow-500" />
-                      : <XCircle className="w-5 h-5 text-red-500" />
-                    }
-                    <div>
-                      <p className="text-sm font-medium">{item.cert}</p>
-                      {item.expiry && <p className="text-xs text-muted-foreground">Expires: {item.expiry}</p>}
+              {QA_CERTIFICATIONS.filter(item => item.tracks.includes(activeTrack)).map(item => {
+                // "AWS Certified Welders (Active)" is the one item on this
+                // list backed by real data — everything else here is still
+                // a manually-tracked placeholder (see the audit: no WPS/PQR
+                // data model exists yet to compute the rest from).
+                const isWelders = item.cert === 'AWS Certified Welders (Active)';
+                const status = isWelders ? awsWeldersStatus : item.status;
+                const expiry = isWelders ? nextWeldingExpiry : item.expiry;
+                return (
+                  <div
+                    key={item.cert}
+                    onClick={isWelders ? () => setShowWeldersList(true) : undefined}
+                    className={`flex items-center justify-between p-4 rounded-lg border border-border ${isWelders ? 'cursor-pointer hover:bg-muted/40 transition-colors' : ''}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {status === 'verified'
+                        ? <CheckCircle2 className="w-5 h-5 text-green-500" />
+                        : status === 'pending'
+                        ? <Clock className="w-5 h-5 text-yellow-500" />
+                        : <XCircle className="w-5 h-5 text-red-500" />
+                      }
+                      <div>
+                        <p className="text-sm font-medium">{item.cert}</p>
+                        {isWelders ? (
+                          <>
+                            <p className="text-xs text-primary hover:underline">{activeWelderCount} active welder{activeWelderCount === 1 ? '' : 's'} — see all qualified welders</p>
+                            {expiry && <p className="text-xs text-muted-foreground">Next expiration: {expiry}</p>}
+                          </>
+                        ) : expiry && <p className="text-xs text-muted-foreground">Expires: {expiry}</p>}
+                      </div>
                     </div>
+                    <StatusBadge
+                      status={status === 'verified' ? 'pass' : status === 'pending' ? 'warning' : 'fail'}
+                      label={status === 'verified' ? 'Verified' : status === 'pending' ? 'Pending' : 'Required'}
+                    />
                   </div>
-                  <StatusBadge
-                    status={item.status === 'verified' ? 'pass' : item.status === 'pending' ? 'warning' : 'fail'}
-                    label={item.status === 'verified' ? 'Verified' : item.status === 'pending' ? 'Pending' : 'Required'}
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </TabsContent>
@@ -499,6 +558,38 @@ export default function Quality() {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showWeldersList} onOpenChange={setShowWeldersList}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Qualified Welders — Welding 6G / 3G</DialogTitle></DialogHeader>
+          <div className="space-y-2 text-sm">
+            {sortedWeldingCerts.length === 0 ? (
+              <p className="text-muted-foreground text-center py-6">No Welding_6G/3G certifications on file.</p>
+            ) : sortedWeldingCerts.map((cert) => {
+              const employee = employeeById.get(cert.employee_id);
+              return (
+                <div key={cert.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                  <div>
+                    {employee ? (
+                      <button onClick={() => navigate(`/human-resources?employee=${employee.id}`)} className="font-medium text-primary hover:underline">{employee.full_name}</button>
+                    ) : (
+                      <p className="font-medium text-muted-foreground">Unknown employee</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">{cert.cert_type.replace(/_/g, ' ')} • exp {cert.expiration_date || '—'}</p>
+                  </div>
+                  <StatusBadge
+                    status={cert.liveStatus === 'Valid' ? 'pass' : cert.liveStatus === 'Expiring_Soon' ? 'warning' : 'fail'}
+                    label={cert.liveStatus.replace('_', ' ')}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWeldersList(false)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
