@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel } from '@/lib/employeesApi';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
@@ -25,7 +25,7 @@ import CandidateApplicationDialog from '@/components/hr/CandidateApplicationDial
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse, CalendarPlus } from 'lucide-react';
 
-const POSITIONS = ['Ironworker', 'Welder', 'Fabricator', 'Painter', 'Shop Manager', 'Inspector', 'Office'];
+export const POSITIONS = ['Ironworker', 'Welder', 'Fabricator', 'Painter', 'Shop Manager', 'Inspector', 'Office'];
 const CANDIDATE_STATUSES = ['Applied', 'Interviewing', 'Offer_Extended', 'Hired', 'Rejected'];
 
 // Phase B tab-level enforcement (permissionCatalog.js) for office sessions —
@@ -428,6 +428,16 @@ export default function HumanResources() {
         </TabsContent>
 
         <TabsContent value="employees" className="space-y-3">
+          {isFullAccess && (
+            <div className="flex justify-end">
+              <Link to="/human-resources/new-employee">
+                <Button className="gap-2 steel-gradient text-white border-0">
+                  <UserPlus className="w-4 h-4" />New Employee
+                </Button>
+              </Link>
+            </div>
+          )}
+
           {isFullAccess && employees.some((e) => !e.platform_role) && (
             <div className="steel-card p-4 space-y-2 border-amber-500/30">
               <h4 className="font-semibold text-sm flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-amber-500" />Unassigned Platform Roles</h4>

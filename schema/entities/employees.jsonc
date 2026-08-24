@@ -40,6 +40,12 @@
       "type": "boolean",
       "default": true
     },
+    "employee_status": {
+      "type": "string",
+      "enum": ["Active", "Inactive", "On Leave", "Probation"],
+      "default": "Active",
+      "description": "HR lifecycle status set at intake (NewEmployee.jsx) and editable on the profile. is_active is derived from this at creation time (false only when status is 'Inactive') but can still be toggled independently afterward via TerminationPanel.jsx."
+    },
     "pin_encrypted": {
       "type": "string"
     },
@@ -163,6 +169,15 @@
       "type": "string"
     },
     "emergency_contact_phone_alt": {
+      "type": "string"
+    },
+    "emergency_contact2_name": {
+      "type": "string"
+    },
+    "emergency_contact2_phone": {
+      "type": "string"
+    },
+    "emergency_contact2_relationship": {
       "type": "string"
     },
     "is_active_login": {

@@ -67,6 +67,7 @@ import ShopFabrication from '@/pages/ShopFabrication';
 import ShopOperations from '@/pages/ShopOperations';
 import ShopFloorCommandCenter from '@/pages/ShopFloorCommandCenter';
 import HumanResources from '@/pages/HumanResources';
+import NewEmployee from '@/pages/NewEmployee';
 import Payroll from '@/pages/Payroll';
 import PayrollHours from '@/pages/PayrollHours';
 import PayrollSetup from '@/pages/PayrollSetup';
@@ -169,6 +170,7 @@ const AuthenticatedApp = () => {
           <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={<Users />} />
           <Route path="/human-resources" element={<HumanResources />} />
+          <Route path="/human-resources/new-employee" element={<NewEmployee />} />
           <Route path="/payroll" element={<Payroll />} />
           <Route path="/payroll/hours" element={<PayrollHours />} />
           <Route path="/payroll/setup" element={<PayrollSetup />} />

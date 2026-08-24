@@ -131,7 +131,11 @@ export async function provisionEmployee(formData) {
     emergency_contact_name: formData.emergency_contact_name,
     emergency_contact_phone: formData.emergency_contact_phone,
     emergency_contact_relationship: formData.emergency_contact_relationship,
+    emergency_contact2_name: formData.emergency_contact2_name,
+    emergency_contact2_phone: formData.emergency_contact2_phone,
+    emergency_contact2_relationship: formData.emergency_contact2_relationship,
     classification: formData.classification,
+    job_title: formData.job_title,
     hire_date: formData.hire_date,
     pay_type: formData.pay_type,
     pay_rate_cents: formData.pay_type === 'salary' ? 0 : (Number(formData.pay_rate_cents) || 0),
@@ -147,8 +151,10 @@ export async function provisionEmployee(formData) {
     // hire_date, recomputed from i9_date once HR fills in the real I-9.
     i9_reverification_due_date: computeI9ReverificationDueDate(formData.hire_date),
     e_verify_status: 'not_submitted',
-    is_active: true,
+    employee_status: formData.employee_status || 'Active',
+    is_active: formData.employee_status !== 'Inactive',
     is_active_login: true,
+    is_salesman: false,
   });
 
   await provisionDefaultIssuedAssets(employee.id);
