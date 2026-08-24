@@ -34,6 +34,7 @@ import ServiceScheduleDetail from '@/pages/ServiceScheduleDetail';
 import Production from '@/pages/Production';
 import Inventory from '@/pages/Inventory';
 import Quality from '@/pages/Quality';
+import QualityKpiBuilder from '@/pages/QualityKpiBuilder';
 import Safety from '@/pages/Safety';
 import Shipping from '@/pages/Shipping';
 import RFIs from '@/pages/RFIs';
@@ -141,6 +142,7 @@ const AuthenticatedApp = () => {
           <Route path="/production" element={<Production />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/quality" element={<Quality />} />
+          <Route path="/quality/kpi-builder" element={<QualityKpiBuilder />} />
           <Route path="/safety" element={<Safety />} />
           <Route path="/shipping" element={<Shipping />} />
           <Route path="/field-operations" element={<FieldOperations />} />

@@ -14,7 +14,7 @@ import {
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
-  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2, Crosshair, CalendarClock, Monitor, Presentation, PlayCircle
+  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2, Crosshair, CalendarClock, Monitor, Presentation, PlayCircle, LineChart
 } from 'lucide-react';
 
 const navGroups = [
@@ -104,6 +104,7 @@ const navGroups = [
     label: 'Quality & Safety',
     items: [
       { icon: CheckSquare, label: 'Quality', path: '/quality' },
+      { icon: LineChart, label: 'KPI Builder', path: '/quality/kpi-builder' },
       { icon: Shield, label: 'Safety', path: '/safety' },
       { icon: FileText, label: 'Documents', path: '/documents' },
     ]

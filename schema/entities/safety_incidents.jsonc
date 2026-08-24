@@ -1,0 +1,26 @@
+{
+  "name": "safety_incidents",
+  "type": "object",
+  "properties": {
+    "company_id": { "type": "string" },
+    "incident_date": { "type": "string", "format": "date" },
+    "incident_type": {
+      "type": "string",
+      "enum": ["near_miss", "minor_injury", "major_injury", "fatality"],
+      "default": "near_miss"
+    },
+    "employee_position": {
+      "type": "string",
+      "enum": ["Fabricator", "Welder", "Crane_Operator", "Ironworker", "Rigger", "Forklift", "Painter", "Shop_Helper", "Truck_Driver", "Supervisor", "Other"],
+      "description": "Job function of the employee involved — never a name, so this record stays de-identified."
+    },
+    "description": { "type": "string" },
+    "corrective_action": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["open", "closed", "verified"],
+      "default": "open"
+    }
+  },
+  "required": ["incident_date", "incident_type", "status"]
+}

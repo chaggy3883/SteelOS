@@ -1,0 +1,25 @@
+{
+  "name": "ncr_records",
+  "type": "object",
+  "properties": {
+    "company_id": { "type": "string" },
+    "piece_id": { "type": "string" },
+    "defect_category": {
+      "type": "string",
+      "enum": ["weld", "dimension", "finish", "material", "assembly", "other"],
+      "default": "other"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["minor", "major", "critical"],
+      "default": "minor"
+    },
+    "description": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["open", "rework", "accepted_as_is", "scrapped"],
+      "default": "open"
+    }
+  },
+  "required": ["defect_category", "severity", "status"]
+}

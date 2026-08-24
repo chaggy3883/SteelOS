@@ -44,6 +44,7 @@ const SHARED_MODULES = [
   '/purchasing/module',
   '/purchasing/receiving-kiosk',
   '/quality',
+  '/quality/kpi-builder',
   '/safety',
   '/documents',
   '/rfis',

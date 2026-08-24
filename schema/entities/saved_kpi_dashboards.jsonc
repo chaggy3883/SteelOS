@@ -1,0 +1,56 @@
+{
+  "name": "saved_kpi_dashboards",
+  "type": "object",
+  "properties": {
+    "company_id": { "type": "string" },
+    "dashboard_name": { "type": "string" },
+    "area": {
+      "type": "string",
+      "enum": ["safety", "quality", "production", "equipment", "shipping"]
+    },
+    "selected_metrics": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Metric keys from src/lib/kpiMetrics.js, scoped to `area`."
+    },
+    "chart_types": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["line", "bar", "area", "pie"] },
+      "description": "Single-select in the UI (radio buttons) but stored as an array per spec — always exactly one entry."
+    },
+    "date_range_type": {
+      "type": "string",
+      "enum": ["custom", "last_week", "last_month", "last_year"],
+      "default": "last_month"
+    },
+    "custom_start_date": { "type": "string", "format": "date" },
+    "custom_end_date": { "type": "string", "format": "date" },
+    "comparison_periods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string" },
+          "start": { "type": "string", "format": "date" },
+          "end": { "type": "string", "format": "date" }
+        }
+      },
+      "default": [],
+      "description": "Up to 3 entries."
+    },
+    "aggregation_level": {
+      "type": "string",
+      "enum": ["daily", "weekly", "monthly"],
+      "default": "weekly"
+    },
+    "created_by": { "type": "string" },
+    "is_shared": { "type": "boolean", "default": false },
+    "shared_with_roles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "last_accessed": { "type": "string", "format": "date-time" }
+  },
+  "required": ["dashboard_name", "area", "selected_metrics"]
+}
