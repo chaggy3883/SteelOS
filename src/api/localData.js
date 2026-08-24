@@ -230,6 +230,35 @@ const buildSeedData = () => {
       { id: 'delivery-tier-4', company_id: 'company-hancock', min_miles: 75, max_miles: 100, cost_per_trip: 2100, created_date: now, updated_date: now },
       { id: 'delivery-tier-5', company_id: 'company-hancock', min_miles: 100, max_miles: 125, cost_per_trip: 2550, created_date: now, updated_date: now }
     ],
+    SalesCommissionConfig: [
+      {
+        id: 'config-1',
+        company_id: 'company-hancock',
+        commission_enabled: true,
+        default_commission_rate: 5,
+        default_commission_rate_description: 'Percent (%)',
+        commission_calc_method: 'profit_percent',
+        flat_rate_amount: null,
+        per_salesman_override: true,
+        payment_trigger: 'on_payment_received',
+        next_payroll_cycle: true,
+        allow_salesmen_see_pipeline: true,
+        default_dashboard_widgets: ['pipeline', 'my_projects', 'commission', 'recent_rfis', 'change_orders', 'addenda', 'quick_stats'],
+        created_by: 'admin',
+        created_date: now,
+      },
+    ],
+    SalesmanCommissionRate: [
+      {
+        id: 'rate-1',
+        company_id: 'company-hancock',
+        salesman_id: 'employee-1',
+        rate: 5,
+        effective_date: now.slice(0, 10),
+        end_date: null,
+        created_date: now,
+      },
+    ],
     // Seeded as configurable rules, not hardcoded alerts — each mirrors a
     // signal the app already needs (see src/lib/intelligenceRuleEngine.js for
     // the candidate-metric builder each entity_watched value maps to).
@@ -1476,6 +1505,7 @@ const buildSeedData = () => {
         ssn_last4: '4471',
         pay_rate_cents: 2800,
         is_active_login: true,
+        is_salesman: true,
         created_date: now,
         updated_date: now
       },

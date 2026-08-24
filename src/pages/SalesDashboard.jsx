@@ -84,17 +84,21 @@ export default function SalesDashboard() {
   // viewer's OWN preference across whichever salesman they're impersonating,
   // separate from that salesman's own preference when they log in directly.
   useEffect(() => {
-    if (!currentUser || !config) return;
+    // Must not require `config` here — a company with no SalesCommissionConfig
+    // row yet (config stays null) would otherwise never set enabledWidgets,
+    // leaving the page stuck on its loading spinner forever. Falls back to
+    // every widget on when there's no config and no saved per-user choice.
+    if (!currentUser) return;
     const targetEntity = currentUser.employee_id ? 'employees' : 'User';
     const targetId = currentUser.employee_id || currentUser.id;
     setSettingsTarget({ entity: targetEntity, id: targetId });
     db.entities[targetEntity].get(targetId)
       .then((record) => {
         const saved = record?.page_layouts_json?.[PAGE_KEY];
-        setEnabledWidgets(saved?.enabledWidgets || config.default_dashboard_widgets || SALES_WIDGETS.map((w) => w.id));
+        setEnabledWidgets(saved?.enabledWidgets || config?.default_dashboard_widgets || SALES_WIDGETS.map((w) => w.id));
         setRefreshRateSeconds(saved?.refreshRateSeconds || 0);
       })
-      .catch(() => setEnabledWidgets(config.default_dashboard_widgets || SALES_WIDGETS.map((w) => w.id)));
+      .catch(() => setEnabledWidgets(config?.default_dashboard_widgets || SALES_WIDGETS.map((w) => w.id)));
   }, [currentUser, config]);
 
   const persistSettings = async (next) => {
