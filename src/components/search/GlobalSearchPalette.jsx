@@ -65,9 +65,9 @@ export default function GlobalSearchPalette() {
   const handleResultClick = (type, item) => {
     const routes = {
       bids: `/estimating/${item.id}`,
-      customers: '/crm',
+      customers: `/crm?customer=${item.id}`,
       projects: `/projects/${item.id}`,
-      documents: '/documents',
+      documents: `/documents?doc=${item.id}`,
     };
     navigate(routes[type]);
     setOpen(false);

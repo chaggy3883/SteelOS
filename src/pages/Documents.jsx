@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Search, Upload, FolderOpen, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -13,14 +14,26 @@ const DOC_TYPE_ICONS = {
 };
 
 export default function Documents() {
+  const [searchParams] = useSearchParams();
+  // A Global Search hit lands here with ?doc=<id> — filters/type get reset
+  // so the highlighted row can't be hidden by a stale filter, and the row
+  // scrolls into view once the fetch that contains it has landed.
+  const highlightId = searchParams.get('doc');
   const [documents, setDocuments] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
+  const highlightRef = useRef(null);
 
   useEffect(() => { loadData(); }, []);
+
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlightId, documents]);
 
   const loadData = async () => {
     setLoading(true);
@@ -35,6 +48,7 @@ export default function Documents() {
   };
 
   const filtered = documents.filter(d => {
+    if (d.id === highlightId) return true;
     const matchSearch = !search || d.name?.toLowerCase().includes(search.toLowerCase());
     const matchType = typeFilter === 'all' || d.document_type === typeFilter;
     const matchProject = projectFilter === 'all' || d.project_id === projectFilter;
@@ -108,7 +122,11 @@ export default function Documents() {
                 filtered.map(doc => {
                   const proj = projects.find(p => p.id === doc.project_id);
                   return (
-                    <tr key={doc.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                    <tr
+                      key={doc.id}
+                      ref={doc.id === highlightId ? highlightRef : null}
+                      className={`border-b border-border/50 hover:bg-muted/50 transition-colors ${doc.id === highlightId ? 'bg-primary/10 ring-1 ring-inset ring-primary/40' : ''}`}
+                    >
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
                           <span className="text-base">{DOC_TYPE_ICONS[doc.document_type] || '📄'}</span>
