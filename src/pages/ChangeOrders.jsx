@@ -1,18 +1,22 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
+import { dispatchChangeOrderNotification } from '@/lib/salesNotifications';
+import { useAuth } from '@/lib/AuthContext';
 import { FileEdit, Loader2, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 
 const STATUS_OPTIONS = ['Draft', 'Submitted to GC', 'Approved', 'Rejected', 'Void'];
-const emptyForm = () => ({ title: '', status: 'Draft', tonnage: '', hours: '', dollars: '' });
+const emptyForm = () => ({ title: '', status: 'Draft', tonnage: '', hours: '', dollars: '', receivedFromCustomer: false });
 
 // Cross-project Change Order Hub — pick any active project, log a CO against
 // it without leaving this page. Writes to the SAME `change_orders` entity
@@ -21,6 +25,8 @@ const emptyForm = () => ({ title: '', status: 'Draft', tonnage: '', hours: '', d
 // runs the exact same contract-value rollup via changeOrderMetrics.js.
 export default function ChangeOrders() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState('');
@@ -36,6 +42,20 @@ export default function ChangeOrders() {
 
   useEffect(() => { loadProjects(); }, []);
   useEffect(() => { if (selectedProjectId) loadProjectOrders(selectedProjectId); }, [selectedProjectId]);
+
+  // Deep link from the Salesman Dashboard's Change Orders widget
+  // ('/projects/change-orders?open=<id>') — resolves the CO's project first
+  // (this page is scoped to one selected project at a time), then selects it.
+  useEffect(() => {
+    const openId = searchParams.get('open');
+    if (!openId || selectedCo?.id === openId) return;
+    db.entities.change_orders.get(openId).then((co) => {
+      if (!co) return;
+      if (co.project_id !== selectedProjectId) setSelectedProjectId(co.project_id);
+      setSelectedCo(co);
+      setEditingCo(false);
+    }).catch(() => {});
+  }, [searchParams]);
 
   const loadProjects = async () => {
     setLoadingProjects(true);
@@ -79,6 +99,7 @@ export default function ChangeOrders() {
         added_tonnage_weight_lbs: Number(form.tonnage || 0),
         added_labor_hours: Number(form.hours || 0),
         date_submitted: new Date().toISOString().slice(0, 10),
+        received_from_customer: form.receivedFromCustomer,
       };
       const created = await db.entities.change_orders.create(nextOrder);
       const nextList = [created, ...changeOrders];
@@ -86,7 +107,20 @@ export default function ChangeOrders() {
       const updatedProject = await syncProjectChangeOrderMetrics(selectedProject, nextList);
       setSelectedProject(updatedProject);
       setForm(emptyForm());
-      toast({ title: `${created.change_order_id} executed`, description: `Logged against ${updatedProject.project_number || updatedProject.name}.` });
+
+      let recipientCount = 0;
+      if (form.receivedFromCustomer) {
+        try {
+          recipientCount = await dispatchChangeOrderNotification(created, updatedProject, user?.employee_id, user?.full_name || user?.email);
+        } catch (notifyError) {}
+      }
+
+      toast({
+        title: `${created.change_order_id} executed`,
+        description: recipientCount > 0
+          ? `Notified ${recipientCount} teammate${recipientCount === 1 ? '' : 's'} it was received from the customer.`
+          : `Logged against ${updatedProject.project_number || updatedProject.name}.`,
+      });
     } catch (e) {
       toast({ title: 'Unable to execute change order', variant: 'destructive' });
     } finally {
@@ -104,6 +138,7 @@ export default function ChangeOrders() {
       added_tonnage_weight_lbs: selectedCo.added_tonnage_weight_lbs ?? 0,
       added_labor_hours: selectedCo.added_labor_hours ?? 0,
       total_change_order_value_cents: selectedCo.total_change_order_value_cents ?? 0,
+      received_from_customer: selectedCo.received_from_customer || false,
     });
     setEditingCo(true);
   };
@@ -119,6 +154,7 @@ export default function ChangeOrders() {
       added_tonnage_weight_lbs: selectedCo.added_tonnage_weight_lbs ?? 0,
       added_labor_hours: selectedCo.added_labor_hours ?? 0,
       total_change_order_value_cents: selectedCo.total_change_order_value_cents ?? 0,
+      received_from_customer: selectedCo.received_from_customer || false,
     });
   };
 
@@ -141,7 +177,14 @@ export default function ChangeOrders() {
       setChangeOrders((prev) => prev.map((c) => (c.id === selectedCo.id ? updated : c)));
       setSelectedCo(updated);
       setEditingCo(false);
-      toast({ title: 'Change order updated' });
+
+      let recipientCount = 0;
+      if (payload.received_from_customer && !selectedCo.received_from_customer) {
+        try {
+          recipientCount = await dispatchChangeOrderNotification(updated, selectedProject, user?.employee_id, user?.full_name || user?.email);
+        } catch (notifyError) {}
+      }
+      toast({ title: 'Change order updated', description: recipientCount > 0 ? `Notified ${recipientCount} teammate${recipientCount === 1 ? '' : 's'}.` : undefined });
     } catch (e) {
       toast({ title: 'Unable to save changes', variant: 'destructive' });
     } finally {
@@ -200,6 +243,10 @@ export default function ChangeOrders() {
                   <Label>Extra Contract Dollars</Label>
                   <Input type="number" min={0} value={form.dollars} onChange={(e) => setForm((f) => ({ ...f, dollars: e.target.value }))} className="mt-1" placeholder="$" />
                 </div>
+                <div className="md:col-span-2 flex items-center gap-2">
+                  <Checkbox id="co-received-from-customer" checked={form.receivedFromCustomer} onCheckedChange={(v) => setForm((f) => ({ ...f, receivedFromCustomer: !!v }))} />
+                  <Label htmlFor="co-received-from-customer" className="font-normal cursor-pointer">Received from customer — notify PM and Estimating</Label>
+                </div>
               </div>
               <Button onClick={handleExecute} disabled={saving || !form.title.trim()} className="w-full steel-gradient text-white border-0">
                 {saving ? 'Executing…' : 'Execute Change Order'}
@@ -249,6 +296,7 @@ export default function ChangeOrders() {
                 <DialogTitle className="flex items-center gap-2 flex-wrap">
                   <span>{selectedCo.change_order_id}</span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-muted font-medium">{selectedCo.status}</span>
+                  {selectedCo.received_from_customer && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-medium">Received from customer</span>}
                 </DialogTitle>
               </DialogHeader>
               <p className="text-xs text-muted-foreground -mt-2">{selectedCo.date_submitted || 'No submission date'}</p>
@@ -332,6 +380,10 @@ export default function ChangeOrders() {
                   <div>
                     <Label>Added Labor Hours</Label>
                     <Input type="number" value={editForm.added_labor_hours} onChange={(e) => setEditForm((f) => ({ ...f, added_labor_hours: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div className="col-span-2 flex items-center gap-2">
+                    <Checkbox id="co-edit-received-from-customer" checked={editForm.received_from_customer} onCheckedChange={(v) => setEditForm((f) => ({ ...f, received_from_customer: !!v }))} />
+                    <Label htmlFor="co-edit-received-from-customer" className="font-normal cursor-pointer">Received from customer</Label>
                   </div>
                 </div>
 

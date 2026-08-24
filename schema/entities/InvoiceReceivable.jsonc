@@ -31,6 +31,11 @@
       "type": "string",
       "enum": ["Draft", "Submitted", "Approved", "Released"],
       "default": "Draft"
+    },
+    "paid_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Auto-set to the date payment_status is first changed to 'Released' (see handleSaveInvoice in Accounting.jsx) — the payment date used by triggerCommissionOnPayment."
     }
   },
   "required": [

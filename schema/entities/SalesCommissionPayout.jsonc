@@ -1,0 +1,46 @@
+{
+  "name": "SalesCommissionPayout",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "salesman_id": {
+      "type": "string",
+      "description": "FK to employees."
+    },
+    "payroll_run_id": {
+      "type": "string",
+      "description": "FK to PayrollRun. Blank until a payroll run with a matching run_date is created — see attachPendingCommissionPayoutsToRun in src/lib/commissionEngine.js."
+    },
+    "commission_amount": {
+      "type": "number",
+      "description": "Sum of every included ProjectCommissionPayment.commission_for_this_payment for this salesman/cycle."
+    },
+    "project_commissions_included": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "ProjectCommissionPayment ids rolled into this payout."
+    },
+    "payout_date": {
+      "type": "string",
+      "format": "date",
+      "description": "The payroll cycle date this payout was queued for (payrollCycleDate passed to queueCommissionsForPayroll)."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending_payroll_approval", "paid_out"],
+      "default": "pending_payroll_approval",
+      "description": "Flips to 'paid_out' when the linked PayrollRun is locked — see finalizeCommissionPayoutsForRun in src/lib/commissionEngine.js."
+    }
+  },
+  "required": [
+    "salesman_id",
+    "commission_amount",
+    "payout_date"
+  ],
+  "description": "The actual payroll entry for a salesman's queued commissions — one per salesman per payroll cycle, created by queueCommissionsForPayroll (src/lib/commissionEngine.js). Links commission to the payroll module via PayrollAdjustment (adjustment_type 'commission')."
+}

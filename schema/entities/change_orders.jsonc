@@ -51,6 +51,11 @@
     },
     "attachment_path": {
       "type": "string"
+    },
+    "received_from_customer": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set when a salesman marks this CO as received from the customer (Change Order Intake) — triggers a notification to PM and Estimating (see src/lib/salesNotifications.js)."
     }
   },
   "required": [

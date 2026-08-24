@@ -98,6 +98,16 @@
     },
     "notes": {
       "type": "string"
+    },
+    "created_by_role": {
+      "type": "string",
+      "enum": ["salesman", "project_manager", "inspector", "estimator", "other"],
+      "description": "Snapshot of the creating user's primary role at creation time — drives notification routing (see src/lib/salesNotifications.js): a salesman-created RFI notifies PM/QA/Shop/Estimating, any other role's RFI notifies the project's salesman."
+    },
+    "pending_salesman_response": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set true when a non-salesman creates an RFI on a project with a salesman assigned — shows the 'Respond' action on the Salesman Dashboard's Recent RFIs widget. Cleared the next time the salesman saves a response."
     }
   },
   "required": [

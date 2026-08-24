@@ -1,0 +1,37 @@
+{
+  "name": "SalesmanCommissionRate",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "salesman_id": {
+      "type": "string",
+      "description": "FK to employees."
+    },
+    "rate": {
+      "type": "number",
+      "description": "Percent when SalesCommissionConfig.commission_calc_method is 'profit_percent' or 'bid_amount_percent'; a flat dollar override when it's 'flat_rate'. Null falls back to SalesCommissionConfig's default_commission_rate/flat_rate_amount."
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Blank while this is the salesman's current rate. A rate change never edits or deletes a past row — it creates a new SalesmanCommissionRate and sets end_date on the row it replaces, preserving full rate history. Same convention as EmployeePayRate."
+    },
+    "reason_for_change": {
+      "type": "string"
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "salesman_id",
+    "effective_date"
+  ],
+  "description": "Per-salesman override of SalesCommissionConfig.default_commission_rate, managed via /admin/salesman-rates. Only applies when SalesCommissionConfig.per_salesman_override is true."
+}

@@ -1,0 +1,49 @@
+{
+  "name": "ProjectCommissionPayment",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_commission_id": {
+      "type": "string",
+      "description": "FK to ProjectCommission."
+    },
+    "invoice_id": {
+      "type": "string",
+      "description": "FK to InvoiceReceivable — the customer payment that triggered this commission slice."
+    },
+    "payment_milestone": {
+      "type": "string",
+      "description": "InvoiceReceivable.billing_period at the time of payment, e.g. \"25% Upfront\" — carried over for display so this record doesn't need to re-join the invoice to show what it was for."
+    },
+    "payment_received_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "payment_amount": {
+      "type": "number",
+      "description": "The actual $ paid by the customer for this milestone (InvoiceReceivable.net_billing at time of payment)."
+    },
+    "commission_for_this_payment": {
+      "type": "number",
+      "description": "payment_amount / total_contract_value_snapshot x total_commission_value, from the parent ProjectCommission."
+    },
+    "payroll_cycle_date": {
+      "type": "string",
+      "format": "date",
+      "description": "The payroll run_date this commission slice is queued for — set to the next payroll cycle after payment_received_date."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending_payroll", "paid_out"],
+      "default": "pending_payroll"
+    }
+  },
+  "required": [
+    "project_commission_id",
+    "payment_amount",
+    "commission_for_this_payment"
+  ],
+  "description": "One record per payment stage on a project (25% upfront, 50% delivery, 25% final, etc). Created by triggerCommissionOnPayment (src/lib/commissionEngine.js) every time a customer payment is recorded in Accounting."
+}

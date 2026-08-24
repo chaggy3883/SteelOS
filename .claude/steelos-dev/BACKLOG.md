@@ -56,6 +56,46 @@ right heading. Ask which section if it's ambiguous.
   employee's own last-4 SSN, entered directly as a 4-digit PIN (see
   `src/lib/pinFormula.js`'s security caveat). Demo seed employees now have
   distinct `ssn_last4` values, which also fixes the PIN-collision bug below.
+- Sales & Commission system — 5 new entities (`SalesCommissionConfig`,
+  `SalesmanCommissionRate`, `ProjectCommission`, `ProjectCommissionPayment`,
+  `SalesCommissionPayout`) plus `src/lib/commissionEngine.js`
+  (`calculateProjectCommission`, `triggerCommissionOnPayment`,
+  `queueCommissionsForPayroll`). Admin config at `/admin/commission-setup`
+  (profit %/bid amount %/flat rate, admin-only) and per-salesman rate
+  history at `/admin/salesman-rates` (admin/payroll_admin/hr_admin), mirroring
+  `EmployeePayRate`'s effective-dated-history convention. `employees.is_salesman`
+  and `Bid.salesman_id`/`Project.salesman_id` added — salesman assigned on the
+  bid (`BidDetail.jsx`, next to Estimator) and carried onto the won project.
+  Wired end-to-end: `Accounting.jsx` triggers commission on an
+  `InvoiceReceivable` payment-status flip to Released; `PayrollRunPanel.jsx`
+  sweeps queued payouts into a run as `PayrollAdjustment` rows
+  (`adjustment_type: 'commission'`, new GL-mappable cost type) when the run is
+  created, and flips payouts/payments to `paid_out` when the run locks.
+- Salesman Dashboard + RFI/CO/Addenda notification routing — new
+  `salesman` BUILTIN_ROLE and `sales` company add-on module key, route
+  `/sales/dashboard` (`src/pages/SalesDashboard.jsx`), 7 toggleable widgets
+  (`src/components/sales/*Widget.jsx`, data helpers in
+  `src/lib/salesDashboardData.js`): Sales Pipeline, My Active Projects
+  (issues = pieces.workflow_status 'Rejected', open RFIs, Failed QA —
+  pieces has no distinct "rework" state), Commission YTD (reuses
+  `commissionEngine.js`'s `getSalesmanCommissionSummary`), Recent RFIs,
+  Change Orders, Addenda/Bulletins (new `ProjectBulletin` entity — no
+  addendum/bulletin entity existed before this), Quick Stats. Admin sets
+  default widgets + `allow_salesmen_see_pipeline` in Commission Setup;
+  each salesman's own on/off + refresh-rate choice persists via the
+  existing `page_layouts_json` convention (`Dashboard.jsx`'s mechanism),
+  not a new entity. Admin/payroll_admin can pick any salesman to view for
+  support. Notification routing lives in `src/lib/salesNotifications.js`
+  (RFI created by salesman → PM/QA/Shop/Estimating; by anyone else →
+  salesman; CO marked "received from customer" → PM/Estimating; bulletin
+  → PM/Shop/salesman) — extends the existing `Notification` entity
+  (`entity_type`/`entity_id`/`creator_id` added) rather than a new one;
+  `RFI.created_by_role`/`pending_salesman_response` and
+  `change_orders.received_from_customer` added to drive it. `TopBar.jsx`'s
+  notification bell is now clickable (marks read, navigates via `link`) —
+  previously dead. Real-time cross-session toast delivery is not possible
+  here (no backend/push) — a notification is created and visible on next
+  load/navigation, not pushed live into an already-open other session.
 
 ## Given As Prompts — Not Yet Confirmed Landed
 
@@ -138,6 +178,18 @@ closed:
   persists nothing
 - Accounting tab-level permissions not enforced — any role with
   `/accounting` sees Cash Management + Budget
+- **`Project` vs `projects` entity split** (found while building the
+  Salesman Dashboard) — two separate registered entities in
+  `src/api/apiClient.js`, both seeded with the same `project-harbor` id at
+  startup so they coincidentally line up for demo data. `Projects.jsx` /
+  `ProjectDetail.jsx` / `RFIs.jsx` / bid-to-project auto-creation
+  (`BidDetail.jsx`) all use PascalCase `Project`; `ProjectManagement.jsx`
+  and `ChangeOrders.jsx` (the Change Order Hub) use lowercase `projects`.
+  A project created going forward via a won bid exists in `Project` only,
+  so it will not appear in the Change Order Hub's project picker or
+  `ProjectManagement.jsx` until this is reconciled. Not fixed as part of
+  the commission/sales-dashboard work — too large/risky a refactor to
+  bundle into that scope.
 
 ## Deferred — Needs Real Backend/VPS
 

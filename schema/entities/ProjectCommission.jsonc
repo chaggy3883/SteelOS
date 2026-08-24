@@ -1,0 +1,46 @@
+{
+  "name": "ProjectCommission",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "salesman_id": {
+      "type": "string",
+      "description": "FK to employees — the employee credited with selling this project."
+    },
+    "calc_method_snapshot": {
+      "type": "string",
+      "enum": ["profit_percent", "bid_amount_percent", "flat_rate"],
+      "description": "SalesCommissionConfig.commission_calc_method at the time this record was created, so a later config change doesn't rewrite already-earned commission."
+    },
+    "rate_snapshot": {
+      "type": "number",
+      "description": "The salesman_rate or flat_rate_amount actually used, for audit — see calculateProjectCommission in src/lib/commissionEngine.js."
+    },
+    "total_contract_value_snapshot": {
+      "type": "number",
+      "description": "Project.contract_value at the time this record was created — the denominator every ProjectCommissionPayment prorates against, so a later contract_value change (change order) doesn't retroactively shift already-triggered payment proration."
+    },
+    "total_commission_value": {
+      "type": "number",
+      "default": 0,
+      "description": "Computed by calculateProjectCommission: (bid_amount - actual_cost) x rate% for profit_percent, bid_amount x rate% for bid_amount_percent, or flat_rate_amount."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending_payment", "paid_out"],
+      "default": "pending_payment",
+      "description": "'paid_out' once every ProjectCommissionPayment under this record has been paid through payroll."
+    }
+  },
+  "required": [
+    "project_id",
+    "salesman_id",
+    "total_commission_value"
+  ],
+  "description": "One record per project + salesman who sold it. Created automatically on the first triggerCommissionOnPayment call for a project (src/lib/commissionEngine.js) if one doesn't already exist. Holds the total commission owed for the job."
+}

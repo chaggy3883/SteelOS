@@ -7,7 +7,7 @@
     },
     "cost_type": {
       "type": "string",
-      "enum": ["labor", "tax_liability", "benefits", "accrual"]
+      "enum": ["labor", "tax_liability", "benefits", "accrual", "commission"]
     },
     "gl_account": {
       "type": "string",

@@ -1,0 +1,61 @@
+{
+  "name": "SalesCommissionConfig",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "commission_enabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "default_commission_rate": {
+      "type": "number",
+      "default": 0,
+      "description": "Percent (e.g. 5 for 5%), used by commission_calc_method 'profit_percent' or 'bid_amount_percent' whenever a salesman has no active SalesmanCommissionRate override."
+    },
+    "commission_calc_method": {
+      "type": "string",
+      "enum": ["profit_percent", "bid_amount_percent", "flat_rate"],
+      "default": "profit_percent"
+    },
+    "flat_rate_amount": {
+      "type": "number",
+      "description": "Fixed dollar commission per job, used only when commission_calc_method is 'flat_rate'. Blank for the other two methods."
+    },
+    "per_salesman_override": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether individual salesmen can have their own rate (SalesmanCommissionRate) instead of always using default_commission_rate."
+    },
+    "payment_trigger": {
+      "type": "string",
+      "enum": ["on_payment_received"],
+      "default": "on_payment_received",
+      "description": "Only one trigger model exists today — commission is earned proportionally as the customer actually pays, never on bid award or invoice issuance."
+    },
+    "next_payroll_cycle": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a triggered commission payment queues automatically for the next payroll cycle (see queueCommissionsForPayroll in src/lib/commissionEngine.js) rather than requiring a manual queue action."
+    },
+    "allow_salesmen_see_pipeline": {
+      "type": "boolean",
+      "default": true,
+      "description": "When false, the Sales Pipeline widget is hidden on every salesman's dashboard company-wide (admin/payroll_admin viewing for support still see it)."
+    },
+    "default_dashboard_widgets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": ["pipeline", "my_projects", "commission", "recent_rfis", "change_orders", "addenda", "quick_stats"],
+      "description": "Widget ids enabled by default on a salesman's dashboard the first time they load it — see SALES_WIDGETS in src/lib/salesDashboardData.js for the full id list. Each salesman can toggle their own set from there afterward (stored per-user, not here)."
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [],
+  "description": "One record per company — admin-configured via /admin/commission-setup. Controls how ProjectCommission.total_commission_value is calculated and when commissions are paid out."
+}

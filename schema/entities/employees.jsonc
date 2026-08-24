@@ -123,6 +123,11 @@
       "type": "string",
       "description": "General HR job title (e.g. 'Senior Ironworker', 'Shop Supervisor') — distinct from classification, which is the prevailing-wage/certified-payroll labor classification."
     },
+    "is_salesman": {
+      "type": "boolean",
+      "default": false,
+      "description": "Marks this employee as eligible for sales commission (SalesmanCommissionRate, ProjectCommission). Deliberately a dedicated flag rather than overloading job_title/classification or the unrelated RBAC platform_role field."
+    },
     "supervisor_name": {
       "type": "string"
     },

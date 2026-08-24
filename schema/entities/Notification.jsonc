@@ -23,7 +23,9 @@
         "review_assigned",
         "rfi_update",
         "document_update",
-        "approval_required"
+        "approval_required",
+        "co_update",
+        "bulletin_issued"
       ]
     },
     "project_id": {
@@ -35,6 +37,23 @@
     "is_read": {
       "type": "boolean",
       "default": false
+    },
+    "read_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": ["RFI", "ChangeOrder", "ProjectBulletin"],
+      "description": "Set alongside entity_id for the RFI/CO/Addenda notification routing system (src/lib/salesNotifications.js) — blank for other notification types that predate it."
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "Id of the RFI/change_orders/ProjectBulletin row this notification is about."
+    },
+    "creator_id": {
+      "type": "string",
+      "description": "employees.id of whoever created/changed the linked entity, for display (\"{Creator} created RFI #...\")."
     }
   },
   "required": [

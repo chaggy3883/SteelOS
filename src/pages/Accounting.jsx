@@ -19,6 +19,7 @@ import { runThreeWayMatch } from '@/lib/threeWayMatch';
 import { calculateWIPSchedule } from '@/lib/wipCalculations';
 import { handleProcorePayWebhook, handleTexturaWebhook } from '@/lib/webhookHandlers';
 import { exportToQuickBooksCSV, exportToSage100CSV } from '@/lib/glExport';
+import { triggerCommissionOnPayment } from '@/lib/commissionEngine';
 import CashManagementPanel from '@/components/accounting/CashManagementPanel';
 import CashForecastPanel from '@/components/accounting/CashForecastPanel';
 import MonthEndClosePanel from '@/components/accounting/MonthEndClosePanel';
@@ -522,13 +523,28 @@ export default function Accounting() {
     if (!invoiceForm.billing_period) { toast({ title: 'Billing period is required', variant: 'destructive' }); return; }
     try {
       const netBilling = (Number(invoiceForm.gross_amount) || 0) - (Number(invoiceForm.retainage_held) || 0);
+      const wasReleased = !!editingInvoice && editingInvoice !== 'new' && editingInvoice.payment_status === 'Released';
+      const isNowReleased = invoiceForm.payment_status === 'Released';
+      const paidDate = new Date().toISOString().slice(0, 10);
       const payload = { ...invoiceForm, project_id: selectedProjectId, net_billing: netBilling };
-      if (editingInvoice && editingInvoice !== 'new') {
-        await db.entities.InvoiceReceivable.update(editingInvoice.id, payload);
-      } else {
-        await db.entities.InvoiceReceivable.create(payload);
-      }
+      if (isNowReleased && !wasReleased) payload.paid_date = paidDate;
+
+      const savedInvoice = editingInvoice && editingInvoice !== 'new'
+        ? await db.entities.InvoiceReceivable.update(editingInvoice.id, payload)
+        : await db.entities.InvoiceReceivable.create(payload);
       toast({ title: 'Progress billing saved' });
+
+      if (isNowReleased && !wasReleased) {
+        try {
+          const commissionPayment = await triggerCommissionOnPayment(savedInvoice.id, netBilling, paidDate);
+          if (commissionPayment) {
+            toast({ title: `Commission triggered: $${commissionPayment.commission_for_this_payment.toLocaleString(undefined, { minimumFractionDigits: 2 })} to be paid in next payroll cycle` });
+          }
+        } catch (commissionError) {
+          toast({ title: 'Payment recorded, but commission could not be calculated', variant: 'destructive' });
+        }
+      }
+
       setEditingInvoice(null);
       loadSovAndLedger(selectedProjectId);
     } catch (e) {

@@ -65,6 +65,7 @@ export default function BidDetail() {
   const [savingEstimate, setSavingEstimate] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [savingEstimator, setSavingEstimator] = useState(false);
+  const [savingSalesman, setSavingSalesman] = useState(false);
   const [certUploading, setCertUploading] = useState(false);
   const [certViewerOpen, setCertViewerOpen] = useState(false);
   const certFileInputRef = useRef(null);
@@ -153,6 +154,18 @@ export default function BidDetail() {
     }
   };
 
+  const handleSalesmanChange = async (value) => {
+    setSavingSalesman(true);
+    try {
+      await db.entities.Bid.update(id, { salesman_id: value || null });
+      loadBid();
+    } catch (e) {
+      toast({ title: 'Failed to update salesman', variant: 'destructive' });
+    } finally {
+      setSavingSalesman(false);
+    }
+  };
+
   const getNextProjectNumber = async () => {
     const prefix = `P${String(new Date().getFullYear() % 100).padStart(2, '0')}`;
     const existingProjects = await db.entities.Project.list('-created_date', 500);
@@ -185,6 +198,7 @@ export default function BidDetail() {
       state: wonBid.state || wonBid.job_state,
       bid_date: wonBid.bid_due_date || null,
       estimator_id: wonBid.estimator_id,
+      salesman_id: wonBid.salesman_id,
       notes: `Auto-created from won bid ${wonBid.bid_number}.`,
       is_archived: false,
       is_pinned: false,
@@ -416,7 +430,7 @@ export default function BidDetail() {
       />
 
       {/* Bid Summary Bar */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-7 gap-4 mb-6">
         <div className="steel-card p-3">
           <p className="text-xs text-muted-foreground">Estimator</p>
           <select
@@ -427,6 +441,18 @@ export default function BidDetail() {
           >
             <option value="">Unassigned</option>
             {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+          </select>
+        </div>
+        <div className="steel-card p-3">
+          <p className="text-xs text-muted-foreground">Salesman</p>
+          <select
+            value={bid.salesman_id || ''}
+            onChange={(e) => handleSalesmanChange(e.target.value)}
+            disabled={savingSalesman}
+            className="mt-0.5 w-full rounded-md border border-input bg-input/40 px-1.5 py-0.5 text-sm font-bold disabled:opacity-50"
+          >
+            <option value="">Unassigned</option>
+            {employees.filter(e => e.is_salesman).map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
           </select>
         </div>
         {[

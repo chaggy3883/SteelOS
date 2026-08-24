@@ -51,6 +51,15 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
     } catch (e) {}
   };
 
+  const handleNotificationClick = async (notification) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+    setUnreadCount((prev) => Math.max(0, prev - 1));
+    try {
+      await db.entities.Notification.update(notification.id, { is_read: true, read_date: new Date().toISOString() });
+    } catch (e) {}
+    if (notification.link) navigate(notification.link);
+  };
+
   const handleLogout = async () => {
     // Must happen before logout() clears the auth token — db.auth.logout
     // navigates away synchronously right after, so this has to be awaited
@@ -137,7 +146,7 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
               <div className="px-3 py-4 text-sm text-muted-foreground text-center">No new notifications</div>
             ) : (
               notifications.slice(0, 5).map((n) => (
-                <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 py-3">
+                <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 py-3 cursor-pointer" onClick={() => handleNotificationClick(n)}>
                   <span className="font-medium text-sm">{n.title}</span>
                   <span className="text-xs text-muted-foreground">{n.message}</span>
                 </DropdownMenuItem>

@@ -50,6 +50,10 @@
     "estimator_id": {
       "type": "string"
     },
+    "salesman_id": {
+      "type": "string",
+      "description": "FK to employees — carried over from Bid.salesman_id when a won bid auto-creates its project (see createProjectFromWonBid in BidDetail.jsx). Drives ProjectCommission via src/lib/commissionEngine.js."
+    },
     "contract_value": {
       "type": "number"
     },

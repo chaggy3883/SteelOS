@@ -1,0 +1,38 @@
+{
+  "name": "ProjectBulletin",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "bulletin_type": {
+      "type": "string",
+      "enum": ["addendum", "notice", "schedule_change"],
+      "default": "addendum"
+    },
+    "date_issued": {
+      "type": "string",
+      "format": "date"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "full_text": {
+      "type": "string"
+    },
+    "created_by_employee_id": {
+      "type": "string",
+      "description": "FK to employees — who logged this bulletin (currently only the Salesman Dashboard's Addenda/Bulletins widget creates these)."
+    }
+  },
+  "required": [
+    "project_id",
+    "bulletin_type",
+    "date_issued",
+    "summary"
+  ],
+  "description": "A project-level addendum, notice, or schedule change — distinct from Document.document_type's 'addendum' tag (a file classification, no workflow of its own). Triggers a notification to PM, Shop Manager, and the project's salesman on creation (see src/lib/salesNotifications.js)."
+}

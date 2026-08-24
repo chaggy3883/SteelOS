@@ -12,6 +12,7 @@ import { getEffectiveRule } from '@/lib/payrollRules';
 import { allocateLaborToJobs, calculateGrossPay, calculateTaxesAndDeductions, calculateEmployerTax, resolveEmployerTaxRules, resolveGLAccount } from '@/lib/payrollEngine';
 import { runPayrollControlChecks, isRunApprovable } from '@/lib/payrollControls';
 import { hasPayrollApprovalAccess, hasPayrollReopenAccess } from '@/lib/payrollApprovalAccess';
+import { queueCommissionsForPayroll, attachPendingCommissionPayoutsToRun, finalizeCommissionPayoutsForRun } from '@/lib/commissionEngine';
 import { logStatusChange } from '@/lib/statusHistory';
 
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -161,7 +162,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         return;
       }
 
-      const run = await db.entities.PayrollRun.create({
+      let run = await db.entities.PayrollRun.create({
         pay_period_id: periodId,
         status: 'review',
         run_date: new Date().toISOString().slice(0, 10),
@@ -169,6 +170,17 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         total_net: Math.round(totalNet * 100) / 100,
         total_employer_tax: Math.round(totalEmployerTax * 100) / 100,
       });
+
+      // Queues any customer-payment-triggered commissions due by this run's
+      // date into per-salesman payouts, then sweeps them onto this run as
+      // PayrollAdjustment rows — see src/lib/commissionEngine.js. Re-fetch
+      // the run afterward since this bumps total_gross/total_net.
+      await queueCommissionsForPayroll(run.run_date);
+      const attachedCommissions = await attachPendingCommissionPayoutsToRun(run);
+      const attachedCommissionTotal = attachedCommissions.reduce((sum, p) => sum + (Number(p.commission_amount) || 0), 0);
+      if (attachedCommissions.length > 0) {
+        run = await db.entities.PayrollRun.get(run.id);
+      }
 
       const createdLines = await db.entities.PayrollLine.bulkCreate(lines.map(({ _employerTax, _timecardId, ...line }) => ({ ...line, payroll_run_id: run.id })));
 
@@ -248,6 +260,14 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         { gl_account: benefitsGl, debit: 0, credit: round2(benefitsTotal), description: 'Benefit deductions liability' },
         { gl_account: accrualGl, debit: 0, credit: round2(totalNet + otherPayableDeductions), description: 'Net pay + garnishment/other deductions payable' },
       ].filter((j) => j.debit > 0 || j.credit > 0);
+
+      if (attachedCommissionTotal > 0) {
+        const commissionGl = resolveOrFlag('commission');
+        journalPayloads.push(
+          { gl_account: commissionGl, debit: round2(attachedCommissionTotal), credit: 0, description: 'Sales commission expense' },
+          { gl_account: accrualGl, debit: 0, credit: round2(attachedCommissionTotal), description: 'Sales commission payable' },
+        );
+      }
       await db.entities.PayrollJournal.bulkCreate(journalPayloads.map((j) => ({ ...j, payroll_run_id: run.id })));
 
       if (unmappedCostTypes.size > 0) {
@@ -257,7 +277,10 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       setRuns((prev) => [run, ...prev]);
       const paidTimecardIds = new Set(lines.map((l) => l._timecardId));
       setTimecards((prev) => prev.map((t) => (paidTimecardIds.has(t.id) ? { ...t, payroll_run_id: run.id } : t)));
-      toast({ title: `Payroll run created — ${createdLines.length} employee(s)`, description: `Gross ${money(totalGross)} · Net ${money(totalNet)} · in review` });
+      toast({
+        title: `Payroll run created — ${createdLines.length} employee(s)`,
+        description: `Gross ${money(run.total_gross)} · Net ${money(run.total_net)} · in review${attachedCommissionTotal > 0 ? ` · includes ${money(attachedCommissionTotal)} sales commission` : ''}`,
+      });
     } catch (e) {
       console.error(e);
       toast({ title: 'Unable to run payroll', variant: 'destructive' });
@@ -299,7 +322,8 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
           })
         : [];
 
-      setRunDetail({ lines, employerTax, liabilities, journal, checkResults });
+      const commissionAdjustments = adjustments.filter((a) => a.adjustment_type === 'commission');
+      setRunDetail({ lines, employerTax, liabilities, journal, checkResults, commissionAdjustments });
     } catch (e) {
       toast({ title: 'Unable to load run detail', variant: 'destructive' });
     }
@@ -352,6 +376,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         status: 'locked', locked_by: identity, locked_at: new Date().toISOString(),
       });
       await logStatusChange({ entityType: 'PayrollRun', entityId: viewingRun.id, fieldName: 'status', fromValue: 'approved', toValue: 'locked', changedBy: identity });
+      await finalizeCommissionPayoutsForRun(viewingRun.id);
       setViewingRun(updated);
       setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
       toast({ title: 'Payroll run locked', description: 'Timecards for this pay period are now read-only.' });
@@ -560,6 +585,20 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
                   </table>
                 </div>
               </div>
+
+              {runDetail.commissionAdjustments.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Sales Commissions</h4>
+                  <div className="space-y-1 text-sm">
+                    {runDetail.commissionAdjustments.map((a) => (
+                      <div key={a.id} className="flex justify-between border-b border-border/50 py-1" title={a.reason}>
+                        <span className="text-muted-foreground">{employeeName(a.employee_id)}</span>
+                        <span className="font-mono">{money(a.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>

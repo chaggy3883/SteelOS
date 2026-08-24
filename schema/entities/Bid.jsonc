@@ -229,6 +229,10 @@
     "estimator_id": {
       "type": "string"
     },
+    "salesman_id": {
+      "type": "string",
+      "description": "FK to employees — who sold this bid, distinct from estimator_id (who priced it). Carried onto Project.salesman_id when the bid is won."
+    },
     "notes": {
       "type": "string"
     },

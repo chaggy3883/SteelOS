@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 
-const COST_TYPES = ['labor', 'tax_liability', 'benefits', 'accrual'];
+const COST_TYPES = ['labor', 'tax_liability', 'benefits', 'accrual', 'commission'];
 const titleCase = (s) => (s ? String(s).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : s);
 const NO_COST_CODE = '__company_wide__';
 

@@ -13,7 +13,7 @@
     },
     "adjustment_type": {
       "type": "string",
-      "enum": ["bonus", "reimbursement", "correction", "other"]
+      "enum": ["bonus", "reimbursement", "correction", "commission", "other"]
     },
     "amount": {
       "type": "number",

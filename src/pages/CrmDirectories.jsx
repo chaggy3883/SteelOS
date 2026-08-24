@@ -48,6 +48,15 @@ export default function CrmDirectories() {
     if (match) setViewingRecord(match);
   }, [searchParams, vendors]);
 
+  // Mirrors the vendor deep-link above — used by the salesman dashboard's
+  // pipeline/project widgets to jump straight to a customer's detail modal.
+  useEffect(() => {
+    const customerId = searchParams.get('customer');
+    if (!customerId || customers.length === 0) return;
+    const match = customers.find(c => c.id === customerId);
+    if (match) { setFilter('customers'); setViewingRecord(match); }
+  }, [searchParams, customers]);
+
   const loadData = async () => {
     setLoading(true);
     try {

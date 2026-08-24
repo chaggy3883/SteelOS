@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isAdminUser } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
@@ -46,6 +46,8 @@ const NAV_LINKS = [
   { path: '/admin/intelligence-rules', label: 'Intelligence Rules', icon: Radar },
   { path: '/admin/service-schedules', label: 'Equipment Service Schedules', icon: Wrench },
   { path: '/admin/pto-policies', label: 'PTO Policies', icon: CalendarClock, roles: ['hr_admin', 'payroll_admin'] },
+  { path: '/admin/commission-setup', label: 'Sales Commission Setup', icon: DollarSign },
+  { path: '/admin/salesman-rates', label: 'Salesman Commission Rates', icon: Percent, roles: ['hr_admin', 'payroll_admin'] },
 ];
 
 export default function Admin() {

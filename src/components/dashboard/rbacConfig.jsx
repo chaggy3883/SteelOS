@@ -31,6 +31,8 @@ export const ALL_MODULES = [
   { path: '/users', label: 'Users' },
   { path: '/settings', label: 'Settings' },
   { path: '/admin', label: 'Admin Panel' },
+  { path: '/admin/commission-setup', label: 'Sales Commission Setup' },
+  { path: '/admin/salesman-rates', label: 'Salesman Commission Rates' },
   { path: '/human-resources', label: 'Human Resources' },
   { path: '/payroll', label: 'Payroll' },
   { path: '/payroll/hours', label: 'Hours at a Glance' },
@@ -42,6 +44,7 @@ export const ALL_MODULES = [
   { path: '/field-operations/rigging-inspection', label: 'Rigging Inspection' },
   { path: '/field-operations/equipment-service', label: 'Equipment Service' },
   { path: '/meeting-mode', label: 'Meeting Mode' },
+  { path: '/sales/dashboard', label: 'Salesman Dashboard' },
 ];
 
 // Every widget shares the same minW/minH floor (2x2) so the resize handle
@@ -79,8 +82,8 @@ export const BUILTIN_ROLES = [
   { name: 'shop_manager', label: 'Shop Manager', is_system: true, description: 'Production & quality oversight', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/production', '/quality', '/safety', '/inventory', '/shop-operations', '/shop-floor-command-center', '/field-operations', '/field-operations/rigging-inspection', '/field-operations/equipment-service', '/payroll/hours', '/intelligence-signals', '/meeting-mode'], allowed_widgets: ['fab_progress'] },
   { name: 'inspector', label: 'Inspector', is_system: true, description: 'Quality inspection', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/quality', '/documents'], allowed_widgets: [] },
   { name: 'warehouse_clerk', label: 'Warehouse Clerk', is_system: true, description: 'Inventory & shipping', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/inventory', '/shipping'], allowed_widgets: ['shipments_calendar'] },
-  { name: 'hr_admin', label: 'HR Admin', is_system: true, description: 'User management, accounting, and personnel records', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/users', '/accounting', '/admin', '/human-resources', '/payroll/setup', '/portal/login'], allowed_widgets: ['interviews_calendar'] },
-  { name: 'payroll_admin', label: 'Payroll Admin', is_system: true, description: 'Payroll and personnel compensation records', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/accounting', '/human-resources', '/payroll', '/payroll/hours', '/payroll/setup', '/payroll/processing', '/certified-payroll', '/portal/login'], allowed_widgets: ['interviews_calendar'] },
+  { name: 'hr_admin', label: 'HR Admin', is_system: true, description: 'User management, accounting, and personnel records', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/users', '/accounting', '/admin', '/admin/salesman-rates', '/human-resources', '/payroll/setup', '/portal/login'], allowed_widgets: ['interviews_calendar'] },
+  { name: 'payroll_admin', label: 'Payroll Admin', is_system: true, description: 'Payroll and personnel compensation records', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/accounting', '/human-resources', '/payroll', '/payroll/hours', '/payroll/setup', '/payroll/processing', '/admin/salesman-rates', '/certified-payroll', '/portal/login'], allowed_widgets: ['interviews_calendar'] },
   { name: 'president', label: 'President', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/estimating', '/estimating/analytics', '/estimating/spec-review', '/projects', '/crm', '/accounting', '/reports', '/executive-analytics', '/admin', '/legal', '/intelligence-signals', '/meeting-mode', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining', 'pending_requisition_approvals_widget'] },
   { name: 'ceo', label: 'CEO', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/estimating', '/estimating/analytics', '/estimating/spec-review', '/projects', '/crm', '/accounting', '/reports', '/executive-analytics', '/admin', '/legal', '/intelligence-signals', '/meeting-mode', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining', 'pending_requisition_approvals_widget'] },
   { name: 'finance_department', label: 'Finance Department', is_system: true, description: 'Financial review access', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/accounting', '/estimating', '/estimating/analytics', '/estimating/spec-review', '/reports', '/executive-analytics', '/intelligence-signals', '/meeting-mode', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'invoiced_vs_remaining'] },
@@ -93,6 +96,7 @@ export const BUILTIN_ROLES = [
   { name: 'user', label: 'General User', is_system: true, description: 'Basic dashboard access', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/documents', '/inventory'], allowed_widgets: [] },
   { name: 'super_admin', label: 'Super Admin', is_system: true, description: 'Platform operator — cross-tenant support access, no home tenant', allowed_modules: ['/super-admin/dashboard', '/employee-center'], allowed_widgets: [] },
   { name: 'Maintenance_Manager', label: 'Maintenance Manager', is_system: true, description: 'Exclusive write access to the Field Operations fleet, repair, and rigging ledgers', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder', '/field-operations', '/field-operations/rigging-inspection', '/field-operations/equipment-service'], allowed_widgets: [] },
+  { name: 'salesman', label: 'Salesman', is_system: true, description: 'Personal sales pipeline, commission tracking, and RFI/CO/addenda visibility on projects they sold', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder', '/sales/dashboard', '/portal/login'], allowed_widgets: [] },
 ];
 
 export function isModuleAllowed(path, allowedModules) {

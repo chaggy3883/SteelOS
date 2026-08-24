@@ -48,6 +48,7 @@ const MODULE_ENTITLEMENTS = [
   { key: 'payroll', label: 'Payroll' },
   { key: 'equipment', label: 'Equipment Job Costing' },
   { key: 'ironsight', label: 'IRONSIGHT' },
+  { key: 'sales', label: 'Salesman Dashboard' },
 ];
 
 // Only counts an active session's actual elapsed time — a row with no

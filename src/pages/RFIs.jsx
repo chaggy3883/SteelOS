@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
+import { resolveActorRole, dispatchRfiNotification } from '@/lib/salesNotifications';
 import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2, FileWarning, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -91,6 +93,7 @@ When reviewing documents, you reason through them EXACTLY as an experienced stru
 export default function RFIs() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [rfis, setRfis] = useState([]);
   const [projects, setProjects] = useState([]);
   const [contracts, setContracts] = useState([]);
@@ -114,6 +117,14 @@ export default function RFIs() {
   const [historyRfi, setHistoryRfi] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+
+  // Deep link from the Salesman Dashboard's Recent RFIs widget ('/rfis?open=<id>').
+  useEffect(() => {
+    const openId = searchParams.get('open');
+    if (!openId || rfis.length === 0) return;
+    const match = rfis.find((r) => r.id === openId);
+    if (match) { setSelectedRfi(match); setEditingRfi(false); }
+  }, [searchParams, rfis]);
 
   const loadData = async () => {
     setLoading(true);
@@ -198,11 +209,15 @@ export default function RFIs() {
     try {
       const rfiCount = rfis.filter(r => r.project_id === form.project_id).length + 1;
       const createdAt = new Date().toISOString();
+      const project = projects.find(p => p.id === form.project_id);
+      const actorRole = resolveActorRole(user?.roles);
       const created = await db.entities.RFI.create({
         ...form,
         rfi_number: `RFI-${String(rfiCount).padStart(3,'0')}`,
         status: 'draft',
         date_submitted: createdAt.split('T')[0],
+        created_by_role: actorRole,
+        pending_salesman_response: actorRole !== 'salesman' && !!project?.salesman_id,
       });
       await logStatusChange({
         entityType: 'RFI',
@@ -213,7 +228,13 @@ export default function RFIs() {
         changedBy: user?.full_name || user?.email || 'Unknown',
         note: 'RFI created.',
       });
-      toast({ title: 'RFI created!' });
+
+      let recipientCount = 0;
+      try {
+        recipientCount = await dispatchRfiNotification(created, project, actorRole, user?.employee_id, user?.full_name || user?.email);
+      } catch (notifyError) {}
+
+      toast({ title: 'RFI created!', description: recipientCount > 0 ? `Notified ${recipientCount} teammate${recipientCount === 1 ? '' : 's'}.` : undefined });
       setOpen(false);
       setForm({ project_id: '', bid_id: '', subject: '', description: '', priority: 'medium' });
       loadData();
@@ -317,7 +338,13 @@ Draft the response now.`;
     try {
       // Transparency flag, not an accuracy claim — sticks whether the user
       // saves the draft verbatim or edits it first; either way AI assisted.
-      const payload = aiDraftUsed ? { ...editForm, ai_generated: true } : editForm;
+      const payload = aiDraftUsed ? { ...editForm, ai_generated: true } : { ...editForm };
+      // A salesman saving a non-blank response clears the "needs my reply"
+      // flag the Salesman Dashboard's Recent RFIs widget shows a Respond
+      // button for.
+      if (selectedRfi.pending_salesman_response && (editForm.response || '').trim()) {
+        payload.pending_salesman_response = false;
+      }
       const updated = await db.entities.RFI.update(selectedRfi.id, payload);
       setRfis(prev => prev.map(r => r.id === selectedRfi.id ? updated : r));
       setSelectedRfi(updated);
@@ -364,6 +391,7 @@ Draft the response now.`;
       if (statusChangeForm.to === 'answered') {
         payload.response = statusChangeForm.response.trim();
         payload.date_answered = changedAt.split('T')[0];
+        if (selectedRfi.pending_salesman_response) payload.pending_salesman_response = false;
       }
       const updated = await db.entities.RFI.update(selectedRfi.id, payload);
       await logStatusChange({
