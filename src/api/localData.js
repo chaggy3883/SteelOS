@@ -176,6 +176,22 @@ const buildSeedData = () => {
         is_active: true,
         created_date: now,
         updated_date: now
+      },
+      {
+        id: 'user-hancock-salesman',
+        email: 'salesman@hancocksteel.com',
+        password: 'password123',
+        roles: ['salesman'],
+        // Ties this login to Casey Nguyen (employee-1, is_salesman: true) so
+        // the "mine only" scoping in GlobalSearchPalette/salesDashboardData
+        // (Project/Bid.salesman_id === user.employee_id) has real data to
+        // filter against — see project-harbor/bid-1001 below.
+        employee_id: 'employee-1',
+        full_name: 'Casey Nguyen',
+        company_id: 'company-hancock',
+        is_active: true,
+        created_date: now,
+        updated_date: now
       }
     ],
     Company: [
@@ -425,6 +441,31 @@ const buildSeedData = () => {
         crane_setup_date: '2026-08-05',
         erection_progress: 24,
         contract_value: 1250000,
+        salesman_id: 'employee-1',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'project-peak',
+        company_id: 'company-hancock',
+        name: 'Peak Distribution Center',
+        project_number: 'JOB-26-014',
+        customer_id: 'customer-peak',
+        customer_name: 'Peak Steel',
+        status: 'active',
+        execution_status: 'Prefabrication',
+        is_archived: false,
+        original_contract_value: 640000,
+        approved_change_orders_total: 0,
+        current_revised_contract_value: 640000,
+        total_invoiced_to_date: 0,
+        remaining_project_balance: 640000,
+        estimated_tons: 140,
+        fabricated_tons: 0,
+        contract_value: 640000,
+        // Deliberately no salesman_id — this is the "not mine" project used to
+        // verify a salesman's search is actually scoped (should never surface
+        // this one), while admin/PM/estimator searches should see both.
         created_date: now,
         updated_date: now
       }
@@ -455,6 +496,28 @@ const buildSeedData = () => {
         crane_setup_date: '2026-08-05',
         erection_progress: 24,
         contract_value: 1250000,
+        salesman_id: 'employee-1',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'project-peak',
+        company_id: 'company-hancock',
+        name: 'Peak Distribution Center',
+        project_number: 'JOB-26-014',
+        customer_id: 'customer-peak',
+        customer_name: 'Peak Steel',
+        status: 'active',
+        execution_status: 'Prefabrication',
+        is_archived: false,
+        original_contract_value: 640000,
+        approved_change_orders_total: 0,
+        current_revised_contract_value: 640000,
+        total_invoiced_to_date: 0,
+        remaining_project_balance: 640000,
+        estimated_tons: 140,
+        fabricated_tons: 0,
+        contract_value: 640000,
         created_date: now,
         updated_date: now
       }
@@ -515,6 +578,20 @@ const buildSeedData = () => {
         customer_name: 'Acme Construction',
         status: 'in_progress',
         bid_due_date: '2026-08-15',
+        salesman_id: 'employee-1',
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'bid-1002',
+        company_id: 'company-hancock',
+        bid_number: 'BID-1002',
+        project_id: 'project-peak',
+        customer_id: 'customer-peak',
+        customer_name: 'Peak Steel',
+        status: 'in_progress',
+        bid_due_date: '2026-09-01',
+        // No salesman_id — the "not mine" bid for scoping contrast, see project-peak above.
         created_date: now,
         updated_date: now
       }

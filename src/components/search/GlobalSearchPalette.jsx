@@ -1,13 +1,59 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Search, FileText, Building2, FolderKanban, Calculator, X } from 'lucide-react';
+import { Search, FileText, Building2, FolderKanban, Calculator, Users, HelpCircle, Tag, X } from 'lucide-react';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { detectOS } from '@/lib/platformDetect';
+import { useAuth } from '@/lib/AuthContext';
+import { listEmployeesForRole } from '@/lib/employeesApi';
+
+const normalizeRoles = (roles) => (Array.isArray(roles) ? roles : roles ? [roles] : []).map((r) => String(r || '').toLowerCase().trim());
+
+// Which result categories each role can search. A multi-role account gets the
+// union of every matching role's categories. Roles with no entry here (or no
+// roles at all) fall back to DEFAULT_CATEGORIES.
+// Note: shop_manager gets 'employees' (crew lookup) alongside the HR/admin
+// roles from the spec — this is safe because listEmployeesForRole() below
+// masks the record to public fields (name/id/classification/dates) for any
+// role outside hr_admin/payroll_admin/admin, so shop_manager never sees SSN,
+// pay rate, or PIN state, just like the rest of the app's HR surfaces.
+const ROLE_CATEGORIES = {
+  admin: ['bids', 'customers', 'projects', 'documents', 'employees'],
+  super_admin: ['bids', 'customers', 'projects', 'documents', 'employees'],
+  payroll_admin: ['bids', 'customers', 'projects', 'documents', 'employees'],
+  hr_admin: ['employees', 'documents', 'projects'],
+  project_manager: ['projects', 'bids', 'customers', 'documents', 'rfis'],
+  estimator: ['bids', 'customers', 'projects'],
+  shop_manager: ['projects', 'employees', 'pieces', 'documents'],
+  purchasing_agent: ['customers', 'projects', 'documents'],
+  salesman: ['customers', 'projects', 'bids', 'rfis'],
+};
+const DEFAULT_CATEGORIES = ['projects', 'documents'];
+
+function categoriesForRoles(roles) {
+  const normalized = normalizeRoles(roles);
+  const matched = normalized.filter((r) => ROLE_CATEGORIES[r]);
+  if (matched.length === 0) return new Set(DEFAULT_CATEGORIES);
+  const set = new Set();
+  matched.forEach((r) => ROLE_CATEGORIES[r].forEach((c) => set.add(c)));
+  return set;
+}
+
+const CATEGORY_LABELS = { projects: 'projects', bids: 'bids', customers: 'customers', employees: 'employees', rfis: 'RFIs', pieces: 'pieces', documents: 'documents' };
+const CATEGORY_ORDER = ['projects', 'bids', 'customers', 'employees', 'rfis', 'pieces', 'documents'];
+
+function searchableLabel(categories) {
+  const labels = CATEGORY_ORDER.filter((c) => categories.has(c)).map((c) => CATEGORY_LABELS[c]);
+  if (labels.length <= 1) return labels[0] || '';
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
+}
+
+const EMPTY_RESULTS = { bids: [], customers: [], projects: [], documents: [], employees: [], rfis: [], pieces: [] };
 
 export default function GlobalSearchPalette() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState({ bids: [], customers: [], projects: [], documents: [] });
+  const [results, setResults] = useState(EMPTY_RESULTS);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   // Sync, one-time hint — only changes the displayed glyph (⌘K vs Ctrl K),
@@ -17,6 +63,8 @@ export default function GlobalSearchPalette() {
   const navigate = useNavigate();
   const inputRef = useRef(null);
   const panelRef = useRef(null);
+  const { user } = useAuth();
+  const categories = categoriesForRoles(user?.roles);
 
   useClickOutside(panelRef, () => setOpen(false), open);
 
@@ -39,28 +87,68 @@ export default function GlobalSearchPalette() {
   }, [open]);
 
   useEffect(() => {
-    if (!query.trim()) { setResults({ bids: [], customers: [], projects: [], documents: [] }); return; }
+    if (!query.trim()) { setResults(EMPTY_RESULTS); return; }
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
         const q = query.toLowerCase();
         const match = (val) => val?.toLowerCase().includes(q);
-        const [bids, customers, projects, documents] = await Promise.all([
-          db.entities.Bid.filter({ is_archived: false }, '-bid_due_date', 50),
-          db.entities.Customer.filter({ is_active: true }, 'name', 50),
-          db.entities.Project.filter({ is_archived: false }, 'name', 50),
-          db.entities.Document.filter({ is_archived: false }, '-created_date', 50),
-        ]);
+        const isSalesman = normalizeRoles(user?.roles).includes('salesman');
+        const employeeId = user?.employee_id;
+        // Own-records-only filter for the salesman role — falls back to
+        // excluding everything (rather than showing all) when we don't know
+        // who "me" is, so an unresolved employee_id can never leak other
+        // salesmen's records.
+        const mine = (row) => !!employeeId && row.salesman_id === employeeId;
+
+        const tasks = {};
+        if (categories.has('bids')) tasks.bids = db.entities.Bid.filter({ is_archived: false }, '-bid_due_date', 50);
+        if (categories.has('customers')) tasks.customers = db.entities.Customer.filter({ is_active: true }, 'name', 50);
+        if (categories.has('projects')) tasks.projects = db.entities.Project.filter({ is_archived: false }, 'name', 50);
+        if (categories.has('documents')) tasks.documents = db.entities.Document.filter({ is_archived: false }, '-created_date', 50);
+        if (categories.has('employees')) tasks.employees = listEmployeesForRole(user?.roles, 'full_name', 50);
+        if (categories.has('rfis')) tasks.rfis = db.entities.RFI.list('-created_date', 50);
+        if (categories.has('pieces')) tasks.pieces = db.entities.PieceMark.list('-created_date', 50);
+
+        const keys = Object.keys(tasks);
+        const values = await Promise.all(keys.map((k) => tasks[k]));
+        const raw = Object.fromEntries(keys.map((k, i) => [k, values[i] || []]));
+        console.log('[GlobalSearch] fetched', Object.fromEntries(keys.map((k) => [k, raw[k].length])));
+
+        const projectById = new Map((raw.projects || []).map((p) => [p.id, p]));
+
+        let projects = (raw.projects || []).filter(p => match(p.name) || match(p.project_number) || match(p.customer_name));
+        let bids = (raw.bids || []).filter(b => match(b.bid_number) || match(b.job_name) || match(b.customer_name));
+        if (isSalesman) {
+          projects = projects.filter(mine);
+          bids = bids.filter(mine);
+        }
+
+        const rfis = (raw.rfis || [])
+          .map(r => ({ ...r, _project: projectById.get(r.project_id) }))
+          .filter(r => match(r.rfi_number) || match(r._project?.name))
+          .filter(r => !isSalesman || mine(r._project || {}));
+
+        const pieces = (raw.pieces || [])
+          .map(p => ({ ...p, _project: projectById.get(p.project_id) }))
+          .filter(p => match(p.piece_mark) || match(p.assembly) || match(p.part_number) || match(p._project?.name));
+
+        const employees = (raw.employees || [])
+          .filter(e => match(e.full_name) || match(e.employee_number) || match(e.classification) || match(e.department) || match(e.personal_email));
+
         setResults({
-          bids: bids.filter(b => match(b.bid_number) || match(b.job_name) || match(b.customer_name)).slice(0, 5),
-          customers: customers.filter(c => match(c.name) || match(c.email) || match(c.city)).slice(0, 5),
-          projects: projects.filter(p => match(p.name) || match(p.project_number) || match(p.customer_name)).slice(0, 5),
-          documents: documents.filter(d => match(d.name) || match(d.file_name)).slice(0, 5),
+          bids: bids.slice(0, 5),
+          customers: (raw.customers || []).filter(c => match(c.name) || match(c.email) || match(c.city)).slice(0, 5),
+          projects: projects.slice(0, 5),
+          documents: (raw.documents || []).filter(d => match(d.name) || match(d.file_name)).slice(0, 5),
+          employees: employees.slice(0, 5),
+          rfis: rfis.slice(0, 5),
+          pieces: pieces.slice(0, 5),
         });
       } catch (e) {} finally { setLoading(false); }
     }, 250);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, user]);
 
   const handleResultClick = (type, item) => {
     const routes = {
@@ -68,6 +156,9 @@ export default function GlobalSearchPalette() {
       customers: `/crm?customer=${item.id}`,
       projects: `/projects/${item.id}`,
       documents: `/documents?doc=${item.id}`,
+      employees: `/human-resources?employee=${item.id}`,
+      rfis: `/rfis?open=${item.id}`,
+      pieces: item._project ? `/projects/${item._project.id}` : `/production`,
     };
     navigate(routes[type]);
     setOpen(false);
@@ -83,7 +174,7 @@ export default function GlobalSearchPalette() {
         className="flex items-center gap-2 w-full max-w-md px-3 py-2 text-sm bg-muted border border-border rounded-lg hover:bg-muted/80 transition-colors text-muted-foreground"
       >
         <Search className="w-4 h-4" />
-        <span className="flex-1 text-left">Search bids, customers, projects…</span>
+        <span className="flex-1 text-left truncate">Search {searchableLabel(categories)}…</span>
         <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] bg-background border border-border rounded font-mono">{os === 'macos' ? '⌘K' : 'Ctrl K'}</kbd>
       </button>
 
@@ -97,7 +188,7 @@ export default function GlobalSearchPalette() {
                 type="text"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Search bids, customers, vendors, projects, documents…"
+                placeholder={`Search ${searchableLabel(categories)}…`}
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 autoFocus
               />
@@ -106,13 +197,17 @@ export default function GlobalSearchPalette() {
             <div className="max-h-[60vh] overflow-y-auto scrollbar-thin p-2">
               {loading && <div className="p-4 text-center text-sm text-muted-foreground">Searching…</div>}
               {!loading && !query.trim() && (
-                <div className="p-8 text-center text-sm text-muted-foreground">Type to search across bids, customers, projects, and documents.</div>
+                <div className="p-8 text-center text-sm text-muted-foreground">Type to search across {searchableLabel(categories)}.</div>
               )}
               {!loading && query.trim() && totalResults === 0 && (
                 <div className="p-8 text-center text-sm text-muted-foreground">No results found for “{query}”</div>
               )}
               {!loading && totalResults > 0 && (
                 <div className="space-y-4">
+                  {results.projects.length > 0 && (
+                    <ResultGroup icon={FolderKanban} label="Projects" items={results.projects} type="projects" onClick={handleResultClick}
+                      titleFn={p => `${p.project_number} — ${p.name}`} subFn={p => p.customer_name} />
+                  )}
                   {results.bids.length > 0 && (
                     <ResultGroup icon={Calculator} label="Bids" items={results.bids} type="bids" onClick={handleResultClick}
                       titleFn={b => `${b.bid_number} — ${b.job_name}`} subFn={b => b.customer_name} />
@@ -121,9 +216,17 @@ export default function GlobalSearchPalette() {
                     <ResultGroup icon={Building2} label="Customers / Vendors" items={results.customers} type="customers" onClick={handleResultClick}
                       titleFn={c => c.name} subFn={c => [c.city, c.state].filter(Boolean).join(', ')} />
                   )}
-                  {results.projects.length > 0 && (
-                    <ResultGroup icon={FolderKanban} label="Projects" items={results.projects} type="projects" onClick={handleResultClick}
-                      titleFn={p => `${p.project_number} — ${p.name}`} subFn={p => p.customer_name} />
+                  {results.employees.length > 0 && (
+                    <ResultGroup icon={Users} label="Employees" items={results.employees} type="employees" onClick={handleResultClick}
+                      titleFn={e => e.full_name} subFn={e => [e.classification, e.department].filter(Boolean).join(' • ')} />
+                  )}
+                  {results.rfis.length > 0 && (
+                    <ResultGroup icon={HelpCircle} label="RFIs" items={results.rfis} type="rfis" onClick={handleResultClick}
+                      titleFn={r => `RFI ${r.rfi_number}`} subFn={r => r._project?.name} />
+                  )}
+                  {results.pieces.length > 0 && (
+                    <ResultGroup icon={Tag} label="Pieces" items={results.pieces} type="pieces" onClick={handleResultClick}
+                      titleFn={p => p.piece_mark} subFn={p => p._project?.name} />
                   )}
                   {results.documents.length > 0 && (
                     <ResultGroup icon={FileText} label="Documents" items={results.documents} type="documents" onClick={handleResultClick}
