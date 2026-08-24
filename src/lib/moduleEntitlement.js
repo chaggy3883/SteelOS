@@ -21,13 +21,26 @@
 // so pre-existing demo data and any tenant not yet migrated to a pack is
 // unaffected.
 import { MODULE_PACKS, PACK_EXEMPT_MODULES } from '@/lib/modulePacks';
+import { getAuthState } from '@/api/localData';
+import { isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 
 function packModulesFor(company) {
   const plan = company?.subscription_plan;
   return MODULE_PACKS[plan] || null;
 }
 
+// Support override: a platform super_admin who has "Logged into Instance"
+// (impersonating a tenant) sees every page regardless of that tenant's pack
+// or add-on entitlements — they're troubleshooting the account, not shopping
+// for it, and a locked module would hide the very thing support needs to see.
+// Never true for a super_admin's own operator session (not impersonating) or
+// for any normal tenant user, so this doesn't loosen gating for anyone else.
+function isSuperAdminViewingCustomer() {
+  return isImpersonating() && isSuperAdmin(getAuthState()?.user);
+}
+
 export function hasModule(company, moduleKey) {
+  if (isSuperAdminViewingCustomer()) return true;
   if (typeof moduleKey === 'string' && moduleKey.startsWith('/')) {
     if (PACK_EXEMPT_MODULES.includes(moduleKey)) return true;
     const packModules = packModulesFor(company);

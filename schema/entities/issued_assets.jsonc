@@ -18,6 +18,9 @@
         "Steel_Toe_Boots",
         "Radio",
         "Badge",
+        "Keys",
+        "Laptop",
+        "Phone",
         "Other"
       ]
     },
@@ -30,7 +33,8 @@
     },
     "returned_date": {
       "type": "string",
-      "format": "date"
+      "format": "date",
+      "description": "Empty/absent = not yet returned. Every 'outstanding equipment' check in the app (TerminationPanel's offboarding checklist, EquipmentPanel) keys off this being blank."
     },
     "condition": {
       "type": "string",
@@ -38,9 +42,15 @@
         "New",
         "Good",
         "Worn",
-        "Damaged"
+        "Damaged",
+        "Lost"
       ],
-      "default": "New"
+      "default": "New",
+      "description": "Condition at issuance (New/Good/Worn/Damaged) until returned_date is set, then overwritten with the condition assessed on return (Good/Damaged/Lost) — see RETURN_CONDITIONS in src/lib/issuedAssetsApi.js."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free text — e.g. \"screen is cracked\", \"keys never found\". The audit trail for missing/damaged equipment."
     }
   },
   "required": [

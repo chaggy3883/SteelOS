@@ -26,7 +26,10 @@ const TABS = [
   { id: 'integrations', label: 'Integrations', icon: Plug, Component: IntegrationsGateway },
   { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck, Component: RoleManager, roles: ['admin', 'super_admin', 'hr_admin'] },
   { id: 'shopfloor', label: '3D Shop Floor Layout', icon: Boxes, Component: ShopFloorLayoutEditor },
-  { id: 'branding', label: 'Company Settings', icon: Palette, Component: CompanyBrandingPanel },
+  // hr_admin needs this alongside full admin — it's also where the default
+  // new-hire equipment kit policy lives (issuedAssetsApi.js), an HR-owned
+  // setting, not just branding.
+  { id: 'branding', label: 'Company Settings', icon: Palette, Component: CompanyBrandingPanel, roles: ['admin', 'super_admin', 'hr_admin'] },
   { id: 'form-report-settings', label: 'Form & Report Settings', icon: LayoutTemplate, Component: FormReportSettingsPanel },
   { id: 'steel-catalog', label: 'Steel Inventory Catalog', icon: Layers, Component: SteelCatalogPanel },
 ];

@@ -161,8 +161,16 @@ request pattern) · `PayrollAdjustment` / `PayrollJournal` /
 ### Orphaned / unused entities (not duplicates, but zero live read or write path anywhere in `src/` — flagging since they're candidates for either deletion or finishing)
 
 `disciplinary_records` (see above), `MillPricing`, `UserDashboardConfig`,
-`demo_requests`, `issued_assets`. Each has a schema file and/or seed data in
-`localData.js` but no component ever calls `db.entities.<Name>.*` on it.
+`demo_requests`. Each has a schema file and/or seed data in `localData.js`
+but no component ever calls `db.entities.<Name>.*` on it.
+
+`issued_assets` was in this list as of the 2026-08-18 audit but is no longer
+orphaned: onboarding (`provisionEmployee`/`hireCandidate` in
+`src/lib/employeesApi.js`) now auto-issues a per-company default kit via
+`provisionDefaultIssuedAssets` (`src/lib/issuedAssetsApi.js`), HR manages the
+full issue/return history from the Equipment tab on an employee's profile
+(`EquipmentPanel.jsx`/`IssuedAssetDialog.jsx`), and `TerminationPanel.jsx`'s
+offboarding checklist reads and writes it directly.
 
 ### Not exhaustively deep-dived
 
@@ -250,7 +258,7 @@ disciplinary consolidation above.
 | `IntelligenceRule` | PascalCase | src/lib/intelligenceRuleEngine.js, src/pages/IntelligenceRuleDetail.jsx, src/pages/IntelligenceRulesAdmin.jsx |
 | `InventoryItem` | PascalCase | src/pages/Inventory.jsx, src/pages/Production.jsx, src/pages/Purchasing.jsx |
 | `InvoiceReceivable` | PascalCase | src/components/accounting/BudgetPanel.jsx, src/components/accounting/CashForecastPanel.jsx, src/components/accounting/InvoiceReceivableDetailModal.jsx |
-| `issued_assets` | snake_case | *(none found — orphaned)* |
+| `issued_assets` | snake_case | src/lib/employeesApi.js, src/lib/issuedAssetsApi.js, src/components/hr/EquipmentPanel.jsx, src/components/hr/IssuedAssetDialog.jsx, src/components/hr/TerminationPanel.jsx, src/components/admin/CompanyBrandingPanel.jsx |
 | `JobCostLedgerEntry` | PascalCase | src/components/accounting/BudgetPanel.jsx, src/components/accounting/VendorBillDetailModal.jsx, src/components/estimating/TakeoffEngine.jsx |
 | `JobLaborAllocation` | PascalCase | src/components/payroll/PayrollRunPanel.jsx, src/pages/CertifiedPayroll.jsx |
 | `LegalAuditEvent` | PascalCase | src/pages/Legal.jsx, src/pages/ProjectDetail.jsx, src/pages/RFIs.jsx |

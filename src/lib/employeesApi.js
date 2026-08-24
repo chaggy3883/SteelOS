@@ -2,6 +2,7 @@ import { db } from '@/api/apiClient';
 import { encodeFormulaPin } from '@/lib/pinFormula';
 import { encodePin } from '@/lib/hrSecurity';
 import { computeI9ReverificationDueDate } from '@/lib/i9Compliance';
+import { provisionDefaultIssuedAssets } from '@/lib/issuedAssetsApi';
 
 // termination_reason (but not termination_reason_other/final_notes, which can
 // carry sensitive HR detail) is deliberately public — standing rule: it must
@@ -102,6 +103,8 @@ export async function hireCandidate(candidateId) {
     hired_employee_id: employee.id,
   });
 
+  await provisionDefaultIssuedAssets(employee.id);
+
   return employee;
 }
 
@@ -114,7 +117,7 @@ export async function provisionEmployee(formData) {
   const employee_number = await nextEmployeeNumber();
   const ssn_last4 = (formData.ssn_last4 || '').replace(/\D/g, '').slice(0, 4);
 
-  return db.entities.employees.create({
+  const employee = await db.entities.employees.create({
     employee_number,
     full_name: formData.full_name,
     dob: formData.dob,
@@ -147,6 +150,10 @@ export async function provisionEmployee(formData) {
     is_active: true,
     is_active_login: true,
   });
+
+  await provisionDefaultIssuedAssets(employee.id);
+
+  return employee;
 }
 
 // PIN-lockout auto-unlock rule: a locked timeclock terminal unlocks the

@@ -11,7 +11,7 @@
     },
     "inspection_type": {
       "type": "string",
-      "enum": ["Daily", "Monthly", "Annual", "Initial", "Idle_Equipment"],
+      "enum": ["Before_Use", "Daily", "Monthly", "Annual", "Initial", "Idle_Equipment"],
       "default": "Daily"
     },
     "equipment_id": { "type": "string", "description": "Free-text ID/tag number of the rigging gear being inspected. Kept for backward-compat display; rigging_asset_id is the real link going forward." },

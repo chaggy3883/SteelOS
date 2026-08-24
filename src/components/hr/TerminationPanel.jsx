@@ -4,6 +4,8 @@ import { hasFullEmployeeAccess, TERMINATION_REASONS, terminationReasonLabel } fr
 import { computeTerminationPtoSettlementPreview, computeUnpaidWagesPreview, processTerminationSettlement, listPtoTransactionsForEmployee } from '@/lib/ptoEngine';
 import { logStatusChange } from '@/lib/statusHistory';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
+import IssuedAssetDialog from '@/components/hr/IssuedAssetDialog';
+import { assetTypeLabel } from '@/lib/issuedAssetsApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,6 +43,7 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
   const [confirmReinstateOpen, setConfirmReinstateOpen] = useState(false);
   const [reinstating, setReinstating] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [returningAsset, setReturningAsset] = useState(null);
 
   useEffect(() => { db.auth.me().then(setCurrentUser).catch(() => setCurrentUser(null)); }, []);
   useEffect(() => { load(); }, [employee?.id, employee?.termination_date, terminationDate]);
@@ -277,6 +280,34 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
         </div>
 
         <div className="steel-card p-4">
+          <h4 className="font-semibold text-sm mb-1">Equipment Return</h4>
+          <p className="text-xs text-muted-foreground mb-3">
+            {issuedAssets.length === 0
+              ? 'No equipment on file for this employee.'
+              : equipmentOutstanding.length === 0
+                ? 'All issued equipment has been returned.'
+                : `${equipmentOutstanding.length} item${equipmentOutstanding.length === 1 ? '' : 's'} outstanding — click to record its return.`}
+          </p>
+          {equipmentOutstanding.length > 0 && (
+            <div className="space-y-2">
+              {equipmentOutstanding.map((asset) => (
+                <button
+                  key={asset.id}
+                  onClick={() => setReturningAsset(asset)}
+                  className="w-full flex items-start gap-2.5 rounded-lg border border-border p-2.5 text-left hover:bg-muted/50 transition-colors"
+                >
+                  <Square className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium">{assetTypeLabel(asset.asset_type)}{asset.asset_tag ? ` — ${asset.asset_tag}` : ''}</p>
+                    <p className="text-xs text-muted-foreground">Issued {asset.issued_date || '—'} — not yet returned</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="steel-card p-4">
           <h4 className="font-semibold text-sm mb-3">Final Check Settlement</h4>
           {finalCheckLine ? (
             <div className="grid grid-cols-2 gap-3 text-sm mb-3">
@@ -327,6 +358,14 @@ export default function TerminationPanel({ employee, roles = [], onUpdated }) {
           entityId={employee.id}
           fieldName="access_status"
           title={`${employee.full_name} — Access History`}
+        />
+
+        <IssuedAssetDialog
+          open={!!returningAsset}
+          onOpenChange={(o) => !o && setReturningAsset(null)}
+          employeeId={employee.id}
+          asset={returningAsset}
+          onSaved={() => { setReturningAsset(null); load(); }}
         />
       </div>
     );

@@ -9,6 +9,7 @@ import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
 import DisciplinaryActionsPanel from '@/components/hr/DisciplinaryActionsPanel';
 import PtoPanel from '@/components/hr/PtoPanel';
 import TerminationPanel from '@/components/hr/TerminationPanel';
+import EquipmentPanel from '@/components/hr/EquipmentPanel';
 import { canManageDisciplinaryActions } from '@/lib/disciplinaryAccess';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
 
@@ -16,6 +17,9 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
   const [current, setCurrent] = useState(employee);
   const showDisciplinary = canManageDisciplinaryActions(roles);
   const showTermination = hasFullEmployeeAccess(roles);
+  // Equipment issue/return history is HR/admin-only, same as Compliance and
+  // Termination below — employees never see their own issued_assets records.
+  const showEquipment = hasFullEmployeeAccess(roles);
 
   useEffect(() => { setCurrent(employee); }, [employee?.id]);
 
@@ -37,6 +41,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             <TabsTrigger value="access">System Access</TabsTrigger>
             <TabsTrigger value="emergency">Emergency Contact</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
+            {showEquipment && <TabsTrigger value="equipment">Equipment</TabsTrigger>}
             {showTermination && <TabsTrigger value="compliance">Compliance</TabsTrigger>}
             <TabsTrigger value="pto">PTO</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
@@ -52,6 +57,11 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           <TabsContent value="documents">
             <ComplianceDocumentCenter employee={current} />
           </TabsContent>
+          {showEquipment && (
+            <TabsContent value="equipment">
+              <EquipmentPanel employee={current} />
+            </TabsContent>
+          )}
           {showTermination && (
             <TabsContent value="compliance">
               <I9ComplianceCenter employee={current} onUpdated={handleUpdated} />

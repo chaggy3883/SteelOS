@@ -103,6 +103,14 @@
       },
       "default": [],
       "description": "Module entitlement allowlist, e.g. [\"equipment\",\"payroll\",\"ironsight\"]. Empty or missing means every module is on — see src/lib/moduleEntitlement.js's hasModule(), the only reader of this field. Editable only from Super Admin Dashboard."
+    },
+    "default_issued_asset_kit": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": ["Badge", "Keys", "Laptop", "Phone"],
+      "description": "Standard equipment kit auto-issued as issued_assets rows to every new employee on hire — see provisionDefaultIssuedAssets in src/lib/issuedAssetsApi.js. Empty/missing falls back to the same four-item default (DEFAULT_KIT_FALLBACK). Editable from Admin > Company Settings."
     }
   },
   "required": [

@@ -24,6 +24,7 @@ import InspectionDocumentUpload from '@/components/shared/InspectionDocumentUplo
 import { useToast } from '@/components/ui/use-toast';
 
 const INSPECTION_TYPES = [
+  { value: 'Before_Use', label: 'Before Use' },
   { value: 'Daily', label: 'Daily' },
   { value: 'Monthly', label: 'Monthly' },
   { value: 'Annual', label: 'Annual' },

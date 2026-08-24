@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
+import { ASSET_TYPES, getDefaultIssuedAssetKit } from '@/lib/issuedAssetsApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Save, Palette } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2, Save, Palette, Package } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function CompanyBrandingPanel() {
@@ -12,6 +14,7 @@ export default function CompanyBrandingPanel() {
   const [company, setCompany] = useState(null);
   const [logoUrl, setLogoUrl] = useState('');
   const [colorHex, setColorHex] = useState('#2563eb');
+  const [issuedAssetKit, setIssuedAssetKit] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -24,9 +27,14 @@ export default function CompanyBrandingPanel() {
       setCompany(row);
       setLogoUrl(row?.logo_url || '');
       setColorHex(row?.brand_color_hex || '#2563eb');
+      setIssuedAssetKit(getDefaultIssuedAssetKit(row));
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleKitItem = (value) => {
+    setIssuedAssetKit((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
   };
 
   const handleSave = async () => {
@@ -36,11 +44,12 @@ export default function CompanyBrandingPanel() {
       const updated = await db.entities.Company.update(company.id, {
         logo_url: logoUrl.trim(),
         brand_color_hex: colorHex,
+        default_issued_asset_kit: issuedAssetKit,
       });
       setCompany(updated);
-      toast({ title: 'Branding saved', description: 'NavBar and TopBar will render this logo and color on next load.' });
+      toast({ title: 'Company settings saved', description: 'Branding and the default new-hire equipment kit are updated.' });
     } catch (e) {
-      toast({ title: 'Unable to save branding', variant: 'destructive' });
+      toast({ title: 'Unable to save company settings', variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -70,10 +79,24 @@ export default function CompanyBrandingPanel() {
             </div>
           </div>
         </div>
-        <Button onClick={handleSave} disabled={saving} className="gap-2 mt-6 steel-gradient text-white border-0">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save Branding
-        </Button>
       </div>
+
+      <div className="steel-card p-6">
+        <h3 className="font-semibold mb-1 flex items-center gap-2"><Package className="w-4 h-4 text-primary" />Default New-Hire Equipment Kit</h3>
+        <p className="text-xs text-muted-foreground mb-4">Auto-issued to every new employee on hire (see the Equipment tab on their profile). HR can still issue or return individual items anytime, regardless of this list.</p>
+        <div className="grid grid-cols-2 gap-2.5">
+          {ASSET_TYPES.map((t) => (
+            <label key={t.value} className="flex items-center gap-2 text-sm cursor-pointer">
+              <Checkbox checked={issuedAssetKit.includes(t.value)} onCheckedChange={() => toggleKitItem(t.value)} />
+              {t.label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={saving} className="gap-2 steel-gradient text-white border-0">
+        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save Company Settings
+      </Button>
     </div>
   );
 }
