@@ -5,7 +5,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { HeartPulse, Save } from 'lucide-react';
+import { HeartPulse, Save, AlertTriangle } from 'lucide-react';
+
+// Soft format hint only — never blocks Save. Loose on purpose (7+ digits,
+// allowing spaces/parens/dashes/dots/leading +) since these are real-world
+// personal phone numbers, not a system we're validating for delivery.
+const isPlausiblePhone = (value) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return true;
+  return /^\+?[\d\s().-]{7,}$/.test(trimmed);
+};
 
 // Second contact reuses the emergency_contact2_* fields already added for
 // the New Employee intake form (NewEmployee.jsx/provisionEmployee in
@@ -33,16 +42,35 @@ export default function EmergencyContactPanel({ employee, roles = [], onUpdated 
       const updated = await db.entities.employees.update(employee.id, form);
       onUpdated(updated);
       toast({ title: 'Emergency contacts updated' });
+    } catch (e) {
+      toast({ title: 'Unable to save emergency contacts', variant: 'destructive' });
     } finally {
       setSaving(false);
     }
   };
 
-  const displayOrInput = (field, placeholder) => canEdit ? (
-    <Input value={form[field]} onChange={set(field)} placeholder={placeholder} className="mt-1" />
-  ) : (
-    <p className="mt-1 text-sm">{form[field] || '—'}</p>
-  );
+  // Phone fields render as type="tel" and show a non-blocking format hint —
+  // this never disables Save, it's advisory only (item #4: don't block save).
+  const displayOrInput = (field, placeholder, { isPhone = false } = {}) => {
+    if (!canEdit) return <p className="mt-1 text-sm">{form[field] || '—'}</p>;
+    const showHint = isPhone && !isPlausiblePhone(form[field]);
+    return (
+      <>
+        <Input
+          type={isPhone ? 'tel' : 'text'}
+          value={form[field]}
+          onChange={set(field)}
+          placeholder={placeholder}
+          className="mt-1"
+        />
+        {showHint && (
+          <p className="mt-1 text-[11px] text-amber-600 flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3 flex-shrink-0" />Doesn't look like a phone number — you can still save.
+          </p>
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -59,11 +87,11 @@ export default function EmergencyContactPanel({ employee, roles = [], onUpdated 
           </div>
           <div>
             <Label className="text-xs">Phone Number</Label>
-            {displayOrInput('emergency_contact_phone')}
+            {displayOrInput('emergency_contact_phone', '', { isPhone: true })}
           </div>
           <div>
             <Label className="text-xs">Alt Phone</Label>
-            {displayOrInput('emergency_contact_phone_alt')}
+            {displayOrInput('emergency_contact_phone_alt', '', { isPhone: true })}
           </div>
         </div>
       </div>
@@ -81,7 +109,7 @@ export default function EmergencyContactPanel({ employee, roles = [], onUpdated 
           </div>
           <div>
             <Label className="text-xs">Phone Number</Label>
-            {displayOrInput('emergency_contact2_phone')}
+            {displayOrInput('emergency_contact2_phone', '', { isPhone: true })}
           </div>
         </div>
       </div>
