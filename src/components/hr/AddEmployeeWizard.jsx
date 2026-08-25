@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import FileDropzone from '@/components/ui/FileDropzone';
+import RoleMultiSelect from '@/components/admin/RoleMultiSelect';
 import { provisionEmployee } from '@/lib/employeesApi';
 import { savePdf } from '@/lib/pdfBlobStore';
 import { FileCheck2, ArrowLeft, ArrowRight, UserPlus } from 'lucide-react';
@@ -17,7 +18,7 @@ const emptyForm = (positions) => ({
   emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '',
   classification: positions[0] || '', hire_date: new Date().toISOString().slice(0, 10),
   pay_type: 'hourly', pay_rate_cents: '', annual_salary_cents: '',
-  department: '', platform_role: '', supervisor_name: '',
+  department: '', platform_roles: [], supervisor_name: '',
 });
 
 const emptyDocs = () => ({ drivers_license: null, ssn_card: null, birth_cert: null });
@@ -200,13 +201,8 @@ export default function AddEmployeeWizard({ positions, allRoles, onEmployeeCreat
             <Input value={form.department} onChange={setInput('department')} className="mt-1" />
           </div>
           <div>
-            <Label>Platform Role</Label>
-            <Select value={form.platform_role} onValueChange={set('platform_role')}>
-              <SelectTrigger className="mt-1"><SelectValue placeholder="Assign a role…" /></SelectTrigger>
-              <SelectContent>
-                {allRoles.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Label>Platform Roles</Label>
+            <RoleMultiSelect roles={allRoles} value={form.platform_roles} onChange={set('platform_roles')} className="mt-1" />
           </div>
           <div>
             <Label>Supervisor Name</Label>
@@ -267,7 +263,7 @@ export default function AddEmployeeWizard({ positions, allRoles, onEmployeeCreat
               <p><span className="text-muted-foreground">Hire Date:</span> {form.hire_date}</p>
               <p><span className="text-muted-foreground">Pay:</span> {payLabel}</p>
               <p><span className="text-muted-foreground">Department:</span> {form.department || '—'}</p>
-              <p><span className="text-muted-foreground">Platform Role:</span> {allRoles.find((r) => r.value === form.platform_role)?.label || '—'}</p>
+              <p><span className="text-muted-foreground">Platform Roles:</span> {form.platform_roles.length > 0 ? form.platform_roles.map((v) => allRoles.find((r) => r.value === v)?.label || v).join(', ') : '—'}</p>
               <p><span className="text-muted-foreground">Supervisor:</span> {form.supervisor_name || '—'}</p>
             </div>
           </div>

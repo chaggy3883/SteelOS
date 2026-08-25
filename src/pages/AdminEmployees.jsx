@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { listEmployeesForRole, assignPlatformRole, employeeDisplayStatus } from '@/lib/employeesApi';
+import { listEmployeesForRole, assignPlatformRoles, employeeDisplayStatus } from '@/lib/employeesApi';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { isAdminUser } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
 import EmployeeAdminDialog from '@/components/admin/EmployeeAdminDialog';
+import RoleMultiSelect from '@/components/admin/RoleMultiSelect';
 import { ShieldAlert, UserCog } from 'lucide-react';
 
 const STATUS_OPTIONS = ['Active', 'On Leave', 'Probation', 'Inactive', 'Terminated'];
@@ -38,7 +39,7 @@ export default function AdminEmployees() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [quickAssigningId, setQuickAssigningId] = useState(null);
   const [detailEmployee, setDetailEmployee] = useState(null);
-  const [bulkRole, setBulkRole] = useState('');
+  const [bulkRoles, setBulkRoles] = useState([]);
   const [confirmBulkOpen, setConfirmBulkOpen] = useState(false);
   const [applyingBulk, setApplyingBulk] = useState(false);
 
@@ -76,6 +77,7 @@ export default function AdminEmployees() {
   );
 
   const roleLabel = (value) => allRoles.find((r) => r.value === value)?.label || value;
+  const rolesLabel = (values) => (values && values.length > 0 ? values.map(roleLabel).join(', ') : '—');
 
   const filtered = useMemo(() => {
     return employees
@@ -83,14 +85,14 @@ export default function AdminEmployees() {
       .filter((e) => statusFilter === ALL || employeeDisplayStatus(e) === statusFilter)
       .filter((e) => {
         if (roleFilter === ALL) return true;
-        if (roleFilter === UNASSIGNED) return !e.platform_role;
-        return e.platform_role === roleFilter;
+        if (roleFilter === UNASSIGNED) return !(e.platform_roles && e.platform_roles.length);
+        return (e.platform_roles || []).includes(roleFilter);
       })
       // Employees with no role yet surface first so admins see who still
       // needs assignment without having to filter for them.
       .sort((a, b) => {
-        const aUnassigned = !a.platform_role;
-        const bUnassigned = !b.platform_role;
+        const aUnassigned = !(a.platform_roles && a.platform_roles.length);
+        const bUnassigned = !(b.platform_roles && b.platform_roles.length);
         if (aUnassigned !== bUnassigned) return aUnassigned ? -1 : 1;
         return (a.full_name || '').localeCompare(b.full_name || '');
       });
@@ -108,12 +110,12 @@ export default function AdminEmployees() {
     setSelectedIds((prev) => (prev.size === filtered.length ? new Set() : new Set(filtered.map((e) => e.id))));
   };
 
-  const handleQuickAssign = async (employee, role) => {
+  const handleQuickAssign = async (employee, roles) => {
     setQuickAssigningId(employee.id);
     try {
-      const updated = await assignPlatformRole(employee, role);
+      const updated = await assignPlatformRoles(employee, roles);
       setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-      toast({ title: `${updated.full_name} assigned to ${roleLabel(role)}` });
+      toast({ title: `${updated.full_name} assigned to ${rolesLabel(roles)}` });
     } finally {
       setQuickAssigningId(null);
     }
@@ -123,13 +125,13 @@ export default function AdminEmployees() {
     setApplyingBulk(true);
     try {
       const targets = employees.filter((e) => selectedIds.has(e.id));
-      const updates = await Promise.all(targets.map((e) => assignPlatformRole(e, bulkRole)));
+      const updates = await Promise.all(targets.map((e) => assignPlatformRoles(e, bulkRoles)));
       const updatedById = Object.fromEntries(updates.map((u) => [u.id, u]));
       setEmployees((prev) => prev.map((e) => updatedById[e.id] || e));
-      toast({ title: `${updates.length} employee${updates.length === 1 ? '' : 's'} assigned to ${roleLabel(bulkRole)}` });
+      toast({ title: `${updates.length} employee${updates.length === 1 ? '' : 's'} assigned to ${rolesLabel(bulkRoles)}` });
       setSelectedIds(new Set());
       setConfirmBulkOpen(false);
-      setBulkRole('');
+      setBulkRoles([]);
     } finally {
       setApplyingBulk(false);
     }
@@ -185,15 +187,10 @@ export default function AdminEmployees() {
 
       {selectedIds.size > 0 && (
         <div className="steel-card p-3 flex items-center gap-3">
-          <p className="text-sm font-medium">{selectedIds.size} selected</p>
-          <Select value={bulkRole} onValueChange={setBulkRole}>
-            <SelectTrigger className="w-56 h-8 text-xs"><SelectValue placeholder="Change role to…" /></SelectTrigger>
-            <SelectContent>
-              {allRoles.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Button size="sm" disabled={!bulkRole} onClick={() => setConfirmBulkOpen(true)} className="steel-gradient text-white border-0">
-            Change Role
+          <p className="text-sm font-medium whitespace-nowrap">{selectedIds.size} selected</p>
+          <RoleMultiSelect roles={allRoles} value={bulkRoles} onChange={setBulkRoles} placeholder="Change roles to…" className="w-56" />
+          <Button size="sm" disabled={bulkRoles.length === 0} onClick={() => setConfirmBulkOpen(true)} className="steel-gradient text-white border-0">
+            Change Roles
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear selection</Button>
         </div>
@@ -228,7 +225,7 @@ export default function AdminEmployees() {
               ) : (
                 filtered.map((emp) => {
                   const status = employeeDisplayStatus(emp);
-                  const needsRole = !emp.platform_role;
+                  const needsRole = !(emp.platform_roles && emp.platform_roles.length);
                   return (
                     <tr key={emp.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
                       <td className="py-3 px-4">
@@ -244,14 +241,16 @@ export default function AdminEmployees() {
                       <td className="py-3 px-4 text-muted-foreground">{emp.job_title || '—'}</td>
                       <td className="py-3 px-4">
                         {needsRole ? (
-                          <Select value="" onValueChange={(v) => handleQuickAssign(emp, v)} disabled={quickAssigningId === emp.id}>
-                            <SelectTrigger className="w-48 h-8 text-xs"><SelectValue placeholder="Quick assign…" /></SelectTrigger>
-                            <SelectContent>
-                              {allRoles.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                          <RoleMultiSelect
+                            roles={allRoles}
+                            value={emp.platform_roles || []}
+                            onChange={(v) => handleQuickAssign(emp, v)}
+                            disabled={quickAssigningId === emp.id}
+                            placeholder="Quick assign…"
+                            className="w-48"
+                          />
                         ) : (
-                          <span className="text-sm">{roleLabel(emp.platform_role)}</span>
+                          <span className="text-sm">{rolesLabel(emp.platform_roles)}</span>
                         )}
                       </td>
                       <td className="py-3 px-4">
@@ -279,9 +278,9 @@ export default function AdminEmployees() {
 
       <Dialog open={confirmBulkOpen} onOpenChange={setConfirmBulkOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Change role for {selectedIds.size} employee{selectedIds.size === 1 ? '' : 's'}?</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Change roles for {selectedIds.size} employee{selectedIds.size === 1 ? '' : 's'}?</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This sets each selected employee's role to <span className="font-medium text-foreground">{roleLabel(bulkRole)}</span>, replacing whatever role (and linked portal login role) they currently have.
+            This sets each selected employee's roles to <span className="font-medium text-foreground">{rolesLabel(bulkRoles)}</span>, replacing whatever roles (and linked portal login roles) they currently have.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmBulkOpen(false)}>Cancel</Button>

@@ -2384,6 +2384,24 @@ const migrateRiggingInspectionAssetLinks = (migrated) => {
   });
 };
 
+// employees.platform_role (single string) was replaced by platform_roles (an
+// array) so one employee can hold multiple platform roles at once — see
+// rbacConfig.jsx's getUserPermissions, which already unions allowed_modules/
+// allowed_widgets across every role in an array. Folds any pre-existing
+// single-role records forward into a one-element array rather than dropping
+// them; idempotent since it only rewrites rows that still carry the legacy
+// string field.
+const migrateEmployeePlatformRoles = (migrated) => {
+  const rows = Array.isArray(migrated.employees) ? migrated.employees : [];
+  migrated.employees = rows.map((row) => {
+    if (!('platform_role' in row)) return row;
+    const { platform_role, ...rest } = row;
+    const existingRoles = Array.isArray(rest.platform_roles) ? rest.platform_roles : [];
+    const roles = existingRoles.length > 0 ? existingRoles : (platform_role ? [platform_role] : []);
+    return { ...rest, platform_roles: roles };
+  });
+};
+
 // Generic backfill for the shared StatusHistoryEntry log (src/lib/
 // statusHistory.js, StatusHistoryModal) — every entity below writes its
 // status changes there now instead of a bespoke per-entity history. Runs on
@@ -2627,6 +2645,7 @@ const migrateStore = (store) => {
   }
 
   migrateLegacyShippingLoads(migrated);
+  migrateEmployeePlatformRoles(migrated);
   migrateRiggingLedgerFields(migrated);
   migrateRiggingInspectionAssetLinks(migrated);
   backfillStatusHistory(migrated);

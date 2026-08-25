@@ -1,27 +1,28 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { assignPlatformRole } from '@/lib/employeesApi';
+import { assignPlatformRoles } from '@/lib/employeesApi';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
+import RoleMultiSelect from '@/components/admin/RoleMultiSelect';
 import { ExternalLink } from 'lucide-react';
 
 const EMPLOYEE_STATUSES = ['Active', 'On Leave', 'Probation', 'Inactive'];
 
 export default function EmployeeAdminDialog({ employee, open, onOpenChange, allRoles, onUpdated }) {
   const { toast } = useToast();
-  const [platformRole, setPlatformRole] = useState('');
+  const [platformRoles, setPlatformRoles] = useState([]);
   const [employeeStatus, setEmployeeStatus] = useState('Active');
   const [isSalesman, setIsSalesman] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!employee) return;
-    setPlatformRole(employee.platform_role || '');
+    setPlatformRoles(employee.platform_roles || []);
     setEmployeeStatus(employee.employee_status || 'Active');
     setIsSalesman(!!employee.is_salesman);
   }, [employee?.id, open]);
@@ -34,11 +35,13 @@ export default function EmployeeAdminDialog({ employee, open, onOpenChange, allR
     setSaving(true);
     try {
       let updated = employee;
-      // Role is deterministic — see assignPlatformRole's comment in
+      // Roles are deterministic — see assignPlatformRoles' comment in
       // employeesApi.js — it also cascades to a linked portal login so real
-      // access actually changes, not just the badge on this row.
-      if (platformRole !== (employee.platform_role || '')) {
-        updated = await assignPlatformRole(employee, platformRole);
+      // access actually changes, not just the badges on this row.
+      const existingRoles = employee.platform_roles || [];
+      const rolesChanged = platformRoles.length !== existingRoles.length || platformRoles.some((r) => !existingRoles.includes(r));
+      if (rolesChanged) {
+        updated = await assignPlatformRoles(employee, platformRoles);
       }
       if (!isTerminated && (employeeStatus !== (employee.employee_status || 'Active') || isSalesman !== !!employee.is_salesman)) {
         updated = await db.entities.employees.update(employee.id, {
@@ -89,13 +92,8 @@ export default function EmployeeAdminDialog({ employee, open, onOpenChange, allR
 
           <div className="pt-2 border-t border-border/50 grid grid-cols-2 gap-3">
             <div>
-              <Label>Role</Label>
-              <Select value={platformRole} onValueChange={setPlatformRole} disabled={saving}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Unassigned" /></SelectTrigger>
-                <SelectContent>
-                  {allRoles.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label>Roles</Label>
+              <RoleMultiSelect roles={allRoles} value={platformRoles} onChange={setPlatformRoles} disabled={saving} className="mt-1" />
             </div>
             <div>
               <Label>Status</Label>

@@ -45,20 +45,25 @@ export const employeeDisplayStatus = (employee) => {
   return employee?.is_active === false ? 'Inactive' : 'Active';
 };
 
-// The one place that assigns an employee's platform role — used by both the
-// HR "Unassigned Platform Roles" panel and Admin's Employee Management page.
-// employees.platform_role and a linked User account's `roles` are otherwise
-// completely independent fields (see rbacConfig.jsx/NavBar.jsx — allowed
-// modules are computed live from User.roles, never from platform_role), so
-// a role change here cascades to that linked login too — otherwise "assign a
-// role" would be cosmetic for anyone who also has portal access. This
-// deliberately overwrites the linked User to a single role, matching the
-// roles-only, deterministic model (no per-account custom permissions).
-export async function assignPlatformRole(employee, roleName) {
-  const updated = await db.entities.employees.update(employee.id, { platform_role: roleName });
+// The one place that assigns an employee's platform role(s) — used by both
+// the HR "Unassigned Platform Roles" panel and Admin's Employee Management
+// page. employees.platform_roles and a linked User account's `roles` are
+// otherwise completely independent fields (see rbacConfig.jsx/NavBar.jsx —
+// allowed modules are computed live from User.roles, never from
+// platform_roles, as the UNION of every role's allowed_modules/
+// allowed_widgets), so a role change here cascades to that linked login too
+// — otherwise "assign roles" would be cosmetic for anyone who also has
+// portal access. This deliberately overwrites the linked User's full roles
+// array to match, matching the roles-only, deterministic model (no
+// per-account custom permissions). An empty array is a valid, deliberate
+// state — an employee with no roles yet gets no module access beyond the
+// hardcoded Employee Center.
+export async function assignPlatformRoles(employee, roleNames) {
+  const roles = (Array.isArray(roleNames) ? roleNames : [roleNames]).filter(Boolean);
+  const updated = await db.entities.employees.update(employee.id, { platform_roles: roles });
   const linkedUsers = await db.entities.User.filter({ employee_id: employee.id }, '-created_date', 1);
   if (linkedUsers[0]) {
-    await db.entities.User.update(linkedUsers[0].id, { roles: [roleName] });
+    await db.entities.User.update(linkedUsers[0].id, { roles });
   }
   return updated;
 }
@@ -172,7 +177,7 @@ export async function provisionEmployee(formData) {
     pay_rate_cents: formData.pay_type === 'salary' ? 0 : (Number(formData.pay_rate_cents) || 0),
     annual_salary_cents: formData.pay_type === 'salary' ? (Number(formData.annual_salary_cents) || 0) : 0,
     department: formData.department,
-    platform_role: formData.platform_role,
+    platform_roles: Array.isArray(formData.platform_roles) ? formData.platform_roles : [],
     supervisor_name: formData.supervisor_name,
     pin_encrypted: encodeFormulaPin({ employee_number, ssn_last4 }),
     is_timeclock_locked: true,

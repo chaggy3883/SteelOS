@@ -132,7 +132,7 @@
     "is_salesman": {
       "type": "boolean",
       "default": false,
-      "description": "Marks this employee as eligible for sales commission (SalesmanCommissionRate, ProjectCommission). Deliberately a dedicated flag rather than overloading job_title/classification or the unrelated RBAC platform_role field."
+      "description": "Marks this employee as eligible for sales commission (SalesmanCommissionRate, ProjectCommission). Deliberately a dedicated flag rather than overloading job_title/classification or the unrelated RBAC platform_roles field."
     },
     "supervisor_name": {
       "type": "string"
@@ -191,9 +191,13 @@
       },
       "default": []
     },
-    "platform_role": {
-      "type": "string",
-      "default": ""
+    "platform_roles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Zero or more platform role names (builtin or CustomRole) granting this employee's linked portal login (User.roles) its module/widget access — see rbacConfig.jsx's getUserPermissions, which unions allowed_modules/allowed_widgets across every role. Renamed from the single-string platform_role; legacy single-role records are folded forward into a one-element array by migrateEmployeePlatformRoles in src/api/localData.js."
     },
     "page_layouts_json": {
       "type": "object",

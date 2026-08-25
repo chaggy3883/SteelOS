@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel, assignPlatformRole } from '@/lib/employeesApi';
+import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel, assignPlatformRoles } from '@/lib/employeesApi';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { verifyPin } from '@/lib/hrSecurity';
 import { getExpiringCertifications } from '@/lib/certAlerts';
@@ -22,6 +22,7 @@ import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
 import AddEmployeeWizard from '@/components/hr/AddEmployeeWizard';
 import EmployeeFilesPanel from '@/components/hr/EmployeeFilesPanel';
 import CandidateApplicationDialog from '@/components/hr/CandidateApplicationDialog';
+import RoleMultiSelect from '@/components/admin/RoleMultiSelect';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse, CalendarPlus } from 'lucide-react';
 
@@ -237,12 +238,13 @@ export default function HumanResources() {
     toast({ title: value ? `${updated.full_name}'s login re-enabled` : `${updated.full_name}'s login suspended` });
   };
 
-  const handleAssignRole = async (employee, role) => {
+  const handleAssignRoles = async (employee, roles) => {
     setAssigningRoleId(employee.id);
     try {
-      const updated = await assignPlatformRole(employee, role);
+      const updated = await assignPlatformRoles(employee, roles);
       setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-      toast({ title: `${updated.full_name} assigned to ${allRoles.find((r) => r.value === role)?.label || role}` });
+      const label = roles.length > 0 ? roles.map((r) => allRoles.find((x) => x.value === r)?.label || r).join(', ') : 'no roles';
+      toast({ title: `${updated.full_name} assigned to ${label}` });
     } finally {
       setAssigningRoleId(null);
     }
@@ -438,23 +440,25 @@ export default function HumanResources() {
             </div>
           )}
 
-          {isFullAccess && employees.some((e) => !e.platform_role) && (
+          {isFullAccess && employees.some((e) => !(e.platform_roles && e.platform_roles.length)) && (
             <div className="steel-card p-4 space-y-2 border-amber-500/30">
               <h4 className="font-semibold text-sm flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-amber-500" />Unassigned Platform Roles</h4>
-              <p className="text-xs text-muted-foreground">These new hires don't have a platform security role yet — assign one to grant them system access.</p>
+              <p className="text-xs text-muted-foreground">These new hires don't have a platform security role yet — assign one or more to grant them system access.</p>
               <div className="space-y-2">
-                {employees.filter((e) => !e.platform_role).map((emp) => (
+                {employees.filter((e) => !(e.platform_roles && e.platform_roles.length)).map((emp) => (
                   <div key={emp.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-2">
                     <div>
                       <p className="text-sm font-medium">{emp.full_name}</p>
                       <p className="text-xs text-muted-foreground">{emp.employee_number} · {emp.classification}</p>
                     </div>
-                    <Select value={emp.platform_role || ''} onValueChange={(v) => handleAssignRole(emp, v)} disabled={assigningRoleId === emp.id}>
-                      <SelectTrigger className="w-56 h-8 text-xs"><SelectValue placeholder="Assign a role…" /></SelectTrigger>
-                      <SelectContent>
-                        {allRoles.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <RoleMultiSelect
+                      roles={allRoles}
+                      value={emp.platform_roles || []}
+                      onChange={(v) => handleAssignRoles(emp, v)}
+                      disabled={assigningRoleId === emp.id}
+                      placeholder="Assign role(s)…"
+                      className="w-56"
+                    />
                   </div>
                 ))}
               </div>
