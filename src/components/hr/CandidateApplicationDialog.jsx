@@ -19,6 +19,8 @@ export default function CandidateApplicationDialog({ candidate, open, onOpenChan
     ['Position Applied', candidate.position_applied],
     ['Status', candidate.status ? candidate.status.replace(/_/g, ' ') : ''],
     ['Applied Date', candidate.applied_date],
+    ...(candidate.status === 'Hired' ? [['Hire Date', candidate.hire_date]] : []),
+    ...(candidate.status === 'Rejected' ? [['Rejected Date', candidate.rejection_date], ['Rejection Reason', candidate.rejection_reason]] : []),
     ['Notes', candidate.notes],
   ];
 

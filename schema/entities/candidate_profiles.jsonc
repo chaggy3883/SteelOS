@@ -35,6 +35,19 @@
     "hired_employee_id": {
       "type": "string"
     },
+    "hire_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Set by hireCandidate() (src/lib/employeesApi.js) when status flips to Hired — the date HR confirmed in the Hire modal, not necessarily today."
+    },
+    "rejection_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "rejection_reason": {
+      "type": "string",
+      "description": "Free text — either a picked reason label or custom text from the Reject Candidate modal's 'Other' option."
+    },
     "notes": {
       "type": "string"
     }

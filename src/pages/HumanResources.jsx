@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel, assignPlatformRoles } from '@/lib/employeesApi';
+import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, rejectCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel, assignPlatformRoles } from '@/lib/employeesApi';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { verifyPin } from '@/lib/hrSecurity';
 import { getExpiringCertifications } from '@/lib/certAlerts';
@@ -22,18 +22,34 @@ import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
 import AddEmployeeWizard from '@/components/hr/AddEmployeeWizard';
 import EmployeeFilesPanel from '@/components/hr/EmployeeFilesPanel';
 import CandidateApplicationDialog from '@/components/hr/CandidateApplicationDialog';
+import HiringDocumentsPanel from '@/components/hr/HiringDocumentsPanel';
+import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import RoleMultiSelect from '@/components/admin/RoleMultiSelect';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
-import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse, CalendarPlus } from 'lucide-react';
+import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse, CalendarPlus, FileText, History } from 'lucide-react';
 
 export const POSITIONS = ['Ironworker', 'Welder', 'Fabricator', 'Painter', 'Shop Manager', 'Inspector', 'Office'];
-const CANDIDATE_STATUSES = ['Applied', 'Interviewing', 'Offer_Extended', 'Hired', 'Rejected'];
+// The status dropdown only ever offers non-terminal transitions — Hired and
+// Rejected are decisions, not a dropdown pick, and must go through the Hire/
+// Reject confirm modals below so employee provisioning and the documents
+// move/delete can never be skipped.
+const CANDIDATE_STATUS_OPTIONS = ['Applied', 'Interviewing', 'Offer_Extended'];
+
+const REJECTION_REASONS = [
+  { value: 'not_a_fit', label: 'Not a Fit for the Role' },
+  { value: 'position_filled', label: 'Position Filled' },
+  { value: 'failed_to_respond', label: 'Failed to Respond' },
+  { value: 'compensation_mismatch', label: 'Compensation Expectations Mismatch' },
+  { value: 'withdrew_application', label: 'Candidate Withdrew Application' },
+  { value: 'other', label: 'Other' },
+];
 
 // Phase B tab-level enforcement (permissionCatalog.js) for office sessions —
 // mirrors the same pattern already wired into EmployeeCenter.jsx for kiosk
 // sessions, reading from this User account's own permission_overrides.
 const HR_TABS = [
   { value: 'ats', key: 'tab:/human-resources:ats' },
+  { value: 'archive', key: 'tab:/human-resources:archive' },
   { value: 'employees', key: 'tab:/human-resources:employees' },
   { value: 'timeoff', key: 'tab:/human-resources:timeoff' },
   { value: 'emergency', key: 'tab:/human-resources:emergency' },
@@ -69,6 +85,17 @@ export default function HumanResources() {
   const [savingInterview, setSavingInterview] = useState(false);
   const [viewingCandidate, setViewingCandidate] = useState(null);
 
+  const [hireCandidateTarget, setHireCandidateTarget] = useState(null);
+  const [hireForm, setHireForm] = useState({ hire_date: '', position_title: '' });
+  const [hiring, setHiring] = useState(false);
+
+  const [rejectCandidateTarget, setRejectCandidateTarget] = useState(null);
+  const [rejectForm, setRejectForm] = useState({ reason_code: REJECTION_REASONS[0].value, reason_other: '', keep_documents: true });
+  const [rejecting, setRejecting] = useState(false);
+
+  const [docsCandidate, setDocsCandidate] = useState(null);
+  const [historyCandidate, setHistoryCandidate] = useState(null);
+
   const [terminalEmployeeNumber, setTerminalEmployeeNumber] = useState('');
   const [terminalPin, setTerminalPin] = useState('');
 
@@ -100,6 +127,19 @@ export default function HumanResources() {
       setShowProfileDialog(true);
     }
   }, [searchParams, employees]);
+
+  // Deep-link target for candidate drill-downs from Global Search — jumps to
+  // the ATS tab (or the Archive tab for a rejected candidate) and opens that
+  // candidate's read-only application view.
+  useEffect(() => {
+    const candId = searchParams.get('candidate');
+    if (!candId || candidates.length === 0) return;
+    const match = candidates.find((c) => c.id === candId);
+    if (match) {
+      setActiveTab(match.status === 'Rejected' ? 'archive' : 'ats');
+      setViewingCandidate(match);
+    }
+  }, [searchParams, candidates]);
 
   const init = async () => {
     setLoading(true);
@@ -165,19 +205,62 @@ export default function HumanResources() {
     }
   };
 
+  // Only reached for the three non-terminal statuses — Hired/Rejected are no
+  // longer options in the dropdown, see CANDIDATE_STATUS_OPTIONS.
   const handleStatusChange = async (candidate, status) => {
-    if (status === 'Hired') {
-      try {
-        const employee = await hireCandidate(candidate.id);
-        await loadAll(roles);
-        toast({ title: `Hired — Employee #${employee.employee_number} provisioned`, description: employee.full_name });
-      } catch (e) {
-        toast({ title: 'Unable to provision employee', variant: 'destructive' });
-      }
-      return;
-    }
     const updated = await db.entities.candidate_profiles.update(candidate.id, { status });
     setCandidates((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+  };
+
+  const openHireModal = (candidate) => {
+    setHireCandidateTarget(candidate);
+    setHireForm({ hire_date: new Date().toISOString().slice(0, 10), position_title: candidate.position_applied });
+  };
+
+  const confirmHire = async () => {
+    if (!hireForm.hire_date) {
+      toast({ title: 'Hire date is required', variant: 'destructive' });
+      return;
+    }
+    setHiring(true);
+    try {
+      const employee = await hireCandidate(hireCandidateTarget.id, hireForm, currentUser?.full_name || currentUser?.email);
+      await loadAll(roles);
+      setHireCandidateTarget(null);
+      toast({ title: 'Candidate moved to HR, hire date recorded', description: `Employee #${employee.employee_number} — ${employee.full_name}` });
+      setActiveTab('employees');
+      setProfileEmployee(employee);
+      setShowProfileDialog(true);
+    } catch (e) {
+      toast({ title: 'Unable to provision employee', variant: 'destructive' });
+    } finally {
+      setHiring(false);
+    }
+  };
+
+  const openRejectModal = (candidate) => {
+    setRejectCandidateTarget(candidate);
+    setRejectForm({ reason_code: REJECTION_REASONS[0].value, reason_other: '', keep_documents: true });
+  };
+
+  const confirmReject = async () => {
+    const isOther = rejectForm.reason_code === 'other';
+    const finalReason = isOther ? rejectForm.reason_other.trim() : REJECTION_REASONS.find((r) => r.value === rejectForm.reason_code)?.label;
+    if (isOther && !finalReason) {
+      toast({ title: 'Please specify a rejection reason', variant: 'destructive' });
+      return;
+    }
+    setRejecting(true);
+    try {
+      await rejectCandidate(rejectCandidateTarget.id, { rejection_reason: finalReason, keep_documents: rejectForm.keep_documents }, currentUser?.full_name || currentUser?.email);
+      await loadAll(roles);
+      setRejectCandidateTarget(null);
+      toast({ title: 'Candidate archived' });
+    } catch (e) {
+      toast({ title: 'Unable to reject candidate', variant: 'destructive' });
+    } finally {
+      setRejecting(false);
+    }
   };
 
   const openInterviewScheduler = (candidate) => {
@@ -325,6 +408,10 @@ export default function HumanResources() {
 
   const expiringCerts = getExpiringCertifications(certifications, 60);
   const complianceAlerts = getComplianceAlerts(employees, 30);
+  // Rejected candidates live in the read-only Archive tab, not the working
+  // pipeline — everything else (including Hired) stays in the ATS list.
+  const activeCandidates = candidates.filter((c) => c.status !== 'Rejected');
+  const rejectedCandidates = candidates.filter((c) => c.status === 'Rejected');
 
   const isTabVisible = (value) => {
     const tab = HR_TABS.find((t) => t.value === value);
@@ -352,6 +439,7 @@ export default function HumanResources() {
       <Tabs value={currentTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           {isTabVisible('ats') && <TabsTrigger value="ats">Candidates (ATS)</TabsTrigger>}
+          {isTabVisible('archive') && <TabsTrigger value="archive">Candidate Archive</TabsTrigger>}
           {isTabVisible('employees') && <TabsTrigger value="employees">Employees</TabsTrigger>}
           {isFullAccess && isTabVisible('timeoff') && (
             <TabsTrigger value="timeoff" className="gap-1.5">
@@ -374,9 +462,9 @@ export default function HumanResources() {
               <UserPlus className="w-4 h-4" />Add Candidate
             </Button>
           </div>
-          {candidates.length === 0 ? (
+          {activeCandidates.length === 0 ? (
             <p className="text-sm text-muted-foreground p-6 text-center">No candidates in the pipeline yet.</p>
-          ) : candidates.map((candidate) => (
+          ) : activeCandidates.map((candidate) => (
             <div key={candidate.id} className="steel-card p-4 space-y-3">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div>
@@ -385,19 +473,39 @@ export default function HumanResources() {
                   </button>
                   <p className="text-xs text-muted-foreground">{candidate.position_applied} • {candidate.email}</p>
                   {candidate.hired_employee_id && <p className="text-xs text-green-600 mt-0.5">Provisioned as employee record</p>}
+                  <button onClick={() => setHistoryCandidate(candidate)} className="text-xs text-muted-foreground hover:text-primary hover:underline inline-flex items-center gap-1 mt-0.5">
+                    <History className="w-3 h-3" />Status History
+                  </button>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDocsCandidate(candidate)}>
+                    <FileText className="w-3.5 h-3.5" />Documents
+                  </Button>
                   {candidate.status === 'Interviewing' && (
                     <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openInterviewScheduler(candidate)}>
                       <CalendarPlus className="w-3.5 h-3.5" />Schedule Interview
                     </Button>
                   )}
-                  <Select value={candidate.status} onValueChange={(v) => handleStatusChange(candidate, v)}>
-                    <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {CANDIDATE_STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace('_', ' ')}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  {candidate.status === 'Hired' ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600 px-2">
+                      <CheckCircle2 className="w-3.5 h-3.5" />Hired
+                    </span>
+                  ) : (
+                    <>
+                      <Select value={candidate.status} onValueChange={(v) => handleStatusChange(candidate, v)}>
+                        <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {CANDIDATE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s.replace('_', ' ')}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white border-0" onClick={() => openHireModal(candidate)}>
+                        <CheckCircle2 className="w-3.5 h-3.5" />Hire
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1.5 text-destructive hover:text-destructive" onClick={() => openRejectModal(candidate)}>
+                        <Ban className="w-3.5 h-3.5" />Reject
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -427,6 +535,47 @@ export default function HumanResources() {
               )}
             </div>
           ))}
+        </TabsContent>
+
+        <TabsContent value="archive" className="space-y-3">
+          {rejectedCandidates.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-6 text-center">No rejected candidates archived yet.</p>
+          ) : (
+            <div className="steel-card overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                      <th className="text-left py-3 px-4">Name</th>
+                      <th className="text-left py-3 px-4">Position Applied</th>
+                      <th className="text-left py-3 px-4">Rejected Date</th>
+                      <th className="text-left py-3 px-4">Rejection Reason</th>
+                      <th className="text-right py-3 px-4">Documents</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rejectedCandidates.map((candidate) => (
+                      <tr key={candidate.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                        <td className="py-2.5 px-4">
+                          <button onClick={() => setViewingCandidate(candidate)} className="font-medium text-primary hover:underline text-left">
+                            {candidate.candidate_name}
+                          </button>
+                        </td>
+                        <td className="py-2.5 px-4">{candidate.position_applied}</td>
+                        <td className="py-2.5 px-4">{candidate.rejection_date || '—'}</td>
+                        <td className="py-2.5 px-4">{candidate.rejection_reason || '—'}</td>
+                        <td className="py-2.5 px-4 text-right">
+                          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDocsCandidate(candidate)}>
+                            <FileText className="w-3.5 h-3.5" />View Documents
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="employees" className="space-y-3">
@@ -772,6 +921,88 @@ export default function HumanResources() {
         candidate={viewingCandidate}
         open={!!viewingCandidate}
         onOpenChange={(o) => { if (!o) setViewingCandidate(null); }}
+      />
+
+      <Dialog open={!!hireCandidateTarget} onOpenChange={(o) => { if (!o) setHireCandidateTarget(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Hire {hireCandidateTarget?.candidate_name}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Hire Date</Label>
+              <Input type="date" value={hireForm.hire_date} onChange={(e) => setHireForm((f) => ({ ...f, hire_date: e.target.value }))} className="mt-1" />
+            </div>
+            <div>
+              <Label>Position Title</Label>
+              <Input value={hireForm.position_title} onChange={(e) => setHireForm((f) => ({ ...f, position_title: e.target.value }))} className="mt-1" />
+            </div>
+            <p className="text-xs text-muted-foreground">Creates an employee record, moves the candidate's resume/application to their new employee file, and records the hire in status history.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHireCandidateTarget(null)}>Cancel</Button>
+            <Button onClick={confirmHire} disabled={hiring} className="gap-1.5 bg-green-600 hover:bg-green-700 text-white border-0">
+              <CheckCircle2 className="w-4 h-4" />{hiring ? 'Hiring…' : 'Confirm Hire'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rejectCandidateTarget} onOpenChange={(o) => { if (!o) setRejectCandidateTarget(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reject {rejectCandidateTarget?.candidate_name}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Rejection Reason</Label>
+              <Select value={rejectForm.reason_code} onValueChange={(v) => setRejectForm((f) => ({ ...f, reason_code: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {REJECTION_REASONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {rejectForm.reason_code === 'other' && (
+              <div>
+                <Label>Specify Reason</Label>
+                <Textarea value={rejectForm.reason_other} onChange={(e) => setRejectForm((f) => ({ ...f, reason_other: e.target.value }))} rows={2} className="mt-1" />
+              </div>
+            )}
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div className="pr-3">
+                <Label className="text-sm">Keep Documents</Label>
+                <p className="text-xs text-muted-foreground">Retain the resume/application in the Candidate Archive. Off permanently deletes them.</p>
+              </div>
+              <Switch checked={rejectForm.keep_documents} onCheckedChange={(v) => setRejectForm((f) => ({ ...f, keep_documents: v }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectCandidateTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmReject} disabled={rejecting} className="gap-1.5">
+              <Ban className="w-4 h-4" />{rejecting ? 'Rejecting…' : 'Confirm Rejection'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!docsCandidate} onOpenChange={(o) => { if (!o) setDocsCandidate(null); }}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{docsCandidate?.candidate_name} — Documents</DialogTitle></DialogHeader>
+          {docsCandidate && (
+            <HiringDocumentsPanel
+              ownerType="candidate"
+              ownerId={docsCandidate.id}
+              allowUpload={docsCandidate.status !== 'Rejected'}
+              uploadedByName={currentUser?.full_name || currentUser?.email}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <StatusHistoryModal
+        open={!!historyCandidate}
+        onOpenChange={(o) => { if (!o) setHistoryCandidate(null); }}
+        entityType="candidate_profiles"
+        entityId={historyCandidate?.id}
+        fieldName="status"
+        title={historyCandidate ? `${historyCandidate.candidate_name} — Status History` : 'Status History'}
       />
 
       <Dialog open={!!viewingCertification} onOpenChange={(o) => !o && setViewingCertification(null)}>

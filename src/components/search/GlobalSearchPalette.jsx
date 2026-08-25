@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Search, FileText, Building2, FolderKanban, Calculator, Users, HelpCircle, Tag, X } from 'lucide-react';
+import { Search, FileText, Building2, FolderKanban, Calculator, Users, UserSearch, HelpCircle, Tag, X } from 'lucide-react';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { detectOS } from '@/lib/platformDetect';
 import { useAuth } from '@/lib/AuthContext';
@@ -17,11 +17,14 @@ const normalizeRoles = (roles) => (Array.isArray(roles) ? roles : roles ? [roles
 // masks the record to public fields (name/id/classification/dates) for any
 // role outside hr_admin/payroll_admin/admin, so shop_manager never sees SSN,
 // pay rate, or PIN state, just like the rest of the app's HR surfaces.
+// candidates is HR-roles-only, matching the ATS/Archive tabs' own access —
+// shop_manager/project_manager etc. get employee lookup but never candidate
+// pipeline/rejection data.
 const ROLE_CATEGORIES = {
-  admin: ['bids', 'customers', 'projects', 'documents', 'employees'],
-  super_admin: ['bids', 'customers', 'projects', 'documents', 'employees'],
-  payroll_admin: ['bids', 'customers', 'projects', 'documents', 'employees'],
-  hr_admin: ['employees', 'documents', 'projects'],
+  admin: ['bids', 'customers', 'projects', 'documents', 'employees', 'candidates'],
+  super_admin: ['bids', 'customers', 'projects', 'documents', 'employees', 'candidates'],
+  payroll_admin: ['bids', 'customers', 'projects', 'documents', 'employees', 'candidates'],
+  hr_admin: ['employees', 'documents', 'projects', 'candidates'],
   project_manager: ['projects', 'bids', 'customers', 'documents', 'rfis'],
   estimator: ['bids', 'customers', 'projects'],
   shop_manager: ['projects', 'employees', 'pieces', 'documents'],
@@ -39,8 +42,8 @@ function categoriesForRoles(roles) {
   return set;
 }
 
-const CATEGORY_LABELS = { projects: 'projects', bids: 'bids', customers: 'customers', employees: 'employees', rfis: 'RFIs', pieces: 'pieces', documents: 'documents' };
-const CATEGORY_ORDER = ['projects', 'bids', 'customers', 'employees', 'rfis', 'pieces', 'documents'];
+const CATEGORY_LABELS = { projects: 'projects', bids: 'bids', customers: 'customers', employees: 'employees', candidates: 'candidates', rfis: 'RFIs', pieces: 'pieces', documents: 'documents' };
+const CATEGORY_ORDER = ['projects', 'bids', 'customers', 'employees', 'candidates', 'rfis', 'pieces', 'documents'];
 
 function searchableLabel(categories) {
   const labels = CATEGORY_ORDER.filter((c) => categories.has(c)).map((c) => CATEGORY_LABELS[c]);
@@ -49,7 +52,19 @@ function searchableLabel(categories) {
   return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
 }
 
-const EMPTY_RESULTS = { bids: [], customers: [], projects: [], documents: [], employees: [], rfis: [], pieces: [] };
+const EMPTY_RESULTS = { bids: [], customers: [], projects: [], documents: [], employees: [], candidates: [], rfis: [], pieces: [] };
+
+// "Applied for Welder (Rejected Dec 15)" for an archived candidate, "Applied
+// for Welder (Interviewing)" otherwise — matches the format HR expects to
+// recognize a candidate by at a glance in search results.
+const candidateSubtitle = (c) => {
+  const role = c.position_applied ? `Applied for ${c.position_applied}` : 'Applied';
+  if (c.status === 'Rejected') {
+    const rejected = c.rejection_date ? new Date(`${c.rejection_date}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+    return `${role} (Rejected${rejected ? ` ${rejected}` : ''})`;
+  }
+  return `${role} (${(c.status || '').replace(/_/g, ' ')})`;
+};
 
 export default function GlobalSearchPalette() {
   const [query, setQuery] = useState('');
@@ -107,6 +122,9 @@ export default function GlobalSearchPalette() {
         if (categories.has('projects')) tasks.projects = db.entities.Project.filter({ is_archived: false }, 'name', 50);
         if (categories.has('documents')) tasks.documents = db.entities.Document.filter({ is_archived: false }, '-created_date', 50);
         if (categories.has('employees')) tasks.employees = listEmployeesForRole(user?.roles, 'full_name', 50);
+        // Includes rejected/archived candidates — the Archive is meant to stay
+        // searchable, not just the active pipeline.
+        if (categories.has('candidates')) tasks.candidates = db.entities.candidate_profiles.list('-created_date', 100);
         if (categories.has('rfis')) tasks.rfis = db.entities.RFI.list('-created_date', 50);
         if (categories.has('pieces')) tasks.pieces = db.entities.PieceMark.list('-created_date', 50);
 
@@ -136,12 +154,16 @@ export default function GlobalSearchPalette() {
         const employees = (raw.employees || [])
           .filter(e => match(e.full_name) || match(e.employee_number) || match(e.classification) || match(e.department) || match(e.personal_email));
 
+        const candidates = (raw.candidates || [])
+          .filter(c => match(c.candidate_name) || match(c.email) || match(c.position_applied));
+
         setResults({
           bids: bids.slice(0, 5),
           customers: (raw.customers || []).filter(c => match(c.name) || match(c.email) || match(c.city)).slice(0, 5),
           projects: projects.slice(0, 5),
           documents: (raw.documents || []).filter(d => match(d.name) || match(d.file_name)).slice(0, 5),
           employees: employees.slice(0, 5),
+          candidates: candidates.slice(0, 5),
           rfis: rfis.slice(0, 5),
           pieces: pieces.slice(0, 5),
         });
@@ -157,6 +179,7 @@ export default function GlobalSearchPalette() {
       projects: `/projects/${item.id}`,
       documents: `/documents?doc=${item.id}`,
       employees: `/human-resources?employee=${item.id}`,
+      candidates: `/human-resources?candidate=${item.id}`,
       rfis: `/rfis?open=${item.id}`,
       pieces: item._project ? `/projects/${item._project.id}` : `/production`,
     };
@@ -219,6 +242,10 @@ export default function GlobalSearchPalette() {
                   {results.employees.length > 0 && (
                     <ResultGroup icon={Users} label="Employees" items={results.employees} type="employees" onClick={handleResultClick}
                       titleFn={e => e.full_name} subFn={e => [e.classification, e.department].filter(Boolean).join(' • ')} />
+                  )}
+                  {results.candidates.length > 0 && (
+                    <ResultGroup icon={UserSearch} label="Candidates" items={results.candidates} type="candidates" onClick={handleResultClick}
+                      titleFn={c => c.candidate_name} subFn={candidateSubtitle} />
                   )}
                   {results.rfis.length > 0 && (
                     <ResultGroup icon={HelpCircle} label="RFIs" items={results.rfis} type="rfis" onClick={handleResultClick}

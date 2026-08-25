@@ -4,6 +4,8 @@ import { encodePin } from '@/lib/hrSecurity';
 import { computeI9ReverificationDueDate } from '@/lib/i9Compliance';
 import { provisionDefaultIssuedAssets } from '@/lib/issuedAssetsApi';
 import { createDefaultEmployeePtoPolicies } from '@/lib/ptoEngine';
+import { moveCandidateDocumentsToEmployee, deleteAllCandidateDocuments } from '@/lib/hiringDocumentsApi';
+import { logStatusChange } from '@/lib/statusHistory';
 
 // termination_reason (but not termination_reason_other/final_notes, which can
 // carry sensitive HR detail) is deliberately public — standing rule: it must
@@ -103,20 +105,26 @@ export const nextEmployeeNumber = async () => {
 // The "candidate flipped to Hired" provisioning trigger. No real backend
 // trigger system exists in this app, so this function IS the trigger — any
 // "mark candidate hired" UI action must go through this single call site so
-// provisioning can never be skipped.
-export async function hireCandidate(candidateId) {
+// provisioning (including the document move below) can never be skipped.
+// `hire_date`/`position_title` come from the Hire modal's confirm step
+// (HumanResources.jsx) — both fall back to today/the applied-for position so
+// older call sites that don't pass them still work.
+export async function hireCandidate(candidateId, { hire_date: hireDateInput, position_title } = {}, changedBy = 'Unknown') {
   const candidate = await db.entities.candidate_profiles.get(candidateId);
   if (!candidate) throw new Error('Candidate not found');
 
   const employee_number = await nextEmployeeNumber();
-  const hire_date = new Date().toISOString().slice(0, 10);
+  const hire_date = hireDateInput || new Date().toISOString().slice(0, 10);
+  const classification = position_title || candidate.position_applied;
   // PIN is the employee's own last-4 SSN (see pinFormula.js's security
   // caveat) — with ssn_last4 still blank at provisioning time, this computes
   // a placeholder PIN ("0000") that becomes real the moment HR enters the SSN.
   const employee = await db.entities.employees.create({
     employee_number,
     full_name: candidate.candidate_name,
-    classification: candidate.position_applied,
+    classification,
+    personal_email: candidate.email,
+    phone: candidate.phone,
     hire_date,
     is_active: true,
     pin_encrypted: encodeFormulaPin({ employee_number, ssn_last4: '' }),
@@ -136,12 +144,57 @@ export async function hireCandidate(candidateId) {
   await db.entities.candidate_profiles.update(candidateId, {
     status: 'Hired',
     hired_employee_id: employee.id,
+    hire_date,
   });
 
+  await moveCandidateDocumentsToEmployee(candidateId, employee.id);
   await provisionDefaultIssuedAssets(employee.id);
   await createDefaultEmployeePtoPolicies(employee);
+  await logStatusChange({
+    entityType: 'candidate_profiles',
+    entityId: candidateId,
+    fieldName: 'status',
+    fromValue: candidate.status,
+    toValue: 'Hired',
+    changedBy,
+    note: `Hired as ${classification}`,
+  });
 
   return employee;
+}
+
+// The "candidate flipped to Rejected" trigger — mirrors hireCandidate's role
+// as the single call site so the rejection date/reason and the documents
+// decision can never be skipped by a UI path that forgets one of them.
+// `keep_documents: false` permanently deletes the candidate's attached
+// documents (and their blobs); `true` (the default) leaves them in place so
+// they stay visible from the read-only Candidate Archive view.
+export async function rejectCandidate(candidateId, { rejection_reason, keep_documents = true } = {}, changedBy = 'Unknown') {
+  const candidate = await db.entities.candidate_profiles.get(candidateId);
+  if (!candidate) throw new Error('Candidate not found');
+
+  const rejection_date = new Date().toISOString().slice(0, 10);
+  const updated = await db.entities.candidate_profiles.update(candidateId, {
+    status: 'Rejected',
+    rejection_date,
+    rejection_reason: rejection_reason || '',
+  });
+
+  if (!keep_documents) {
+    await deleteAllCandidateDocuments(candidateId);
+  }
+
+  await logStatusChange({
+    entityType: 'candidate_profiles',
+    entityId: candidateId,
+    fieldName: 'status',
+    fromValue: candidate.status,
+    toValue: 'Rejected',
+    changedBy,
+    note: rejection_reason || '',
+  });
+
+  return updated;
 }
 
 // The "Add Employee" wizard's provisioning trigger — same shape as

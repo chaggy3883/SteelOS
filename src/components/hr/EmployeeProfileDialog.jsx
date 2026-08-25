@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { db } from '@/api/apiClient';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SystemAccessPortal from '@/components/hr/SystemAccessPortal';
 import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
 import ComplianceDocumentCenter from '@/components/hr/ComplianceDocumentCenter';
+import HiringDocumentsPanel from '@/components/hr/HiringDocumentsPanel';
 import I9ComplianceCenter from '@/components/hr/I9ComplianceCenter';
 import DisciplinaryActionsPanel from '@/components/hr/DisciplinaryActionsPanel';
 import PtoPanel from '@/components/hr/PtoPanel';
@@ -15,6 +17,7 @@ import { hasFullEmployeeAccess } from '@/lib/employeesApi';
 
 export default function EmployeeProfileDialog({ employee, employees = [], roles, open, onOpenChange, onEmployeeUpdated }) {
   const [current, setCurrent] = useState(employee);
+  const [currentUserName, setCurrentUserName] = useState('');
   const showDisciplinary = canManageDisciplinaryActions(roles);
   const showTermination = hasFullEmployeeAccess(roles);
   // Equipment issue/return history is HR/admin-only, same as Compliance and
@@ -22,6 +25,9 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
   const showEquipment = hasFullEmployeeAccess(roles);
 
   useEffect(() => { setCurrent(employee); }, [employee?.id]);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUserName(me?.full_name || me?.email || '')).catch(() => {});
+  }, []);
 
   const handleUpdated = (updated) => {
     setCurrent(updated);
@@ -54,8 +60,12 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           <TabsContent value="emergency">
             <EmergencyContactPanel employee={current} roles={roles} onUpdated={handleUpdated} />
           </TabsContent>
-          <TabsContent value="documents">
+          <TabsContent value="documents" className="space-y-4">
             <ComplianceDocumentCenter employee={current} />
+            <div className="steel-card p-4">
+              <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">Hiring Documents</h4>
+              <HiringDocumentsPanel ownerType="employee" ownerId={current.id} uploadedByName={currentUserName} />
+            </div>
           </TabsContent>
           {showEquipment && (
             <TabsContent value="equipment">

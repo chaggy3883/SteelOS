@@ -128,6 +128,7 @@ export const PERMISSION_CATALOG = [
   { key: 'module:/admin', label: 'Admin Panel' },
   { key: 'module:/human-resources', label: 'Human Resources', tabs: [
     { key: 'tab:/human-resources:ats', label: 'Candidates (ATS)' },
+    { key: 'tab:/human-resources:archive', label: 'Candidate Archive' },
     { key: 'tab:/human-resources:employees', label: 'Employees' },
     { key: 'tab:/human-resources:timeoff', label: 'Time Off Approvals' },
     { key: 'tab:/human-resources:emergency', label: 'Emergency Contacts' },

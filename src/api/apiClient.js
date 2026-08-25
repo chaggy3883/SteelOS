@@ -51,6 +51,8 @@ const createLocalApi = () => ({
     employee_disciplinary_files: createEntityApi('employee_disciplinary_files'),
     calendar_events: createEntityApi('calendar_events'),
     candidate_profiles: createEntityApi('candidate_profiles'),
+    candidate_documents: createEntityApi('candidate_documents'),
+    employee_hiring_documents: createEntityApi('employee_hiring_documents'),
     Company: createEntityApi('Company'),
     disciplinary_records: createEntityApi('disciplinary_records'),
     employees: createEntityApi('employees'),

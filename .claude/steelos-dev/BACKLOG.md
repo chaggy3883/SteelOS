@@ -7,6 +7,36 @@ right heading. Ask which section if it's ambiguous.
 
 ## Also Closed (2026-08-25)
 
+- **Candidate hiring/archiving workflow (HR → Candidates ATS)** — explicit
+  "Hire This Candidate" / "Reject Candidate" confirm modals replace the old
+  bare status-dropdown flip for those two terminal statuses (Applied/
+  Interviewing/Offer_Extended still change via the dropdown). Hire modal
+  (hire_date, position_title) calls the rewritten `hireCandidate()`
+  (`src/lib/employeesApi.js`) — now also moves the candidate's documents to
+  the new employee record, writes a `StatusHistoryEntry`, and opens the new
+  employee's profile on success. Reject modal (reason dropdown + "Other"
+  free text, "Keep Documents" switch) calls the new `rejectCandidate()`,
+  same file. 2 new entities: `candidate_documents` (resume/application/
+  cover letter/other, uploaded per-candidate via the new
+  `HiringDocumentsPanel.jsx`, blobs in the new `hiringDocumentStore.js`
+  IndexedDB store per standing rule 4 — not localStorage, unlike the older
+  `employee_documents`/`ComplianceDocumentCenter.jsx` pattern) and
+  `employee_hiring_documents` (landing spot for the moved documents, shown
+  alongside `ComplianceDocumentCenter` on `EmployeeProfileDialog.jsx`'s
+  Documents tab). `moveCandidateDocumentsToEmployee`/
+  `deleteAllCandidateDocuments` (`src/lib/hiringDocumentsApi.js`) do the
+  actual move-on-hire / delete-on-reject-without-keep. New read-only
+  "Candidate Archive" tab on `/human-resources` lists rejected candidates
+  (name/position/rejected date/reason/View Documents); rejected candidates
+  no longer show in the working ATS pipeline list. `candidate_profiles`
+  gained `hire_date`/`rejection_date`/`rejection_reason` and — along with
+  the 2 new entities — was added to `TENANT_SCOPED_ENTITIES`
+  (`candidate_profiles` itself was missing from that list before this,
+  a pre-existing company_id-scoping gap this closed as a side effect).
+  Global Search gained a `candidates` category (HR roles only, matching
+  ATS/Archive access), searching name/email/position across every status
+  including archived ones.
+
 - **ACH integration (Admin → Integrations)** — configuration/logging layer
   only, per the standing "no real backend" constraint — NOT a real bank/ACH
   processor integration; the actual webhook handlers/batch file

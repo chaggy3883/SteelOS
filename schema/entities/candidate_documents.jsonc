@@ -1,0 +1,36 @@
+{
+  "name": "candidate_documents",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "candidate_id": {
+      "type": "string"
+    },
+    "document_type": {
+      "type": "string",
+      "enum": ["Resume", "Application", "Cover_Letter", "Other"]
+    },
+    "file_name": {
+      "type": "string"
+    },
+    "blob_key": {
+      "type": "string",
+      "description": "IndexedDB key in hiringDocumentStore.js, format candidate/{candidateId}/{docId} — the blob itself never lives here or in localStorage (standing rule 4)."
+    },
+    "uploaded_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "uploaded_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "document_type",
+    "file_name",
+    "blob_key"
+  ]
+}
