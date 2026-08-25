@@ -1,0 +1,46 @@
+{
+  "name": "PayrollLineTax",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string"
+    },
+    "payroll_line_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "tax_type": {
+      "type": "string",
+      "enum": ["federal_income", "state_income", "local_income", "social_security", "medicare", "medicare_additional"],
+      "description": "federal_income/state_income/local_income come from the employee's TaxWithholding row for that jurisdiction. social_security/medicare mirror the employer's own fica_employer/medicare_employer PayrollRule rate (see calculateTaxesAndDeductions in payrollEngine.js) since both sides pay the same statutory rate. medicare_additional (the 0.9% surtax over $200k/yr) is never emitted — it requires year-to-date wage tracking this build doesn't have, same limitation as EmployerTax's wage_base_cap."
+    },
+    "amount": {
+      "type": "number",
+      "default": 0
+    },
+    "source_id": {
+      "type": "string",
+      "description": "id of the record that generated this line — a TaxWithholding row (federal_income/state_income/local_income) or the employer_tax PayrollRule reused for the FICA rate (social_security/medicare). See source_type. Lets the pay stub link each line back to the exact rule active when the run was processed, not whatever's active now."
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["TaxWithholding", "PayrollRule"]
+    },
+    "created_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "payroll_run_id",
+    "payroll_line_id",
+    "employee_id",
+    "tax_type",
+    "amount"
+  ]
+}

@@ -43,12 +43,13 @@
     },
     "deductions_total": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Itemized per deduction type on PayrollLineDeduction (one row per payroll_line_id) — this field is the sum. Lines created before itemized tracking shipped have no PayrollLineDeduction rows; this total is still accurate, it just can't be broken down further."
     },
     "tax_total": {
       "type": "number",
       "default": 0,
-      "description": "Employee-side withholding only. Employer-paid taxes are tracked separately per employee on EmployerTax."
+      "description": "Employee-side withholding only. Employer-paid taxes are tracked separately per employee on EmployerTax. Itemized per tax type on PayrollLineTax (one row per payroll_line_id) — this field is the sum. Lines created before itemized tracking shipped have no PayrollLineTax rows; this total is still accurate, it just can't be broken down further."
     },
     "net_pay": {
       "type": "number",

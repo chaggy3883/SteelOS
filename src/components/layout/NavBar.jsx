@@ -65,6 +65,8 @@ const navGroups = [
       { icon: PlayCircle, label: 'Run Payroll', path: '/payroll/processing' },
       { icon: Settings, label: 'Payroll Setup', path: '/payroll/setup' },
       { icon: FileCheck2, label: 'Certified Payroll', path: '/certified-payroll' },
+      { icon: Scale, label: 'Garnishments', path: '/payroll/garnishments' },
+      { icon: Percent, label: '401(k) Contributions', path: '/payroll/401k-contributions' },
     ]
   },
   {

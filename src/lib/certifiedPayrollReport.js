@@ -10,7 +10,7 @@ import { calculateTaxesAndDeductions } from '@/lib/payrollEngine';
 // JobLaborAllocation carries no employee_id of its own — it's reached via
 // its time_entry_id back to the TimeEntry that produced it, which is also
 // where the per-day work_date for the report's daily-hours grid comes from.
-export function buildCertifiedPayrollReportRows({ project, period, payrollLines, jobLaborAllocations, timeEntries, employees, payRates, taxWithholdings, deductions }) {
+export function buildCertifiedPayrollReportRows({ project, period, payrollLines, jobLaborAllocations, timeEntries, employees, payRates, taxWithholdings, deductions, employerTaxRules }) {
   const timeEntryById = new Map((timeEntries || []).map((t) => [t.id, t]));
   const byEmployee = new Map();
 
@@ -53,7 +53,7 @@ export function buildCertifiedPayrollReportRows({ project, period, payrollLines,
       }, new Map());
     const employeeDeductions = (deductions || []).filter((d) => d.employee_id === employeeId && d.effective_date <= asOfDate && (!d.end_date || d.end_date >= asOfDate));
     const grossAllProjects = Number(line?.gross_pay) || 0;
-    const netCalc = calculateTaxesAndDeductions(grossAllProjects, [...employeeWithholdings.values()], employeeDeductions);
+    const netCalc = calculateTaxesAndDeductions(grossAllProjects, [...employeeWithholdings.values()], employeeDeductions, employerTaxRules);
 
     return {
       employee_id: employeeId,

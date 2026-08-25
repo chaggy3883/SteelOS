@@ -10,7 +10,12 @@
     },
     "deduction_type": {
       "type": "string",
-      "enum": ["benefits", "garnishment", "other"]
+      "enum": ["benefits", "garnishment", "other"],
+      "description": "Broad category — drives GL mapping (PayrollGLMapping cost_type) and PayrollLiability posting. Use deduction_subtype for the granular label shown on pay stubs and compliance reports."
+    },
+    "deduction_subtype": {
+      "type": "string",
+      "description": "Granular label surfaced on the employee pay stub and the garnishment/401(k) compliance reports (e.g. '401k', 'health_insurance', 'dental_insurance', 'child_support_garnishment', 'wage_garnishment'). Optional — falls back to deduction_type when blank. Free text rather than an enum since the valid set differs by deduction_type (benefits vs. garnishment subtypes aren't the same list)."
     },
     "amount_or_percent": {
       "type": "number",

@@ -18,6 +18,7 @@ import { hasPayrollAdjustmentAccess } from '@/lib/payrollAdjustmentAccess';
 import { queueCommissionsForPayroll, attachPendingCommissionPayoutsToRun, finalizeCommissionPayoutsForRun } from '@/lib/commissionEngine';
 import { logStatusChange } from '@/lib/statusHistory';
 import { buildAchOutgoingPayloads } from '@/lib/achEngine';
+import PayStubDetail from '@/components/payroll/PayStubDetail';
 
 const HOURS_FIELDS = ['regular_hours', 'ot_hours', 'double_time_hours'];
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -25,7 +26,7 @@ const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 const titleCase = (s) => (s ? String(s).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : s);
 
-const TAX_JURISDICTION_TO_LIABILITY = { federal: 'federal_withholding', state: 'state_withholding', local: 'local_withholding' };
+const TAX_TYPE_TO_LIABILITY = { federal_income: 'federal_withholding', state_income: 'state_withholding', local_income: 'local_withholding', social_security: 'fica_employee', medicare: 'medicare_employee' };
 const DEDUCTION_TYPE_TO_LIABILITY = { benefits: 'benefits', garnishment: 'garnishment', other: 'other' };
 
 // Orchestrates Time Entry -> Timecard -> Job Allocation -> Gross ->
@@ -58,6 +59,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
   const [reopenDialogOpen, setReopenDialogOpen] = useState(false);
   const [reopenReason, setReopenReason] = useState('');
 
+  const [viewingLineStub, setViewingLineStub] = useState(null);
   const [editingLine, setEditingLine] = useState(null);
   const [hoursForm, setHoursForm] = useState({ regular_hours: '', ot_hours: '', double_time_hours: '', reason: '' });
   const [savingHoursEdit, setSavingHoursEdit] = useState(false);
@@ -126,7 +128,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       const lines = [];
       const allocationPayloads = [];
       let totalGross = 0, totalNet = 0, totalEmployerTax = 0;
-      const totalEmployeeTaxByJurisdiction = {};
+      const totalEmployeeTaxByType = {};
       const totalDeductionsByType = {};
       const totalEmployerTaxByType = {};
 
@@ -157,7 +159,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         });
         const activeDeductions = allDeductions.filter((d) => d.employee_id === employee.id && d.effective_date <= asOfDate && (!d.end_date || d.end_date >= asOfDate));
 
-        const netCalc = calculateTaxesAndDeductions(gross.grossPay, [...latestByJurisdiction.values()], activeDeductions);
+        const netCalc = calculateTaxesAndDeductions(gross.grossPay, [...latestByJurisdiction.values()], activeDeductions, employerTaxRules);
         const employerTax = calculateEmployerTax(gross.grossPay, employerTaxRules);
         const employerTaxTotalForEmployee = employerTax.reduce((s, t) => s + t.amount, 0);
 
@@ -173,6 +175,8 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
           net_pay: netCalc.netPay,
           _employerTax: employerTax,
           _timecardId: timecard.id,
+          _taxBreakdown: netCalc.taxBreakdown,
+          _deductionBreakdown: netCalc.deductionBreakdown,
         });
 
         allocations.forEach((a) => allocationPayloads.push(a));
@@ -180,7 +184,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         totalGross += gross.grossPay;
         totalNet += netCalc.netPay;
         totalEmployerTax += employerTaxTotalForEmployee;
-        netCalc.taxBreakdown.forEach((t) => { totalEmployeeTaxByJurisdiction[t.jurisdiction] = (totalEmployeeTaxByJurisdiction[t.jurisdiction] || 0) + t.amount; });
+        netCalc.taxBreakdown.forEach((t) => { totalEmployeeTaxByType[t.tax_type] = (totalEmployeeTaxByType[t.tax_type] || 0) + t.amount; });
         netCalc.deductionBreakdown.forEach((d) => { totalDeductionsByType[d.deduction_type] = (totalDeductionsByType[d.deduction_type] || 0) + d.amount; });
         employerTax.forEach((t) => { totalEmployerTaxByType[t.tax_type] = (totalEmployerTaxByType[t.tax_type] || 0) + t.amount; });
       }
@@ -211,7 +215,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         run = await db.entities.PayrollRun.get(run.id);
       }
 
-      const createdLines = await db.entities.PayrollLine.bulkCreate(lines.map(({ _employerTax, _timecardId, ...line }) => ({ ...line, payroll_run_id: run.id })));
+      const createdLines = await db.entities.PayrollLine.bulkCreate(lines.map(({ _employerTax, _timecardId, _taxBreakdown, _deductionBreakdown, ...line }) => ({ ...line, payroll_run_id: run.id })));
 
       // Marks each source timecard as paid so it can never be picked up again
       // by another regular run for this period OR absorbed into a later
@@ -223,6 +227,27 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         line._employerTax.forEach((t) => employerTaxPayloads.push({ payroll_run_id: run.id, employee_id: line.employee_id, tax_type: t.tax_type, amount: t.amount }));
       });
       if (employerTaxPayloads.length > 0) await db.entities.EmployerTax.bulkCreate(employerTaxPayloads);
+
+      // Itemized breakdown — a line and its tax/deduction rows are created in
+      // this same batch (right after createdLines resolves, before anything
+      // else can fail and leave one without the other) so they're never out
+      // of sync. createdLines preserves lines' order (bulkCreate maps 1:1).
+      const lineTaxPayloads = [];
+      const lineDeductionPayloads = [];
+      lines.forEach((line, i) => {
+        const lineId = createdLines[i].id;
+        line._taxBreakdown.forEach((t) => lineTaxPayloads.push({
+          payroll_run_id: run.id, payroll_line_id: lineId, employee_id: line.employee_id, tax_type: t.tax_type, amount: t.amount,
+          source_id: t.source_id, source_type: t.source_type,
+        }));
+        line._deductionBreakdown.forEach((d) => lineDeductionPayloads.push({
+          payroll_run_id: run.id, payroll_line_id: lineId, employee_id: line.employee_id,
+          deduction_type: d.deduction_subtype, requested_amount: d.requested, amount_applied: d.amount,
+          fully_withheld: d.fullyWithheld, priority_order: d.priority_order, source_deduction_id: d.source_id,
+        }));
+      });
+      if (lineTaxPayloads.length > 0) await db.entities.PayrollLineTax.bulkCreate(lineTaxPayloads);
+      if (lineDeductionPayloads.length > 0) await db.entities.PayrollLineDeduction.bulkCreate(lineDeductionPayloads);
 
       // Job costing — one JobLaborAllocation + one JobCostLedgerEntry per
       // TimeEntry, tied to the real cost_code, so estimated vs actual labor
@@ -246,8 +271,8 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
 
       // Liabilities — everything withheld/accrued that must be remitted out.
       const liabilityTotals = {};
-      Object.entries(totalEmployeeTaxByJurisdiction).forEach(([j, amt]) => {
-        const type = TAX_JURISDICTION_TO_LIABILITY[j] || 'other';
+      Object.entries(totalEmployeeTaxByType).forEach(([t, amt]) => {
+        const type = TAX_TYPE_TO_LIABILITY[t] || 'other';
         liabilityTotals[type] = (liabilityTotals[type] || 0) + amt;
       });
       Object.entries(totalEmployerTaxByType).forEach(([t, amt]) => { liabilityTotals[t] = (liabilityTotals[t] || 0) + amt; });
@@ -277,7 +302,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       const benefitsGl = resolveOrFlag('benefits');
       const accrualGl = resolveOrFlag('accrual');
 
-      const employeeTaxTotal = Object.values(totalEmployeeTaxByJurisdiction).reduce((s, v) => s + v, 0);
+      const employeeTaxTotal = Object.values(totalEmployeeTaxByType).reduce((s, v) => s + v, 0);
       const benefitsTotal = totalDeductionsByType.benefits || 0;
       const otherPayableDeductions = (totalDeductionsByType.garnishment || 0) + (totalDeductionsByType.other || 0);
 
@@ -324,7 +349,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
     setOverrideNotes({});
     try {
       const runPeriod = payPeriods.find((p) => p.id === run.pay_period_id) || null;
-      const [lines, employerTax, liabilities, journal, allProjects, allCostCodes, allTimeEntries, periodTimecards, allPayRates, adjustments, allTaxWithholdings, allDeductions, achOutgoing, bankAccounts] = await Promise.all([
+      const [lines, employerTax, liabilities, journal, allProjects, allCostCodes, allTimeEntries, periodTimecards, allPayRates, adjustments, allTaxWithholdings, allDeductions, achOutgoing, bankAccounts, lineTaxes, lineDeductions] = await Promise.all([
         db.entities.PayrollLine.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.EmployerTax.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.PayrollLiability.filter({ payroll_run_id: run.id }, '-created_date', 100),
@@ -339,6 +364,8 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         db.entities.Deduction.list('priority_order', 2000),
         db.entities.AchOutgoing.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.EmployeeBankAccount.list('-created_date', 2000),
+        db.entities.PayrollLineTax.filter({ payroll_run_id: run.id }, '-created_date', 2000),
+        db.entities.PayrollLineDeduction.filter({ payroll_run_id: run.id }, '-created_date', 2000),
       ]);
 
       const checkResults = runPeriod
@@ -360,6 +387,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       setRunDetail({
         lines, employerTax, liabilities, journal, checkResults, commissionAdjustments, manualAdjustments,
         period: runPeriod, allPayRates, allTaxWithholdings, allDeductions, achOutgoing, bankAccounts,
+        lineTaxes, lineDeductions,
       });
     } catch (e) {
       toast({ title: 'Unable to load run detail', variant: 'destructive' });
@@ -446,7 +474,8 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         if (!existing || w.effective_date > existing.effective_date) latestByJurisdiction.set(w.jurisdiction, w);
       });
       const activeDeductions = runDetail.allDeductions.filter((d) => d.employee_id === editingLine.employee_id && d.effective_date <= asOfDate && (!d.end_date || d.end_date >= asOfDate));
-      const netCalc = calculateTaxesAndDeductions(gross.grossPay, [...latestByJurisdiction.values()], activeDeductions);
+      const employerTaxRules = resolveEmployerTaxRules(payrollRules, { asOfDate });
+      const netCalc = calculateTaxesAndDeductions(gross.grossPay, [...latestByJurisdiction.values()], activeDeductions, employerTaxRules);
 
       const updatedLine = await db.entities.PayrollLine.update(editingLine.id, {
         ...nextValues,
@@ -455,6 +484,29 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         tax_total: netCalc.taxTotal,
         net_pay: netCalc.netPay,
       });
+
+      // The itemized breakdown is fully re-derived from the new hours, not
+      // patched — delete the stale rows for this line and write fresh ones
+      // so a line and its breakdown are never out of sync.
+      const staleTaxes = (runDetail.lineTaxes || []).filter((t) => t.payroll_line_id === editingLine.id);
+      const staleDeductions = (runDetail.lineDeductions || []).filter((d) => d.payroll_line_id === editingLine.id);
+      await Promise.all([
+        ...staleTaxes.map((t) => db.entities.PayrollLineTax.delete(t.id)),
+        ...staleDeductions.map((d) => db.entities.PayrollLineDeduction.delete(d.id)),
+      ]);
+      const newTaxes = netCalc.taxBreakdown.length > 0
+        ? await db.entities.PayrollLineTax.bulkCreate(netCalc.taxBreakdown.map((t) => ({
+            payroll_run_id: viewingRun.id, payroll_line_id: editingLine.id, employee_id: editingLine.employee_id, tax_type: t.tax_type, amount: t.amount,
+            source_id: t.source_id, source_type: t.source_type,
+          })))
+        : [];
+      const newDeductions = netCalc.deductionBreakdown.length > 0
+        ? await db.entities.PayrollLineDeduction.bulkCreate(netCalc.deductionBreakdown.map((d) => ({
+            payroll_run_id: viewingRun.id, payroll_line_id: editingLine.id, employee_id: editingLine.employee_id,
+            deduction_type: d.deduction_subtype, requested_amount: d.requested, amount_applied: d.amount,
+            fully_withheld: d.fullyWithheld, priority_order: d.priority_order, source_deduction_id: d.source_id,
+          })))
+        : [];
 
       const identityAt = new Date().toISOString();
       await db.entities.AdjustmentLog.bulkCreate(changedFields.map((field) => ({
@@ -474,7 +526,12 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       const totalNet = round2(otherLines.reduce((s, l) => s + (Number(l.net_pay) || 0), 0) + netCalc.netPay);
       const updatedRun = await db.entities.PayrollRun.update(viewingRun.id, { total_gross: totalGross, total_net: totalNet });
 
-      setRunDetail((prev) => ({ ...prev, lines: prev.lines.map((l) => (l.id === updatedLine.id ? updatedLine : l)) }));
+      setRunDetail((prev) => ({
+        ...prev,
+        lines: prev.lines.map((l) => (l.id === updatedLine.id ? updatedLine : l)),
+        lineTaxes: [...(prev.lineTaxes || []).filter((t) => t.payroll_line_id !== editingLine.id), ...newTaxes],
+        lineDeductions: [...(prev.lineDeductions || []).filter((d) => d.payroll_line_id !== editingLine.id), ...newDeductions],
+      }));
       setViewingRun(updatedRun);
       setRuns((prev) => prev.map((r) => (r.id === updatedRun.id ? updatedRun : r)));
       setEditingLine(null);
@@ -807,7 +864,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
                     </thead>
                     <tbody>
                       {runDetail.lines.map((l) => (
-                        <tr key={l.id} className="border-b border-border/50">
+                        <tr key={l.id} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer" onClick={() => setViewingLineStub(l)} title="View itemized pay stub">
                           <td className="py-1.5 pr-3 font-medium">{employeeName(l.employee_id)}</td>
                           <td className="py-1.5 pr-3 text-right font-mono">{l.regular_hours.toFixed(2)}</td>
                           <td className="py-1.5 pr-3 text-right font-mono">{l.ot_hours.toFixed(2)}</td>
@@ -817,7 +874,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
                           <td className="py-1.5 pr-3 text-right font-mono font-semibold">{money(l.net_pay)}</td>
                           {viewingRun?.status === 'review' && canAdjust && (
                             <td className="py-1.5 pl-3 text-right">
-                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => openEditHours(l)} title="Adjust hours">
+                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); openEditHours(l); }} title="Adjust hours">
                                 <Pencil className="w-3.5 h-3.5" />
                               </Button>
                             </td>
@@ -903,6 +960,19 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
           )}
         </DialogContent>
       </Dialog>
+
+      <PayStubDetail
+        open={!!viewingLineStub}
+        onOpenChange={(o) => !o && setViewingLineStub(null)}
+        employeeLabel={viewingLineStub ? employeeName(viewingLineStub.employee_id) : ''}
+        periodLabel={runDetail?.period ? `${runDetail.period.period_start} — ${runDetail.period.period_end}` : ''}
+        line={viewingLineStub}
+        taxes={(runDetail?.lineTaxes || []).filter((t) => t.payroll_line_id === viewingLineStub?.id)}
+        deductions={(runDetail?.lineDeductions || []).filter((d) => d.payroll_line_id === viewingLineStub?.id)}
+        taxWithholdingsById={Object.fromEntries((runDetail?.allTaxWithholdings || []).map((w) => [w.id, w]))}
+        payrollRulesById={Object.fromEntries((payrollRules || []).map((r) => [r.id, r]))}
+        deductionsById={Object.fromEntries((runDetail?.allDeductions || []).map((d) => [d.id, d]))}
+      />
 
       <Dialog open={!!editingLine} onOpenChange={(o) => !o && setEditingLine(null)}>
         <DialogContent>

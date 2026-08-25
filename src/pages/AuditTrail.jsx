@@ -19,7 +19,7 @@ const LOAD_LIMIT = 5000;
 // breakdown — kept as an explicit list rather than a naming-convention guess,
 // since payroll-adjacent entities don't share a common prefix.
 const PAYROLL_ENTITY_TYPES = new Set([
-  'PayrollRun', 'PayrollLine', 'PayrollAdjustment', 'PayrollRegisterLine', 'EmployeePayRate',
+  'PayrollRun', 'PayrollLine', 'PayrollLineTax', 'PayrollLineDeduction', 'PayrollAdjustment', 'PayrollRegisterLine', 'EmployeePayRate',
   'PayrollLiability', 'PayrollJournal', 'TimeEntry', 'Timecard', 'JobLaborAllocation',
   'CertifiedPayrollSubmission', 'CertifiedPayrollReport', 'PayPeriod',
 ]);

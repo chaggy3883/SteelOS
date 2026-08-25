@@ -19,6 +19,7 @@ import { normalizeRoleName, BUILTIN_ROLES } from '@/components/dashboard/rbacCon
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { buildCertifiedPayrollReportRows } from '@/lib/certifiedPayrollReport';
 import { generateWH347Pdf } from '@/lib/certifiedPayrollReportPdf';
+import { resolveEmployerTaxRules } from '@/lib/payrollEngine';
 
 // Same payroll-adjacent audience already granted the /certified-payroll
 // module in rbacConfig.jsx — this page previously relied entirely on the nav
@@ -282,7 +283,7 @@ export default function CertifiedPayroll() {
 
   const buildAndDownloadReport = async (project, run) => {
     const period = await db.entities.PayPeriod.get(run.pay_period_id);
-    const [payrollLines, jobLaborAllocations, timeEntries, allEmployees, payRates, taxWithholdings, deductions] = await Promise.all([
+    const [payrollLines, jobLaborAllocations, timeEntries, allEmployees, payRates, taxWithholdings, deductions, payrollRules] = await Promise.all([
       db.entities.PayrollLine.filter({ payroll_run_id: run.id }, '-created_date', 500),
       db.entities.JobLaborAllocation.filter({ payroll_run_id: run.id, project_id: project.id }, '-created_date', 2000),
       db.entities.TimeEntry.list('-work_date', 5000),
@@ -290,8 +291,10 @@ export default function CertifiedPayroll() {
       db.entities.EmployeePayRate.list('-effective_date', 2000),
       db.entities.TaxWithholding.list('-effective_date', 2000),
       db.entities.Deduction.list('priority_order', 2000),
+      db.entities.PayrollRule.list('-effective_date', 500),
     ]);
-    const rows = buildCertifiedPayrollReportRows({ project, period, payrollLines, jobLaborAllocations, timeEntries, employees: allEmployees, payRates, taxWithholdings, deductions });
+    const employerTaxRules = resolveEmployerTaxRules(payrollRules, { asOfDate: period.period_end });
+    const rows = buildCertifiedPayrollReportRows({ project, period, payrollLines, jobLaborAllocations, timeEntries, employees: allEmployees, payRates, taxWithholdings, deductions, employerTaxRules });
     if (rows.length === 0) {
       toast({ title: 'No labor found', description: 'This project has no allocated hours on the selected payroll run.', variant: 'destructive' });
       return null;

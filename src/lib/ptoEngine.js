@@ -1,6 +1,6 @@
 import { db } from '@/api/apiClient';
 import { logStatusChange } from '@/lib/statusHistory';
-import { calculateTaxesAndDeductions, calculateGrossPay, allocateLaborToJobs } from '@/lib/payrollEngine';
+import { calculateTaxesAndDeductions, calculateGrossPay, allocateLaborToJobs, resolveEmployerTaxRules } from '@/lib/payrollEngine';
 import { getEffectiveRule } from '@/lib/payrollRules';
 
 // The only leave types PtoBalance/PtoTransaction ever track. Unpaid is
@@ -637,7 +637,8 @@ export async function processTerminationSettlement({ employee, terminationDate =
         return latestByJurisdiction;
       }, new Map());
     const activeDeductions = deductions.filter((d) => d.effective_date <= terminationDate && (!d.end_date || d.end_date >= terminationDate));
-    const netCalc = calculateTaxesAndDeductions(totalGross, [...activeWithholdings.values()], activeDeductions);
+    const employerTaxRules = resolveEmployerTaxRules(payrollRules, { asOfDate: terminationDate });
+    const netCalc = calculateTaxesAndDeductions(totalGross, [...activeWithholdings.values()], activeDeductions, employerTaxRules);
 
     payrollLine = await db.entities.PayrollLine.create({
       company_id: employee.company_id,
@@ -656,6 +657,20 @@ export async function processTerminationSettlement({ employee, terminationDate =
     });
 
     payrollRun = await db.entities.PayrollRun.update(payrollRun.id, { total_net: netCalc.netPay });
+
+    if (netCalc.taxBreakdown.length > 0) {
+      await db.entities.PayrollLineTax.bulkCreate(netCalc.taxBreakdown.map((t) => ({
+        company_id: employee.company_id, payroll_run_id: payrollRun.id, payroll_line_id: payrollLine.id, employee_id: employee.id,
+        tax_type: t.tax_type, amount: t.amount, source_id: t.source_id, source_type: t.source_type,
+      })));
+    }
+    if (netCalc.deductionBreakdown.length > 0) {
+      await db.entities.PayrollLineDeduction.bulkCreate(netCalc.deductionBreakdown.map((d) => ({
+        company_id: employee.company_id, payroll_run_id: payrollRun.id, payroll_line_id: payrollLine.id, employee_id: employee.id,
+        deduction_type: d.deduction_subtype, requested_amount: d.requested, amount_applied: d.amount,
+        fully_withheld: d.fullyWithheld, priority_order: d.priority_order, source_deduction_id: d.source_id,
+      })));
+    }
 
     if (adjustment !== 0) {
       payrollAdjustment = await db.entities.PayrollAdjustment.create({

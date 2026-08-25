@@ -12,8 +12,18 @@ import { useToast } from '@/components/ui/use-toast';
 const DEDUCTION_TYPES = ['benefits', 'garnishment', 'other'];
 const titleCase = (s) => (s ? String(s).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : s);
 
+// Granular label shown on the pay stub and the garnishment/401(k) compliance
+// reports — deduction_type stays the broad category that drives GL mapping
+// and liability posting. Blank subtype falls back to the category itself
+// everywhere it's displayed (see PayrollLineDeduction.deduction_type).
+const SUBTYPES_BY_CATEGORY = {
+  benefits: ['401k', 'health_insurance', 'dental_insurance', 'vision_insurance', 'other'],
+  garnishment: ['child_support_garnishment', 'wage_garnishment', 'tax_levy', 'other'],
+  other: [],
+};
+
 const emptyForm = () => ({
-  employee_id: '', deduction_type: 'benefits', amount_or_percent: '', is_percent: false,
+  employee_id: '', deduction_type: 'benefits', deduction_subtype: '', amount_or_percent: '', is_percent: false,
   priority_order: '1', effective_date: new Date().toISOString().slice(0, 10), end_date: '',
 });
 
@@ -50,7 +60,7 @@ export default function DeductionsPanel({ employees }) {
   const openEdit = (row) => {
     setEditId(row.id);
     setForm({
-      employee_id: row.employee_id, deduction_type: row.deduction_type, amount_or_percent: String(row.amount_or_percent ?? ''),
+      employee_id: row.employee_id, deduction_type: row.deduction_type, deduction_subtype: row.deduction_subtype || '', amount_or_percent: String(row.amount_or_percent ?? ''),
       is_percent: !!row.is_percent, priority_order: String(row.priority_order ?? 1),
       effective_date: row.effective_date || new Date().toISOString().slice(0, 10), end_date: row.end_date || '',
     });
@@ -69,6 +79,7 @@ export default function DeductionsPanel({ employees }) {
       const payload = {
         employee_id: form.employee_id,
         deduction_type: form.deduction_type,
+        deduction_subtype: form.deduction_subtype || null,
         amount_or_percent: amount,
         is_percent: form.is_percent,
         priority_order: Number(form.priority_order) || 1,
@@ -108,6 +119,7 @@ export default function DeductionsPanel({ employees }) {
               <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
                 <th className="text-left py-2 px-3">Employee</th>
                 <th className="text-left py-2 px-3">Type</th>
+                <th className="text-left py-2 px-3">Subtype</th>
                 <th className="text-right py-2 px-3">Amount</th>
                 <th className="text-right py-2 px-3">Priority</th>
                 <th className="text-left py-2 px-3">Effective — End</th>
@@ -116,13 +128,14 @@ export default function DeductionsPanel({ employees }) {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">Loading…</td></tr>
+                <tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">Loading…</td></tr>
               ) : sortedRows.length === 0 ? (
-                <tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">No deductions on file yet</td></tr>
+                <tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">No deductions on file yet</td></tr>
               ) : sortedRows.map((r) => (
                 <tr key={r.id} onClick={() => setViewing(r)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
                   <td className="py-2 px-3 font-medium">{employeeName(r.employee_id)}</td>
                   <td className="py-2 px-3">{titleCase(r.deduction_type)}</td>
+                  <td className="py-2 px-3 text-muted-foreground">{r.deduction_subtype ? titleCase(r.deduction_subtype) : '—'}</td>
                   <td className="py-2 px-3 text-right font-mono">{r.is_percent ? `${r.amount_or_percent}%` : `$${Number(r.amount_or_percent).toFixed(2)}`}</td>
                   <td className="py-2 px-3 text-right font-mono">{r.priority_order}</td>
                   <td className="py-2 px-3 text-muted-foreground">{r.effective_date} — {r.end_date || 'present'}</td>
@@ -142,6 +155,7 @@ export default function DeductionsPanel({ employees }) {
           {viewing && (
             <div className="space-y-1.5 text-sm">
               {[
+                ['Subtype', viewing.deduction_subtype ? titleCase(viewing.deduction_subtype) : '—'],
                 ['Amount', viewing.is_percent ? `${viewing.amount_or_percent}% of gross` : `$${Number(viewing.amount_or_percent).toFixed(2)} per period`],
                 ['Priority Order', viewing.priority_order],
                 ['Effective Date', viewing.effective_date],
@@ -177,7 +191,7 @@ export default function DeductionsPanel({ employees }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Deduction Type</Label>
-                <Select value={form.deduction_type} onValueChange={(v) => setForm((f) => ({ ...f, deduction_type: v }))}>
+                <Select value={form.deduction_type} onValueChange={(v) => setForm((f) => ({ ...f, deduction_type: v, deduction_subtype: '' }))}>
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {DEDUCTION_TYPES.map((t) => <SelectItem key={t} value={t}>{titleCase(t)}</SelectItem>)}
@@ -189,6 +203,18 @@ export default function DeductionsPanel({ employees }) {
                 <Input type="number" value={form.priority_order} onChange={(e) => setForm((f) => ({ ...f, priority_order: e.target.value }))} className="mt-1" />
               </div>
             </div>
+            {SUBTYPES_BY_CATEGORY[form.deduction_type]?.length > 0 && (
+              <div>
+                <Label className="text-xs">Subtype (drives pay stub &amp; compliance reports)</Label>
+                <Select value={form.deduction_subtype || '__none__'} onValueChange={(v) => setForm((f) => ({ ...f, deduction_subtype: v === '__none__' ? '' : v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None — show as "{titleCase(form.deduction_type)}"</SelectItem>
+                    {SUBTYPES_BY_CATEGORY[form.deduction_type].map((t) => <SelectItem key={t} value={t}>{titleCase(t)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 items-end">
               <div>
                 <Label className="text-xs">{form.is_percent ? 'Percent of Gross' : 'Amount ($/period)'}</Label>

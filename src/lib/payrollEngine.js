@@ -168,14 +168,47 @@ export function calculateGrossPay(timecard, payRate, payrollRules, { asOfDate, s
 // and documented so it's easy to find and replace once real tables exist.
 const PER_ALLOWANCE_REDUCTION = 100;
 
-export function calculateTaxesAndDeductions(grossPay, taxWithholdings, deductions) {
+const JURISDICTION_TO_TAX_TYPE = { federal: 'federal_income', state: 'state_income', local: 'local_income' };
+
+// Employee-side FICA has no dedicated PayrollRule of its own — it
+// statutorily mirrors the employer's own match (both sides pay the same
+// 6.2% Social Security / 1.45% Medicare), so this reuses the same
+// employer_tax PayrollRule rows calculateEmployerTax() already resolves
+// instead of adding a second, duplicate rate-configuration surface.
+// `employerTaxRules` is optional — omit it (or pass none configured) and
+// taxBreakdown simply has no social_security/medicare rows, same graceful
+// degradation as a missing TaxWithholding jurisdiction. Additional Medicare
+// (the 0.9% surtax on wages over $200k/yr) is never computed — like
+// calculateEmployerTax's wage_base_cap, it requires year-to-date wage
+// tracking no entity in this build carries; flagged rather than silently
+// approximated against a single pay period's gross.
+export function calculateTaxesAndDeductions(grossPay, taxWithholdings, deductions, employerTaxRules) {
   const gross = Number(grossPay) || 0;
 
-  const taxBreakdown = (taxWithholdings || []).map((tw) => {
-    const taxableWages = Math.max(0, gross - (Number(tw.allowances_or_credits) || 0) * PER_ALLOWANCE_REDUCTION);
-    const amount = round2(taxableWages * (Number(tw.flat_rate_percent) || 0) / 100 + (Number(tw.additional_withholding) || 0));
-    return { jurisdiction: tw.jurisdiction, filing_status: tw.filing_status || '', amount };
-  });
+  // source_id/source_type let a caller persist which specific record drove
+  // each line (TaxWithholding for jurisdiction taxes, PayrollRule for the
+  // FICA rows reused from the employer side) — the standing "every line item
+  // clickable to its underlying rule" project rule needs a real FK, not a
+  // re-lookup of "whichever record is active today," which could drift once
+  // an employee's withholding config changes after the run.
+  const taxBreakdown = (taxWithholdings || []).map((tw) => ({
+    tax_type: JURISDICTION_TO_TAX_TYPE[tw.jurisdiction] || tw.jurisdiction,
+    jurisdiction: tw.jurisdiction,
+    filing_status: tw.filing_status || '',
+    amount: round2(Math.max(0, gross - (Number(tw.allowances_or_credits) || 0) * PER_ALLOWANCE_REDUCTION) * (Number(tw.flat_rate_percent) || 0) / 100 + (Number(tw.additional_withholding) || 0)),
+    source_id: tw.id,
+    source_type: 'TaxWithholding',
+  }));
+
+  const ficaRule = (employerTaxRules || []).find((r) => r?.config?.tax_type === 'fica_employer');
+  if (ficaRule) {
+    taxBreakdown.push({ tax_type: 'social_security', jurisdiction: null, filing_status: '', amount: round2(gross * (Number(ficaRule.config.rate_percent) || 0) / 100), source_id: ficaRule.id, source_type: 'PayrollRule' });
+  }
+  const medicareRule = (employerTaxRules || []).find((r) => r?.config?.tax_type === 'medicare_employer');
+  if (medicareRule) {
+    taxBreakdown.push({ tax_type: 'medicare', jurisdiction: null, filing_status: '', amount: round2(gross * (Number(medicareRule.config.rate_percent) || 0) / 100), source_id: medicareRule.id, source_type: 'PayrollRule' });
+  }
+
   const taxTotal = round2(taxBreakdown.reduce((sum, t) => sum + t.amount, 0));
 
   // Priority order matters: a garnishment (typically priority 1) must be
@@ -186,7 +219,15 @@ export function calculateTaxesAndDeductions(grossPay, taxWithholdings, deduction
     const requested = round2(d.is_percent ? gross * (Number(d.amount_or_percent) || 0) / 100 : (Number(d.amount_or_percent) || 0));
     const applied = round2(Math.max(0, Math.min(requested, remaining)));
     remaining = round2(remaining - applied);
-    return { deduction_type: d.deduction_type, requested, amount: applied, fullyWithheld: applied >= requested };
+    return {
+      deduction_type: d.deduction_type,
+      deduction_subtype: d.deduction_subtype || d.deduction_type,
+      priority_order: Number(d.priority_order) || 0,
+      requested,
+      amount: applied,
+      fullyWithheld: applied >= requested,
+      source_id: d.id,
+    };
   });
   const deductionsTotal = round2(deductionBreakdown.reduce((sum, d) => sum + d.amount, 0));
 

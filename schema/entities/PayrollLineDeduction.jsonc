@@ -1,0 +1,56 @@
+{
+  "name": "PayrollLineDeduction",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string"
+    },
+    "payroll_line_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "deduction_type": {
+      "type": "string",
+      "description": "The generating Deduction's deduction_subtype when set (e.g. '401k', 'health_insurance', 'dental_insurance', 'child_support_garnishment', 'wage_garnishment'), falling back to its broad deduction_type ('benefits'/'garnishment'/'other') when no subtype was configured. Free text rather than a fixed enum since it mirrors whatever the admin entered on Deduction.deduction_subtype."
+    },
+    "requested_amount": {
+      "type": "number",
+      "default": 0,
+      "description": "What this deduction would have taken (full flat amount or percent-of-gross) before priority-order proration against remaining pay."
+    },
+    "amount_applied": {
+      "type": "number",
+      "default": 0,
+      "description": "What was actually withheld — less than requested_amount when pay ran out before this deduction's priority turn."
+    },
+    "fully_withheld": {
+      "type": "boolean",
+      "default": true,
+      "description": "False when amount_applied < requested_amount (pay ran out) — a garnishment shortfall HR needs to know about, not just a rounding artifact."
+    },
+    "priority_order": {
+      "type": "number",
+      "default": 1
+    },
+    "source_deduction_id": {
+      "type": "string",
+      "description": "id of the Deduction row that generated this line — lets the pay stub link back to the underlying policy (rate, priority, effective dates) active when the run was processed."
+    },
+    "created_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "payroll_run_id",
+    "payroll_line_id",
+    "employee_id",
+    "deduction_type",
+    "amount_applied"
+  ]
+}

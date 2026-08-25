@@ -31,6 +31,7 @@ import {
   Timer, Square, Eye, ShieldCheck, AlertCircle, Landmark,
 } from 'lucide-react';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import PayStubDetail from '@/components/payroll/PayStubDetail';
 
 const isPdfFileUri = (uri) => /\.pdf($|[?#])/i.test(uri || '') || /^data:application\/pdf/i.test(uri || '');
 
@@ -102,6 +103,14 @@ export default function EmployeeCenter() {
   const [ptoBalances, setPtoBalances] = useState([]);
 
   const [payrollDocs, setPayrollDocs] = useState([]);
+  const [payrollLines, setPayrollLines] = useState([]);
+  const [payrollLineTaxes, setPayrollLineTaxes] = useState([]);
+  const [payrollLineDeductions, setPayrollLineDeductions] = useState([]);
+  const [payrollLineRuns, setPayrollLineRuns] = useState({});
+  const [payrollRules, setPayrollRules] = useState([]);
+  const [allTaxWithholdings, setAllTaxWithholdings] = useState([]);
+  const [allDeductions, setAllDeductions] = useState([]);
+  const [viewingLineStub, setViewingLineStub] = useState(null);
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [pdfViewer, setPdfViewer] = useState(null);
   const [showVaultGate, setShowVaultGate] = useState(false);
@@ -206,7 +215,7 @@ export default function EmployeeCenter() {
     // Idempotent (see ptoEngine's policy_year_end comparison), so it's safe
     // to run on every login rather than only the first one after the date.
     await runAnniversaryRenewalCheckForEmployee(employeeRecord).catch(() => {});
-    const [punchData, leaveData, payrollData, expenseData, balanceData, lockedRuns, allPeriods, bankAccounts] = await Promise.all([
+    const [punchData, leaveData, payrollData, expenseData, balanceData, lockedRuns, allPeriods, bankAccounts, employeeLines, employeeTaxWithholdings, employeeDeductions, employerTaxRules] = await Promise.all([
       db.entities.attendance_punches.filter({ employee_id: employeeId }, '-created_date', 200),
       db.entities.time_off_requests.filter({ employee_id: employeeId }, '-created_date', 100),
       db.entities.payroll_document_mappings.filter({ employee_id: employeeId }, '-created_date', 100),
@@ -215,6 +224,10 @@ export default function EmployeeCenter() {
       db.entities.PayrollRun.filter({ status: 'locked' }, '-run_date', 200).catch(() => []),
       db.entities.PayPeriod.list('-period_start', 200).catch(() => []),
       db.entities.EmployeeBankAccount.filter({ employee_id: employeeId, status: 'active' }, '-created_date', 5).catch(() => []),
+      db.entities.PayrollLine.filter({ employee_id: employeeId }, '-created_date', 200).catch(() => []),
+      db.entities.TaxWithholding.filter({ employee_id: employeeId }, '-effective_date', 50).catch(() => []),
+      db.entities.Deduction.filter({ employee_id: employeeId }, '-effective_date', 50).catch(() => []),
+      db.entities.PayrollRule.filter({ rule_type: 'employer_tax' }, '-effective_date', 50).catch(() => []),
     ]);
     setPunches(punchData);
     setTimeOffRequests(leaveData);
@@ -224,6 +237,30 @@ export default function EmployeeCenter() {
     const lockedPeriodIds = new Set(lockedRuns.map((r) => r.pay_period_id));
     setLockedPeriods(allPeriods.filter((p) => lockedPeriodIds.has(p.id)));
     setDirectDepositAccount(bankAccounts.find((a) => a.is_primary) || bankAccounts[0] || null);
+
+    // Itemized pay history — only shown for lines on a locked (finalized)
+    // run, same "numbers are final" bar Employee Center already uses for
+    // attendance note-lateness flags (isDateInLockedPeriod). A line still in
+    // 'review' can still change via an hours adjustment.
+    const lockedRunIds = new Set(lockedRuns.map((r) => r.id));
+    const finalizedLines = employeeLines.filter((l) => lockedRunIds.has(l.payroll_run_id));
+    const finalizedLineIds = new Set(finalizedLines.map((l) => l.id));
+    setPayrollLines(finalizedLines);
+    setPayrollLineRuns(Object.fromEntries(lockedRuns.map((r) => [r.id, r])));
+    setPayrollRules(employerTaxRules);
+    setAllTaxWithholdings(employeeTaxWithholdings);
+    setAllDeductions(employeeDeductions);
+    if (finalizedLineIds.size > 0) {
+      const [lineTaxes, lineDeductions] = await Promise.all([
+        db.entities.PayrollLineTax.filter({ employee_id: employeeId }, '-created_date', 500).catch(() => []),
+        db.entities.PayrollLineDeduction.filter({ employee_id: employeeId }, '-created_date', 500).catch(() => []),
+      ]);
+      setPayrollLineTaxes(lineTaxes.filter((t) => finalizedLineIds.has(t.payroll_line_id)));
+      setPayrollLineDeductions(lineDeductions.filter((d) => finalizedLineIds.has(d.payroll_line_id)));
+    } else {
+      setPayrollLineTaxes([]);
+      setPayrollLineDeductions([]);
+    }
   };
 
   // A punch's own date falling inside a pay period whose PayrollRun is
@@ -1052,10 +1089,63 @@ export default function EmployeeCenter() {
                   ))}
                 </div>
               )}
+
+              <div className="steel-card p-4 mt-3">
+                <h4 className="font-semibold text-sm mb-3">Itemized Pay History</h4>
+                {payrollLines.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">No finalized pay periods on file yet.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                          <th className="text-left py-1.5 pr-3">Pay Period</th>
+                          <th className="text-right py-1.5 pr-3">Gross</th>
+                          <th className="text-right py-1.5 pr-3">Taxes</th>
+                          <th className="text-right py-1.5 pr-3">Deductions</th>
+                          <th className="text-right py-1.5 pr-3">Net Pay</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payrollLines.map((line) => {
+                          const run = payrollLineRuns[line.payroll_run_id];
+                          const period = run ? lockedPeriods.find((p) => p.id === run.pay_period_id) : null;
+                          return (
+                            <tr key={line.id} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer" onClick={() => setViewingLineStub(line)} title="View itemized pay stub">
+                              <td className="py-1.5 pr-3 font-medium">{period ? `${period.period_start} — ${period.period_end}` : (run?.run_date || '—')}</td>
+                              <td className="py-1.5 pr-3 text-right font-mono">${(Number(line.gross_pay) || 0).toFixed(2)}</td>
+                              <td className="py-1.5 pr-3 text-right font-mono">${(Number(line.tax_total) || 0).toFixed(2)}</td>
+                              <td className="py-1.5 pr-3 text-right font-mono">${(Number(line.deductions_total) || 0).toFixed(2)}</td>
+                              <td className="py-1.5 pr-3 text-right font-mono font-semibold">${(Number(line.net_pay) || 0).toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </TabsContent>
           </Tabs>
         </>
       )}
+
+      <PayStubDetail
+        open={!!viewingLineStub}
+        onOpenChange={(o) => !o && setViewingLineStub(null)}
+        employeeLabel={employee?.full_name || 'Pay Stub'}
+        periodLabel={(() => {
+          const run = viewingLineStub ? payrollLineRuns[viewingLineStub.payroll_run_id] : null;
+          const period = run ? lockedPeriods.find((p) => p.id === run.pay_period_id) : null;
+          return period ? `${period.period_start} — ${period.period_end}` : (run?.run_date || '');
+        })()}
+        line={viewingLineStub}
+        taxes={payrollLineTaxes.filter((t) => t.payroll_line_id === viewingLineStub?.id)}
+        deductions={payrollLineDeductions.filter((d) => d.payroll_line_id === viewingLineStub?.id)}
+        taxWithholdingsById={Object.fromEntries(allTaxWithholdings.map((w) => [w.id, w]))}
+        payrollRulesById={Object.fromEntries(payrollRules.map((r) => [r.id, r]))}
+        deductionsById={Object.fromEntries(allDeductions.map((d) => [d.id, d]))}
+      />
 
       <Dialog open={showLeaveForm} onOpenChange={setShowLeaveForm}>
         <DialogContent>
