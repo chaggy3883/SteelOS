@@ -1,0 +1,51 @@
+{
+  "name": "TmMaterialUsage",
+  "type": "object",
+  "description": "Actual material received/pulled for a T&M project. Posts to JobCostLedgerEntry (cost_class 'MAT', source_type 'material', source_id = this row's id) once, guarded by job_cost_posted/job_cost_ledger_entry_id — same guarded-posting convention as EquipmentUsageLog and the PO subcontractor posting in ReceivingKiosk.jsx. tm_material_line_item_id absent means this material wasn't on the original estimate (flagged as an unquoted/additional cost in the UI); present but quantity_used exceeding the matched line item's quantity is flagged as a quantity variance.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "tm_material_line_item_id": {
+      "type": "string",
+      "description": "Optional FK to the original TmMaterialLineItem this usage is fulfilling. Absent means unquoted/additional material."
+    },
+    "material_description": {
+      "type": "string"
+    },
+    "quantity_used": {
+      "type": "number",
+      "default": 0
+    },
+    "unit_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "total_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "received_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "vendor": {
+      "type": "string"
+    },
+    "job_cost_posted": {
+      "type": "boolean",
+      "default": false
+    },
+    "job_cost_ledger_entry_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "material_description",
+    "quantity_used"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "TmLaborRate",
+  "type": "object",
+  "description": "Company-wide standard shop labor rate charged to T&M customers, by position/trade. Admin-managed at /admin/tm-labor-rates. Effective-dated history — never edited in place, same convention as EmployeePayRate/SalesmanCommissionRate: a rate change closes out the prior row's end_date and creates a new row. Distinct from EmployeePayRate, which is what the employee is paid (internal cost); this is what the customer is billed (bill rate).",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "position": {
+      "type": "string",
+      "description": "Free-text trade/position label (e.g. Welder, Fabricator, Crane Operator). Loosely matched against employees.job_title when computing actual T&M labor cost from TimeEntry rows."
+    },
+    "hourly_rate": {
+      "type": "number",
+      "default": 0
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Blank/absent means this is the current rate for the position."
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "position",
+    "hourly_rate",
+    "effective_date"
+  ]
+}

@@ -11,6 +11,28 @@
     "billing_period": {
       "type": "string"
     },
+    "billing_type": {
+      "type": "string",
+      "enum": ["sov", "time_and_material"],
+      "default": "sov",
+      "description": "'sov' is the existing schedule-of-values / percent-complete billing model. 'time_and_material' is set when the source project has pricing_type 'time_and_material' and this invoice was built from actual labor/material/subcontractor costs via the \"Generate from Actuals\" action in InvoiceReceivableDetailModal.jsx (src/lib/tmEngine.js)."
+    },
+    "tm_labor_amount": {
+      "type": "number",
+      "description": "T&M invoices only — actual labor hours in the billing period x TmLaborRate, before markup."
+    },
+    "tm_material_amount": {
+      "type": "number",
+      "description": "T&M invoices only — sum of TmMaterialUsage.total_cost received/used in the billing period, before markup."
+    },
+    "tm_subcontractor_amount": {
+      "type": "number",
+      "description": "T&M invoices only — sum of actual subcontractor PO costs linked via TmSubcontractorLineItem for the billing period, before markup."
+    },
+    "tm_markup_amount": {
+      "type": "number",
+      "description": "T&M invoices only — tm_markup_percentage applied to the labor+material+subcontractor subtotal."
+    },
     "expected_payment_date": {
       "type": "string",
       "format": "date"

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import BidProposalPrintView from '@/components/estimating/BidProposalPrintView';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
@@ -21,6 +21,7 @@ import VendorPricing from '@/components/estimating/VendorPricing';
 import { useToast } from '@/components/ui/use-toast';
 import { Switch } from '@/components/ui/switch';
 import FullTakeoff from '@/components/estimating/FullTakeoff';
+import TmEstimateWorksheet from '@/components/estimating/TmEstimateWorksheet';
 import { computeEffectiveTaxRate, HANCOCK_COUNTY_TAX_RATE, TAX_RATE_PATTERN, formatTaxRatePercent, sanitizeTaxRateInput } from '@/lib/taxRate';
 import { runBidReviewSkill } from '@/lib/aiReviewSkills';
 import { getEffectiveCompany } from '@/lib/tenantContext';
@@ -166,6 +167,18 @@ export default function BidDetail() {
     }
   };
 
+  const handlePricingTypeChange = async (value) => {
+    try {
+      await db.entities.Bid.update(id, { pricing_type: value });
+      if (activeTab === 'takeoff' || activeTab === 'fulltakeoff' || activeTab === 'vendor' || activeTab === 'tm') {
+        setActiveTab(value === 'time_and_material' ? 'tm' : 'takeoff');
+      }
+      loadBid();
+    } catch (e) {
+      toast({ title: 'Failed to update pricing type', variant: 'destructive' });
+    }
+  };
+
   const getNextProjectNumber = async () => {
     const prefix = `P${String(new Date().getFullYear() % 100).padStart(2, '0')}`;
     const existingProjects = await db.entities.Project.list('-created_date', 500);
@@ -190,6 +203,8 @@ export default function BidDetail() {
       customer_id: wonBid.customer_id,
       customer_name: wonBid.customer_name,
       project_type: 'commercial',
+      pricing_type: wonBid.pricing_type || 'fixed_price',
+      tm_markup_percentage: wonBid.tm_markup_percentage ?? undefined,
       status: 'awarded',
       contract_value: wonBid.bid_quoted_price || wonBid.bid_total_cost || null,
       estimated_tons: wonBid.estimated_tons || null,
@@ -476,6 +491,25 @@ export default function BidDetail() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-border p-3">
+            <div>
+              <p className="text-sm font-medium">Pricing Type</p>
+              <p className="text-xs text-muted-foreground">
+                {bid.status === 'won'
+                  ? 'Locked after the bid is won — the project has already been created with this pricing model.'
+                  : 'Time & Material shows shop labor rates, materials, and subcontractor estimate tabs instead of the fixed-price takeoff tabs.'}
+              </p>
+            </div>
+            <select
+              value={bid.pricing_type || 'fixed_price'}
+              onChange={(e) => handlePricingTypeChange(e.target.value)}
+              disabled={bid.status === 'won'}
+              className="rounded-md border border-input bg-input/40 px-2 py-1.5 text-sm font-medium disabled:opacity-50"
+            >
+              <option value="fixed_price">Fixed Price</option>
+              <option value="time_and_material">Time &amp; Material</option>
+            </select>
+          </div>
           <div>
             <Label>Street</Label>
             <Input value={baseInfo.street} onChange={(e) => updateBaseInfo('street', e.target.value)} className="mt-1" placeholder="123 Main St" />
@@ -631,9 +665,15 @@ export default function BidDetail() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-6">
           <TabsTrigger value="files"><Upload className="w-4 h-4 mr-1.5" />Smart File Dump</TabsTrigger>
-          <TabsTrigger value="takeoff"><Calculator className="w-4 h-4 mr-1.5" />BID Worksheet</TabsTrigger>
-          <TabsTrigger value="fulltakeoff"><BarChart3 className="w-4 h-4 mr-1.5" />Full Takeoff</TabsTrigger>
-          <TabsTrigger value="vendor"><Link2 className="w-4 h-4 mr-1.5" />Vendor Pricing</TabsTrigger>
+          {bid.pricing_type === 'time_and_material' ? (
+            <TabsTrigger value="tm"><HardHat className="w-4 h-4 mr-1.5" />T&M Estimate</TabsTrigger>
+          ) : (
+            <>
+              <TabsTrigger value="takeoff"><Calculator className="w-4 h-4 mr-1.5" />BID Worksheet</TabsTrigger>
+              <TabsTrigger value="fulltakeoff"><BarChart3 className="w-4 h-4 mr-1.5" />Full Takeoff</TabsTrigger>
+              <TabsTrigger value="vendor"><Link2 className="w-4 h-4 mr-1.5" />Vendor Pricing</TabsTrigger>
+            </>
+          )}
           <TabsTrigger value="inclusions"><FileText className="w-4 h-4 mr-1.5" />Scope Text</TabsTrigger>
           <TabsTrigger value="ai"><Brain className="w-4 h-4 mr-1.5" />AI Review</TabsTrigger>
           <TabsTrigger value="contract-review"><ScanSearch className="w-4 h-4 mr-1.5" />AI Contract Review</TabsTrigger>
@@ -643,17 +683,25 @@ export default function BidDetail() {
           <SmartFileDump bidId={bid.id} bid={bid} onParseComplete={() => loadBid()} />
         </TabsContent>
 
-        <TabsContent value="takeoff">
-          <TakeoffEngine ref={takeoffRef} bid={bid} onSaved={() => loadBid()} />
-        </TabsContent>
+        {bid.pricing_type === 'time_and_material' ? (
+          <TabsContent value="tm">
+            <TmEstimateWorksheet bid={bid} onSaved={() => loadBid()} />
+          </TabsContent>
+        ) : (
+          <>
+            <TabsContent value="takeoff">
+              <TakeoffEngine ref={takeoffRef} bid={bid} onSaved={() => loadBid()} />
+            </TabsContent>
 
-        <TabsContent value="fulltakeoff">
-          <FullTakeoff ref={materialRef} bid={bid} onSaved={() => loadBid()} />
-        </TabsContent>
+            <TabsContent value="fulltakeoff">
+              <FullTakeoff ref={materialRef} bid={bid} onSaved={() => loadBid()} />
+            </TabsContent>
 
-        <TabsContent value="vendor">
-          <VendorPricing bidId={bid.id} />
-        </TabsContent>
+            <TabsContent value="vendor">
+              <VendorPricing bidId={bid.id} />
+            </TabsContent>
+          </>
+        )}
 
         <TabsContent value="inclusions">
           <ScopeText bid={bid} onSaved={() => loadBid()} />

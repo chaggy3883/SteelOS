@@ -7,6 +7,33 @@ right heading. Ask which section if it's ambiguous.
 
 ## Also Closed (2026-08-25)
 
+- **Time & Material project type** — `Bid.pricing_type`/`Project.pricing_type`
+  (`fixed_price` | `time_and_material`, carried over on bid-won conversion in
+  `createProjectFromWonBid`). 5 new entities: `TmLaborRate` (company-wide
+  shop rates by position, effective-dated history, admin-managed at
+  `/admin/tm-labor-rates` — mirrors `SalesmanRatesAdmin.jsx`'s pattern),
+  `TmLaborEstimateLineItem`, `TmMaterialLineItem`, `TmSubcontractorLineItem`
+  (estimate-side, bid_id-scoped), `TmMaterialUsage` (project-side actuals,
+  posts `JobCostLedgerEntry` cost_class `MAT` guarded by `job_cost_posted`).
+  Deliberately does NOT post a second `LAB` job-cost entry — actual labor
+  cost keeps flowing through the existing payroll-period posting
+  (`Payroll.jsx`); `TmLaborRate` is a customer bill rate, computed on the fly
+  against `TimeEntry.hours` via new `src/lib/tmEngine.js`, never written to
+  the ledger. Subcontractor actuals reuse the existing PO→job-cost wiring
+  from commit `38ff5bc` entirely (`TmSubcontractorLineItem.purchase_order_id`
+  just links to it — no new posting path). New `TmEstimateWorksheet.jsx` tab
+  on `BidDetail.jsx` (shown instead of the fixed-price takeoff tabs when
+  `pricing_type` is T&M) and `TmTrackingPanel.jsx` tab on `ProjectDetail.jsx`
+  (labor/material/sub variance, material usage logging, PO linking).
+  `InvoiceReceivableDetailModal`'s create/edit flow (in `Accounting.jsx`)
+  gained a "Generate from Actuals" T&M billing mode
+  (`InvoiceReceivable.billing_type`) alongside the existing SOV flow.
+  Markup %: `Company.default_tm_markup_percentage` (Admin > Company
+  Settings) pre-fills `Bid.tm_markup_percentage`, editable per bid/project.
+  No demo seed data added for the new entities — matches the existing
+  precedent that newer entities (`EmployeePayRate`, `SalesmanCommissionRate`)
+  aren't seeded either.
+
 - **Immutable field-level audit trail** — `AuditLog` (already existed as a
   hand-written event log — see AuditLog.jsonc) extended rather than
   replaced with a generic `action`/`field_name`/`old_value`/`new_value`/

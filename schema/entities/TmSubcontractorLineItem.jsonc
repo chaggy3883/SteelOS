@@ -1,0 +1,46 @@
+{
+  "name": "TmSubcontractorLineItem",
+  "type": "object",
+  "description": "One estimated subcontractor scope row on a T&M bid. Once the project is active, purchase_order_id links to the actual subcontractor PO — job cost posting for that PO is handled entirely by the existing postSubcontractorPoToJobCosting flow in src/pages/ReceivingKiosk.jsx (JobCostLedgerEntry, cost_class 'SUB'); this entity only reads it back for a quoted-vs-actual variance display, it never posts its own ledger entry.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "line_number": {
+      "type": "number"
+    },
+    "description": {
+      "type": "string"
+    },
+    "subcontractor_name": {
+      "type": "string"
+    },
+    "subcontract_id": {
+      "type": "string",
+      "description": "Optional FK to Subcontract, when a formal subcontract already exists for this scope."
+    },
+    "quoted_price": {
+      "type": "number",
+      "default": 0
+    },
+    "quote_document_id": {
+      "type": "string",
+      "description": "FK to Document (document_type 'vendor_quote', bid_id set) — the attached subcontractor quote PDF."
+    },
+    "purchase_order_id": {
+      "type": "string",
+      "description": "Set once the project is active and a PO is issued/matched for this scope. FK to purchase_orders."
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bid_id",
+    "description",
+    "subcontractor_name"
+  ]
+}

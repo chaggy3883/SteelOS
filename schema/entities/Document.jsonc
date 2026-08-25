@@ -7,6 +7,10 @@
     "project_id": {
       "type": "string"
     },
+    "bid_id": {
+      "type": "string",
+      "description": "Links to Bid — used for documents attached at the estimating stage before a project exists (e.g. SmartFileDump uploads, T&M subcontractor quote attachments via TmSubcontractorLineItem.quote_document_id)."
+    },
     "po_id": {
       "type": "string",
       "description": "Links to purchase_orders — set when this Document is the source quote/attachment for a PO (e.g. document_type 'vendor_quote')."

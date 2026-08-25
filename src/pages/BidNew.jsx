@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import CustomerPickerModal from '@/components/shared/CustomerPickerModal';
+import { getEffectiveCompany } from '@/lib/tenantContext';
 
 export default function BidNew() {
   const navigate = useNavigate();
@@ -27,10 +28,19 @@ export default function BidNew() {
     job_location: '',
     bid_due_date: '',
     estimator_id: '',
+    pricing_type: 'fixed_price',
   });
   const [errors, setErrors] = useState({});
+  const [defaultTmMarkup, setDefaultTmMarkup] = useState(0);
 
-  useEffect(() => { loadCRM(); loadEmployees(); }, []);
+  useEffect(() => { loadCRM(); loadEmployees(); loadCompanyDefaults(); }, []);
+
+  const loadCompanyDefaults = async () => {
+    try {
+      const company = await getEffectiveCompany();
+      setDefaultTmMarkup(Number(company?.default_tm_markup_percentage) || 0);
+    } catch (e) {}
+  };
 
   const loadCRM = async () => {
     try {
@@ -94,6 +104,8 @@ export default function BidNew() {
         estimator_id: form.estimator_id,
         status: 'draft',
         front_end_review_status: 'not_started',
+        pricing_type: form.pricing_type,
+        tm_markup_percentage: form.pricing_type === 'time_and_material' ? defaultTmMarkup : undefined,
       });
       toast({ title: `Bid ${bidNumber} created!` });
       navigate(`/estimating/${bid.id}`);
@@ -200,6 +212,24 @@ export default function BidNew() {
             {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
           </select>
           <p className="text-xs text-muted-foreground mt-1">Can be assigned later if not yet known.</p>
+        </div>
+
+        {/* Pricing Type */}
+        <div>
+          <Label>Pricing Type</Label>
+          <select
+            value={form.pricing_type}
+            onChange={e => setForm(f => ({ ...f, pricing_type: e.target.value }))}
+            className="mt-1 flex h-9 w-full rounded-md border border-input bg-input/40 px-3 py-1 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm"
+          >
+            <option value="fixed_price">Fixed Price</option>
+            <option value="time_and_material">Time &amp; Material</option>
+          </select>
+          <p className="text-xs text-muted-foreground mt-1">
+            {form.pricing_type === 'time_and_material'
+              ? 'Shows the T&M Estimate tab (shop labor rates, materials, subcontractors) instead of the fixed-price takeoff tabs.'
+              : 'Standard tonnage/takeoff-based bid. Can\'t be changed after the bid is marked won.'}
+          </p>
         </div>
 
         <div className="flex justify-end pt-2">

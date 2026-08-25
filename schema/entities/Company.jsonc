@@ -104,6 +104,11 @@
       "default": [],
       "description": "Module entitlement allowlist, e.g. [\"equipment\",\"payroll\",\"ironsight\"]. Empty or missing means every module is on — see src/lib/moduleEntitlement.js's hasModule(), the only reader of this field. Editable only from Super Admin Dashboard."
     },
+    "default_tm_markup_percentage": {
+      "type": "number",
+      "default": 0,
+      "description": "Company-wide default markup % pre-filled onto a new T&M bid's tm_markup_percentage — editable per bid from there. Set from Admin > Company Settings."
+    },
     "default_issued_asset_kit": {
       "type": "array",
       "items": {

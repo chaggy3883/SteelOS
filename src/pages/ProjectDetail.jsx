@@ -26,6 +26,7 @@ import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
 import PieceMarkPdfIntake from '@/components/projects/PieceMarkPdfIntake';
+import TmTrackingPanel from '@/components/projects/TmTrackingPanel';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
 const emptyPartForm = () => ({
@@ -494,6 +495,9 @@ export default function ProjectDetail() {
           <TabsTrigger value="phasing">
             Phasing {phaseEntries.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{phaseEntries.length}</span>}
           </TabsTrigger>
+          {project.pricing_type === 'time_and_material' && (
+            <TabsTrigger value="tm-tracking">T&M Tracking</TabsTrigger>
+          )}
         </TabsList>
 
         {/* Overview */}
@@ -1024,6 +1028,12 @@ export default function ProjectDetail() {
             </>
           )}
         </TabsContent>
+
+        {project.pricing_type === 'time_and_material' && (
+          <TabsContent value="tm-tracking">
+            <TmTrackingPanel project={project} />
+          </TabsContent>
+        )}
       </Tabs>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

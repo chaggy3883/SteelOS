@@ -20,6 +20,7 @@ import { calculateWIPSchedule } from '@/lib/wipCalculations';
 import { handleProcorePayWebhook, handleTexturaWebhook } from '@/lib/webhookHandlers';
 import { exportToQuickBooksCSV, exportToSage100CSV } from '@/lib/glExport';
 import { triggerCommissionOnPayment } from '@/lib/commissionEngine';
+import { computeActualLaborCost, computeSubVariance, applyMarkup } from '@/lib/tmEngine';
 import CashManagementPanel from '@/components/accounting/CashManagementPanel';
 import CashForecastPanel from '@/components/accounting/CashForecastPanel';
 import MonthEndClosePanel from '@/components/accounting/MonthEndClosePanel';
@@ -91,7 +92,10 @@ function emptySovForm() {
 }
 
 function emptyInvoiceForm() {
-  return { billing_period: '', expected_payment_date: '', gross_amount: 0, retainage_held: 0, payment_status: 'Draft' };
+  return {
+    billing_period: '', expected_payment_date: '', gross_amount: 0, retainage_held: 0, payment_status: 'Draft',
+    billing_type: 'sov', tm_labor_amount: 0, tm_material_amount: 0, tm_subcontractor_amount: 0, tm_markup_amount: 0,
+  };
 }
 
 function emptyLedgerForm() {
@@ -510,13 +514,72 @@ export default function Accounting() {
     }
   };
 
-  const startAddInvoice = () => { setEditingInvoice('new'); setInvoiceForm(emptyInvoiceForm()); };
+  const [generatingTmInvoice, setGeneratingTmInvoice] = useState(false);
+
+  const startAddInvoice = () => {
+    setEditingInvoice('new');
+    setInvoiceForm({ ...emptyInvoiceForm(), billing_type: selectedProject?.pricing_type === 'time_and_material' ? 'time_and_material' : 'sov' });
+  };
   const startEditInvoice = (inv) => {
     setEditingInvoice(inv);
     setInvoiceForm({
       billing_period: inv.billing_period || '', expected_payment_date: inv.expected_payment_date || '', gross_amount: inv.gross_amount || 0,
       retainage_held: inv.retainage_held || 0, payment_status: inv.payment_status || 'Draft',
+      billing_type: inv.billing_type || 'sov', tm_labor_amount: inv.tm_labor_amount || 0, tm_material_amount: inv.tm_material_amount || 0,
+      tm_subcontractor_amount: inv.tm_subcontractor_amount || 0, tm_markup_amount: inv.tm_markup_amount || 0,
     });
+  };
+
+  // Pulls actual T&M costs for the selected project and pre-fills the
+  // invoice draft — labor/materials are scoped to the billing_period (a
+  // "YYYY-MM" string, matched as a date prefix against TimeEntry.work_date /
+  // TmMaterialUsage.received_date); subcontractor cost comes from whatever
+  // PO is linked to each TmSubcontractorLineItem (POs aren't period-scoped
+  // in this data model). Everything here is a draft the PM reviews/edits
+  // before Save — nothing is written until they click Save.
+  const handleGenerateFromActuals = async () => {
+    if (!invoiceForm.billing_period) { toast({ title: 'Enter a billing period first (e.g. 2026-07)', variant: 'destructive' }); return; }
+    setGeneratingTmInvoice(true);
+    try {
+      const period = invoiceForm.billing_period;
+      const [bids, employees, laborRates, materialUsage] = await Promise.all([
+        db.entities.Bid.filter({ project_id: selectedProjectId }, '-created_date', 1),
+        db.entities.employees.list('full_name', 1000),
+        db.entities.TmLaborRate.list('-effective_date', 2000),
+        db.entities.TmMaterialUsage.filter({ project_id: selectedProjectId }, '-received_date', 1000),
+      ]);
+      const bid = bids[0] || null;
+      const [subLineItems, timeEntries] = await Promise.all([
+        bid ? db.entities.TmSubcontractorLineItem.filter({ bid_id: bid.id }, 'line_number', 200) : Promise.resolve([]),
+        db.entities.TimeEntry.filter({ project_id: selectedProjectId }, '-work_date', 5000),
+      ]);
+
+      const periodTimeEntries = timeEntries.filter((t) => (t.work_date || '').startsWith(period));
+      const periodMaterialUsage = materialUsage.filter((u) => (u.received_date || '').startsWith(period));
+
+      const laborActual = computeActualLaborCost(periodTimeEntries, employees, laborRates);
+      const materialTotal = periodMaterialUsage.reduce((s, u) => s + (Number(u.total_cost) || 0), 0);
+      const subVar = computeSubVariance(subLineItems, purchaseOrders);
+
+      const markupPct = Number(selectedProject?.tm_markup_percentage) || 0;
+      const markupAmount = applyMarkup(laborActual.totalCost + materialTotal + subVar.actualTotal, markupPct);
+      const grossAmount = laborActual.totalCost + materialTotal + subVar.actualTotal + markupAmount;
+
+      setInvoiceForm((f) => ({
+        ...f,
+        billing_type: 'time_and_material',
+        tm_labor_amount: laborActual.totalCost,
+        tm_material_amount: materialTotal,
+        tm_subcontractor_amount: subVar.actualTotal,
+        tm_markup_amount: markupAmount,
+        gross_amount: grossAmount,
+      }));
+      toast({ title: 'Draft generated from actuals', description: 'Review and adjust before saving.' });
+    } catch (e) {
+      toast({ title: 'Unable to generate from actuals', variant: 'destructive' });
+    } finally {
+      setGeneratingTmInvoice(false);
+    }
   };
 
   const handleSaveInvoice = async () => {
@@ -1449,6 +1512,36 @@ export default function Accounting() {
               <Label>Billing Period</Label>
               <Input value={invoiceForm.billing_period} onChange={(e) => setInvoiceForm(f => ({ ...f, billing_period: e.target.value }))} className="mt-1" placeholder="e.g. 2026-07" />
             </div>
+            {selectedProject?.pricing_type === 'time_and_material' && (
+              <div className="col-span-2 rounded-lg border border-border p-3 bg-muted/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium">Time &amp; Material Billing</p>
+                  <Button size="sm" variant="outline" onClick={handleGenerateFromActuals} disabled={generatingTmInvoice}>
+                    {generatingTmInvoice ? 'Generating…' : 'Generate from Actuals'}
+                  </Button>
+                </div>
+                {invoiceForm.billing_type === 'time_and_material' && (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <Label className="text-xs">Labor ($)</Label>
+                      <Input type="number" value={invoiceForm.tm_labor_amount} onChange={(e) => setInvoiceForm(f => ({ ...f, tm_labor_amount: parseFloat(e.target.value) || 0 }))} className="mt-1 h-8" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Materials ($)</Label>
+                      <Input type="number" value={invoiceForm.tm_material_amount} onChange={(e) => setInvoiceForm(f => ({ ...f, tm_material_amount: parseFloat(e.target.value) || 0 }))} className="mt-1 h-8" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Subcontractors ($)</Label>
+                      <Input type="number" value={invoiceForm.tm_subcontractor_amount} onChange={(e) => setInvoiceForm(f => ({ ...f, tm_subcontractor_amount: parseFloat(e.target.value) || 0 }))} className="mt-1 h-8" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Markup ($)</Label>
+                      <Input type="number" value={invoiceForm.tm_markup_amount} onChange={(e) => setInvoiceForm(f => ({ ...f, tm_markup_amount: parseFloat(e.target.value) || 0 }))} className="mt-1 h-8" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="col-span-2">
               <Label>Expected Payment Date</Label>
               <Input type="date" value={invoiceForm.expected_payment_date} onChange={(e) => setInvoiceForm(f => ({ ...f, expected_payment_date: e.target.value }))} className="mt-1" />

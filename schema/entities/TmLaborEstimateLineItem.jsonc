@@ -1,0 +1,34 @@
+{
+  "name": "TmLaborEstimateLineItem",
+  "type": "object",
+  "description": "One estimated labor row on a T&M bid's estimate (Bid.pricing_type === 'time_and_material') — e.g. '100 hrs Welder @ $65/hr'. hourly_rate is snapshotted from TmLaborRate at the time the estimator adds the row, so later rate changes don't silently reprice an existing estimate.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "position": {
+      "type": "string"
+    },
+    "estimated_hours": {
+      "type": "number",
+      "default": 0
+    },
+    "hourly_rate": {
+      "type": "number",
+      "default": 0,
+      "description": "Snapshot of TmLaborRate.hourly_rate at estimate time."
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bid_id",
+    "position",
+    "estimated_hours",
+    "hourly_rate"
+  ]
+}

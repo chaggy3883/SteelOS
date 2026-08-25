@@ -190,6 +190,16 @@
       "default": [],
       "description": "employee_certifications.cert_type values this job requires of anyone assigned to it — used by Meeting Mode's Manpower section to warn when assigning someone without a matching valid certification. Empty by default; no job has certification requirements tracked until a PM sets them."
     },
+    "pricing_type": {
+      "type": "string",
+      "enum": ["fixed_price", "time_and_material"],
+      "default": "fixed_price",
+      "description": "Carried from Bid.pricing_type when this project is created from a won bid (createProjectFromWonBid in BidDetail.jsx). Gates the T&M Tracking tab on ProjectDetail.jsx and the T&M invoicing mode in InvoiceReceivableDetailModal.jsx."
+    },
+    "tm_markup_percentage": {
+      "type": "number",
+      "description": "Carried from Bid.tm_markup_percentage. Applied to actual labor/material/subcontractor totals when generating a T&M invoice."
+    },
     "is_prevailing_wage": {
       "type": "boolean",
       "default": false

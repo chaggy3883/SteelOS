@@ -1,0 +1,57 @@
+{
+  "name": "TmMaterialLineItem",
+  "type": "object",
+  "description": "One quoted-upfront material row on a T&M bid's estimate. Materials actually used during execution are tracked separately on TmMaterialUsage, optionally matched back to the line item this describes.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string"
+    },
+    "line_number": {
+      "type": "number"
+    },
+    "description": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "number",
+      "default": 0
+    },
+    "unit": {
+      "type": "string",
+      "enum": ["ea", "lb", "ft", "ton", "sqft", "other"],
+      "default": "ea"
+    },
+    "unit_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "total_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "source": {
+      "type": "string",
+      "enum": ["quote", "on_hand"],
+      "default": "quote",
+      "description": "'on_hand' means already in inventory — zero cost to the customer, but still tracked for the estimate."
+    },
+    "quote_vendor": {
+      "type": "string"
+    },
+    "quote_reference": {
+      "type": "string",
+      "description": "Vendor PO# or quote reference; free text, may be 'TBD'."
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bid_id",
+    "description",
+    "quantity"
+  ]
+}

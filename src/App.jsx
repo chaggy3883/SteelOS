@@ -58,6 +58,7 @@ import DeliveryPricingAdmin from '@/pages/DeliveryPricingAdmin';
 import PtoPoliciesAdmin from '@/pages/PtoPoliciesAdmin';
 import CommissionSetup from '@/pages/CommissionSetup';
 import SalesmanRatesAdmin from '@/pages/SalesmanRatesAdmin';
+import TmLaborRatesAdmin from '@/pages/TmLaborRatesAdmin';
 import SalesDashboard from '@/pages/SalesDashboard';
 import Estimating from '@/pages/Estimating';
 import BidNew from '@/pages/BidNew';
@@ -193,6 +194,7 @@ const AuthenticatedApp = () => {
           <Route path="/admin/pto-policies" element={<PtoPoliciesAdmin />} />
           <Route path="/admin/commission-setup" element={<CommissionSetup />} />
           <Route path="/admin/salesman-rates" element={<SalesmanRatesAdmin />} />
+          <Route path="/admin/tm-labor-rates" element={<TmLaborRatesAdmin />} />
           <Route path="/system-integrations" element={<SystemIntegrations />} />
           <Route path="/sales" element={<SalesDashboard />} />
           <Route path="/sales/dashboard" element={<SalesDashboard />} />

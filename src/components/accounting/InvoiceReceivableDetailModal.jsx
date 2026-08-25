@@ -90,6 +90,24 @@ export default function InvoiceReceivableDetailModal({ open, onOpenChange, invoi
               </div>
             </div>
 
+            {invoice.billing_type === 'time_and_material' ? (
+              <div>
+                <h4 className="font-semibold text-sm mb-2">Time &amp; Material Breakdown</h4>
+                <table className="w-full text-sm">
+                  <tbody>
+                    <tr className="border-b border-border/50"><td className="py-2 pr-3 text-muted-foreground">Labor</td><td className="py-2 pr-3 text-right font-mono">${(invoice.tm_labor_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+                    <tr className="border-b border-border/50"><td className="py-2 pr-3 text-muted-foreground">Materials</td><td className="py-2 pr-3 text-right font-mono">${(invoice.tm_material_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+                    <tr className="border-b border-border/50"><td className="py-2 pr-3 text-muted-foreground">Subcontractors</td><td className="py-2 pr-3 text-right font-mono">${(invoice.tm_subcontractor_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+                    <tr><td className="py-2 pr-3 text-muted-foreground">Markup</td><td className="py-2 pr-3 text-right font-mono">${(invoice.tm_markup_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+                  </tbody>
+                </table>
+                {project && (
+                  <button className="text-xs text-primary hover:underline mt-2" onClick={() => navigate(`/projects/${project.id}`, { state: { tab: 'tm-tracking' } })}>
+                    View T&amp;M Tracking for this project →
+                  </button>
+                )}
+              </div>
+            ) : (
             <div>
               <h4 className="font-semibold text-sm mb-2">Schedule of Values — {project?.name || 'this project'}</h4>
               <p className="text-xs text-muted-foreground mb-2">
@@ -126,6 +144,7 @@ export default function InvoiceReceivableDetailModal({ open, onOpenChange, invoi
                 </div>
               )}
             </div>
+            )}
           </>
         )}
 

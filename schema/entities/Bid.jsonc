@@ -77,6 +77,16 @@
       "type": "number",
       "default": 0
     },
+    "pricing_type": {
+      "type": "string",
+      "enum": ["fixed_price", "time_and_material"],
+      "default": "fixed_price",
+      "description": "Selected at bid creation. 'time_and_material' hides the fixed-price takeoff tabs (BID Worksheet, Full Takeoff, Vendor Pricing) and shows the T&M Estimate tab (TmEstimateWorksheet.jsx) instead. Carried onto Project.pricing_type when the bid is won — see createProjectFromWonBid in BidDetail.jsx."
+    },
+    "tm_markup_percentage": {
+      "type": "number",
+      "description": "T&M-only markup %, applied to each of the labor/material/subcontractor subtotals on the T&M estimate. Pre-filled from Company.default_tm_markup_percentage but editable per bid. Carried onto Project.tm_markup_percentage when won."
+    },
     "estimated_tons": {
       "type": "number",
       "default": 0
