@@ -19,6 +19,8 @@ export default function ReceivingKiosk() {
   const [allPoLines, setAllPoLines] = useState([]);
   const [recentLogs, setRecentLogs] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [subcontracts, setSubcontracts] = useState([]);
   const [poNumberInput, setPoNumberInput] = useState('');
   const [matchedPo, setMatchedPo] = useState(null);
   const [poLines, setPoLines] = useState([]);
@@ -40,17 +42,64 @@ export default function ReceivingKiosk() {
 
   const loadData = async () => {
     try {
-      const [poList, logList, lineList, projectList] = await Promise.all([
+      const [poList, logList, lineList, projectList, vendorList, subcontractList] = await Promise.all([
         db.entities.purchase_orders.list('-created_date', 100),
         db.entities.receiving_logs.list('-created_date', 10),
         db.entities.purchase_order_lines.list('-created_date', 500),
         db.entities.Project.filter({ is_archived: false }, 'name', 200),
+        db.entities.Vendor.list('name', 500),
+        db.entities.Subcontract.list('-created_date', 500),
       ]);
       setPurchaseOrders(poList);
       setRecentLogs(logList);
       setAllPoLines(lineList);
       setProjects(projectList);
+      setVendors(vendorList);
+      setSubcontracts(subcontractList);
     } catch (e) {}
+  };
+
+  // A subcontractor PO posts straight to job costing the instant the whole
+  // PO is fully received — no manual entry, no separate invoice-approval
+  // step. This is the PO-driven counterpart to Subcontracts.jsx's
+  // createSubLedgerEntry (which posts when a SubcontractPayApp is marked
+  // paid instead) — same cost_class/source_type convention ('SUB' /
+  // 'subcontract') so both paths land in the same ledger bucket. Guarded by
+  // job_cost_posted/job_cost_ledger_entry_id (same back-reference-guard
+  // pattern as EquipmentUsagePanel.jsx) so re-receiving or correcting a PO's
+  // status can never double-post the same amount.
+  const postSubcontractorPoToJobCosting = async (po) => {
+    if (po.job_cost_posted || !po.project_id) return;
+    const vendor = vendors.find((v) => v.id === po.vendor_id);
+    if (vendor?.vendor_type !== 'subcontractor') return;
+
+    const amount = Number(po.budgeted_cost || po.total_estimated_cost || po.actual_cost) || 0;
+    if (amount <= 0) return;
+
+    // Subcontract is the same vendor+project commitment record this PO's
+    // work belongs to — prefer its cost_code (the job-costing axis PMs
+    // actually group by) over the PO's own cost_code, since a PO created
+    // outside the line-item flow (e.g. ProcurementModule.jsx) may not carry
+    // one at all.
+    const subcontract = subcontracts.find((sc) => sc.vendor_id === po.vendor_id && sc.project_id === po.project_id);
+    const costCode = subcontract?.cost_code || po.cost_code || subcontract?.subcontract_number || 'SUBCONTRACTOR';
+    const scopeLabel = subcontract?.scope_description || (subcontract?.scope_of_work ? subcontract.scope_of_work.replace(/_/g, ' ') : '');
+
+    const ledgerEntry = await db.entities.JobCostLedgerEntry.create({
+      project_id: po.project_id,
+      cost_code: costCode,
+      cost_class: 'SUB',
+      amount,
+      transaction_date: new Date().toISOString().slice(0, 10),
+      source_type: 'subcontract',
+      source_id: po.id,
+      description: `${vendor?.name || po.vendor_name || 'Subcontractor'} subcontract work${scopeLabel ? ` for ${scopeLabel}` : ''} — PO ${po.po_number}`,
+    });
+
+    await db.entities.purchase_orders.update(po.id, {
+      job_cost_posted: true,
+      job_cost_ledger_entry_id: ledgerEntry.id,
+    });
   };
 
   const buildLineInputs = (lines) => {
@@ -224,6 +273,8 @@ export default function ReceivingKiosk() {
       setMatchedPo(updatedPo);
 
       if (allFullyReceived) {
+        await postSubcontractorPoToJobCosting(updatedPo);
+
         await db.entities.Notification.create({
           title: 'PO Fully Received — Ready for Payment',
           message: `PO ${matchedPo.po_number} from ${matchedPo.vendor_name} has been fully received. All line items confirmed. Ready for AP to process payment.`,
