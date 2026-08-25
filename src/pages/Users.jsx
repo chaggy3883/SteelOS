@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Users as UsersIcon, Plus, Search, ShieldCheck } from 'lucide-react';
+import { Users as UsersIcon, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/ui/PageHeader';
@@ -12,7 +12,6 @@ import {
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { isSuperAdmin } from '@/lib/tenantContext';
-import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
 
 const ROLES = [
   'system_administrator', 'company_administrator', 'executive', 'operations_manager',
@@ -48,7 +47,6 @@ export default function Users() {
   const [creating, setCreating] = useState(false);
   const [newUserId, setNewUserId] = useState(null);
   const [viewerIsSuperAdmin, setViewerIsSuperAdmin] = useState(false);
-  const [permissionsUser, setPermissionsUser] = useState(null);
   const [employees, setEmployees] = useState([]);
   const rowRefs = useRef({});
 
@@ -262,7 +260,6 @@ export default function Users() {
                 <th className="text-left py-3 px-4">Role</th>
                 <th className="text-left py-3 px-4">Joined</th>
                 <th className="text-left py-3 px-4">Status</th>
-                <th className="text-right py-3 px-4">Permissions</th>
               </tr>
             </thead>
             <tbody>
@@ -318,11 +315,6 @@ export default function Users() {
                         Active
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPermissionsUser(user)}>
-                        <ShieldCheck className="w-3.5 h-3.5" />Manage
-                      </Button>
-                    </td>
                   </tr>
                 ))
               )}
@@ -330,24 +322,6 @@ export default function Users() {
           </table>
         </div>
       </div>
-
-      <Dialog open={!!permissionsUser} onOpenChange={(open) => !open && setPermissionsUser(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{permissionsUser?.full_name || permissionsUser?.email} — Permissions</DialogTitle>
-          </DialogHeader>
-          {permissionsUser && (
-            <PermissionsGridPanel
-              subject={permissionsUser}
-              subjectType="User"
-              onUpdated={(updated) => {
-                setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
-                setPermissionsUser(updated);
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -33,6 +33,35 @@ const normalizeRoles = (roles) => (Array.isArray(roles) ? roles : [roles]).map((
 export const hasFullEmployeeAccess = (roles) => normalizeRoles(roles).some((r) => FULL_ACCESS_ROLES.includes(r));
 const hasFullAccess = hasFullEmployeeAccess;
 
+// Single source of truth for "what status badge does this employee show" —
+// termination_date always wins (an employee can't be simultaneously
+// Terminated and On Leave), falling back to employee_status, and finally to
+// the older is_active boolean for records created before employee_status
+// existed.
+export const employeeDisplayStatus = (employee) => {
+  if (employee?.termination_date) return 'Terminated';
+  if (employee?.employee_status) return employee.employee_status;
+  return employee?.is_active === false ? 'Inactive' : 'Active';
+};
+
+// The one place that assigns an employee's platform role — used by both the
+// HR "Unassigned Platform Roles" panel and Admin's Employee Management page.
+// employees.platform_role and a linked User account's `roles` are otherwise
+// completely independent fields (see rbacConfig.jsx/NavBar.jsx — allowed
+// modules are computed live from User.roles, never from platform_role), so
+// a role change here cascades to that linked login too — otherwise "assign a
+// role" would be cosmetic for anyone who also has portal access. This
+// deliberately overwrites the linked User to a single role, matching the
+// roles-only, deterministic model (no per-account custom permissions).
+export async function assignPlatformRole(employee, roleName) {
+  const updated = await db.entities.employees.update(employee.id, { platform_role: roleName });
+  const linkedUsers = await db.entities.User.filter({ employee_id: employee.id }, '-created_date', 1);
+  if (linkedUsers[0]) {
+    await db.entities.User.update(linkedUsers[0].id, { roles: [roleName] });
+  }
+  return updated;
+}
+
 const maskEmployee = (employee) => {
   const masked = {};
   PUBLIC_FIELDS.forEach((field) => { masked[field] = employee[field]; });

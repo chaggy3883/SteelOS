@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils';
 import { db } from '@/api/apiClient';
 import { getUserPermissions, isModuleAllowed } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany, isImpersonating } from '@/lib/tenantContext';
-import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { hasModule } from '@/lib/moduleEntitlement';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem
@@ -154,25 +153,11 @@ export default function NavBar() {
         if (isImpersonating()) {
           setAllowedModules(['*']);
         } else {
+          // Roles are the sole source of truth for module access — no
+          // per-account permission-override layer narrows this further
+          // (that mechanism was removed; see permissionCatalog.js).
           const perms = await getUserPermissions(u.roles || ['user']);
-          let modules = perms.modules;
-          // Per-account Permissions Grid (permissionCatalog.js): an
-          // individual account's module-level overrides narrow their role's
-          // modules further. Kiosk/employee-PIN sessions store overrides on
-          // the employees row (/employee-center itself is never
-          // disable-able there); office sessions ARE the User row already
-          // returned by me(), no separate fetch needed.
-          if (u?.employee_id) {
-            try {
-              const emp = await db.entities.employees.get(u.employee_id);
-              const overrides = emp?.permission_overrides || [];
-              modules = modules.filter((path) => path === '/employee-center' || isCapabilityAllowed(overrides, `module:${path}`));
-            } catch (e) {}
-          } else {
-            const overrides = u?.permission_overrides || [];
-            modules = modules.filter((path) => isCapabilityAllowed(overrides, `module:${path}`));
-          }
-          setAllowedModules(modules);
+          setAllowedModules(perms.modules);
         }
         // is_kiosk_pin_session (not employee_id alone) is the shared-terminal
         // signal: a portal (email/password) login can also carry employee_id

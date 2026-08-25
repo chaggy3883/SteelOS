@@ -1,18 +1,23 @@
-// Per-employee granular permission catalog — Phase A.
+// Per-employee granular permission catalog — retired.
 //
-// Denylist model: an employee's `permission_overrides` (employees.jsonc)
-// lists DISABLED capability keys. Anything not listed defaults to allowed
-// per their role (rbacConfig.jsx's BUILTIN_ROLES still governs the baseline;
-// this only ever narrows it further for that one employee, never widens it).
+// This denylist layer (an employee/user's `permission_overrides` narrowing
+// their role's baseline) has been superseded by a roles-only model: role
+// determines allowed_modules, period (see rbacConfig.jsx, NavBar.jsx). There
+// is no remaining UI anywhere that lets an admin edit `permission_overrides`
+// (PermissionsGridPanel.jsx, its Users.jsx/EmployeeProfileDialog.jsx mount
+// points, was removed) — module-level enforcement in NavBar.jsx was removed
+// with it.
+//
+// What's left, kept only for backward compatibility with pre-existing demo
+// data: HumanResources.jsx and EmployeeCenter.jsx still read their own
+// `tab:` keys from an employee's `permission_overrides` to hide individual
+// tabs. Since nothing can write new values into that array anymore, this is
+// effectively frozen/legacy behavior for records that already had overrides
+// set — not an active permission-editing feature.
 //
 // Two key shapes:
-//   module:<path>            - one of ALL_MODULES in rbacConfig.jsx
+//   module:<path>            - one of ALL_MODULES in rbacConfig.jsx (no longer enforced)
 //   tab:<modulePath>:<tabId>  - a TabsTrigger value inside that module's page
-//
-// Phase A wires enforcement for `module:` keys only (NavBar.jsx). `tab:`
-// keys are captured and saved here so Phase B (wiring each of the 18 tabbed
-// pages to actually hide their own tabs) has real data to read from day one,
-// but no page currently checks them yet — see the Phase B follow-up.
 //
 // Employee Center is permanently on: it's the mobile time-clock/self-service
 // surface every worker needs regardless of what else is restricted.

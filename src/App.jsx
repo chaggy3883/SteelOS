@@ -68,6 +68,7 @@ import ShopOperations from '@/pages/ShopOperations';
 import ShopFloorCommandCenter from '@/pages/ShopFloorCommandCenter';
 import HumanResources from '@/pages/HumanResources';
 import NewEmployee from '@/pages/NewEmployee';
+import AdminEmployees from '@/pages/AdminEmployees';
 import Payroll from '@/pages/Payroll';
 import PayrollHours from '@/pages/PayrollHours';
 import PayrollSetup from '@/pages/PayrollSetup';
@@ -180,6 +181,7 @@ const AuthenticatedApp = () => {
           <Route path="/executive-analytics" element={<ExecutiveAnalytics />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/employees" element={<AdminEmployees />} />
           <Route path="/admin/cost-codes" element={<CostCodesAdmin />} />
           <Route path="/admin/delivery-pricing" element={<DeliveryPricingAdmin />} />
           <Route path="/admin/intelligence-rules" element={<IntelligenceRulesAdmin />} />

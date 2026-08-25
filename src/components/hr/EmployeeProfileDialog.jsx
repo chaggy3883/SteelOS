@@ -5,7 +5,6 @@ import SystemAccessPortal from '@/components/hr/SystemAccessPortal';
 import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
 import ComplianceDocumentCenter from '@/components/hr/ComplianceDocumentCenter';
 import I9ComplianceCenter from '@/components/hr/I9ComplianceCenter';
-import PermissionsGridPanel from '@/components/hr/PermissionsGridPanel';
 import DisciplinaryActionsPanel from '@/components/hr/DisciplinaryActionsPanel';
 import PtoPanel from '@/components/hr/PtoPanel';
 import TerminationPanel from '@/components/hr/TerminationPanel';
@@ -44,7 +43,6 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             {showEquipment && <TabsTrigger value="equipment">Equipment</TabsTrigger>}
             {showTermination && <TabsTrigger value="compliance">Compliance</TabsTrigger>}
             <TabsTrigger value="pto">PTO</TabsTrigger>
-            <TabsTrigger value="permissions">Permissions</TabsTrigger>
             {showDisciplinary && <TabsTrigger value="disciplinary">Disciplinary</TabsTrigger>}
             {showTermination && <TabsTrigger value="termination">Termination</TabsTrigger>}
           </TabsList>
@@ -69,9 +67,6 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           )}
           <TabsContent value="pto">
             <PtoPanel employee={current} roles={roles} />
-          </TabsContent>
-          <TabsContent value="permissions">
-            <PermissionsGridPanel subject={current} subjectType="employees" onUpdated={handleUpdated} />
           </TabsContent>
           {showDisciplinary && (
             <TabsContent value="disciplinary">

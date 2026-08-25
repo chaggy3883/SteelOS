@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel } from '@/lib/employeesApi';
+import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel, assignPlatformRole } from '@/lib/employeesApi';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { verifyPin } from '@/lib/hrSecurity';
 import { getExpiringCertifications } from '@/lib/certAlerts';
@@ -237,10 +237,10 @@ export default function HumanResources() {
     toast({ title: value ? `${updated.full_name}'s login re-enabled` : `${updated.full_name}'s login suspended` });
   };
 
-  const assignPlatformRole = async (employee, role) => {
+  const handleAssignRole = async (employee, role) => {
     setAssigningRoleId(employee.id);
     try {
-      const updated = await db.entities.employees.update(employee.id, { platform_role: role });
+      const updated = await assignPlatformRole(employee, role);
       setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
       toast({ title: `${updated.full_name} assigned to ${allRoles.find((r) => r.value === role)?.label || role}` });
     } finally {
@@ -449,7 +449,7 @@ export default function HumanResources() {
                       <p className="text-sm font-medium">{emp.full_name}</p>
                       <p className="text-xs text-muted-foreground">{emp.employee_number} · {emp.classification}</p>
                     </div>
-                    <Select value={emp.platform_role || ''} onValueChange={(v) => assignPlatformRole(emp, v)} disabled={assigningRoleId === emp.id}>
+                    <Select value={emp.platform_role || ''} onValueChange={(v) => handleAssignRole(emp, v)} disabled={assigningRoleId === emp.id}>
                       <SelectTrigger className="w-56 h-8 text-xs"><SelectValue placeholder="Assign a role…" /></SelectTrigger>
                       <SelectContent>
                         {allRoles.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}

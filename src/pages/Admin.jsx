@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isAdminUser } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
@@ -41,6 +41,7 @@ const TABS = [
 // hr_admin/payroll_admin, since it's an HR-owned configuration, not a
 // platform-admin one.
 const NAV_LINKS = [
+  { path: '/admin/employees', label: 'Employees', icon: UserCog },
   { path: '/admin/cost-codes', label: 'Cost Codes', icon: Tags },
   { path: '/admin/delivery-pricing', label: 'Delivery Pricing', icon: Truck },
   { path: '/admin/intelligence-rules', label: 'Intelligence Rules', icon: Radar },
