@@ -202,7 +202,7 @@ export default function GlobalSearchPalette() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[10vh] bg-black/40">
+        <div className="fixed inset-0 z-[100] flex items-start justify-center px-3 sm:px-0 pt-[6vh] sm:pt-[10vh] bg-black/40">
           <div ref={panelRef} className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
             <div className="flex items-center gap-3 p-4 border-b border-border">
               <Search className="w-5 h-5 text-muted-foreground" />

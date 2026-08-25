@@ -78,9 +78,9 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
   const headerLogoSizePx = Math.min(60, Math.max(24, Math.round(40 * (logoScalePct / 100))));
 
   return (
-    <header className="h-16 bg-card border-b border-border flex items-center justify-between px-4 lg:px-6 flex-shrink-0 print:hidden">
+    <header className="h-14 sm:h-16 bg-card border-b border-border flex items-center justify-between px-2 sm:px-4 lg:px-6 flex-shrink-0 print:hidden flex-wrap sm:flex-nowrap">
       {/* Logo */}
-      <div className="flex items-center gap-4 flex-shrink-0">
+      <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
         <div className="w-8 h-8 rounded-lg steel-gradient flex items-center justify-center">
           <Layers className="w-4 h-4 text-white" />
         </div>
@@ -104,12 +104,12 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
       </div>
 
       {/* Global Search — Command Palette */}
-      <div className="flex items-center gap-3 flex-1 max-w-md ml-4">
+      <div className="hidden sm:flex items-center gap-1 sm:gap-3 flex-1 max-w-xs sm:max-w-md ml-2 sm:ml-4">
         <GlobalSearchPalette />
       </div>
 
       {isImpersonating() && (
-        <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs font-medium text-yellow-700 flex-shrink-0">
+        <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs font-medium text-yellow-700 flex-shrink-0">
           <ShieldAlert className="w-3.5 h-3.5" />
           Impersonating {company?.name || 'tenant'}
           <button onClick={handleExitImpersonation} className="underline hover:no-underline">Exit</button>
@@ -117,7 +117,7 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
       )}
 
       {/* Right side */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2">
         {/* Dark mode */}
         <Button
           variant="ghost"
@@ -140,7 +140,7 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
               )}
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
+          <DropdownMenuContent align="end" className="w-[calc(100vw-16px)] sm:w-80">
             <div className="px-3 py-2 font-semibold text-sm border-b border-border">Notifications</div>
             {notifications.length === 0 ? (
               <div className="px-3 py-4 text-sm text-muted-foreground text-center">No new notifications</div>
@@ -166,7 +166,7 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
               <ChevronDown className="w-3 h-3 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-[calc(100vw-16px)] sm:w-48">
             <div className="px-3 py-2">
               <p className="text-sm font-medium">{user?.full_name}</p>
               <p className="text-xs text-muted-foreground">{user?.email}</p>
