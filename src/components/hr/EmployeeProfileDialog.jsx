@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SystemAccessPortal from '@/components/hr/SystemAccessPortal';
 import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
@@ -41,6 +41,9 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{current.full_name} — #{current.employee_number}</DialogTitle>
+          <DialogDescription>
+            {current.position || current.classification} • Hired {current.hire_date || '—'}
+          </DialogDescription>
         </DialogHeader>
         <Tabs defaultValue="access">
           <TabsList className="mb-4">

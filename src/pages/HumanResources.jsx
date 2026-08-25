@@ -625,6 +625,7 @@ export default function HumanResources() {
                       <th className="text-left py-3 px-4">Employee #</th>
                       <th className="text-left py-3 px-4">Name</th>
                       <th className="text-left py-3 px-4">Classification</th>
+                      {isFullAccess && <th className="text-left py-3 px-4">Hire Date</th>}
                       <th className="text-left py-3 px-4">Employment Status</th>
                       {isFullAccess && <th className="text-left py-3 px-4">SSN (last 4)</th>}
                       {isFullAccess && <th className="text-right py-3 px-4">Pay Rate</th>}
@@ -644,6 +645,7 @@ export default function HumanResources() {
                           <button onClick={() => openProfile(emp)} className="text-primary hover:underline">{emp.full_name}</button>
                         </td>
                         <td className="py-3 px-4 text-muted-foreground">{emp.classification}</td>
+                        {isFullAccess && <td className="py-3 px-4 text-muted-foreground">{emp.hire_date || '—'}</td>}
                         <td className="py-3 px-4">
                           {emp.termination_date ? (
                             <button onClick={() => openProfile(emp)} className="text-left">

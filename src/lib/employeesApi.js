@@ -11,7 +11,7 @@ import { logStatusChange } from '@/lib/statusHistory';
 // carry sensitive HR detail) is deliberately public — standing rule: it must
 // be visible in the HR employee list/reports, not just to full-access roles.
 const PUBLIC_FIELDS = ['id', 'employee_number', 'full_name', 'classification', 'hire_date', 'is_active', 'is_active_login', 'termination_date', 'termination_reason', 'created_date', 'updated_date'];
-const FULL_ACCESS_ROLES = ['hr_admin', 'payroll_admin', 'admin'];
+const FULL_ACCESS_ROLES = ['hr_admin', 'payroll_admin', 'admin', 'super_admin'];
 
 // Shared by TerminationPanel.jsx (the dropdown) and HumanResources.jsx (label
 // lookup for the employee list/reports) so the value<->label mapping only
