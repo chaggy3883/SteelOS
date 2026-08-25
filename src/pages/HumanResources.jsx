@@ -105,6 +105,15 @@ export default function HumanResources() {
   const [pendingLeave, setPendingLeave] = useState([]);
   const [decliningRequestId, setDecliningRequestId] = useState(null);
   const [declineNote, setDeclineNote] = useState('');
+  // Keyed by request.id — the reason decidePtoRequest() blocked an Approve
+  // click, shown inline on that row (see decideLeaveRequest below) instead of
+  // only in a toast that's easy to miss and makes Approve look broken.
+  const [leaveBlockReasons, setLeaveBlockReasons] = useState({});
+  // Dismissible inline notices for requests that WERE approved but into a
+  // negative balance (overdraft_action: allow_negative) — the request row
+  // itself is gone by the time this fires (already filtered out of
+  // pendingLeave), so these render as their own alerts above the list.
+  const [leaveOverdraftNotices, setLeaveOverdraftNotices] = useState([]);
 
   const [emergencyContactEmployeeId, setEmergencyContactEmployeeId] = useState('');
   const [allRoles, setAllRoles] = useState([]);
@@ -154,8 +163,10 @@ export default function HumanResources() {
     setRoles(currentRoles);
     // No backend scheduler exists in this app — anniversary PTO renewals are
     // checked here, on HR page load, instead of a cron job. Idempotent: see
-    // src/lib/ptoEngine.js's policy_year_end comparison.
-    if (me?.company_id) runAnniversaryRenewalCheckForCompany(me.company_id).catch(() => {});
+    // src/lib/ptoEngine.js's policy_year_end comparison. Awaited before
+    // loadAll so the Time Off Approvals balances/available-hours read below
+    // never race a still-in-flight grant and show a stale 0h.
+    if (me?.company_id) await runAnniversaryRenewalCheckForCompany(me.company_id).catch(() => {});
     await loadAll(currentRoles);
     // super_admin is a platform-operator role, not an assignable HR role —
     // never offer it in the Platform Role dropdown here or in AddEmployeeWizard.
@@ -389,13 +400,31 @@ export default function HumanResources() {
       changedBy: currentUser?.full_name || currentUser?.email || 'Unknown',
     });
     if (!result.ok) {
+      // Blocked (insufficient balance / waiting period) — the request stays
+      // pending, so surface the reason inline on its row rather than only in
+      // a toast, which is easy to miss and makes Approve look like it's
+      // silently doing nothing.
+      setLeaveBlockReasons((prev) => ({ ...prev, [request.id]: result.message }));
       toast({ title: result.message, variant: 'destructive' });
       return;
+    }
+    setLeaveBlockReasons((prev) => {
+      if (!(request.id in prev)) return prev;
+      const next = { ...prev };
+      delete next[request.id];
+      return next;
+    });
+    if (result.warning) {
+      setLeaveOverdraftNotices((prev) => [...prev, { id: `${request.id}-${prev.length}`, requestId: request.id, message: result.warning }]);
     }
     setPendingLeave((prev) => prev.filter((r) => r.id !== result.request.id));
     setDecliningRequestId(null);
     setDeclineNote('');
     toast({ title: result.warning || `Leave request ${status.toLowerCase()}`, variant: result.warning ? 'default' : undefined });
+  };
+
+  const dismissOverdraftNotice = (noticeId) => {
+    setLeaveOverdraftNotices((prev) => prev.filter((n) => n.id !== noticeId));
   };
 
   const confirmDecline = (request) => {
@@ -717,6 +746,12 @@ export default function HumanResources() {
             <div className="steel-card p-4">
               <h4 className="font-semibold text-sm mb-1 flex items-center gap-2"><CalendarClock className="w-4 h-4 text-primary" />Pending Time-Off Requests</h4>
               <p className="text-xs text-muted-foreground mb-3">Approve or decline requests submitted from the Employee Center. Declines require a written comment.</p>
+              {leaveOverdraftNotices.map((notice) => (
+                <div key={notice.id} className="rounded-lg border border-yellow-500/40 bg-yellow-500/5 p-2.5 text-xs text-yellow-700 mb-2 flex items-start justify-between gap-2">
+                  <span className="flex items-start gap-1.5"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />{notice.message}</span>
+                  <button onClick={() => dismissOverdraftNotice(notice.id)} className="text-yellow-700 hover:underline flex-shrink-0">Dismiss</button>
+                </div>
+              ))}
               {pendingLeave.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-6 text-center">No pending requests.</p>
               ) : pendingLeave.map((r) => {
@@ -745,6 +780,12 @@ export default function HumanResources() {
                         <Button size="sm" variant="outline" className="gap-1 text-red-600 border-red-500/30" onClick={() => { setDecliningRequestId(r.id); setDeclineNote(''); }}><Ban className="w-3.5 h-3.5" />Decline</Button>
                       </div>
                     </div>
+                    {leaveBlockReasons[r.id] && (
+                      <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/5 p-2.5 text-xs text-red-600 flex items-start gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                        <span><span className="font-semibold">Cannot approve:</span> {leaveBlockReasons[r.id]}</span>
+                      </div>
+                    )}
                     {decliningRequestId === r.id && (
                       <div className="mt-3 pt-3 border-t border-border/50 space-y-2">
                         <Label className="text-xs">Administrative Comments (required)</Label>
