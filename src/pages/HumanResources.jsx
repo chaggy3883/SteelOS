@@ -623,7 +623,7 @@ export default function HumanResources() {
               const selected = employees.find((e) => e.id === emergencyContactEmployeeId);
               return selected ? (
                 <div className="max-w-lg">
-                  <EmergencyContactPanel employee={selected} onUpdated={handleProfileUpdated} />
+                  <EmergencyContactPanel employee={selected} roles={roles} onUpdated={handleProfileUpdated} />
                 </div>
               ) : null;
             })()}

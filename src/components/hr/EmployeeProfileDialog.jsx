@@ -52,7 +52,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             <SystemAccessPortal employee={current} roles={roles} onUpdated={handleUpdated} />
           </TabsContent>
           <TabsContent value="emergency">
-            <EmergencyContactPanel employee={current} onUpdated={handleUpdated} />
+            <EmergencyContactPanel employee={current} roles={roles} onUpdated={handleUpdated} />
           </TabsContent>
           <TabsContent value="documents">
             <ComplianceDocumentCenter employee={current} />
