@@ -96,6 +96,18 @@ export const MODULE_PACKS = {
   [PACKS.ENTERPRISE]: [...SHARED_MODULES, ...FAB_ONLY_MODULES, ...ERECT_ONLY_MODULES],
 };
 
+// Legacy subscription_plan values that predate the Fab/Erect pack split
+// (Company.jsonc's subscription_plan enum still allows them, for customers
+// who signed up before packs existed). Mapped explicitly onto Enterprise
+// Connect's full module set — these customers were sold access to
+// everything — rather than left to fall through packModulesFor()'s "missing
+// data = unrestricted" null default in moduleEntitlement.js, which should
+// only ever apply to a genuinely unrecognized plan string, not one of these
+// three known ones.
+['starter', 'professional', 'enterprise'].forEach((legacyPlan) => {
+  MODULE_PACKS[legacyPlan] = MODULE_PACKS[PACKS.ENTERPRISE];
+});
+
 // Paths outside the pack model entirely (platform-operator surfaces, not
 // sold as part of any tenant's pack). Never filtered by hasModule().
 export const PACK_EXEMPT_MODULES = ['/super-admin/dashboard'];

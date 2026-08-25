@@ -3,7 +3,8 @@ import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { isAdminUser } from '@/lib/tenantContext';
+import { getEffectiveCompany, isAdminUser, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
 import PageHeader from '@/components/ui/PageHeader';
 import UserManagement from '@/components/admin/UserManagement';
 import CostVariables from '@/components/admin/CostVariables';
@@ -23,13 +24,17 @@ const TABS = [
   { id: 'crm', label: 'CRM Sync', icon: Database, Component: CRMSync },
   { id: 'integrations', label: 'Integrations', icon: Plug, Component: IntegrationsGateway },
   { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck, Component: RoleManager, roles: ['admin', 'super_admin', 'hr_admin'] },
-  { id: 'shopfloor', label: '3D Shop Floor Layout', icon: Boxes, Component: ShopFloorLayoutEditor },
+  // Fab-pack only — a shop floor to lay out only exists for a company whose
+  // plan includes shop fabrication (see modulePacks.js).
+  { id: 'shopfloor', label: '3D Shop Floor Layout', icon: Boxes, Component: ShopFloorLayoutEditor, modulePath: '/shop-fabrication' },
   // hr_admin needs this alongside full admin — it's also where the default
   // new-hire equipment kit policy lives (issuedAssetsApi.js), an HR-owned
   // setting, not just branding.
   { id: 'branding', label: 'Company Settings', icon: Palette, Component: CompanyBrandingPanel, roles: ['admin', 'super_admin', 'hr_admin'] },
   { id: 'form-report-settings', label: 'Form & Report Settings', icon: LayoutTemplate, Component: FormReportSettingsPanel },
-  { id: 'steel-catalog', label: 'Steel Inventory Catalog', icon: Layers, Component: SteelCatalogPanel },
+  // Fab-pack only — steel stock inventory categories don't apply to an
+  // Erector-only company with no shop material to catalog.
+  { id: 'steel-catalog', label: 'Steel Inventory Catalog', icon: Layers, Component: SteelCatalogPanel, modulePath: '/inventory' },
 ];
 
 // Standalone routed pages (not query-param tabs) that still belong in the
@@ -57,10 +62,12 @@ export default function Admin() {
   const requestedTab = searchParams.get('tab') || 'users';
   const setActiveTab = (id) => setSearchParams({ tab: id });
   const [currentUser, setCurrentUser] = useState(null);
+  const [company, setCompany] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     db.auth.me().then(u => { setCurrentUser(u); setLoading(false); }).catch(() => setLoading(false));
+    getEffectiveCompany().then(setCompany).catch(() => setCompany(null));
   }, []);
 
   if (loading) return (
@@ -73,10 +80,20 @@ export default function Admin() {
   const normalizedRoles = userRoles.map(r => String(r).toLowerCase());
   const isAdmin = isAdminUser(currentUser);
 
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+
   // Most tabs require full admin access. A tab can opt into a narrower
   // `roles` allowlist (case-insensitive) to also admit users who aren't
-  // full admins — e.g. hr_admin viewing only "Roles & Permissions".
-  const hasTabAccess = (tab) => isAdmin || (tab.roles || []).some(r => normalizedRoles.includes(r.toLowerCase()));
+  // full admins — e.g. hr_admin viewing only "Roles & Permissions". A tab
+  // can additionally opt into a `modulePath` — a fab/erect-pack-only tab
+  // stays hidden even from a full admin whose company's plan doesn't
+  // include that module (see modulePacks.js).
+  const hasTabAccess = (tab) => {
+    const roleOk = isAdmin || (tab.roles || []).some(r => normalizedRoles.includes(r.toLowerCase()));
+    if (!roleOk) return false;
+    if (!tab.modulePath) return true;
+    return hasModule(company, tab.modulePath) || isPlatformOperatorView;
+  };
   const visibleTabs = TABS.filter(hasTabAccess);
   const visibleNavLinks = NAV_LINKS.filter(hasTabAccess);
 

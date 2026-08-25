@@ -6,6 +6,8 @@ import { Settings2, Plus, Check, Loader2 } from 'lucide-react';
 import DashboardWidget from '@/components/dashboard/DashboardWidget';
 import AddWidgetDrawer from '@/components/dashboard/AddWidgetDrawer';
 import { getUserPermissions, getDefaultLayout, getWidgetById, WIDGET_LIBRARY } from '@/components/dashboard/rbacConfig';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
 
 // Native CSS grid — no third-party layout library. col-span/row-span classes
 // per widget, computed from its stored `size`; the grid container itself is
@@ -25,6 +27,16 @@ const SIZE_OPTIONS = ['1x1', '2x2', '3x2'];
 // widget grid ever get a key here; today that's just this one.
 const PAGE_KEY = 'dashboard';
 
+// A widget deep-links to a specific route (WIDGET_LIBRARY's `route` field) —
+// if that route is a fab/erect-pack-only module the company's plan doesn't
+// include (see modulePacks.js), the widget shouldn't be offered or rendered
+// either, the same way the nav hides the route itself. Widgets with no
+// route, or whose route isn't pack-gated (shared modules), are unaffected.
+const widgetPackAllowed = (widgetId, company) => {
+  const widget = getWidgetById(widgetId);
+  return !widget?.route || hasModule(company, widget.route);
+};
+
 export default function Dashboard() {
   const { user } = useOutletContext() || {};
   const [layout, setLayout] = useState([]);
@@ -40,8 +52,13 @@ export default function Dashboard() {
 
   const initDashboard = async () => {
     try {
-      const perms = await getUserPermissions(user.roles || ['user']);
-      setAllowedWidgets(perms.widgets);
+      const [perms, effectiveCompany] = await Promise.all([
+        getUserPermissions(user.roles || ['user']),
+        getEffectiveCompany().catch(() => null),
+      ]);
+      const roleWidgetIds = perms.widgets.includes('*') ? WIDGET_LIBRARY.map(w => w.id) : perms.widgets;
+      const packFilteredWidgetIds = roleWidgetIds.filter((id) => widgetPackAllowed(id, effectiveCompany));
+      setAllowedWidgets(packFilteredWidgetIds);
 
       // Kiosk/employee-linked sessions personalize against their own
       // `employees` row instead of the office `User` row — the same
@@ -57,11 +74,16 @@ export default function Dashboard() {
       const existingLayouts = record?.page_layouts_json || {};
 
       if (Array.isArray(existingLayouts[PAGE_KEY]) && existingLayouts[PAGE_KEY].length > 0) {
-        setPageLayouts(existingLayouts);
-        setLayout(existingLayouts[PAGE_KEY]);
+        // Drop any previously-saved widget whose module pack no longer
+        // covers it — e.g. the company's plan changed since this layout was
+        // saved — the same defensive filter the freshly-seeded layout below
+        // gets, so a stale layout can't keep a locked-module widget visible.
+        const savedLayout = existingLayouts[PAGE_KEY].filter((item) => widgetPackAllowed(item.i, effectiveCompany));
+        const filteredLayouts = { ...existingLayouts, [PAGE_KEY]: savedLayout };
+        setPageLayouts(filteredLayouts);
+        setLayout(savedLayout);
       } else {
-        const widgetIds = perms.widgets.includes('*') ? WIDGET_LIBRARY.map(w => w.id) : perms.widgets;
-        const defaultLayout = getDefaultLayout(widgetIds);
+        const defaultLayout = getDefaultLayout(packFilteredWidgetIds);
         const seededLayouts = { ...existingLayouts, [PAGE_KEY]: defaultLayout };
         setLayout(defaultLayout);
         setPageLayouts(seededLayouts);
