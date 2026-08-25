@@ -5,6 +5,9 @@
     "company_id": {
       "type": "string"
     },
+    "street_address": {
+      "type": "string"
+    },
     "zip_code": {
       "type": "string"
     },

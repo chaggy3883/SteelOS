@@ -18,7 +18,7 @@ export default function TaxZoneLookup() {
   const [apiEnabled, setApiEnabled] = useState(false);
   const [apiProvider, setApiProvider] = useState('avatax');
   const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState({ zip_code: '', city: '', state: '', county: '', tax_percentage: '' });
+  const [form, setForm] = useState({ street_address: '', zip_code: '', city: '', state: '', county: '', tax_percentage: '' });
 
   useEffect(() => { loadRates(); }, []);
 
@@ -32,6 +32,7 @@ export default function TaxZoneLookup() {
   };
 
   const filtered = rates.filter(r =>
+    r.street_address?.toLowerCase().includes(search.toLowerCase()) ||
     r.zip_code?.includes(search) || r.city?.toLowerCase().includes(search.toLowerCase()) ||
     r.state?.toLowerCase().includes(search.toLowerCase())
   );
@@ -47,14 +48,14 @@ export default function TaxZoneLookup() {
         toast({ title: 'Tax rate added' });
       }
       setShowAdd(false); setEditId(null);
-      setForm({ zip_code: '', city: '', state: '', county: '', tax_percentage: '' });
+      setForm({ street_address: '', zip_code: '', city: '', state: '', county: '', tax_percentage: '' });
       loadRates();
     } catch (e) { toast({ title: 'Failed to save', variant: 'destructive' }); }
   };
 
   const handleEdit = (rate) => {
     setEditId(rate.id);
-    setForm({ zip_code: rate.zip_code, city: rate.city, state: rate.state, county: rate.county || '', tax_percentage: String(rate.tax_percentage) });
+    setForm({ street_address: rate.street_address || '', zip_code: rate.zip_code, city: rate.city, state: rate.state, county: rate.county || '', tax_percentage: String(rate.tax_percentage) });
     setShowAdd(true);
   };
 
@@ -97,9 +98,9 @@ export default function TaxZoneLookup() {
       <div className="flex items-center justify-between gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search by ZIP, city, state..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+          <Input placeholder="Search by address, ZIP, city, state..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
         </div>
-        <Button onClick={() => { setEditId(null); setForm({ zip_code: '', city: '', state: '', county: '', tax_percentage: '' }); setShowAdd(true); }} className="steel-gradient text-white border-0">
+        <Button onClick={() => { setEditId(null); setForm({ street_address: '', zip_code: '', city: '', state: '', county: '', tax_percentage: '' }); setShowAdd(true); }} className="steel-gradient text-white border-0">
           <Plus className="w-4 h-4" />Add Tax Rate
         </Button>
       </div>
@@ -108,6 +109,7 @@ export default function TaxZoneLookup() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 border-b border-border">
             <tr>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Street Address</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">ZIP Code</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">City</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">State</th>
@@ -119,11 +121,12 @@ export default function TaxZoneLookup() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="text-center py-8"><Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" /></td></tr>
+              <tr><td colSpan={8} className="text-center py-8"><Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" /></td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">No tax rates found. Click "Add Tax Rate" to create one.</td></tr>
+              <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">No tax rates found. Click "Add Tax Rate" to create one.</td></tr>
             ) : filtered.map(rate => (
               <tr key={rate.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                <td className="px-4 py-3 text-muted-foreground">{rate.street_address || '(ZIP-wide)'}</td>
                 <td className="px-4 py-3 font-mono text-xs">{rate.zip_code}</td>
                 <td className="px-4 py-3">{rate.city || '—'}</td>
                 <td className="px-4 py-3">{rate.state || '—'}</td>
@@ -151,6 +154,10 @@ export default function TaxZoneLookup() {
           <DialogContent>
             <DialogHeader><DialogTitle>{editId ? 'Edit Tax Rate' : 'Add Tax Rate'}</DialogTitle></DialogHeader>
             <div className="grid grid-cols-2 gap-3 py-2">
+              <div className="col-span-2">
+                <Label>Street Address (optional — leave blank for ZIP-wide rate)</Label>
+                <Input value={form.street_address} onChange={e => setForm(f => ({ ...f, street_address: e.target.value }))} className="mt-1" placeholder="123 Main St" />
+              </div>
               <div><Label>ZIP Code</Label><Input value={form.zip_code} onChange={e => setForm(f => ({ ...f, zip_code: e.target.value }))} className="mt-1" /></div>
               <div><Label>Tax Percentage (%)</Label><Input type="number" step="0.01" value={form.tax_percentage} onChange={e => setForm(f => ({ ...f, tax_percentage: e.target.value }))} className="mt-1" /></div>
               <div><Label>City</Label><Input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} className="mt-1" /></div>
