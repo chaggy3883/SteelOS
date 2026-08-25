@@ -370,11 +370,31 @@ export async function adjustPtoBalance({ employee, leaveType, hours, reason, cha
   if (!reason || !reason.trim()) throw new Error('A reason is required to adjust a PTO balance.');
   const policy = await getApplicablePolicy(employee, leaveType);
   const balance = await getOrCreatePtoBalance(employee, leaveType, policy);
+  const previousBalanceHours = round2(Number(balance.balance_hours) || 0);
   const result = await writePtoTransaction({
     balance, employee, leaveType, transactionType: 'adjustment', hours: Number(hours) || 0,
     effectiveDate: todayDateOnly(), sourceType: 'manual_adjustment', sourceId: '',
     reason: reason.trim(), createdBy: changedBy,
   });
+
+  // Manual balance adjustments are the one PtoTransaction write path that
+  // also gets a StatusHistoryEntry — automated accrual/usage/carryover/
+  // payout writes above don't, since they're already traceable back to
+  // their own source record (a PayrollRun, a time_off_request, a
+  // termination). A manual adjustment has no other record to point back to,
+  // so it needs its own audit entry. Values are stringified so a balance
+  // that lands on exactly 0 doesn't get silently dropped by
+  // logStatusChange's `!toValue` falsy-zero guard.
+  await logStatusChange({
+    entityType: 'PtoBalance',
+    entityId: balance.id,
+    fieldName: 'balance_hours',
+    fromValue: String(previousBalanceHours),
+    toValue: String(result.balance.balance_hours),
+    changedBy,
+    note: reason.trim(),
+  });
+
   return result.balance;
 }
 

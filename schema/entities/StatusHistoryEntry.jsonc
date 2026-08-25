@@ -8,7 +8,7 @@
     },
     "entity_type": {
       "type": "string",
-      "description": "The record type this entry belongs to, e.g. \"Bid\", \"RFI\", \"Project\", \"pieces\", \"qa_inspections\", \"DisciplinaryAction\", \"loads\"."
+      "description": "The record type this entry belongs to, e.g. \"Bid\", \"RFI\", \"Project\", \"pieces\", \"qa_inspections\", \"DisciplinaryAction\", \"loads\", \"PtoBalance\" (manual PTO/Sick/Bereavement balance adjustments only — see src/lib/ptoEngine.js's adjustPtoBalance)."
     },
     "entity_id": {
       "type": "string",

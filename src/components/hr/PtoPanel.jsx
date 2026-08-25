@@ -91,7 +91,10 @@ export default function PtoPanel({ employee, roles = [] }) {
       });
       setShowAdjustDialog(false);
       setAdjustForm(emptyAdjustForm());
-      toast({ title: 'Balance adjusted' });
+      toast({
+        title: `${hours > 0 ? 'Added' : 'Subtracted'} ${Math.abs(hours)} hour${Math.abs(hours) === 1 ? '' : 's'} ${adjustForm.leave_type}`,
+        description: adjustForm.reason.trim(),
+      });
       load();
     } catch (e) {
       toast({ title: e.message || 'Unable to adjust balance', variant: 'destructive' });
