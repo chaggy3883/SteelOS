@@ -1,0 +1,40 @@
+{
+  "name": "FailedAccessLog",
+  "type": "object",
+  "// note": "Separate from AuditLog by design (see AuditLog.jsonc / the audit-trail feature's standing rules) — failed logins and permission denials are access attempts, not record changes. Written directly by src/api/localData.js's loginViaEmailPassword/loginViaEmployeePin on a failed attempt, and by gated pages (e.g. src/pages/AuditTrail.jsx) via db.entities.FailedAccessLog.create() on a permission denial.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "user_id": {
+      "type": "string",
+      "// note": "Set only when the attempt resolved to a known account (e.g. a deactivated-account or permission-denial case). Null for an unrecognized identifier."
+    },
+    "attempted_identifier": {
+      "type": "string",
+      "// note": "Email or employee number as typed — kept even when it doesn't resolve to a real account, since that's the point of the log."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "invalid_credentials",
+        "account_deactivated",
+        "account_suspended",
+        "permission_denied",
+        "other"
+      ],
+      "default": "other"
+    },
+    "context": {
+      "type": "string",
+      "// note": "Where the attempt happened, e.g. 'email_password_login', 'employee_pin_login', 'audit_trail_access'."
+    },
+    "ip_address": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "attempted_identifier",
+    "reason"
+  ]
+}

@@ -31,6 +31,7 @@ export const ALL_MODULES = [
   { path: '/users', label: 'Users' },
   { path: '/settings', label: 'Settings' },
   { path: '/admin', label: 'Admin Panel' },
+  { path: '/audit-trail', label: 'Audit Trail' },
   { path: '/admin/commission-setup', label: 'Sales Commission Setup' },
   { path: '/admin/salesman-rates', label: 'Salesman Commission Rates' },
   { path: '/human-resources', label: 'Human Resources' },
@@ -94,7 +95,7 @@ export const BUILTIN_ROLES = [
   // hr_admin/payroll_admin.
   { name: 'controller', label: 'Controller', is_system: true, description: 'Month-end close, budgeting, cash management, and cost accounting oversight', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder', '/accounting', '/payroll', '/payroll/hours', '/payroll/setup', '/payroll/processing', '/certified-payroll', '/reports', '/executive-analytics', '/intelligence-signals', '/meeting-mode'], allowed_widgets: ['invoiced_vs_remaining', 'buyout_variance_widget', 'pending_requisition_approvals_widget'] },
   { name: 'user', label: 'General User', is_system: true, description: 'Basic dashboard access', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/documents', '/inventory'], allowed_widgets: [] },
-  { name: 'super_admin', label: 'Super Admin', is_system: true, description: 'Platform operator — cross-tenant support access, no home tenant', allowed_modules: ['/super-admin/dashboard', '/employee-center'], allowed_widgets: [] },
+  { name: 'super_admin', label: 'Super Admin', is_system: true, description: 'Platform operator — cross-tenant support access, no home tenant', allowed_modules: ['/super-admin/dashboard', '/employee-center', '/audit-trail'], allowed_widgets: [] },
   { name: 'Maintenance_Manager', label: 'Maintenance Manager', is_system: true, description: 'Exclusive write access to the Field Operations fleet, repair, and rigging ledgers', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder', '/field-operations', '/field-operations/rigging-inspection', '/field-operations/equipment-service'], allowed_widgets: [] },
   { name: 'salesman', label: 'Salesman', is_system: true, description: 'Personal sales pipeline, commission tracking, and RFI/CO/addenda visibility on projects they sold', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder', '/sales/dashboard', '/portal/login'], allowed_widgets: [] },
 ];

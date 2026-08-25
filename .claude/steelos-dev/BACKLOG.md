@@ -1,9 +1,46 @@
 # SteelOS Backlog
 
-Snapshot as of Aug 11 2026. This file is meant to be kept current —
+Snapshot as of Aug 25 2026. This file is meant to be kept current —
 update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
+
+## Also Closed (2026-08-25)
+
+- **Immutable field-level audit trail** — `AuditLog` (already existed as a
+  hand-written event log — see AuditLog.jsonc) extended rather than
+  replaced with a generic `action`/`field_name`/`old_value`/`new_value`/
+  `change_summary`/`is_deleted` shape. Every `db.entities.*.create/update/
+  delete/updateMany/bulkCreate` call across the WHOLE app now auto-writes
+  AuditLog rows via `buildAuditLogEntries`/`persist()` in
+  `src/api/localData.js` — one row per changed field on update, one row
+  per populated field on create, one summary row (sanitized full-record
+  snapshot) on delete. Excluded from auto-logging: `AuditLog`/
+  `FailedAccessLog`/`SystemAuditEvent` themselves (recursion) and
+  `UserSessionLog` (60s heartbeat churn would flood the ~5MB localStorage
+  quota with zero audit value — see the comment above
+  `AUDIT_EXCLUDED_ENTITIES`). Passwords/SSNs/PINs/tokens/secrets are never
+  written, even redacted (`AUDIT_SENSITIVE_FIELD_PATTERN`). AuditLog rows
+  are write-once — `update()` only permits `{is_deleted, delete_reason}`,
+  `delete()` always throws — and are now tenant-scoped
+  (`TENANT_SCOPED_ENTITIES`), which they were NOT before this change (a
+  real cross-tenant leak this closed as a side effect). A 1-year retention
+  purge runs on every app load (`purgeExpiredAuditLogs`, inside
+  `migrateStore`) and logs itself to the new `SystemAuditEvent` entity.
+  New `FailedAccessLog` entity captures failed logins (both
+  `loginViaEmailPassword` and `loginViaEmployeePin`) and permission
+  denials; only wired for auth failures and the new Audit Trail page
+  itself, NOT retrofitted across every existing role-gated page (that's
+  the pre-existing "Accounting tab-level permissions not enforced" gap
+  below — out of scope here). New `/audit-trail` page (admin/super_admin
+  only, gated the same way `Admin.jsx` is): filters (date range, entity
+  type, user, action, entity ID), CSV export, drill-down detail dialog
+  with a soft-delete action, and four breakdown cards (most-changed
+  records, top changers this month, deletions by entity type, payroll
+  changes in the current open/processing `PayPeriod`). The old
+  `AuditLogViewer.jsx`/Admin.jsx "Audit Logs" tab was removed and replaced
+  with a nav link to `/audit-trail` rather than kept as a second, weaker
+  audit UI.
 
 ## Foundation Software Gaps — Closed
 

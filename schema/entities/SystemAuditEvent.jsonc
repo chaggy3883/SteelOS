@@ -1,0 +1,30 @@
+{
+  "name": "SystemAuditEvent",
+  "type": "object",
+  "// note": "Meta-log for the audit trail's own housekeeping — currently only the 1-year AuditLog retention purge (see purgeExpiredAuditLogs in src/api/localData.js, run on every app load via migrateStore). Kept separate from AuditLog so the purge job's own activity doesn't get purged by itself.",
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "audit_log_purge"
+      ],
+      "default": "audit_log_purge"
+    },
+    "ran_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "cutoff_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "records_purged": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "event_type",
+    "ran_at",
+    "records_purged"
+  ]
+}

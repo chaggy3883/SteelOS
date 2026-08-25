@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 import { isAdminUser } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
 import UserManagement from '@/components/admin/UserManagement';
-import AuditLogViewer from '@/components/admin/AuditLogViewer';
 import CostVariables from '@/components/admin/CostVariables';
 import TaxZoneLookup from '@/components/admin/TaxZoneLookup';
 import CRMSync from '@/components/admin/CRMSync';
@@ -19,7 +18,6 @@ import SteelCatalogPanel from '@/components/settings/SteelCatalogPanel';
 
 const TABS = [
   { id: 'users', label: 'User Management', icon: Users, Component: UserManagement },
-  { id: 'audit', label: 'Audit Logs', icon: ScrollText, Component: AuditLogViewer },
   { id: 'cost', label: 'Cost Variables', icon: Calculator, Component: CostVariables },
   { id: 'tax', label: 'Tax Zone Lookup', icon: MapPin, Component: TaxZoneLookup },
   { id: 'crm', label: 'CRM Sync', icon: Database, Component: CRMSync },
@@ -41,6 +39,7 @@ const TABS = [
 // hr_admin/payroll_admin, since it's an HR-owned configuration, not a
 // platform-admin one.
 const NAV_LINKS = [
+  { path: '/audit-trail', label: 'Audit Trail', icon: ScrollText },
   { path: '/admin/employees', label: 'Employees', icon: UserCog },
   { path: '/admin/cost-codes', label: 'Cost Codes', icon: Tags },
   { path: '/admin/delivery-pricing', label: 'Delivery Pricing', icon: Truck },

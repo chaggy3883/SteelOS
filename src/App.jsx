@@ -52,6 +52,7 @@ import Reports from '@/pages/Reports';
 import Users from '@/pages/Users';
 import Settings from '@/pages/Settings';
 import Admin from '@/pages/Admin';
+import AuditTrail from '@/pages/AuditTrail';
 import CostCodesAdmin from '@/pages/CostCodesAdmin';
 import DeliveryPricingAdmin from '@/pages/DeliveryPricingAdmin';
 import PtoPoliciesAdmin from '@/pages/PtoPoliciesAdmin';
@@ -181,6 +182,7 @@ const AuthenticatedApp = () => {
           <Route path="/executive-analytics" element={<ExecutiveAnalytics />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/audit-trail" element={<AuditTrail />} />
           <Route path="/admin/employees" element={<AdminEmployees />} />
           <Route path="/admin/cost-codes" element={<CostCodesAdmin />} />
           <Route path="/admin/delivery-pricing" element={<DeliveryPricingAdmin />} />

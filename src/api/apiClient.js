@@ -3,6 +3,8 @@ import { createEntityApi, createAuthApi, createUsersApi, createIntegrationsApi }
 const createLocalApi = () => ({
   entities: {
     AuditLog: createEntityApi('AuditLog'),
+    FailedAccessLog: createEntityApi('FailedAccessLog'),
+    SystemAuditEvent: createEntityApi('SystemAuditEvent'),
     ApiCredential: createEntityApi('ApiCredential'),
     AIFinding: createEntityApi('AIFinding'),
     AIReviewSkill: createEntityApi('AIReviewSkill'),

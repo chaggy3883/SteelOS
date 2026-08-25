@@ -2631,6 +2631,7 @@ const migrateStore = (store) => {
   migrateRiggingInspectionAssetLinks(migrated);
   backfillStatusHistory(migrated);
   backfillPieceLifecycleEvents(migrated);
+  purgeExpiredAuditLogs(migrated);
 
   return migrated;
 };
@@ -2791,7 +2792,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification', 'AuditLog', 'FailedAccessLog'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();
@@ -2863,6 +2864,163 @@ const enforcePaintStationLock = (entityName, data) => {
   }
 };
 
+// Immutable, field-level audit trail. Every db.entities.*.create/update/
+// delete/updateMany/bulkCreate call below funnels through logAuditChange(),
+// which writes to the AuditLog collection directly (not via
+// createEntityApi('AuditLog'), to avoid recursing back into this same code).
+//
+// Excluded entities: AuditLog itself (would recurse), FailedAccessLog and
+// SystemAuditEvent (meta-logs, not business records), and UserSessionLog
+// (its last_heartbeat_at field is rewritten every ~60s per open session —
+// see src/lib/userSessionTracking.js — which would otherwise flood this
+// already-tight ~5MB localStorage quota with zero audit value).
+const AUDIT_EXCLUDED_ENTITIES = new Set(['AuditLog', 'FailedAccessLog', 'SystemAuditEvent', 'UserSessionLog']);
+
+// Bookkeeping fields that change on every write but never represent a
+// business-data edit worth a row of its own.
+const AUDIT_IGNORED_FIELDS = new Set(['id', 'created_date', 'updated_date', 'company_id']);
+
+// Matched against a field NAME (not its value) — a matching field is never
+// written to AuditLog at all, even redacted, per the standing rule that
+// passwords/SSNs/other sensitive data must never end up in the audit trail.
+const AUDIT_SENSITIVE_FIELD_PATTERN = /password|ssn|pin(_encrypted)?$|_pin$|secret|token|api_key|account_number|routing_number|\btax_id\b|\bein\b/i;
+
+const stringifyAuditValue = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'object') {
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }
+  return String(value);
+};
+
+const sanitizeAuditRecord = (record = {}) => {
+  const clean = {};
+  Object.entries(record).forEach(([key, value]) => {
+    if (AUDIT_SENSITIVE_FIELD_PATTERN.test(key)) return;
+    clean[key] = value;
+  });
+  return clean;
+};
+
+// One entry per changed field — deliberately not a single before/after blob
+// (that was the old AuditLog shape's problem: two opaque JSON dumps per
+// change instead of an actually queryable "what field changed" record).
+const diffAuditFields = (before = {}, after = {}) => {
+  const fields = new Set([...Object.keys(before), ...Object.keys(after)]);
+  const changes = [];
+  fields.forEach((field) => {
+    if (AUDIT_IGNORED_FIELDS.has(field) || AUDIT_SENSITIVE_FIELD_PATTERN.test(field)) return;
+    const oldVal = before[field];
+    const newVal = after[field];
+    if (JSON.stringify(oldVal) === JSON.stringify(newVal)) return;
+    changes.push({ field_name: field, old_value: stringifyAuditValue(oldVal), new_value: stringifyAuditValue(newVal) });
+  });
+  return changes;
+};
+
+const buildAuditActorFields = () => {
+  const auth = getAuthState();
+  const user = auth?.user;
+  return {
+    user_id: user?.id || null,
+    user_name: user?.full_name || null,
+    user_email: user?.email || null,
+    company_id: auth?.impersonating_company_id || user?.company_id || null,
+  };
+};
+
+const describeAuditValue = (v) => (v === null || v === undefined ? '(empty)' : v);
+
+// Builds normalized AuditLog row objects only — does NOT touch storage.
+// Callers merge these into the same store snapshot their own write is
+// already persisting (see persist()'s extraAuditEntries param below), so one
+// entity write costs one loadStore/saveStore round-trip, not two. (loadStore
+// re-runs the full migration pipeline every call, including this file's
+// purge job — doubling that per write was the earlier, wasteful version.)
+//
+// action: 'create' | 'update' | 'delete'.
+//  - create: one row per non-empty field that was set (old_value null).
+//  - update: one row per field that actually changed.
+//  - delete: a single summary row (not exploded per field) holding a
+//    sanitized snapshot of the whole record as old_value — deletion's
+//    audit-worthy fact is "this record stopped existing", not 30 individual
+//    "field cleared" rows.
+const buildAuditLogEntries = (entityName, action, { before, after, recordId } = {}) => {
+  if (AUDIT_EXCLUDED_ENTITIES.has(entityName)) return [];
+  const actor = buildAuditActorFields();
+  const entries = [];
+
+  if (action === 'delete') {
+    entries.push({
+      ...actor,
+      entity_type: entityName,
+      entity_id: recordId,
+      action,
+      old_value: stringifyAuditValue(sanitizeAuditRecord(before)),
+      change_summary: `Deleted ${entityName} record`,
+    });
+  } else {
+    const changes = diffAuditFields(before || {}, after || {})
+      .filter((change) => action !== 'create' || change.new_value !== null);
+    changes.forEach((change) => {
+      const summary = action === 'create'
+        ? `${change.field_name} set to ${describeAuditValue(change.new_value)}`
+        : `${change.field_name} changed from ${describeAuditValue(change.old_value)} to ${describeAuditValue(change.new_value)}`;
+      entries.push({
+        ...actor,
+        entity_type: entityName,
+        entity_id: recordId,
+        action,
+        field_name: change.field_name,
+        old_value: change.old_value,
+        new_value: change.new_value,
+        change_summary: summary,
+      });
+    });
+  }
+
+  return entries.map((entry) => normalizeRecord('AuditLog', entry));
+};
+
+// Called on every app load (via migrateStore -> loadStore). AuditLog rows are
+// otherwise immutable/never deleted through the normal entity API (see the
+// 'AuditLog' guards in createEntityApi's update/delete below) — this is the
+// one sanctioned hard-delete path, per the feature's 1-year retention rule.
+// Writes a SystemAuditEvent noting the purge so the cleanup itself is on
+// record (in its own collection, not AuditLog, so it can't purge itself).
+const AUDIT_LOG_RETENTION_DAYS = 365;
+
+const purgeExpiredAuditLogs = (migrated) => {
+  if (!Array.isArray(migrated.AuditLog) || migrated.AuditLog.length === 0) return;
+  const cutoff = new Date(Date.now() - AUDIT_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const kept = [];
+  let purgedCount = 0;
+  migrated.AuditLog.forEach((row) => {
+    const rowDate = row.created_date ? new Date(row.created_date) : null;
+    if (rowDate && !Number.isNaN(rowDate.getTime()) && rowDate < cutoff) {
+      purgedCount += 1;
+    } else {
+      kept.push(row);
+    }
+  });
+  if (purgedCount === 0) return;
+  migrated.AuditLog = kept;
+  if (!Array.isArray(migrated.SystemAuditEvent)) migrated.SystemAuditEvent = [];
+  migrated.SystemAuditEvent.push(normalizeRecord('SystemAuditEvent', {
+    event_type: 'audit_log_purge',
+    ran_at: new Date().toISOString(),
+    cutoff_date: cutoff.toISOString(),
+    records_purged: purgedCount,
+  }));
+};
+
+const writeFailedAccessLog = (entry) => {
+  const latest = loadStore();
+  const collection = ensureCollection(latest, 'FailedAccessLog');
+  collection.push(normalizeRecord('FailedAccessLog', entry));
+  saveStore(latest);
+};
+
 export const createEntityApi = (entityName) => {
   const store = getLocalStore();
   const collection = ensureCollection(store, entityName);
@@ -2870,11 +3028,32 @@ export const createEntityApi = (entityName) => {
   // Each entity API holds its own snapshot of the whole store from load time.
   // Re-read the current on-disk store and overlay only this entity's live
   // collection before saving, so a save here can't clobber other entities'
-  // collections back to their stale load-time state.
-  const persist = () => {
+  // collections back to their stale load-time state. extraAuditEntries (if
+  // any) are appended to AuditLog in the same store snapshot/save, so a
+  // write's audit trail doesn't cost a second loadStore/saveStore round-trip.
+  const persist = (extraAuditEntries) => {
     const latest = loadStore();
     latest[entityName] = collection;
+    if (extraAuditEntries && extraAuditEntries.length) {
+      const auditCollection = ensureCollection(latest, 'AuditLog');
+      extraAuditEntries.forEach((entry) => auditCollection.push(entry));
+      latest.AuditLog = auditCollection;
+    }
     saveStore(latest);
+  };
+
+  // AuditLog rows are write-once: no caller may edit or hard-delete an
+  // existing row through the normal entity API. The single sanctioned
+  // mutation is a soft-delete via update(id, { is_deleted, delete_reason }).
+  // (The 1-year retention purge bypasses this guard entirely — it mutates
+  // the store's AuditLog array directly during migrateStore, not through
+  // this API — see purgeExpiredAuditLogs.)
+  const assertAuditLogMutationAllowed = (data) => {
+    if (entityName !== 'AuditLog') return;
+    const allowedKeys = new Set(['is_deleted', 'delete_reason']);
+    if (Object.keys(data).some((key) => !allowedKeys.has(key))) {
+      throw new Error('AuditLog records are immutable — only a soft-delete via update(id, { is_deleted: true, delete_reason }) is permitted.');
+    }
   };
 
   return {
@@ -2901,7 +3080,7 @@ export const createEntityApi = (entityName) => {
       enforcePaintStationLock(entityName, data);
       const record = normalizeRecord(entityName, stampTenant(entityName, data));
       collection.push(record);
-      persist();
+      persist(buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
       return record;
     },
 
@@ -2912,10 +3091,12 @@ export const createEntityApi = (entityName) => {
       }
 
       assertTenantAccess(entityName, collection[index]);
+      assertAuditLogMutationAllowed(data);
       enforcePaintStationLock(entityName, { ...collection[index], ...data });
-      const updated = normalizeRecord(entityName, { ...collection[index], ...data, id, updated_date: new Date().toISOString() });
+      const before = collection[index];
+      const updated = normalizeRecord(entityName, { ...before, ...data, id, updated_date: new Date().toISOString() });
       collection[index] = updated;
-      persist();
+      persist(buildAuditLogEntries(entityName, 'update', { before, after: updated, recordId: id }));
       return updated;
     },
 
@@ -2925,36 +3106,46 @@ export const createEntityApi = (entityName) => {
         throw new Error(`${entityName} not found`);
       }
 
+      if (entityName === 'AuditLog') {
+        throw new Error('AuditLog records cannot be hard-deleted. Use update(id, { is_deleted: true, delete_reason }) instead.');
+      }
       assertTenantAccess(entityName, collection[index]);
+      const before = collection[index];
       collection.splice(index, 1);
-      persist();
+      persist(buildAuditLogEntries(entityName, 'delete', { before, recordId: id }));
       return true;
     },
 
     async updateMany(filters = {}, update = {}) {
+      assertAuditLogMutationAllowed(update);
       const scoped = applyTenantScope(entityName, collection);
       let changed = 0;
+      const auditEntries = [];
       scoped.forEach((item) => {
         if (!matchesFilters(item, filters)) {
           return;
         }
 
+        const before = { ...item };
         Object.assign(item, update, { updated_date: new Date().toISOString() });
         changed += 1;
+        auditEntries.push(...buildAuditLogEntries(entityName, 'update', { before, after: item, recordId: item.id }));
       });
       if (changed > 0) {
-        persist();
+        persist(auditEntries);
       }
       return changed;
     },
 
     async bulkCreate(items = []) {
+      const auditEntries = [];
       const created = items.map((item) => {
         const record = normalizeRecord(entityName, stampTenant(entityName, item));
         collection.push(record);
+        auditEntries.push(...buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
         return record;
       });
-      persist();
+      persist(auditEntries);
       return created;
     }
   };
@@ -2985,9 +3176,12 @@ export const createAuthApi = () => {
       const normalizedEmail = toLowerCase(email);
       const user = users.find((entry) => toLowerCase(entry.email) === normalizedEmail && entry.password === password);
       if (!user) {
+        const attemptedUser = users.find((entry) => toLowerCase(entry.email) === normalizedEmail);
+        writeFailedAccessLog({ attempted_identifier: email, reason: 'invalid_credentials', context: 'email_password_login', company_id: attemptedUser?.company_id || null, user_id: attemptedUser?.id || null });
         throw new Error('Invalid email or password');
       }
       if (user.is_active === false) {
+        writeFailedAccessLog({ attempted_identifier: email, reason: 'account_deactivated', context: 'email_password_login', company_id: user.company_id || null, user_id: user.id });
         throw new Error('This account has been deactivated. Please contact your administrator.');
       }
       // Office/portal accounts can optionally be linked to an employees row
@@ -3000,6 +3194,7 @@ export const createAuthApi = () => {
         const liveEmployees = ensureCollection(getLocalStore(), 'employees');
         const linkedEmployee = liveEmployees.find((e) => e.id === user.employee_id);
         if (!isEmployeeActive(linkedEmployee)) {
+          writeFailedAccessLog({ attempted_identifier: email, reason: 'account_deactivated', context: 'email_password_login', company_id: user.company_id || null, user_id: user.id });
           throw new Error(DEACTIVATION_MESSAGE);
         }
       }
@@ -3029,12 +3224,15 @@ export const createAuthApi = () => {
       const liveEmployees = ensureCollection(getLocalStore(), 'employees');
       const employee = liveEmployees.find((e) => e.company_id === company.id && e.employee_number === String(employeeNumber).trim());
       if (!employee || !verifyPin(pin, employee.pin_encrypted)) {
+        writeFailedAccessLog({ attempted_identifier: `${companyCode}/${employeeNumber}`, reason: 'invalid_credentials', context: 'employee_pin_login', company_id: company.id, user_id: employee?.id || null });
         throw new Error('Invalid employee number or PIN');
       }
       if (employee.is_active_login === false) {
+        writeFailedAccessLog({ attempted_identifier: `${companyCode}/${employeeNumber}`, reason: 'account_suspended', context: 'employee_pin_login', company_id: company.id, user_id: employee.id });
         throw new Error('Account suspended. Please contact system administration.');
       }
       if (!isEmployeeActive(employee)) {
+        writeFailedAccessLog({ attempted_identifier: `${companyCode}/${employeeNumber}`, reason: 'account_deactivated', context: 'employee_pin_login', company_id: company.id, user_id: employee.id });
         throw new Error(DEACTIVATION_MESSAGE);
       }
 

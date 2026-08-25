@@ -146,8 +146,15 @@ reviews` / `frontend_contract_reviews` (different data shapes and pages) ·
 bridged) · fleet cluster (`fleet_repair_logs`, `EquipmentService`,
 `ServiceSchedule`, `erection_fleet_assets`) — already consolidated by the
 A/B/C/D restructure · audit cluster (`manager_overrides`, `AuditLog`,
-`LegalAuditEvent`, `UserSessionLog`, `StatusHistoryEntry`) — five genuinely
-different log purposes · `Document` / `employee_documents` /
+`FailedAccessLog`, `SystemAuditEvent`, `LegalAuditEvent`, `UserSessionLog`,
+`StatusHistoryEntry`) — seven genuinely different log purposes. `AuditLog`
+is now the automatic, immutable, field-level audit trail written by every
+`db.entities.*.create/update/delete/updateMany/bulkCreate` call (see
+`logAuditChange`/`buildAuditLogEntries` in `src/api/localData.js` and
+`src/pages/AuditTrail.jsx`) — `FailedAccessLog` (failed logins/permission
+denials) and `SystemAuditEvent` (the 1-year retention purge job's own
+record) are deliberately separate from it rather than folded in · `Document`
+/ `employee_documents` /
 `report_templates` · `issued_assets` / `erection_fleet_assets` ·
 `InventoryItem` / `remnant_inventory` / `steel_catalog` · `purchase_
 requisitions` → `purchase_order_lines` (sequential workflow) ·

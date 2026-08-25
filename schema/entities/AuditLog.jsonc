@@ -1,6 +1,7 @@
 {
   "name": "AuditLog",
   "type": "object",
+  "// note": "WRITE-ONCE / immutable: enforced in src/api/localData.js createEntityApi — update() only permits {is_deleted, delete_reason}, delete() always throws. Most rows are now written automatically by logAuditChange() on every db.entities.*.create/update/delete/updateMany/bulkCreate call (see localData.js), one row per changed field. The action_type/entity_name/before_state/after_state/notes fields below are the original hand-written event-log shape (still used by src/lib/terminalSession.js and src/pages/EmployeeCenter.jsx) and are kept for backward compatibility alongside the newer field-level shape (action/field_name/old_value/new_value/change_summary).",
   "properties": {
     "company_id": {
       "type": "string"
@@ -15,6 +16,38 @@
       "type": "string"
     },
     "ip_address": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "create",
+        "update",
+        "delete"
+      ],
+      "// note": "Generic action for the automatic field-level audit trail — distinct from the older, more specific action_type enum below."
+    },
+    "field_name": {
+      "type": "string",
+      "// note": "Which field changed. Null for a 'delete' row, which summarizes the whole record instead of exploding per field."
+    },
+    "old_value": {
+      "type": "string",
+      "// note": "Stringified prior value for 'update'/'delete'. For 'delete', holds a sanitized JSON snapshot of the whole record (sensitive fields stripped)."
+    },
+    "new_value": {
+      "type": "string",
+      "// note": "Stringified new value for 'create'/'update'."
+    },
+    "change_summary": {
+      "type": "string"
+    },
+    "is_deleted": {
+      "type": "boolean",
+      "default": false,
+      "// note": "Soft-delete marker — the only mutation ever permitted on an existing AuditLog row. Set with delete_reason via update(id, { is_deleted: true, delete_reason })."
+    },
+    "delete_reason": {
       "type": "string"
     },
     "action_type": {
