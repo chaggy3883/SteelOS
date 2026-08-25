@@ -1,0 +1,55 @@
+{
+  "name": "AchOutgoing",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "destination_bank_account_id": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "number",
+      "default": 0,
+      "description": "The employee's net pay (PayrollLine.net_pay) for this run — the actual dollar amount an ACH direct deposit transfers, not gross wages."
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date",
+      "description": "The pay date this batch is meant to settle on — copied from PayrollRun.run_date at lock time."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "transmitted", "settled", "failed"],
+      "default": "pending",
+      "description": "'pending' on creation at payroll lock. 'transmitted'/'settled'/'failed' are set manually here until the real bank API (VPS phase) can update them via webhook."
+    },
+    "batch_reference": {
+      "type": "string"
+    },
+    "transmitted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "settled_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "failed_reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "payroll_run_id",
+    "employee_id",
+    "destination_bank_account_id",
+    "amount",
+    "effective_date"
+  ]
+}

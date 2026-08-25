@@ -1,0 +1,56 @@
+{
+  "name": "AchIncoming",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "transaction_id": {
+      "type": "string",
+      "description": "The bank's own reference id for this deposit, when known (manual entry or a future bank API/webhook)."
+    },
+    "bank_account_id": {
+      "type": "string",
+      "description": "BankAccount.id this deposit landed in."
+    },
+    "sender_name": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "number",
+      "default": 0
+    },
+    "received_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "reference_text": {
+      "type": "string",
+      "description": "Free-text memo/reference line from the bank — often a customer name, invoice number, or PO number."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["received", "matched", "unmatched", "assigned"],
+      "default": "received"
+    },
+    "matched_to_entity": {
+      "type": "string",
+      "description": "e.g. 'PO:{purchase_orders.id}', 'Invoice:{InvoiceReceivable.id}', 'Customer:{Customer.id}', or free-text when assigned as Custom. Null until matched or manually assigned — never auto-matched on amount alone."
+    },
+    "assigned_by": {
+      "type": "string"
+    },
+    "assigned_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "sender_name",
+    "amount",
+    "received_date"
+  ]
+}

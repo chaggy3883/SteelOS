@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { PlayCircle, AlertTriangle, Info, ShieldAlert, CheckCircle2, Lock, Undo2, ShieldCheck, Pencil, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import { hasPayrollApprovalAccess, hasPayrollReopenAccess } from '@/lib/payrollA
 import { hasPayrollAdjustmentAccess } from '@/lib/payrollAdjustmentAccess';
 import { queueCommissionsForPayroll, attachPendingCommissionPayoutsToRun, finalizeCommissionPayoutsForRun } from '@/lib/commissionEngine';
 import { logStatusChange } from '@/lib/statusHistory';
+import { buildAchOutgoingPayloads } from '@/lib/achEngine';
 
 const HOURS_FIELDS = ['regular_hours', 'ot_hours', 'double_time_hours'];
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -46,6 +48,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
   const [periodId, setPeriodId] = useState('');
   const [timecards, setTimecards] = useState([]);
   const [runs, setRuns] = useState([]);
+  const [achOutgoingAll, setAchOutgoingAll] = useState([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [viewingRun, setViewingRun] = useState(null);
@@ -69,12 +72,14 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
   const load = async () => {
     setLoading(true);
     try {
-      const [tc, r] = await Promise.all([
+      const [tc, r, ach] = await Promise.all([
         db.entities.Timecard.filter({ status: 'approved' }, '-approved_at', 2000),
         db.entities.PayrollRun.list('-run_date', 200),
+        db.entities.AchOutgoing.list('-effective_date', 2000).catch(() => []),
       ]);
       setTimecards(tc);
       setRuns(r);
+      setAchOutgoingAll(ach);
     } catch (e) {
       toast({ title: 'Unable to load payroll runs', variant: 'destructive' });
     } finally {
@@ -89,6 +94,16 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
   const approvedForPeriod = useMemo(() => timecards.filter((t) => t.pay_period_id === periodId && !t.payroll_run_id), [timecards, periodId]);
   const existingRunForPeriod = runs.find((r) => r.pay_period_id === periodId) || null;
   const employeeName = (id) => employees.find((e) => e.id === id)?.full_name || id;
+
+  const thisMonthAch = useMemo(() => {
+    const prefix = new Date().toISOString().slice(0, 7);
+    return achOutgoingAll.filter((a) => (a.effective_date || '').startsWith(prefix));
+  }, [achOutgoingAll]);
+  const achCounts = {
+    transmitted: thisMonthAch.filter((a) => a.status === 'transmitted').length,
+    settled: thisMonthAch.filter((a) => a.status === 'settled').length,
+    pending: thisMonthAch.filter((a) => a.status === 'pending').length,
+  };
   const projectLabel = (id) => { const p = projects.find((pr) => pr.id === id); return p ? `${p.project_number} — ${p.name}` : id; };
   const costCodeName = (id) => costCodes.find((c) => c.id === id)?.code_name || id;
 
@@ -309,7 +324,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
     setOverrideNotes({});
     try {
       const runPeriod = payPeriods.find((p) => p.id === run.pay_period_id) || null;
-      const [lines, employerTax, liabilities, journal, allProjects, allCostCodes, allTimeEntries, periodTimecards, allPayRates, adjustments, allTaxWithholdings, allDeductions] = await Promise.all([
+      const [lines, employerTax, liabilities, journal, allProjects, allCostCodes, allTimeEntries, periodTimecards, allPayRates, adjustments, allTaxWithholdings, allDeductions, achOutgoing, bankAccounts] = await Promise.all([
         db.entities.PayrollLine.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.EmployerTax.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.PayrollLiability.filter({ payroll_run_id: run.id }, '-created_date', 100),
@@ -322,6 +337,8 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         db.entities.PayrollAdjustment.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.TaxWithholding.list('-effective_date', 2000),
         db.entities.Deduction.list('priority_order', 2000),
+        db.entities.AchOutgoing.filter({ payroll_run_id: run.id }, '-created_date', 500),
+        db.entities.EmployeeBankAccount.list('-created_date', 2000),
       ]);
 
       const checkResults = runPeriod
@@ -342,7 +359,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       const manualAdjustments = adjustments.filter((a) => a.adjustment_type !== 'commission');
       setRunDetail({
         lines, employerTax, liabilities, journal, checkResults, commissionAdjustments, manualAdjustments,
-        period: runPeriod, allPayRates, allTaxWithholdings, allDeductions,
+        period: runPeriod, allPayRates, allTaxWithholdings, allDeductions, achOutgoing, bankAccounts,
       });
     } catch (e) {
       toast({ title: 'Unable to load run detail', variant: 'destructive' });
@@ -552,9 +569,37 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       });
       await logStatusChange({ entityType: 'PayrollRun', entityId: viewingRun.id, fieldName: 'status', fromValue: 'approved', toValue: 'locked', changedBy: identity });
       await finalizeCommissionPayoutsForRun(viewingRun.id);
+
+      // ACH bridge: every employee with direct_deposit_enabled and an active
+      // primary EmployeeBankAccount gets an AchOutgoing row for their net pay
+      // on this run, instead of a paper check — see src/lib/achEngine.js.
+      // Guarded to run only once per run: a reopen->re-lock cycle must never
+      // create a second batch of transfers for the same pay period.
+      const alreadyHasAch = (runDetail?.achOutgoing || []).length > 0;
+      let achPayloads = [];
+      if (!alreadyHasAch) {
+        const built = buildAchOutgoingPayloads({
+          payrollRun: updated,
+          payrollLines: runDetail?.lines || [],
+          employees,
+          bankAccounts: runDetail?.bankAccounts || [],
+        });
+        achPayloads = built.created;
+        if (achPayloads.length > 0) {
+          const createdAch = await db.entities.AchOutgoing.bulkCreate(achPayloads);
+          setAchOutgoingAll((prev) => [...createdAch, ...prev]);
+        }
+      }
+
       setViewingRun(updated);
       setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-      toast({ title: 'Payroll run locked', description: 'Timecards for this pay period are now read-only.' });
+      toast({
+        title: 'Payroll run locked',
+        description: achPayloads.length > 0
+          ? `Timecards for this pay period are now read-only. ${achPayloads.length} ACH direct deposit transfer${achPayloads.length === 1 ? '' : 's'} created.`
+          : 'Timecards for this pay period are now read-only.',
+      });
+      openRunDetail(updated);
     } catch (e) {
       toast({ title: 'Unable to lock run', variant: 'destructive' });
     } finally {
@@ -613,6 +658,14 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />A run already exists for this pay period — view it below rather than running again.
         </div>
       )}
+
+      <div className="steel-card p-4">
+        <p className="text-xs text-muted-foreground mb-2">ACH Batches This Month</p>
+        <p className="text-sm">
+          <span className="font-bold text-blue-600">{achCounts.transmitted}</span> transmitted, <span className="font-bold text-green-600">{achCounts.settled}</span> settled, <span className="font-bold text-amber-600">{achCounts.pending}</span> pending
+          <Link to="/admin?tab=integrations" className="ml-2 text-primary hover:underline text-xs">View ACH configuration &amp; report →</Link>
+        </p>
+      </div>
 
       <div className="steel-card overflow-hidden">
         <div className="overflow-x-auto">
@@ -825,6 +878,27 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
                   </div>
                 </div>
               </div>
+
+              {runDetail.achOutgoing && runDetail.achOutgoing.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">ACH Direct Deposit</h4>
+                  <div className="space-y-1 text-sm">
+                    {runDetail.achOutgoing.map((a) => {
+                      const account = runDetail.bankAccounts.find((b) => b.id === a.destination_bank_account_id);
+                      return (
+                        <div key={a.id} className="flex justify-between border-b border-border/50 py-1 gap-2">
+                          <span className="text-muted-foreground">{employeeName(a.employee_id)} — ****{account?.account_number_last4 || '----'}</span>
+                          <span className="flex items-center gap-2">
+                            <span className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full ${a.status === 'settled' ? 'bg-green-500/10 text-green-600' : a.status === 'transmitted' ? 'bg-blue-500/10 text-blue-600' : a.status === 'failed' ? 'bg-red-500/10 text-red-600' : 'bg-amber-500/10 text-amber-600'}`}>{titleCase(a.status)}</span>
+                            <span className="font-mono">{money(a.amount)}</span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <Link to="/admin?tab=integrations" className="text-xs text-primary hover:underline mt-1 inline-block">Manage ACH batch status &amp; export →</Link>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

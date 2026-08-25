@@ -7,6 +7,37 @@ right heading. Ask which section if it's ambiguous.
 
 ## Also Closed (2026-08-25)
 
+- **ACH integration (Admin → Integrations)** — configuration/logging layer
+  only, per the standing "no real backend" constraint — NOT a real bank/ACH
+  processor integration; the actual webhook handlers/batch file
+  generation/authentication are deferred to the VPS phase. 4 new entities:
+  `BankIntegrationConfig` (admin-only ACH setup — bank name, API
+  key/endpoint, company routing/account number, test mode, "Verify API
+  Connection" simulated test — `AchConfigPanel.jsx`, mounted into the
+  existing `IntegrationsGateway.jsx` alongside the API credential cards),
+  `EmployeeBankAccount` (HR-managed, one active primary per employee,
+  non-cryptographic obfuscation via `hrSecurity.js`'s new
+  `obscureSecret`/`revealSecret` aliases — managed at `/payroll/setup`'s new
+  "Direct Deposit" tab, `DirectDepositPanel.jsx`; employee's own view in
+  EmployeeCenter.jsx's Profile tab is masked/read-only with a "Request
+  Change" notification, mirroring the existing `requestInfoUpdate` pattern —
+  never a self-service edit), `AchOutgoing` (payroll → bank; created
+  automatically in `PayrollRunPanel.jsx`'s `handleLock` for every employee
+  with `employees.direct_deposit_enabled` and an active bank account, one
+  row per employee at net pay — guarded against duplicate creation on a
+  reopen→re-lock cycle), `AchIncoming` (bank → AR; manual log entry in
+  Accounting.jsx's new "Incoming ACH" sub-tab under Bank & Cash,
+  `IncomingAchPanel.jsx` — auto-matches to a `purchase_orders` row by exact
+  vendor name + amount only, never on amount alone; anything else lands in
+  an "Unmatched ACH Deposits" widget with an Assign action (PO/Invoice/
+  Customer/Custom) and a role-broadcast `Notification` to
+  finance_department/controller/president/ceo via the new
+  `src/lib/achEngine.js`). CSV reconciliation export on both the outgoing
+  (admin panel) and incoming (Accounting panel) sides via the existing
+  `csvExport.js` helper. Bank credential/account-number fields all match
+  the existing `AUDIT_SENSITIVE_FIELD_PATTERN` naming convention so they're
+  automatically excluded from `AuditLog`.
+
 - **Time & Material project type** — `Bid.pricing_type`/`Project.pricing_type`
   (`fixed_price` | `time_and_material`, carried over on bid-won conversion in
   `createProjectFromWonBid`). 5 new entities: `TmLaborRate` (company-wide

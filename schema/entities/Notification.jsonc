@@ -44,12 +44,12 @@
     },
     "entity_type": {
       "type": "string",
-      "enum": ["RFI", "ChangeOrder", "ProjectBulletin"],
-      "description": "Set alongside entity_id for the RFI/CO/Addenda notification routing system (src/lib/salesNotifications.js) — blank for other notification types that predate it."
+      "enum": ["RFI", "ChangeOrder", "ProjectBulletin", "AchIncoming"],
+      "description": "Set alongside entity_id for the RFI/CO/Addenda notification routing system (src/lib/salesNotifications.js) — blank for other notification types that predate it. 'AchIncoming' is used by src/lib/achEngine.js's notifyArUnmatchedAch, broadcast to every user holding an AR-relevant role (finance_department/controller/president/ceo) rather than a project-scoped assignee."
     },
     "entity_id": {
       "type": "string",
-      "description": "Id of the RFI/change_orders/ProjectBulletin row this notification is about."
+      "description": "Id of the RFI/change_orders/ProjectBulletin/AchIncoming row this notification is about."
     },
     "creator_id": {
       "type": "string",

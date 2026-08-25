@@ -23,6 +23,7 @@ import { triggerCommissionOnPayment } from '@/lib/commissionEngine';
 import { computeActualLaborCost, computeSubVariance, applyMarkup } from '@/lib/tmEngine';
 import CashManagementPanel from '@/components/accounting/CashManagementPanel';
 import CashForecastPanel from '@/components/accounting/CashForecastPanel';
+import IncomingAchPanel from '@/components/accounting/IncomingAchPanel';
 import MonthEndClosePanel from '@/components/accounting/MonthEndClosePanel';
 import BudgetPanel from '@/components/accounting/BudgetPanel';
 import LedgerDrilldownModal from '@/components/accounting/LedgerDrilldownModal';
@@ -958,12 +959,16 @@ export default function Accounting() {
             <TabsList className="mb-4">
               <TabsTrigger value="accounts">Accounts &amp; Reconciliation</TabsTrigger>
               <TabsTrigger value="forecast"><TrendingUp className="w-3.5 h-3.5 mr-1.5" />90-Day Forecast</TabsTrigger>
+              <TabsTrigger value="incomingach"><Landmark className="w-3.5 h-3.5 mr-1.5" />Incoming ACH</TabsTrigger>
             </TabsList>
             <TabsContent value="accounts">
               <CashManagementPanel />
             </TabsContent>
             <TabsContent value="forecast">
               <CashForecastPanel />
+            </TabsContent>
+            <TabsContent value="incomingach">
+              <IncomingAchPanel />
             </TabsContent>
           </Tabs>
         </TabsContent>

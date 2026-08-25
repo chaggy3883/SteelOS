@@ -3,6 +3,7 @@ import { db } from '@/api/apiClient';
 import { Loader2, Plug, Globe, Copy, Check } from 'lucide-react';
 import { INTEGRATIONS } from '@/components/admin/adminConstants';
 import IntegrationCard from '@/components/admin/IntegrationCard';
+import AchConfigPanel from '@/components/admin/AchConfigPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -86,6 +87,8 @@ export default function IntegrationsGateway() {
   return (
     <div className="space-y-4">
       <PortalAccessLinks />
+
+      <AchConfigPanel />
 
       <div className="steel-card p-4 flex items-start gap-3">
         <Plug className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />

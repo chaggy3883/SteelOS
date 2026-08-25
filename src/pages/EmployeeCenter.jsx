@@ -28,7 +28,7 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText,
   User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt, DoorOpen,
-  Timer, Square, Eye, ShieldCheck, AlertCircle,
+  Timer, Square, Eye, ShieldCheck, AlertCircle, Landmark,
 } from 'lucide-react';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
 
@@ -111,6 +111,7 @@ export default function EmployeeCenter() {
   const [declineNote, setDeclineNote] = useState('');
 
   const [rateScale, setRateScale] = useState(null);
+  const [directDepositAccount, setDirectDepositAccount] = useState(null);
   const [expenses, setExpenses] = useState([]);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [expenseForm, setExpenseForm] = useState(emptyExpenseForm());
@@ -205,7 +206,7 @@ export default function EmployeeCenter() {
     // Idempotent (see ptoEngine's policy_year_end comparison), so it's safe
     // to run on every login rather than only the first one after the date.
     await runAnniversaryRenewalCheckForEmployee(employeeRecord).catch(() => {});
-    const [punchData, leaveData, payrollData, expenseData, balanceData, lockedRuns, allPeriods] = await Promise.all([
+    const [punchData, leaveData, payrollData, expenseData, balanceData, lockedRuns, allPeriods, bankAccounts] = await Promise.all([
       db.entities.attendance_punches.filter({ employee_id: employeeId }, '-created_date', 200),
       db.entities.time_off_requests.filter({ employee_id: employeeId }, '-created_date', 100),
       db.entities.payroll_document_mappings.filter({ employee_id: employeeId }, '-created_date', 100),
@@ -213,6 +214,7 @@ export default function EmployeeCenter() {
       listPtoBalancesForEmployee(employeeId),
       db.entities.PayrollRun.filter({ status: 'locked' }, '-run_date', 200).catch(() => []),
       db.entities.PayPeriod.list('-period_start', 200).catch(() => []),
+      db.entities.EmployeeBankAccount.filter({ employee_id: employeeId, status: 'active' }, '-created_date', 5).catch(() => []),
     ]);
     setPunches(punchData);
     setTimeOffRequests(leaveData);
@@ -221,6 +223,7 @@ export default function EmployeeCenter() {
     setPtoBalances(balanceData);
     const lockedPeriodIds = new Set(lockedRuns.map((r) => r.pay_period_id));
     setLockedPeriods(allPeriods.filter((p) => lockedPeriodIds.has(p.id)));
+    setDirectDepositAccount(bankAccounts.find((a) => a.is_primary) || bankAccounts[0] || null);
   };
 
   // A punch's own date falling inside a pay period whose PayrollRun is
@@ -564,6 +567,23 @@ export default function EmployeeCenter() {
     }
   };
 
+  // Direct deposit account is strictly read-only here (standing rule) — this
+  // only asks HR to make a change, mirroring requestInfoUpdate above, rather
+  // than letting the employee edit EmployeeBankAccount directly.
+  const requestDirectDepositChange = async () => {
+    if (isAdminViewing) return;
+    try {
+      await db.entities.Notification.create({
+        title: 'Direct Deposit Change Request',
+        message: `${employee.full_name} (#${employee.employee_number}) requested a change to their direct deposit bank account. HR must verify the new account before updating it.`,
+        is_read: false,
+      });
+      toast({ title: 'Request sent to HR/Payroll Admin' });
+    } catch (e) {
+      toast({ title: 'Unable to send request', variant: 'destructive' });
+    }
+  };
+
   const openVaultGate = () => {
     setVaultPin('');
     setShowVaultGate(true);
@@ -888,6 +908,26 @@ export default function EmployeeCenter() {
                 {!isAdminViewing && (
                   <Button variant="outline" className="gap-2 mt-4" onClick={requestInfoUpdate}>
                     <Send className="w-4 h-4" />Request Info Update
+                  </Button>
+                )}
+              </div>
+
+              <div className="steel-card p-4 max-w-lg">
+                <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><Landmark className="w-4 h-4 text-primary" />Direct Deposit</h4>
+                {directDepositAccount ? (
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div><span className="text-muted-foreground">Bank Account</span><p className="font-medium font-mono">****{directDepositAccount.account_number_last4 || '----'}</p></div>
+                    <div><span className="text-muted-foreground">Account Type</span><p className="font-medium capitalize">{directDepositAccount.account_type}</p></div>
+                    <div><span className="text-muted-foreground">Status</span><p className="font-medium">{employee.direct_deposit_enabled ? 'Active' : 'Enrolled, not yet active'}</p></div>
+                    <div><span className="text-muted-foreground">HR Verified</span><p className="font-medium">{directDepositAccount.verified_date ? new Date(directDepositAccount.verified_date).toLocaleDateString() : '—'}</p></div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No direct deposit account on file — you'll receive a paper check until HR sets one up.</p>
+                )}
+                <p className="text-xs text-muted-foreground mt-3">Your bank account is read-only here and can only be changed by HR after verifying the new account.</p>
+                {!isAdminViewing && (
+                  <Button variant="outline" className="gap-2 mt-3" onClick={requestDirectDepositChange}>
+                    <Send className="w-4 h-4" />Request Direct Deposit Change
                   </Button>
                 )}
               </div>

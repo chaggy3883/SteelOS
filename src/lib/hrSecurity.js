@@ -31,3 +31,15 @@ export function verifyPin(rawPin, encodedPin) {
 export function stubSignatureHash(signaturePayload) {
   return btoa(shiftString(String(signaturePayload), STUB_KEY));
 }
+
+// Same non-cryptographic stub as encodePin/decodePin, under generic names for
+// non-PIN secrets (bank account numbers, ACH API keys) — see BankIntegrationConfig
+// and EmployeeBankAccount, which store full account numbers this way. Zero real
+// security, same as every other "encrypted" field in this mock DB.
+export function obscureSecret(value) {
+  return encodePin(value);
+}
+
+export function revealSecret(encoded) {
+  return decodePin(encoded);
+}

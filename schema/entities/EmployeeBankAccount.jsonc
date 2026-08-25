@@ -1,0 +1,54 @@
+{
+  "name": "EmployeeBankAccount",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "account_holder_name": {
+      "type": "string"
+    },
+    "routing_number": {
+      "type": "string",
+      "description": "Excluded from AuditLog by AUDIT_SENSITIVE_FIELD_PATTERN (matches 'routing_number')."
+    },
+    "account_number_last4": {
+      "type": "string"
+    },
+    "account_number_encrypted": {
+      "type": "string",
+      "description": "Non-cryptographic obfuscation only (see src/lib/hrSecurity.js's obscureSecret/revealSecret) — never logged in AuditLog (AUDIT_SENSITIVE_FIELD_PATTERN matches 'account_number') and never shown unmasked outside HR's own edit flow. The employee's own read-only view in EmployeeCenter.jsx only ever sees account_number_last4."
+    },
+    "account_type": {
+      "type": "string",
+      "enum": ["checking", "savings"],
+      "default": "checking"
+    },
+    "is_primary": {
+      "type": "boolean",
+      "default": true
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "inactive"],
+      "default": "active",
+      "description": "HR sets to 'inactive' rather than deleting when a bank account is replaced, so AchOutgoing history keeps a valid destination_bank_account_id reference."
+    },
+    "verified_by": {
+      "type": "string",
+      "description": "HR staff name/email who verified this account before it went active — required by the standing rule that direct deposit accounts are HR-verified, never self-service edits."
+    },
+    "verified_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "employee_id",
+    "account_holder_name",
+    "routing_number"
+  ]
+}

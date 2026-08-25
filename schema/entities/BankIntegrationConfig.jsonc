@@ -1,0 +1,56 @@
+{
+  "name": "BankIntegrationConfig",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bank_name": {
+      "type": "string"
+    },
+    "api_key_encrypted": {
+      "type": "string",
+      "description": "Non-cryptographic obfuscation only — see src/lib/hrSecurity.js's obscureSecret/revealSecret. Excluded from AuditLog by AUDIT_SENSITIVE_FIELD_PATTERN (matches 'api_key')."
+    },
+    "api_endpoint": {
+      "type": "string"
+    },
+    "routing_number": {
+      "type": "string",
+      "description": "Company's own bank routing number for originating ACH batches. Excluded from AuditLog by AUDIT_SENSITIVE_FIELD_PATTERN (matches 'routing_number')."
+    },
+    "account_number_last4": {
+      "type": "string"
+    },
+    "account_number_encrypted": {
+      "type": "string",
+      "description": "Full company bank account number, non-cryptographically obscured (see src/lib/hrSecurity.js) — never displayed unmasked after save. Excluded from AuditLog by AUDIT_SENSITIVE_FIELD_PATTERN (matches 'account_number')."
+    },
+    "test_mode": {
+      "type": "boolean",
+      "default": true
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": false
+    },
+    "connection_status": {
+      "type": "string",
+      "enum": ["connected", "disconnected", "error", "untested"],
+      "default": "untested"
+    },
+    "last_tested": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_test_message": {
+      "type": "string"
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bank_name"
+  ]
+}

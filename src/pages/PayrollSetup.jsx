@@ -8,6 +8,7 @@ import { PAYROLL_SETUP_ALLOWED_ROLES } from '@/lib/payrollSetupAccess';
 import PayRatesPanel from '@/components/payroll/PayRatesPanel';
 import TaxWithholdingPanel from '@/components/payroll/TaxWithholdingPanel';
 import DeductionsPanel from '@/components/payroll/DeductionsPanel';
+import DirectDepositPanel from '@/components/payroll/DirectDepositPanel';
 import GLMappingsPanel from '@/components/payroll/GLMappingsPanel';
 import PayPeriodCalendarPanel from '@/components/payroll/PayPeriodCalendarPanel';
 import PayrollRulesPanel from '@/components/payroll/PayrollRulesPanel';
@@ -87,6 +88,7 @@ export default function PayrollSetup() {
           <TabsTrigger value="rates">Pay Rates</TabsTrigger>
           <TabsTrigger value="withholding">Tax Withholding</TabsTrigger>
           <TabsTrigger value="deductions">Deductions</TabsTrigger>
+          <TabsTrigger value="directdeposit">Direct Deposit</TabsTrigger>
           <TabsTrigger value="gl">GL Mappings</TabsTrigger>
           <TabsTrigger value="calendar">Pay Period Calendar</TabsTrigger>
           <TabsTrigger value="rules">Payroll Rules</TabsTrigger>
@@ -95,6 +97,7 @@ export default function PayrollSetup() {
         <TabsContent value="rates"><PayRatesPanel employees={employees} /></TabsContent>
         <TabsContent value="withholding"><TaxWithholdingPanel employees={employees} /></TabsContent>
         <TabsContent value="deductions"><DeductionsPanel employees={employees} /></TabsContent>
+        <TabsContent value="directdeposit"><DirectDepositPanel employees={employees} /></TabsContent>
         <TabsContent value="gl"><GLMappingsPanel /></TabsContent>
         <TabsContent value="calendar"><PayPeriodCalendarPanel /></TabsContent>
         <TabsContent value="rules"><PayrollRulesPanel /></TabsContent>

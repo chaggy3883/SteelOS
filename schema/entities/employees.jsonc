@@ -134,6 +134,11 @@
       "default": false,
       "description": "Marks this employee as eligible for sales commission (SalesmanCommissionRate, ProjectCommission). Deliberately a dedicated flag rather than overloading job_title/classification or the unrelated RBAC platform_roles field."
     },
+    "direct_deposit_enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set by HR (DirectDepositPanel.jsx, /payroll/setup) only after an EmployeeBankAccount is on file and HR-verified. When true, locking a PayrollRun creates an AchOutgoing row for this employee instead of a paper check."
+    },
     "supervisor_name": {
       "type": "string"
     },
