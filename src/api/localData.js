@@ -197,14 +197,13 @@ const buildSeedData = () => {
         id: 'user-steelrise-admin',
         email: 'frank@steelrise.local',
         password: 'password123',
-        // Plain 'admin', deliberately NOT 'super_admin' — super_admin gets the
-        // isPlatformOperatorView/isSuperAdminViewingCustomer pack-bypass (see
-        // moduleEntitlement.js/tenantContext.js) meant for platform-operator
-        // support access, which would defeat the reason this tenant exists:
-        // seeing SteelOS_Erect pack gating apply with nothing else muddying
-        // the result. 'admin' still bypasses ROLE-level gating (rbacConfig)
-        // the same way admin@steelos.dev does for Hancock, so nav reflects
-        // the company's pack only.
+        // Plain 'admin', deliberately NOT 'super_admin' — super_admin's own
+        // (non-impersonating) operator session gets the isPlatformOperatorView
+        // bypass (see AppLayout.jsx and friends), which would defeat the reason
+        // this tenant exists: seeing SteelOS_Erect pack gating apply with
+        // nothing else muddying the result. 'admin' still bypasses ROLE-level
+        // gating (rbacConfig) the same way admin@steelos.dev does for Hancock,
+        // so nav reflects the company's pack only.
         roles: ['admin'],
         full_name: 'Frank Morrison',
         company_id: 'company-steelrise',
