@@ -11,6 +11,9 @@ import LoadDetailModal from '@/components/shipping/LoadDetailModal';
 import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 import ManifestDetailModal from '@/components/shipping/ManifestDetailModal';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 // Loads that have finished Load Builder (Load Complete) and are ready,
 // inspected, or already moving — the main Shipping List. Draft/Staged
@@ -50,8 +53,18 @@ export default function Shipping() {
   const [manifests, setManifests] = useState([]);
   const [carriers, setCarriers] = useState([]);
   const [pieceMarks, setPieceMarks] = useState([]);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadData(); loadLogisticsData(); }, []);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/shipping')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   const loadLogisticsData = async () => {
     try {
@@ -102,6 +115,19 @@ export default function Shipping() {
     setResumeLoadId(loadId);
     setActiveTab('load-builder');
   };
+
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /shipping can't bypass the nav's
+  // module-pack filtering. Load building and yard scanning is Fabricator +
+  // Enterprise Connect only (see modulePacks.js); an Erector-pack company
+  // has no shop-side loads to build, so none of this applies to them.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/shipping" title="Shipping Not Included" />;
+  }
 
   return (
     <div className="p-6 animate-fade-in">

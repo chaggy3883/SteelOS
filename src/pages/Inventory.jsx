@@ -10,6 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PageHeader from '@/components/ui/PageHeader';
 import Warehouse3D from '@/components/warehouse/Warehouse3D';
 import { useToast } from '@/components/ui/use-toast';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const CATEGORIES = ['wide_flange', 'hss', 'angle', 'channel', 'plate', 'rebar', 'bolt', 'weld_material', 'paint', 'other'];
 
@@ -28,8 +31,18 @@ export default function Inventory() {
   const [itemForm, setItemForm] = useState(emptyItemForm());
   const [savingItem, setSavingItem] = useState(false);
   const [shopFloorZones, setShopFloorZones] = useState([]);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadItems(); loadShopFloorZones(); }, []);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/inventory')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   const loadShopFloorZones = async () => {
     try {
@@ -90,6 +103,19 @@ export default function Inventory() {
 
   const lowStock = items.filter(i => i.reorder_point && i.quantity_available <= i.reorder_point);
   const totalValue = items.reduce((sum, i) => sum + ((i.quantity_on_hand || 0) * (i.unit_cost || 0)), 0);
+
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /inventory can't bypass the nav's
+  // module-pack filtering. Material inventory is Fabricator + Enterprise
+  // Connect only (see modulePacks.js); an Erector-pack company has no shop
+  // stock to track, so none of this applies to them.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/inventory" title="Inventory Not Included" />;
+  }
 
   return (
     <div className="p-6 animate-fade-in">

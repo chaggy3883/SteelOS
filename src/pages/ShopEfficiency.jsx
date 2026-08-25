@@ -4,6 +4,9 @@ import { Loader2, Gauge } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { computeEfficiencyPct, normalizeTargetMinutes } from '@/lib/shopOpsMetrics';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const efficiencyColor = (pct) => {
   if (pct >= 100) return 'text-emerald-600';
@@ -16,8 +19,18 @@ export default function ShopEfficiency() {
   const [logs, setLogs] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/shop-efficiency')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   const loadData = async () => {
     setLoading(true);
@@ -99,7 +112,18 @@ export default function ShopEfficiency() {
     };
   });
 
-  if (loading) return <div className="flex items-center justify-center h-96"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (loading || checkingModuleAccess) return <div className="flex items-center justify-center h-96"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;
+
+  // Route guard — a direct URL to /shop-efficiency can't bypass the nav's
+  // module-pack filtering. Shop floor efficiency reporting is Fabricator +
+  // Enterprise Connect only (see modulePacks.js); an Erector-pack company
+  // has no shop performance to report on, so none of this applies to them.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/shop-efficiency" title="Shop Floor Efficiency Not Included" />;
+  }
 
   return (
     <div className="p-6 w-full max-w-none space-y-4 animate-fade-in">

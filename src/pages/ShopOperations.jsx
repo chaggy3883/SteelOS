@@ -14,6 +14,9 @@ import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import { AlertTriangle, Zap, Users, PackageX, Gauge, Plus, Printer } from 'lucide-react';
 import LabelPrintingPanel from '@/components/barcode-printing/LabelPrintingPanel';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const emptyOverrideForm = () => ({ piece_id: '', override_type: 'Expedite_Part', authorized_by_mgr_id: '' });
 
@@ -45,8 +48,18 @@ export default function ShopOperations() {
   const [showOverrideForm, setShowOverrideForm] = useState(false);
   const [overrideForm, setOverrideForm] = useState(emptyOverrideForm());
   const [savingOverride, setSavingOverride] = useState(false);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/shop-operations')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   const loadAll = async () => {
     setLoading(true);
@@ -175,7 +188,19 @@ export default function ShopOperations() {
     }
   };
 
-  if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (loading || checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /shop-operations can't bypass the nav's
+  // module-pack filtering. Shop scheduling and bottleneck management is
+  // Fabricator + Enterprise Connect only (see modulePacks.js); an
+  // Erector-pack company has no shop floor to schedule, so none of this
+  // applies to them.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/shop-operations" title="Shop Management & Operations Not Included" />;
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-4 animate-fade-in">

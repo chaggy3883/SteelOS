@@ -12,6 +12,9 @@ import { Badge } from '@/components/ui/badge';
 import StatusBadge from '@/components/ui/StatusBadge';
 import PageHeader from '@/components/ui/PageHeader';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const STATUS_OPTIONS = ['all', 'not_started', 'in_fabrication', 'fabricated', 'inspected', 'painted', 'shipped', 'erected'];
 
@@ -93,9 +96,19 @@ export default function Production() {
   // narrows the table to exactly the pieces counted in that percentage.
   const [phaseMetricFilter, setPhaseMetricFilter] = useState(null); // { phase, metric: 'fabricated' | 'complete' }
   const [viewingPiece, setViewingPiece] = useState(null);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadStaticData(); }, []);
   useEffect(() => { loadPieces(projectFilter); }, [projectFilter]);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/production')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   const goToProject = (projectId, e) => {
     e?.stopPropagation();
@@ -264,6 +277,19 @@ export default function Production() {
   }).filter(Boolean);
 
   const bolts = pieces.filter((p) => p.item_type === 'Bolt');
+
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /production can't bypass the nav's
+  // module-pack filtering. Shop floor production tracking is Fabricator +
+  // Enterprise Connect only (see modulePacks.js); an Erector-pack company
+  // has no shop, so none of this applies to them.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/production" title="Production Not Included" />;
+  }
 
   return (
     <div className="p-6 animate-fade-in">

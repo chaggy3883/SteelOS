@@ -15,6 +15,9 @@ import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelShe
 import { logStatusChange } from '@/lib/statusHistory';
 import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
 import PieceTimeline from '@/components/shared/PieceTimeline';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
   CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer,
@@ -76,8 +79,18 @@ export default function ShopFabrication() {
   const [schedules, setSchedules] = useState([]);
   const [overrides, setOverrides] = useState([]);
   const [printSheet, setPrintSheet] = useState(null);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/shop-fabrication')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   const openPrintSheet = (piece) => {
     setPrintSheet({
@@ -349,7 +362,18 @@ export default function ShopFabrication() {
     toast({ title: `${stage.replace('_', ' ')} ${status}` });
   };
 
-  if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (loading || checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /shop-fabrication can't bypass the nav's
+  // module-pack filtering. Shop-floor station scanning is Fabricator +
+  // Enterprise Connect only (see modulePacks.js); an Erector-pack company
+  // has no shop stations to work, so none of this applies to them.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/shop-fabrication" title="Shop & Fabrication Not Included" />;
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-4 animate-fade-in">

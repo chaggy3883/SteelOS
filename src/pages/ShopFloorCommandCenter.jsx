@@ -15,6 +15,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { AlertTriangle, Clock, Gauge, CheckCircle2, ScanLine, PauseCircle, PlayCircle, ClipboardCheck } from 'lucide-react';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const REFRESH_INTERVAL_MS = 45000;
 
@@ -52,6 +55,10 @@ export default function ShopFloorCommandCenter() {
   const [confirmNote, setConfirmNote] = useState('');
   const [confirmingScan, setConfirmingScan] = useState(false);
 
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
+
   const loadAll = async () => {
     try {
       const [pieceData, logsData, pplData, timingData, projectData, settingsRows] = await Promise.all([
@@ -80,6 +87,14 @@ export default function ShopFloorCommandCenter() {
     const dataTimer = setInterval(loadAll, REFRESH_INTERVAL_MS);
     const clockTimer = setInterval(() => setNow(new Date()), 1000);
     return () => { clearInterval(dataTimer); clearInterval(clockTimer); };
+  }, []);
+
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/shop-floor-command-center')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
   }, []);
 
   const bottleneckThreshold = settings?.station_bottleneck_threshold || 50;
@@ -272,7 +287,18 @@ export default function ShopFloorCommandCenter() {
     }
   };
 
-  if (loading) return <div className="p-6 bg-black min-h-screen"><div className="h-96 bg-neutral-800 rounded-xl animate-pulse" /></div>;
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (loading || checkingModuleAccess) return <div className="p-6 bg-black min-h-screen"><div className="h-96 bg-neutral-800 rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /shop-floor-command-center can't bypass
+  // the nav's module-pack filtering. This is Fabricator + Enterprise Connect
+  // only (see modulePacks.js); an Erector-pack company has no shop floor to
+  // display here, so none of this applies to them.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/shop-floor-command-center" title="Shop Floor Command Center Not Included" />;
+  }
 
   return (
     <div className="min-h-screen bg-black text-white p-6 space-y-5">
