@@ -192,6 +192,25 @@ const buildSeedData = () => {
         is_active: true,
         created_date: now,
         updated_date: now
+      },
+      {
+        id: 'user-steelrise-admin',
+        email: 'frank@steelrise.local',
+        password: 'password123',
+        // Plain 'admin', deliberately NOT 'super_admin' — super_admin gets the
+        // isPlatformOperatorView/isSuperAdminViewingCustomer pack-bypass (see
+        // moduleEntitlement.js/tenantContext.js) meant for platform-operator
+        // support access, which would defeat the reason this tenant exists:
+        // seeing SteelOS_Erect pack gating apply with nothing else muddying
+        // the result. 'admin' still bypasses ROLE-level gating (rbacConfig)
+        // the same way admin@steelos.dev does for Hancock, so nav reflects
+        // the company's pack only.
+        roles: ['admin'],
+        full_name: 'Frank Morrison',
+        company_id: 'company-steelrise',
+        is_active: true,
+        created_date: now,
+        updated_date: now
       }
     ],
     Company: [
@@ -227,6 +246,24 @@ const buildSeedData = () => {
         subscription_plan: 'SteelOS_Fab',
         subscription_status: 'Active',
         brand_color_hex: '#dc2626',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'company-steelrise',
+        name: 'SteelRise Erection',
+        company_code: 'steelrise',
+        company_type: 'steel_erector',
+        city: 'Pittsburgh',
+        state: 'PA',
+        logo_url: '',
+        // Erector pack only — the mirror image of Arlington's Fab-only pack,
+        // so Fab-only and Erect-only workflows each have their own demo
+        // tenant and testing one never disrupts the other. See modulePacks.js.
+        subscription_plan: 'SteelOS_Erect',
+        subscription_status: 'Active',
+        brand_color_hex: '#ea580c',
         is_active: true,
         created_date: now,
         updated_date: now
@@ -413,6 +450,19 @@ const buildSeedData = () => {
         is_active: true,
         created_date: now,
         updated_date: now
+      },
+      {
+        id: 'customer-steelrise-apex',
+        company_id: 'company-steelrise',
+        name: 'Apex Development Co',
+        customer_type: 'general_contractor',
+        primary_contact: 'Dana Whitfield',
+        email: 'dana@apexdevelopment.example',
+        city: 'Pittsburgh',
+        state: 'PA',
+        is_active: true,
+        created_date: now,
+        updated_date: now
       }
     ],
     Project: [
@@ -466,6 +516,30 @@ const buildSeedData = () => {
         // Deliberately no salesman_id — this is the "not mine" project used to
         // verify a salesman's search is actually scoped (should never surface
         // this one), while admin/PM/estimator searches should see both.
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'project-steelrise-1',
+        company_id: 'company-steelrise',
+        name: 'Downtown Office Tower Erection',
+        project_number: 'JOB-26-201',
+        customer_id: 'customer-steelrise-apex',
+        customer_name: 'Apex Development Co',
+        status: 'active',
+        execution_status: 'Erection',
+        is_archived: false,
+        original_contract_value: 2100000,
+        approved_change_orders_total: 0,
+        current_revised_contract_value: 2100000,
+        total_invoiced_to_date: 600000,
+        remaining_project_balance: 1500000,
+        estimated_tons: 340,
+        fabricated_tons: 340,
+        field_mobilization_date: '2026-08-01',
+        crane_setup_date: '2026-08-05',
+        erection_progress: 18,
+        contract_value: 2100000,
         created_date: now,
         updated_date: now
       }
@@ -1608,6 +1682,34 @@ const buildSeedData = () => {
         ssn_last4: '8823',
         pay_rate_cents: 2400,
         is_active_login: false,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'employee-steelrise-1',
+        company_id: 'company-steelrise',
+        employee_number: '101',
+        full_name: 'Frank Morrison',
+        classification: 'Ironworker',
+        job_title: 'Erection Manager',
+        department: 'Field Operations',
+        hire_date: '2024-01-01',
+        is_active: true,
+        pin_encrypted: encodeFormulaPin({ employee_number: '101', ssn_last4: '1111' }),
+        is_timeclock_locked: false,
+        has_w4_approved: true,
+        i9_on_file: true,
+        i9_date: '2024-01-01',
+        i9_reverification_due_date: '2027-01-01',
+        i9_reverification_completed_date: '',
+        e_verify_status: 'verified',
+        e_verify_initiated_date: '2024-01-02',
+        e_verify_verified_date: '2024-01-03',
+        e_verify_recheck_due_date: '2026-09-01',
+        ssn_last4: '1111',
+        pay_rate_cents: 3200,
+        is_active_login: true,
+        phone: '412-555-1111',
         created_date: now,
         updated_date: now
       }
