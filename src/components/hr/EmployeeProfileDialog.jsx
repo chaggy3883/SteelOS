@@ -7,6 +7,7 @@ import ComplianceDocumentCenter from '@/components/hr/ComplianceDocumentCenter';
 import I9ComplianceCenter from '@/components/hr/I9ComplianceCenter';
 import DisciplinaryActionsPanel from '@/components/hr/DisciplinaryActionsPanel';
 import PtoPanel from '@/components/hr/PtoPanel';
+import PtoPolicyPanel from '@/components/hr/PtoPolicyPanel';
 import TerminationPanel from '@/components/hr/TerminationPanel';
 import EquipmentPanel from '@/components/hr/EquipmentPanel';
 import { canManageDisciplinaryActions } from '@/lib/disciplinaryAccess';
@@ -43,6 +44,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             {showEquipment && <TabsTrigger value="equipment">Equipment</TabsTrigger>}
             {showTermination && <TabsTrigger value="compliance">Compliance</TabsTrigger>}
             <TabsTrigger value="pto">PTO</TabsTrigger>
+            {showTermination && <TabsTrigger value="pto-policy">PTO Policy</TabsTrigger>}
             {showDisciplinary && <TabsTrigger value="disciplinary">Disciplinary</TabsTrigger>}
             {showTermination && <TabsTrigger value="termination">Termination</TabsTrigger>}
           </TabsList>
@@ -68,6 +70,11 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           <TabsContent value="pto">
             <PtoPanel employee={current} roles={roles} />
           </TabsContent>
+          {showTermination && (
+            <TabsContent value="pto-policy">
+              <PtoPolicyPanel employee={current} roles={roles} />
+            </TabsContent>
+          )}
           {showDisciplinary && (
             <TabsContent value="disciplinary">
               <DisciplinaryActionsPanel employee={current} employees={employees} roles={roles} />

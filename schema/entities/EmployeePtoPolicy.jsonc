@@ -1,0 +1,37 @@
+{
+  "name": "EmployeePtoPolicy",
+  "type": "object",
+  "description": "Per-employee, per-leave-type override of which PtoPolicy governs accrual — at most one row per (employee_id, leave_type). PtoPolicy is itself scoped to a single leave_type (PTO/Sick/Bereavement), so an employee's PTO policy can be overridden independently of their Sick/Bereavement policy. use_standard_policy=true (the default — created automatically at hire, one row per tracked leave type) means fall back to the company's active PtoPolicy for that leave type; false means use pto_policy_id instead, for negotiated/custom terms. See src/lib/ptoEngine.js's getApplicablePolicy, the single resolver every accrual/approval/termination code path reads through instead of calling getActivePolicy directly.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "leave_type": {
+      "type": "string",
+      "enum": ["PTO", "Sick", "Bereavement"]
+    },
+    "use_standard_policy": {
+      "type": "boolean",
+      "default": true
+    },
+    "pto_policy_id": {
+      "type": "string",
+      "description": "The alternate PtoPolicy governing this employee/leave_type. Ignored and blanked whenever use_standard_policy is true."
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Reason for a custom policy assignment (e.g. 'Negotiated 150 hours/year'). Blanked whenever use_standard_policy is true."
+    }
+  },
+  "required": [
+    "employee_id",
+    "leave_type"
+  ]
+}

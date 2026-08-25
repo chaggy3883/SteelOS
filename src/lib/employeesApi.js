@@ -3,6 +3,7 @@ import { encodeFormulaPin } from '@/lib/pinFormula';
 import { encodePin } from '@/lib/hrSecurity';
 import { computeI9ReverificationDueDate } from '@/lib/i9Compliance';
 import { provisionDefaultIssuedAssets } from '@/lib/issuedAssetsApi';
+import { createDefaultEmployeePtoPolicies } from '@/lib/ptoEngine';
 
 // termination_reason (but not termination_reason_other/final_notes, which can
 // carry sensitive HR detail) is deliberately public — standing rule: it must
@@ -133,6 +134,7 @@ export async function hireCandidate(candidateId) {
   });
 
   await provisionDefaultIssuedAssets(employee.id);
+  await createDefaultEmployeePtoPolicies(employee);
 
   return employee;
 }
@@ -187,6 +189,7 @@ export async function provisionEmployee(formData) {
   });
 
   await provisionDefaultIssuedAssets(employee.id);
+  await createDefaultEmployeePtoPolicies(employee);
 
   return employee;
 }

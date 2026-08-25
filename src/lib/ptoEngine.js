@@ -86,6 +86,68 @@ export async function listActivePoliciesForCompany(companyId) {
   return db.entities.PtoPolicy.filter({ company_id: companyId, is_active: true }, 'leave_type', 50);
 }
 
+// This employee's current override row for one leave type, if any — at most
+// one is meaningful per (employee_id, leave_type), so the most recently
+// created one wins if duplicates ever exist (mirrors getActivePolicy's own
+// tie-break), and setEmployeePtoPolicy below updates that row in place
+// rather than appending a new one on every save.
+export async function getEmployeePtoPolicyOverride(employeeId, leaveType) {
+  const rows = await db.entities.EmployeePtoPolicy.filter({ employee_id: employeeId, leave_type: leaveType }, '-created_date', 1);
+  return rows[0] || null;
+}
+
+export async function listEmployeePtoPoliciesForEmployee(employeeId) {
+  return db.entities.EmployeePtoPolicy.filter({ employee_id: employeeId }, 'leave_type', 20);
+}
+
+// The single resolver every accrual/approval/termination code path below
+// reads through instead of calling getActivePolicy directly — an employee's
+// override (use_standard_policy: false) takes precedence; anything else
+// (no override row, use_standard_policy: true, or an override pointing at a
+// policy that's since been deleted) falls back to the company's active
+// policy for that leave type, exactly like before this feature existed.
+export async function getApplicablePolicy(employee, leaveType) {
+  const override = await getEmployeePtoPolicyOverride(employee.id, leaveType);
+  if (override && override.use_standard_policy === false && override.pto_policy_id) {
+    const policy = await db.entities.PtoPolicy.get(override.pto_policy_id);
+    if (policy) return policy;
+  }
+  return getActivePolicy(employee.company_id, leaveType);
+}
+
+// Upserts this employee's override for one leave type — called from
+// PtoPolicyPanel.jsx's Save. useStandardPolicy: true blanks pto_policy_id and
+// notes regardless of what's passed, so a record can never claim both "use
+// the standard policy" and "here's a custom policy/reason" at once.
+export async function setEmployeePtoPolicy(employee, leaveType, { useStandardPolicy, ptoPolicyId, notes, effectiveDate } = {}) {
+  const existing = await getEmployeePtoPolicyOverride(employee.id, leaveType);
+  const payload = {
+    employee_id: employee.id,
+    leave_type: leaveType,
+    use_standard_policy: !!useStandardPolicy,
+    pto_policy_id: useStandardPolicy ? '' : (ptoPolicyId || ''),
+    effective_date: effectiveDate || existing?.effective_date || todayDateOnly(),
+    notes: useStandardPolicy ? '' : (notes || '').trim(),
+  };
+  if (existing) return db.entities.EmployeePtoPolicy.update(existing.id, payload);
+  return db.entities.EmployeePtoPolicy.create(payload);
+}
+
+// Called once at hire (hireCandidate/provisionEmployee in employeesApi.js) so
+// every new employee starts on the company's standard policy for every
+// tracked leave type — HR then flips individual leave types to a custom
+// policy via PtoPolicyPanel.jsx for negotiated terms.
+export async function createDefaultEmployeePtoPolicies(employee) {
+  return Promise.all(PTO_TRACKED_LEAVE_TYPES.map((leaveType) => db.entities.EmployeePtoPolicy.create({
+    employee_id: employee.id,
+    leave_type: leaveType,
+    use_standard_policy: true,
+    pto_policy_id: '',
+    effective_date: employee.hire_date || todayDateOnly(),
+    notes: '',
+  })));
+}
+
 // The highest tenure tier whose years_of_service threshold the employee has
 // reached, falling back to the flat annual_hours when tenure_tiers is empty
 // or the employee hasn't reached its lowest threshold yet.
@@ -167,7 +229,7 @@ export async function runAnniversaryRenewalCheckForEmployee(employee, asOfDate =
   if (!employee?.hire_date) return { grants };
 
   for (const leaveType of PTO_TRACKED_LEAVE_TYPES) {
-    const policy = await getActivePolicy(employee.company_id, leaveType);
+    const policy = await getApplicablePolicy(employee, leaveType);
     if (!policy || policy.accrual_method !== 'anniversary_grant') continue;
 
     let balance = await getOrCreatePtoBalance(employee, leaveType, policy);
@@ -253,7 +315,7 @@ export async function decidePtoRequest({ request, newStatus, notes = '', changed
   let warning = null;
 
   if (willBeApproved && !wasApproved && isPtoTracked && employee) {
-    const policy = await getActivePolicy(employee.company_id, leaveType);
+    const policy = await getApplicablePolicy(employee, leaveType);
 
     if (Number(policy?.waiting_period_days) > 0 && employee.hire_date) {
       const eligibleDate = addDaysToDateOnly(employee.hire_date, policy.waiting_period_days);
@@ -286,7 +348,7 @@ export async function decidePtoRequest({ request, newStatus, notes = '', changed
     // Was Approved (and already decremented), now being denied/cancelled —
     // reverse with a new positive-hours transaction. The original usage
     // entry is never deleted or edited.
-    const policy = await getActivePolicy(employee.company_id, leaveType);
+    const policy = await getApplicablePolicy(employee, leaveType);
     const balance = await getOrCreatePtoBalance(employee, leaveType, policy);
     await writePtoTransaction({
       balance, employee, leaveType, transactionType: 'usage', hours: totalHours,
@@ -306,7 +368,7 @@ export async function decidePtoRequest({ request, newStatus, notes = '', changed
 
 export async function adjustPtoBalance({ employee, leaveType, hours, reason, changedBy }) {
   if (!reason || !reason.trim()) throw new Error('A reason is required to adjust a PTO balance.');
-  const policy = await getActivePolicy(employee.company_id, leaveType);
+  const policy = await getApplicablePolicy(employee, leaveType);
   const balance = await getOrCreatePtoBalance(employee, leaveType, policy);
   const result = await writePtoTransaction({
     balance, employee, leaveType, transactionType: 'adjustment', hours: Number(hours) || 0,
@@ -433,7 +495,7 @@ export async function computeTerminationPtoSettlementPreview(employee, asOfDate 
   const payRate = await resolveCurrentPayRate(employee.id, asOfDate);
   const lines = [];
   for (const leaveType of PTO_TRACKED_LEAVE_TYPES) {
-    const policy = await getActivePolicy(employee.company_id, leaveType);
+    const policy = await getApplicablePolicy(employee, leaveType);
     const balance = await getExistingPtoBalance(employee.id, leaveType);
     const hours = Number(balance?.balance_hours) || 0;
     const payoutSetting = policy?.payout_on_termination || 'never';
@@ -473,7 +535,7 @@ export async function processTerminationSettlement({ employee, terminationDate =
   let totalPayoutAmount = 0;
 
   for (const leaveType of PTO_TRACKED_LEAVE_TYPES) {
-    const policy = await getActivePolicy(employee.company_id, leaveType);
+    const policy = await getApplicablePolicy(employee, leaveType);
     let balance = await getOrCreatePtoBalance(employee, leaveType, policy);
     const hours = Number(balance.balance_hours) || 0;
 
