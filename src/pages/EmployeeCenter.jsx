@@ -28,7 +28,7 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText,
   User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt, DoorOpen,
-  Timer, Square, Eye, ShieldCheck,
+  Timer, Square, Eye, ShieldCheck, AlertCircle,
 } from 'lucide-react';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
 
@@ -116,6 +116,11 @@ export default function EmployeeCenter() {
   const [expenseForm, setExpenseForm] = useState(emptyExpenseForm());
   const [savingExpense, setSavingExpense] = useState(false);
 
+  const [pendingPunchNote, setPendingPunchNote] = useState('');
+  const [editingNotePunchId, setEditingNotePunchId] = useState(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
+  const [lockedPeriods, setLockedPeriods] = useState([]);
+
   useEffect(() => {
     checkLock();
     db.entities.Project.filter({ is_archived: false }, 'name', 50).then(setProjects).catch(() => setProjects([]));
@@ -200,19 +205,30 @@ export default function EmployeeCenter() {
     // Idempotent (see ptoEngine's policy_year_end comparison), so it's safe
     // to run on every login rather than only the first one after the date.
     await runAnniversaryRenewalCheckForEmployee(employeeRecord).catch(() => {});
-    const [punchData, leaveData, payrollData, expenseData, balanceData] = await Promise.all([
+    const [punchData, leaveData, payrollData, expenseData, balanceData, lockedRuns, allPeriods] = await Promise.all([
       db.entities.attendance_punches.filter({ employee_id: employeeId }, '-created_date', 200),
       db.entities.time_off_requests.filter({ employee_id: employeeId }, '-created_date', 100),
       db.entities.payroll_document_mappings.filter({ employee_id: employeeId }, '-created_date', 100),
       db.entities.credit_card_expenses.filter({ employee_id: employeeId }, '-created_date', 100),
       listPtoBalancesForEmployee(employeeId),
+      db.entities.PayrollRun.filter({ status: 'locked' }, '-run_date', 200).catch(() => []),
+      db.entities.PayPeriod.list('-period_start', 200).catch(() => []),
     ]);
     setPunches(punchData);
     setTimeOffRequests(leaveData);
     setPayrollDocs(payrollData);
     setExpenses(expenseData);
     setPtoBalances(balanceData);
+    const lockedPeriodIds = new Set(lockedRuns.map((r) => r.pay_period_id));
+    setLockedPeriods(allPeriods.filter((p) => lockedPeriodIds.has(p.id)));
   };
+
+  // A punch's own date falling inside a pay period whose PayrollRun is
+  // already 'locked' means the payroll numbers for that punch are final —
+  // adding/editing a note that late still saves (notes are informational
+  // only, never blocking), but attendance_punches.note_added_after_cutoff
+  // flags it so payroll_admin sees it needs a look (TimeEntryPanel.jsx).
+  const isDateInLockedPeriod = (dateStr) => lockedPeriods.some((p) => dateStr >= p.period_start && dateStr <= p.period_end);
 
   const loadAdminEmployeePicker = async () => {
     setLoadingAdminEmployees(true);
@@ -320,6 +336,10 @@ export default function EmployeeCenter() {
     setLaborCategory('');
     setIsAdminViewing(false);
     setAdminSelectedEmployeeId('');
+    setPendingPunchNote('');
+    setEditingNotePunchId(null);
+    setEditingNoteText('');
+    setLockedPeriods([]);
   };
 
   // Kiosk Reset Action — a real kiosk-PIN session (isKioskSession) has no
@@ -346,6 +366,7 @@ export default function EmployeeCenter() {
     const punch_time = new Date().toISOString();
     const isMobile = isMobileDevice();
     const coordinates = isMobile ? await captureLocationCoordinates() : null;
+    const note = pendingPunchNote.trim() || null;
     const payload = {
       employee_id: employee.id,
       terminal_id: terminalId,
@@ -358,6 +379,8 @@ export default function EmployeeCenter() {
       is_mobile_remote_punch: isMobile,
       punch_in_location_coordinates: punchType === 'Clock_In' ? coordinates : null,
       punch_out_location_coordinates: punchType === 'Clock_Out' ? coordinates : null,
+      note,
+      note_added_after_cutoff: false,
     };
     if (punchType === 'Clock_Out') {
       const allEmployeePunches = await db.entities.attendance_punches.filter({ employee_id: employee.id }, '-created_date', 500);
@@ -365,10 +388,37 @@ export default function EmployeeCenter() {
     }
     const created = await db.entities.attendance_punches.create(payload);
     setPunches((prev) => [created, ...prev]);
+    setPendingPunchNote('');
     toast({
       title: `${punchType.replace('_', ' ')} recorded`,
       description: isMobile ? (coordinates ? `Remote mobile punch — location captured` : 'Remote mobile punch — location unavailable') : undefined,
     });
+  };
+
+  // Editing/adding a note on a past punch is always allowed (notes are
+  // informational only) — but if the punch's own date already fell inside a
+  // now-locked pay period, note_added_after_cutoff flags it for
+  // payroll_admin review (see TimeEntryPanel.jsx's Punch Notes section).
+  const handleSavePunchNote = async (punch) => {
+    if (isAdminViewing) return;
+    const trimmed = editingNoteText.trim();
+    const punchDate = punch.punch_time?.slice(0, 10);
+    const isLate = isDateInLockedPeriod(punchDate);
+    try {
+      const updated = await db.entities.attendance_punches.update(punch.id, {
+        note: trimmed || null,
+        note_added_after_cutoff: punch.note_added_after_cutoff || isLate,
+      });
+      setPunches((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      setEditingNotePunchId(null);
+      setEditingNoteText('');
+      toast({
+        title: 'Note saved',
+        description: isLate && !punch.note_added_after_cutoff ? 'This entry was modified after payroll cutoff — flagged for payroll admin review.' : undefined,
+      });
+    } catch (e) {
+      toast({ title: 'Unable to save note', variant: 'destructive' });
+    }
   };
 
   const handleStartFabrication = async () => {
@@ -659,6 +709,17 @@ export default function EmployeeCenter() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <Label className="text-xs">Add a note about this punch (optional)</Label>
+                  <Textarea
+                    value={pendingPunchNote}
+                    onChange={(e) => setPendingPunchNote(e.target.value)}
+                    placeholder="e.g. Clocked in late due to traffic, left early for doctor, system error resubmitting"
+                    rows={2}
+                    className="mt-1"
+                    disabled={isAdminViewing}
+                  />
+                </div>
               </div>
 
               <div className="steel-card p-4 space-y-3 max-w-2xl">
@@ -731,24 +792,54 @@ export default function EmployeeCenter() {
                   <p className="text-sm text-muted-foreground py-4 text-center">No punches yet today.</p>
                 ) : sortedPunches.slice(0, 10).map((p) => {
                   const estPay = estimatedPayFor(p);
+                  const isEditingNote = editingNotePunchId === p.id;
                   return (
-                    <div key={p.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 border-b border-border/50 py-2 text-sm">
-                      <span className="flex items-center gap-1.5 flex-wrap">
-                        {p.punch_type.replace('_', ' ')} {p.labor_activity_category ? `• ${p.labor_activity_category.replace('_', ' ')}` : ''}
-                        {p.is_mobile_remote_punch && (
-                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 font-medium">
-                            <Smartphone className="w-3 h-3" />Remote
-                          </span>
-                        )}
-                        {(p.punch_in_location_coordinates || p.punch_out_location_coordinates) && (
-                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">
-                            <MapPin className="w-3 h-3" />{p.punch_in_location_coordinates || p.punch_out_location_coordinates}
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-muted-foreground text-xs">
-                        {new Date(p.punch_time).toLocaleString()}{p.total_overtime_minutes > 0 ? ` • OT ${p.total_overtime_minutes}m` : ''}{estPay ? ` • ~$${estPay}` : ''}
-                      </span>
+                    <div key={p.id} className="border-b border-border/50 py-2 text-sm space-y-1">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          {p.punch_type.replace('_', ' ')} {p.labor_activity_category ? `• ${p.labor_activity_category.replace('_', ' ')}` : ''}
+                          {p.is_mobile_remote_punch && (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 font-medium">
+                              <Smartphone className="w-3 h-3" />Remote
+                            </span>
+                          )}
+                          {(p.punch_in_location_coordinates || p.punch_out_location_coordinates) && (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">
+                              <MapPin className="w-3 h-3" />{p.punch_in_location_coordinates || p.punch_out_location_coordinates}
+                            </span>
+                          )}
+                          {p.note_added_after_cutoff && (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 font-medium">
+                              <AlertCircle className="w-3 h-3" />Modified after payroll cutoff — pending review
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-muted-foreground text-xs">
+                          {new Date(p.punch_time).toLocaleString()}{p.total_overtime_minutes > 0 ? ` • OT ${p.total_overtime_minutes}m` : ''}{estPay ? ` • ~$${estPay}` : ''}
+                        </span>
+                      </div>
+                      {isEditingNote ? (
+                        <div className="flex flex-col gap-1.5 max-w-md">
+                          <Textarea value={editingNoteText} onChange={(e) => setEditingNoteText(e.target.value)} rows={2} placeholder="Add a note about this punch" />
+                          <div className="flex gap-2">
+                            <Button size="sm" className="h-7 text-xs" onClick={() => handleSavePunchNote(p)}>Save Note</Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setEditingNotePunchId(null); setEditingNoteText(''); }}>Cancel</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {p.note && <span className="text-xs text-muted-foreground italic">"{p.note}"</span>}
+                          {!isAdminViewing && (
+                            <button
+                              type="button"
+                              className="text-xs text-primary hover:underline"
+                              onClick={() => { setEditingNotePunchId(p.id); setEditingNoteText(p.note || ''); }}
+                            >
+                              {p.note ? 'Edit note' : 'Add note'}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

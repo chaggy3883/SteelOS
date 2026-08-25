@@ -97,6 +97,7 @@ const createLocalApi = () => ({
     PayrollRun: createEntityApi('PayrollRun'),
     PayrollLine: createEntityApi('PayrollLine'),
     PayrollAdjustment: createEntityApi('PayrollAdjustment'),
+    AdjustmentLog: createEntityApi('AdjustmentLog'),
     EmployerTax: createEntityApi('EmployerTax'),
     PayrollLiability: createEntityApi('PayrollLiability'),
     PayrollJournal: createEntityApi('PayrollJournal'),

@@ -54,6 +54,23 @@
     },
     "punch_out_location_coordinates": {
       "type": ["string", "null"]
+    },
+    "note": {
+      "type": ["string", "null"],
+      "description": "Optional, informational-only note the employee attaches at punch time or edits later from their own punch history (e.g. 'Clocked in late due to traffic'). Never blocks the punch itself."
+    },
+    "note_added_after_cutoff": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set true once, permanently, if the note on this punch was added/edited after the punch's own date fell inside a pay period whose PayrollRun is already 'locked' — flags it for payroll_admin review in TimeEntryPanel.jsx. Never cleared by a later edit; note_reviewed_by/note_reviewed_at track the review separately."
+    },
+    "note_reviewed_by": {
+      "type": ["string", "null"],
+      "description": "Set when payroll_admin/admin acknowledges a note_added_after_cutoff punch in TimeEntryPanel.jsx's Punch Notes review section."
+    },
+    "note_reviewed_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
     }
   },
   "required": [

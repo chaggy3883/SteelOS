@@ -1,0 +1,50 @@
+{
+  "name": "AdjustmentLog",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "payroll_run_id": {
+      "type": "string"
+    },
+    "employee_id": {
+      "type": "string"
+    },
+    "adjustment_type": {
+      "type": "string",
+      "enum": ["hours", "bonus", "deduction"],
+      "description": "'hours' is a manual edit to a PayrollLine's regular/OT/double-time hours (field_adjusted names which one). 'bonus'/'deduction' mirror the PayrollAdjustment row created alongside this entry (field_adjusted is always 'amount' for those)."
+    },
+    "field_adjusted": {
+      "type": "string",
+      "description": "e.g. 'regular_hours', 'ot_hours', 'double_time_hours', or 'amount'."
+    },
+    "old_value": {
+      "type": "number",
+      "default": 0
+    },
+    "new_value": {
+      "type": "number",
+      "default": 0
+    },
+    "reason_note": {
+      "type": "string",
+      "description": "Mandatory human-entered explanation for the adjustment — no silent changes. This is the payroll-domain audit trail; AuditLog also captures the same PayrollLine/PayrollAdjustment write automatically at the field level (see localData.js), but doesn't carry a free-text reason."
+    },
+    "adjusted_by": {
+      "type": "string"
+    },
+    "adjusted_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "payroll_run_id",
+    "employee_id",
+    "adjustment_type",
+    "field_adjusted",
+    "reason_note"
+  ]
+}

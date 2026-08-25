@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { PlayCircle, AlertTriangle, Info, ShieldAlert, CheckCircle2, Lock, Undo2, ShieldCheck } from 'lucide-react';
+import { PlayCircle, AlertTriangle, Info, ShieldAlert, CheckCircle2, Lock, Undo2, ShieldCheck, Pencil, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -12,8 +13,12 @@ import { getEffectiveRule } from '@/lib/payrollRules';
 import { allocateLaborToJobs, calculateGrossPay, calculateTaxesAndDeductions, calculateEmployerTax, resolveEmployerTaxRules, resolveGLAccount } from '@/lib/payrollEngine';
 import { runPayrollControlChecks, isRunApprovable } from '@/lib/payrollControls';
 import { hasPayrollApprovalAccess, hasPayrollReopenAccess } from '@/lib/payrollApprovalAccess';
+import { hasPayrollAdjustmentAccess } from '@/lib/payrollAdjustmentAccess';
 import { queueCommissionsForPayroll, attachPendingCommissionPayoutsToRun, finalizeCommissionPayoutsForRun } from '@/lib/commissionEngine';
 import { logStatusChange } from '@/lib/statusHistory';
+
+const HOURS_FIELDS = ['regular_hours', 'ot_hours', 'double_time_hours'];
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 const titleCase = (s) => (s ? String(s).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : s);
@@ -36,6 +41,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
   const identity = user?.full_name || user?.email || 'Unknown';
   const canApprove = hasPayrollApprovalAccess(roles);
   const canReopen = hasPayrollReopenAccess(roles);
+  const canAdjust = hasPayrollAdjustmentAccess(roles);
 
   const [periodId, setPeriodId] = useState('');
   const [timecards, setTimecards] = useState([]);
@@ -48,6 +54,14 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
   const [savingAction, setSavingAction] = useState(false);
   const [reopenDialogOpen, setReopenDialogOpen] = useState(false);
   const [reopenReason, setReopenReason] = useState('');
+
+  const [editingLine, setEditingLine] = useState(null);
+  const [hoursForm, setHoursForm] = useState({ regular_hours: '', ot_hours: '', double_time_hours: '', reason: '' });
+  const [savingHoursEdit, setSavingHoursEdit] = useState(false);
+
+  const [addAdjustmentOpen, setAddAdjustmentOpen] = useState(false);
+  const [adjustmentForm, setAdjustmentForm] = useState({ employee_id: '', adjustment_type: 'bonus', amount: '', reason: '' });
+  const [savingAdjustment, setSavingAdjustment] = useState(false);
 
   useEffect(() => { load(); }, []);
   useEffect(() => { if (payPeriods.length > 0 && !periodId) setPeriodId(payPeriods[0].id); }, [payPeriods]);
@@ -295,7 +309,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
     setOverrideNotes({});
     try {
       const runPeriod = payPeriods.find((p) => p.id === run.pay_period_id) || null;
-      const [lines, employerTax, liabilities, journal, allProjects, allCostCodes, allTimeEntries, periodTimecards, allPayRates, adjustments] = await Promise.all([
+      const [lines, employerTax, liabilities, journal, allProjects, allCostCodes, allTimeEntries, periodTimecards, allPayRates, adjustments, allTaxWithholdings, allDeductions] = await Promise.all([
         db.entities.PayrollLine.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.EmployerTax.filter({ payroll_run_id: run.id }, '-created_date', 500),
         db.entities.PayrollLiability.filter({ payroll_run_id: run.id }, '-created_date', 100),
@@ -306,6 +320,8 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         db.entities.Timecard.filter({ pay_period_id: run.pay_period_id }, '-approved_at', 2000),
         db.entities.EmployeePayRate.list('-effective_date', 2000),
         db.entities.PayrollAdjustment.filter({ payroll_run_id: run.id }, '-created_date', 500),
+        db.entities.TaxWithholding.list('-effective_date', 2000),
+        db.entities.Deduction.list('priority_order', 2000),
       ]);
 
       const checkResults = runPeriod
@@ -323,7 +339,11 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
         : [];
 
       const commissionAdjustments = adjustments.filter((a) => a.adjustment_type === 'commission');
-      setRunDetail({ lines, employerTax, liabilities, journal, checkResults, commissionAdjustments });
+      const manualAdjustments = adjustments.filter((a) => a.adjustment_type !== 'commission');
+      setRunDetail({
+        lines, employerTax, liabilities, journal, checkResults, commissionAdjustments, manualAdjustments,
+        period: runPeriod, allPayRates, allTaxWithholdings, allDeductions,
+      });
     } catch (e) {
       toast({ title: 'Unable to load run detail', variant: 'destructive' });
     }
@@ -349,6 +369,161 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       toast({ title: 'Unable to save override', variant: 'destructive' });
     } finally {
       setSavingAction(false);
+    }
+  };
+
+  const openEditHours = (line) => {
+    setEditingLine(line);
+    setHoursForm({
+      regular_hours: String(line.regular_hours ?? 0),
+      ot_hours: String(line.ot_hours ?? 0),
+      double_time_hours: String(line.double_time_hours ?? 0),
+      reason: '',
+    });
+  };
+
+  // Recomputes gross/tax/deductions/net for one PayrollLine after a manual
+  // hours edit, using the same pure functions + inputs runPayroll() itself
+  // used to build the line originally — just re-run against the new hours
+  // instead of the timecard's original totals.
+  const handleSaveHoursEdit = async () => {
+    if (!editingLine || !runDetail) return;
+    const reason = hoursForm.reason.trim();
+    if (!reason) {
+      toast({ title: 'A reason is required to adjust hours', variant: 'destructive' });
+      return;
+    }
+    const nextValues = {
+      regular_hours: Number(hoursForm.regular_hours) || 0,
+      ot_hours: Number(hoursForm.ot_hours) || 0,
+      double_time_hours: Number(hoursForm.double_time_hours) || 0,
+    };
+    const changedFields = HOURS_FIELDS.filter((f) => round2(nextValues[f]) !== round2(editingLine[f]));
+    if (changedFields.length === 0) {
+      toast({ title: 'No changes to save' });
+      setEditingLine(null);
+      return;
+    }
+
+    setSavingHoursEdit(true);
+    try {
+      const employee = employees.find((e) => e.id === editingLine.employee_id);
+      const asOfDate = runDetail.period?.period_end || viewingRun.run_date;
+      const payRate = runDetail.allPayRates
+        .filter((r) => r.employee_id === editingLine.employee_id && r.effective_date <= asOfDate && (!r.end_date || r.end_date > asOfDate))
+        .sort((a, b) => b.effective_date.localeCompare(a.effective_date))[0] || null;
+      if (!payRate) {
+        toast({ title: 'Unable to recompute pay', description: 'No pay rate on file for this employee.', variant: 'destructive' });
+        return;
+      }
+
+      const gross = calculateGrossPay(
+        { total_regular_hours: nextValues.regular_hours, total_ot_hours: nextValues.ot_hours, total_double_time_hours: nextValues.double_time_hours },
+        payRate, payrollRules, { asOfDate, periodFrequency: runDetail.period?.frequency }
+      );
+
+      const activeWithholdings = runDetail.allTaxWithholdings.filter((w) => w.employee_id === editingLine.employee_id && w.effective_date <= asOfDate);
+      const latestByJurisdiction = new Map();
+      activeWithholdings.forEach((w) => {
+        const existing = latestByJurisdiction.get(w.jurisdiction);
+        if (!existing || w.effective_date > existing.effective_date) latestByJurisdiction.set(w.jurisdiction, w);
+      });
+      const activeDeductions = runDetail.allDeductions.filter((d) => d.employee_id === editingLine.employee_id && d.effective_date <= asOfDate && (!d.end_date || d.end_date >= asOfDate));
+      const netCalc = calculateTaxesAndDeductions(gross.grossPay, [...latestByJurisdiction.values()], activeDeductions);
+
+      const updatedLine = await db.entities.PayrollLine.update(editingLine.id, {
+        ...nextValues,
+        gross_pay: gross.grossPay,
+        deductions_total: netCalc.deductionsTotal,
+        tax_total: netCalc.taxTotal,
+        net_pay: netCalc.netPay,
+      });
+
+      const identityAt = new Date().toISOString();
+      await db.entities.AdjustmentLog.bulkCreate(changedFields.map((field) => ({
+        payroll_run_id: viewingRun.id,
+        employee_id: editingLine.employee_id,
+        adjustment_type: 'hours',
+        field_adjusted: field,
+        old_value: round2(editingLine[field]),
+        new_value: round2(nextValues[field]),
+        reason_note: reason,
+        adjusted_by: identity,
+        adjusted_date: identityAt,
+      })));
+
+      const otherLines = runDetail.lines.filter((l) => l.id !== editingLine.id);
+      const totalGross = round2(otherLines.reduce((s, l) => s + (Number(l.gross_pay) || 0), 0) + gross.grossPay);
+      const totalNet = round2(otherLines.reduce((s, l) => s + (Number(l.net_pay) || 0), 0) + netCalc.netPay);
+      const updatedRun = await db.entities.PayrollRun.update(viewingRun.id, { total_gross: totalGross, total_net: totalNet });
+
+      setRunDetail((prev) => ({ ...prev, lines: prev.lines.map((l) => (l.id === updatedLine.id ? updatedLine : l)) }));
+      setViewingRun(updatedRun);
+      setRuns((prev) => prev.map((r) => (r.id === updatedRun.id ? updatedRun : r)));
+      setEditingLine(null);
+      toast({ title: `Hours adjusted for ${employee?.full_name || editingLine.employee_id}`, description: changedFields.map((f) => f.replace(/_/g, ' ')).join(', ') });
+    } catch (e) {
+      console.error(e);
+      toast({ title: 'Unable to save hours adjustment', variant: 'destructive' });
+    } finally {
+      setSavingHoursEdit(false);
+    }
+  };
+
+  const openAddAdjustment = () => {
+    setAdjustmentForm({ employee_id: '', adjustment_type: 'bonus', amount: '', reason: '' });
+    setAddAdjustmentOpen(true);
+  };
+
+  const handleSaveAdjustment = async () => {
+    const amount = Math.abs(Number(adjustmentForm.amount) || 0);
+    const reason = adjustmentForm.reason.trim();
+    if (!adjustmentForm.employee_id || amount <= 0) {
+      toast({ title: 'Select an employee and enter a non-zero amount', variant: 'destructive' });
+      return;
+    }
+    if (!reason) {
+      toast({ title: 'A reason is required to add an adjustment', variant: 'destructive' });
+      return;
+    }
+    setSavingAdjustment(true);
+    try {
+      const signedAmount = adjustmentForm.adjustment_type === 'deduction' ? -amount : amount;
+      const createdAdjustment = await db.entities.PayrollAdjustment.create({
+        payroll_run_id: viewingRun.id,
+        employee_id: adjustmentForm.employee_id,
+        adjustment_type: adjustmentForm.adjustment_type,
+        amount: signedAmount,
+        reason,
+        created_by: identity,
+      });
+      await db.entities.AdjustmentLog.create({
+        payroll_run_id: viewingRun.id,
+        employee_id: adjustmentForm.employee_id,
+        adjustment_type: adjustmentForm.adjustment_type,
+        field_adjusted: 'amount',
+        old_value: 0,
+        new_value: signedAmount,
+        reason_note: reason,
+        adjusted_by: identity,
+        adjusted_date: new Date().toISOString(),
+      });
+
+      const updatedRun = await db.entities.PayrollRun.update(viewingRun.id, {
+        total_gross: round2((Number(viewingRun.total_gross) || 0) + (adjustmentForm.adjustment_type === 'bonus' ? amount : 0)),
+        total_net: round2((Number(viewingRun.total_net) || 0) + signedAmount),
+      });
+
+      setRunDetail((prev) => ({ ...prev, manualAdjustments: [createdAdjustment, ...prev.manualAdjustments] }));
+      setViewingRun(updatedRun);
+      setRuns((prev) => prev.map((r) => (r.id === updatedRun.id ? updatedRun : r)));
+      setAddAdjustmentOpen(false);
+      toast({ title: `${titleCase(adjustmentForm.adjustment_type)} added — ${money(amount)}` });
+    } catch (e) {
+      console.error(e);
+      toast({ title: 'Unable to save adjustment', variant: 'destructive' });
+    } finally {
+      setSavingAdjustment(false);
     }
   };
 
@@ -555,7 +730,14 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
               </div>
 
               <div>
-                <h4 className="text-sm font-semibold mb-2">Payroll Lines</h4>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-semibold">Payroll Lines</h4>
+                  {viewingRun?.status === 'review' && canAdjust && (
+                    <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={openAddAdjustment}>
+                      <Plus className="w-3.5 h-3.5" />Add Adjustment
+                    </Button>
+                  )}
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -567,6 +749,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
                         <th className="text-right py-1.5 pr-3">Tax</th>
                         <th className="text-right py-1.5 pr-3">Deductions</th>
                         <th className="text-right py-1.5 pr-3">Net</th>
+                        {viewingRun?.status === 'review' && canAdjust && <th className="text-right py-1.5 pl-3">&nbsp;</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -579,6 +762,13 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
                           <td className="py-1.5 pr-3 text-right font-mono">{money(l.tax_total)}</td>
                           <td className="py-1.5 pr-3 text-right font-mono">{money(l.deductions_total)}</td>
                           <td className="py-1.5 pr-3 text-right font-mono font-semibold">{money(l.net_pay)}</td>
+                          {viewingRun?.status === 'review' && canAdjust && (
+                            <td className="py-1.5 pl-3 text-right">
+                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => openEditHours(l)} title="Adjust hours">
+                                <Pencil className="w-3.5 h-3.5" />
+                              </Button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -593,6 +783,20 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
                     {runDetail.commissionAdjustments.map((a) => (
                       <div key={a.id} className="flex justify-between border-b border-border/50 py-1" title={a.reason}>
                         <span className="text-muted-foreground">{employeeName(a.employee_id)}</span>
+                        <span className="font-mono">{money(a.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {runDetail.manualAdjustments.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Manual Adjustments</h4>
+                  <div className="space-y-1 text-sm">
+                    {runDetail.manualAdjustments.map((a) => (
+                      <div key={a.id} className="flex justify-between border-b border-border/50 py-1" title={a.reason}>
+                        <span className="text-muted-foreground">{employeeName(a.employee_id)} — {titleCase(a.adjustment_type)}<span className="text-xs italic ml-1">"{a.reason}"</span></span>
                         <span className="font-mono">{money(a.amount)}</span>
                       </div>
                     ))}
@@ -623,6 +827,77 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingLine} onOpenChange={(o) => !o && setEditingLine(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Adjust Hours — {editingLine ? employeeName(editingLine.employee_id) : ''}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs">Regular</Label>
+                <Input type="number" step="0.01" value={hoursForm.regular_hours} onChange={(e) => setHoursForm((f) => ({ ...f, regular_hours: e.target.value }))} className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Overtime</Label>
+                <Input type="number" step="0.01" value={hoursForm.ot_hours} onChange={(e) => setHoursForm((f) => ({ ...f, ot_hours: e.target.value }))} className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Double Time</Label>
+                <Input type="number" step="0.01" value={hoursForm.double_time_hours} onChange={(e) => setHoursForm((f) => ({ ...f, double_time_hours: e.target.value }))} className="mt-1" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Reason (required)</Label>
+              <Textarea value={hoursForm.reason} onChange={(e) => setHoursForm((f) => ({ ...f, reason: e.target.value }))} placeholder="e.g. Correcting manual entry, worked past cutoff" rows={2} className="mt-1" />
+            </div>
+            <p className="text-xs text-muted-foreground">Gross, tax, deductions, and net pay recalculate from the new hours. This is logged to the Adjustment Log with your name, the reason, and the old/new value of every field you change.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingLine(null)}>Cancel</Button>
+            <Button onClick={handleSaveHoursEdit} disabled={savingHoursEdit || !hoursForm.reason.trim()} className="steel-gradient text-white border-0">{savingHoursEdit ? 'Saving…' : 'Save Adjustment'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addAdjustmentOpen} onOpenChange={setAddAdjustmentOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Adjustment</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Employee</Label>
+              <Select value={adjustmentForm.employee_id} onValueChange={(v) => setAdjustmentForm((f) => ({ ...f, employee_id: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select an employee" /></SelectTrigger>
+                <SelectContent>{employees.map((e) => <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Type</Label>
+                <Select value={adjustmentForm.adjustment_type} onValueChange={(v) => setAdjustmentForm((f) => ({ ...f, adjustment_type: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bonus">Bonus</SelectItem>
+                    <SelectItem value="deduction">Deduction</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Amount</Label>
+                <Input type="number" step="0.01" min="0" value={adjustmentForm.amount} onChange={(e) => setAdjustmentForm((f) => ({ ...f, amount: e.target.value }))} className="mt-1" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Reason (required)</Label>
+              <Textarea value={adjustmentForm.reason} onChange={(e) => setAdjustmentForm((f) => ({ ...f, reason: e.target.value }))} placeholder="Why is this adjustment being made?" rows={2} className="mt-1" />
+            </div>
+            <p className="text-xs text-muted-foreground">A bonus adds to gross and net pay. A deduction reduces net pay only. Logged to the Adjustment Log with your name and this reason.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddAdjustmentOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveAdjustment} disabled={savingAdjustment || !adjustmentForm.reason.trim()} className="steel-gradient text-white border-0">{savingAdjustment ? 'Saving…' : 'Save Adjustment'}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

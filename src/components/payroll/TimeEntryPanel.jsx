@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Plus } from 'lucide-react';
+import { Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/lib/AuthContext';
 import { computeTimeEntryHours } from '@/lib/payrollEngine';
 
 const ENTRY_TYPES = ['regular', 'pto', 'holiday'];
@@ -24,6 +25,8 @@ const emptyForm = () => ({
 // per-day/per-shift grain rather than raw punch events.
 export default function TimeEntryPanel({ employees, projects, costCodes, payPeriods = [] }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const identity = user?.full_name || user?.email || 'Unknown';
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -31,22 +34,42 @@ export default function TimeEntryPanel({ employees, projects, costCodes, payPeri
   const [saving, setSaving] = useState(false);
   const [employeeFilter, setEmployeeFilter] = useState('all');
   const [lockedPeriodIds, setLockedPeriodIds] = useState(new Set());
+  const [punchNotes, setPunchNotes] = useState([]);
 
   useEffect(() => { load(); }, []);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [te, lockedRuns] = await Promise.all([
+      const [te, lockedRuns, punches] = await Promise.all([
         db.entities.TimeEntry.list('-work_date', 3000),
         db.entities.PayrollRun.filter({ status: 'locked' }, '-run_date', 200),
+        db.entities.attendance_punches.list('-punch_time', 1000),
       ]);
       setEntries(te);
       setLockedPeriodIds(new Set(lockedRuns.map((r) => r.pay_period_id)));
+      setPunchNotes(punches.filter((p) => p.note));
     } catch (e) {
       toast({ title: 'Unable to load time entries', variant: 'destructive' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Kiosk punch notes are informational for payroll_admin/admin unless the
+  // employee added/edited one after the punch's own date fell into an
+  // already-locked pay period (attendance_punches.note_added_after_cutoff) —
+  // those need an explicit acknowledgment before they're considered reviewed.
+  const handleApprovePunchNote = async (punch) => {
+    try {
+      const updated = await db.entities.attendance_punches.update(punch.id, {
+        note_reviewed_by: identity,
+        note_reviewed_at: new Date().toISOString(),
+      });
+      setPunchNotes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      toast({ title: 'Punch note reviewed' });
+    } catch (e) {
+      toast({ title: 'Unable to save review', variant: 'destructive' });
     }
   };
 
@@ -118,6 +141,44 @@ export default function TimeEntryPanel({ employees, projects, costCodes, payPeri
         </Select>
         <Button className="gap-2 steel-gradient text-white border-0" onClick={openAdd}><Plus className="w-4 h-4" />Add Time Entry</Button>
       </div>
+
+      {punchNotes.length > 0 && (
+        <div className="steel-card p-4">
+          <h4 className="font-semibold text-sm mb-2">Kiosk Punch Notes</h4>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {[...punchNotes]
+              .sort((a, b) => (a.note_added_after_cutoff && !a.note_reviewed_by ? -1 : 1) - (b.note_added_after_cutoff && !b.note_reviewed_by ? -1 : 1) || (b.punch_time || '').localeCompare(a.punch_time || ''))
+              .slice(0, 30)
+              .map((p) => {
+                const needsReview = p.note_added_after_cutoff && !p.note_reviewed_by;
+                return (
+                  <div key={p.id} className="flex items-start justify-between gap-3 border-b border-border/50 pb-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-medium">{employeeName(p.employee_id)}</span>
+                        <span className="text-xs text-muted-foreground">{new Date(p.punch_time).toLocaleString()} · {p.punch_type?.replace('_', ' ')}</span>
+                        {needsReview && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 font-medium">
+                            <AlertCircle className="w-3 h-3" />After cutoff — needs review
+                          </span>
+                        )}
+                        {!needsReview && p.note_reviewed_by && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-700 font-medium">
+                            <CheckCircle2 className="w-3 h-3" />Reviewed by {p.note_reviewed_by}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground italic mt-0.5 truncate">"{p.note}"</p>
+                    </div>
+                    {needsReview && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs flex-shrink-0" onClick={() => handleApprovePunchNote(p)}>Approve</Button>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       <div className="steel-card overflow-hidden">
         <div className="overflow-x-auto">

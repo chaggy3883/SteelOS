@@ -13,14 +13,16 @@
     },
     "adjustment_type": {
       "type": "string",
-      "enum": ["bonus", "reimbursement", "correction", "commission", "other"]
+      "enum": ["bonus", "deduction", "reimbursement", "correction", "commission", "other"],
+      "description": "'deduction' is stored as a negative amount (see checkNegativeOrManualAdjustments in payrollControls.js, which already flags any negative amount for review) and reduces total_net only, not total_gross — it's a post-tax reduction, not a reduction of gross wages."
     },
     "amount": {
       "type": "number",
       "default": 0
     },
     "reason": {
-      "type": "string"
+      "type": "string",
+      "description": "Mandatory for a manually-entered bonus/deduction (enforced in PayrollRunPanel.jsx) — no silent adjustments."
     },
     "created_by": {
       "type": "string"
@@ -30,6 +32,7 @@
     "payroll_run_id",
     "employee_id",
     "adjustment_type",
-    "amount"
+    "amount",
+    "reason"
   ]
 }
