@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import { computeEffectiveTaxRate, getJoistDeckTaxRate } from '@/lib/taxRate';
+import { computeEffectiveTaxRate, getJoistDeckTaxRate, buildTaxRateInput, getTaxDisplayLabel } from '@/lib/taxRate';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
@@ -47,7 +47,7 @@ export const COST_CATEGORIES = [
   { key: 'galvanizing', label: 'Galvanizing', unit: 'tons' },
   { key: 'galvanizing_delivery', label: 'Galvanizing Delivery', unit: 'ea', qtyLabel: 'Qty', rateLabel: 'Rate/Each' },
   { key: 'steel_rolling', label: 'Steel Rolling', unit: 'tons' },
-  { key: 'joist_deck', label: 'Joist & Deck', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount' },
+  { key: 'joist_deck', label: 'Joist & Deck', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', is_taxable: false },
   { key: 'anchor_bolts', label: 'Anchor Bolts', unit: 'ea' },
   { key: 'shop_priming', label: 'Shop Priming', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Shop Rate/Hr' },
   { key: 'primer_paint', label: 'Primer (Paint)', unit: 'gal', inputMode: 'coverage', qtyLabel: 'Sq. Ft.', rateLabel: 'Price/Gallon' },
@@ -58,8 +58,8 @@ export const COST_CATEGORIES = [
   { key: 'misc_fab_structural', label: 'Misc. Fab - Structural Shaping', unit: 'hrs', qtyLabel: 'Fab Hours', rateLabel: 'Fab Hourly Rate' },
   { key: 'misc_fab_processing', label: 'Misc. Fab - Processing', unit: 'hrs', qtyLabel: 'Processing Hours', rateLabel: 'Processing Rate' },
   { key: 'misc_material', label: 'Misc. Material', unit: 'ea' },
-  { key: 'steel_erection', label: 'Steel Erection', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount' },
-  { key: 'outsourced_misc_material_erection', label: 'Outsourced Misc. Material & Erection', unit: 'lot' },
+  { key: 'steel_erection', label: 'Steel Erection', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', is_taxable: false },
+  { key: 'outsourced_misc_material_erection', label: 'Outsourced Misc. Material & Erection', unit: 'lot', is_taxable: false },
   { key: 'erection_labor_hours', label: 'Erection Labor Hours', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Field Rate/Hr' },
   { key: 'crane_rental', label: 'Crane Rental', unit: 'lot', inputMode: 'flat', priceLabel: 'Quote Amount' },
   { key: 'mobilization', label: 'Mobilization', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price' },
@@ -96,6 +96,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const [insuranceEnabled, setInsuranceEnabled] = useState(bid?.insurance_enabled ?? false);
   const [bondEnabled, setBondEnabled] = useState(bid?.bond_enabled ?? true);
   const [joistDeckTaxable, setJoistDeckTaxable] = useState(bid?.joist_deck_taxable ?? false);
+  const [taxInfo, setTaxInfo] = useState({ rate: 0, source: 'manual_entry', effective_date: null, tax_zone_id: null });
+  const [taxLabel, setTaxLabel] = useState('Sales Tax');
   const [dirty, setDirty] = useState(false);
   const [editingCoverageKey, setEditingCoverageKey] = useState(null);
   const [inclusions, setInclusions] = useState(bid?.inclusions || '');
@@ -179,6 +181,31 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
 
   useEffect(() => { loadLines(); }, [bid?.id]);
 
+  // Recomputes the effective tax rate (jurisdiction table first, Ohio
+  // hardcoded fallback second, manual entry last) live as the bid's address
+  // or tax settings change — computeEffectiveTaxRate is async because it now
+  // queries the real TaxRate table, so this can't be computed inline during
+  // render like it used to be.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const info = await computeEffectiveTaxRate(buildTaxRateInput(bid));
+      if (cancelled) return;
+      setTaxInfo(info);
+      const label = await getTaxDisplayLabel({
+        tax_exempt: bid?.tax_exempt,
+        tax_exempt_reason: bid?.tax_exempt_reason,
+        tax_rate_source: info.source,
+        tax_zone_id: info.tax_zone_id,
+        state: bid?.state,
+        job_state: bid?.job_state,
+        tax_enabled: bid?.tax_enabled,
+      });
+      if (!cancelled) setTaxLabel(label);
+    })();
+    return () => { cancelled = true; };
+  }, [bid?.id, bid?.zip, bid?.street, bid?.state, bid?.job_state, bid?.tax_enabled, bid?.tax_rate, bid?.tax_exempt, bid?.tax_exempt_reason]);
+
   useEffect(() => {
     setInclusions(bid?.inclusions || '');
     setExclusions(bid?.exclusions || '');
@@ -256,14 +283,18 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const subtotal = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0), 0);
   const overrideTotal = ['insurance', 'bond', 'procore_pay', 'textura'].reduce((s, k) => s + (parseFloat(overrides[k]) || 0), 0);
   const grandTotal = subtotal + overrideTotal;
-  const calculatedTaxRate = computeEffectiveTaxRate(bid);
+  const calculatedTaxRate = taxInfo.rate;
   const joistDeckTaxRate = getJoistDeckTaxRate(bid);
-  const ERECTION_CATEGORIES = ['steel_erection', 'outsourced_misc_material_erection'];
+  // Taxable/non-taxable is a data flag on COST_CATEGORIES (is_taxable, default
+  // true) rather than a hardcoded category-key list — steel_erection,
+  // outsourced_misc_material_erection, and joist_deck are the only categories
+  // flagged is_taxable: false today, matching the exact set this replaces.
   const structuralTaxAmount = Object.entries(lines).reduce((sum, [categoryKey, line]) => {
-    if (ERECTION_CATEGORIES.includes(categoryKey) || categoryKey === 'joist_deck') return sum;
+    const cat = COST_CATEGORIES.find((c) => c.key === categoryKey);
+    if (cat?.is_taxable === false) return sum;
     return sum + Number(line?.total_cost || 0) * calculatedTaxRate;
   }, 0);
-  const joistDeckTaxAmount = joistDeckTaxable ? Number(lines['joist_deck']?.total_cost || 0) * joistDeckTaxRate : 0;
+  const joistDeckTaxAmount = joistDeckTaxable && !bid?.tax_exempt ? Number(lines['joist_deck']?.total_cost || 0) * joistDeckTaxRate : 0;
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
   const bondAmount = (() => {
     const contractValue = Math.max(0, subtotal + overrideTotal);
@@ -330,6 +361,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       await Promise.all(ops);
       const freshBid = await db.entities.Bid.get(bid.id);
       const deliveryJobCostEntryId = await postDeliveryJobCostEntry();
+      const freshTaxInfo = await computeEffectiveTaxRate(buildTaxRateInput(freshBid));
       await db.entities.Bid.update(bid.id, {
         bid_total_cost: totalWithTax,
         inclusions,
@@ -345,7 +377,10 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         procore_pay_override: parseFloat(overrides.procore_pay) || null,
         textura_override: parseFloat(overrides.textura) || null,
         leed_level_override: overrides.leed_level || null,
-        tax_rate: computeEffectiveTaxRate(freshBid),
+        tax_rate: freshTaxInfo.rate,
+        tax_rate_source: freshTaxInfo.source,
+        tax_rate_effective_date: freshTaxInfo.effective_date,
+        tax_zone_id: freshTaxInfo.tax_zone_id,
         tax_enabled: !!freshBid?.tax_enabled,
         delivery_distance_miles: deliveryDistance,
         delivery_trip_count: parseFloat(deliveryTripCount) || 1,
@@ -674,10 +709,13 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             <span>Delivery Cost{deliveryCostCode && <span className="text-xs text-muted-foreground"> ({deliveryCostCode})</span>}</span>
             <span className="font-mono">${deliveryTotalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
-          <div className="flex justify-between text-sm"><span>Hancock County Tax ({(calculatedTaxRate * 100).toFixed(2)}%)</span><span className="font-mono">${structuralTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
           <div className="flex justify-between text-sm">
-            <span>Joist &amp; Deck Tax{joistDeckTaxable ? ` (${(joistDeckTaxRate * 100).toFixed(2)}%)` : ''}</span>
-            {joistDeckTaxable ? (
+            <span>{bid?.tax_exempt ? taxLabel : `${taxLabel} (${(calculatedTaxRate * 100).toFixed(2)}%)`}</span>
+            <span className="font-mono">${structuralTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span>Joist &amp; Deck Tax{joistDeckTaxable && !bid?.tax_exempt ? ` (${(joistDeckTaxRate * 100).toFixed(2)}%)` : ''}</span>
+            {joistDeckTaxable && !bid?.tax_exempt ? (
               <span className="font-mono">${joistDeckTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             ) : (
               <span className="text-xs text-muted-foreground">Tax Exempt</span>

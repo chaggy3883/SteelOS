@@ -22,7 +22,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Switch } from '@/components/ui/switch';
 import FullTakeoff from '@/components/estimating/FullTakeoff';
 import TmEstimateWorksheet from '@/components/estimating/TmEstimateWorksheet';
-import { computeEffectiveTaxRate, HANCOCK_COUNTY_TAX_RATE, TAX_RATE_PATTERN, formatTaxRatePercent, sanitizeTaxRateInput } from '@/lib/taxRate';
+import { computeEffectiveTaxRate, buildTaxRateInput, HANCOCK_COUNTY_TAX_RATE, TAX_RATE_PATTERN, formatTaxRatePercent, sanitizeTaxRateInput } from '@/lib/taxRate';
 import { runBidReviewSkill } from '@/lib/aiReviewSkills';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { getBidHoldDays } from '@/lib/bidPricingHold';
@@ -58,7 +58,8 @@ export default function BidDetail() {
   const [showDnbModal, setShowDnbModal] = useState(false);
   const [lossForm, setLossForm] = useState({ reason: '', notes: '', competitor: '' });
   const [savingLoss, setSavingLoss] = useState(false);
-  const [baseInfo, setBaseInfo] = useState({ street: '', city: '', state: '', zip: '', tax_enabled: false, tax_rate: 0, joist_deck_tax_rate: HANCOCK_COUNTY_TAX_RATE, local_server_path: '' });
+  const [baseInfo, setBaseInfo] = useState({ street: '', city: '', state: '', zip: '', tax_enabled: false, tax_rate: 0, joist_deck_tax_rate: HANCOCK_COUNTY_TAX_RATE, tax_exempt: false, tax_exempt_reason: '', local_server_path: '' });
+  const [effectiveTaxInfo, setEffectiveTaxInfo] = useState({ rate: 0, source: 'manual_entry', effective_date: null, tax_zone_id: null });
   const [taxRateText, setTaxRateText] = useState('');
   const [joistDeckTaxRateText, setJoistDeckTaxRateText] = useState(formatTaxRatePercent(HANCOCK_COUNTY_TAX_RATE));
   const [savingBaseInfo, setSavingBaseInfo] = useState(false);
@@ -87,6 +88,8 @@ export default function BidDetail() {
         tax_enabled: bid.tax_enabled ?? false,
         tax_rate: bid.tax_rate ?? 0,
         joist_deck_tax_rate: bid.joist_deck_tax_rate ?? HANCOCK_COUNTY_TAX_RATE,
+        tax_exempt: bid.tax_exempt ?? false,
+        tax_exempt_reason: bid.tax_exempt_reason || '',
         local_server_path: bid.local_server_path || '',
       });
       setTaxRateText(formatTaxRatePercent(bid.tax_rate));
@@ -94,6 +97,16 @@ export default function BidDetail() {
       setBaseInfoDirty(false);
     }
   }, [bid]);
+
+  // Live preview of what Save would compute — jurisdiction table first, Ohio
+  // hardcoded fallback second, manual entry last — recomputed as the address
+  // or tax settings are edited. This does NOT touch bid.tax_rate; only
+  // handleBaseInfoSave's explicit Save actually writes/snapshots it.
+  useEffect(() => {
+    let cancelled = false;
+    computeEffectiveTaxRate(buildTaxRateInput(baseInfo)).then((info) => { if (!cancelled) setEffectiveTaxInfo(info); });
+    return () => { cancelled = true; };
+  }, [baseInfo.zip, baseInfo.street, baseInfo.state, baseInfo.tax_enabled, baseInfo.tax_rate, baseInfo.tax_exempt]);
 
   const updateBaseInfo = (field, value) => {
     setBaseInfo((prev) => ({ ...prev, [field]: value }));
@@ -287,18 +300,26 @@ export default function BidDetail() {
   const handleBaseInfoSave = async () => {
     setSavingBaseInfo(true);
     try {
-      const computedTaxRate = computeEffectiveTaxRate({
+      const computedTaxInfo = await computeEffectiveTaxRate(buildTaxRateInput({
+        zip: baseInfo.zip,
+        street: baseInfo.street,
         state: baseInfo.state,
         tax_enabled: baseInfo.tax_enabled,
         tax_rate: baseInfo.tax_rate || bid?.tax_rate,
-      });
+        tax_exempt: baseInfo.tax_exempt,
+      }));
       await db.entities.Bid.update(id, {
         street: baseInfo.street,
         city: baseInfo.city,
         state: baseInfo.state,
         zip: baseInfo.zip,
         tax_enabled: baseInfo.tax_enabled,
-        tax_rate: computedTaxRate,
+        tax_rate: computedTaxInfo.rate,
+        tax_rate_source: computedTaxInfo.source,
+        tax_rate_effective_date: computedTaxInfo.effective_date,
+        tax_zone_id: computedTaxInfo.tax_zone_id,
+        tax_exempt: baseInfo.tax_exempt,
+        tax_exempt_reason: baseInfo.tax_exempt_reason,
         joist_deck_tax_rate: Number(baseInfo.joist_deck_tax_rate ?? HANCOCK_COUNTY_TAX_RATE),
         job_city: baseInfo.city,
         job_state: baseInfo.state,
@@ -398,12 +419,6 @@ export default function BidDetail() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [baseInfoDirty]);
 
-  const effectiveTaxRate = computeEffectiveTaxRate({
-    state: baseInfo.state,
-    tax_enabled: baseInfo.tax_enabled,
-    tax_rate: baseInfo.tax_rate || bid?.tax_rate,
-  });
-
   if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
   if (!bid) return <div className="p-6 text-center text-muted-foreground">Bid not found.</div>;
 
@@ -479,7 +494,7 @@ export default function BidDetail() {
           { label: 'Bid Total', value: bid.bid_total_cost ? `$${bid.bid_total_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—' },
           { label: 'Est. Tons', value: bid.estimated_tons?.toLocaleString() || '—' },
           { label: 'Est. Man-Hrs', value: bid.estimated_man_hours?.toLocaleString() || '—' },
-          { label: 'Tax Rate', value: `${(effectiveTaxRate * 100).toFixed(2)}%` },
+          { label: 'Tax Rate', value: baseInfo.tax_exempt ? 'Exempt' : `${(effectiveTaxInfo.rate * 100).toFixed(2)}%` },
           { label: 'Due Date', value: bid.bid_due_date || '—' },
         ].map(({ label, value }) => (
           <div key={label} className="steel-card p-3">
@@ -530,6 +545,14 @@ export default function BidDetail() {
           <div>
             <Label>ZIP</Label>
             <Input value={baseInfo.zip} onChange={(e) => updateBaseInfo('zip', e.target.value)} className="mt-1" placeholder="45840" />
+            {!baseInfo.tax_exempt && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Effective tax rate for this address: {(effectiveTaxInfo.rate * 100).toFixed(2)}%
+                {' '}({effectiveTaxInfo.source === 'jurisdiction_table' ? 'jurisdiction table match'
+                  : effectiveTaxInfo.source === 'ohio_hardcoded_fallback' ? 'Ohio/Hancock County fallback'
+                  : 'manually entered'})
+              </p>
+            )}
           </div>
           <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-border p-3">
             <div>
@@ -538,7 +561,20 @@ export default function BidDetail() {
             </div>
             <Switch checked={baseInfo.tax_enabled} onCheckedChange={(checked) => updateBaseInfo('tax_enabled', checked)} />
           </div>
-          {baseInfo.tax_enabled && (
+          <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-border p-3">
+            <div>
+              <p className="text-sm font-medium">Tax Exempt</p>
+              <p className="text-xs text-muted-foreground">Overrides every other tax path to $0 — government project, resale certificate, etc.</p>
+            </div>
+            <Switch checked={baseInfo.tax_exempt} onCheckedChange={(checked) => updateBaseInfo('tax_exempt', checked)} />
+          </div>
+          {baseInfo.tax_exempt && (
+            <div className="md:col-span-2">
+              <Label>Tax Exempt Reason</Label>
+              <Input value={baseInfo.tax_exempt_reason} onChange={(e) => updateBaseInfo('tax_exempt_reason', e.target.value)} className="mt-1" placeholder='e.g. "Government project" or "Resale certificate #1234"' />
+            </div>
+          )}
+          {baseInfo.tax_enabled && !baseInfo.tax_exempt && (
             <div className="md:col-span-2">
               <Label>Tax Rate (%)</Label>
               <div className="relative mt-1">

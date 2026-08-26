@@ -120,6 +120,35 @@
       "type": "string",
       "description": "Uploaded tax exemption certificate file reference (base64 data URI), shown when the bid is tax exempt."
     },
+    "tax_exempt": {
+      "type": "boolean",
+      "default": false,
+      "description": "Minimum-viable exemption flag (government project, resale certificate, etc.) — see tax_exempt_reason. When true, computeEffectiveTaxRate always returns 0 regardless of jurisdiction/Ohio-fallback/manual tax_rate. Not a full exemption-certificate tracking system (no expiration/renewal) — see tax_exempt_certificate_uri for the existing document-upload path this is independent of."
+    },
+    "tax_exempt_reason": {
+      "type": "string",
+      "description": "Free text explaining the tax_exempt flag, e.g. \"Government project\" or \"Resale certificate #1234\". Shown on the proposal in place of a tax rate/amount when tax_exempt is true."
+    },
+    "tax_rate_source": {
+      "type": "string",
+      "enum": [
+        "jurisdiction_table",
+        "ohio_hardcoded_fallback",
+        "manual_entry",
+        "tax_exempt"
+      ],
+      "default": "manual_entry",
+      "description": "Which calculation path produced tax_rate at the time it was last calculated and saved (TakeoffEngine.jsx's handleSave, or BidDetail.jsx's Base Info save) — snapshotted so it's always clear which of the consolidated tax paths produced this bid's number, and so later admin-side rate changes don't retroactively relabel historical bids."
+    },
+    "tax_rate_effective_date": {
+      "type": "string",
+      "format": "date",
+      "description": "The effective_date of the TaxRate row used, when tax_rate_source is 'jurisdiction_table'. Null for the other sources."
+    },
+    "tax_zone_id": {
+      "type": "string",
+      "description": "FK to the specific TaxRate row used when tax_rate_source is 'jurisdiction_table' — snapshotted at calculation time so this bid stays traceable to the exact jurisdiction row, even after that ZIP's rate is later superseded by a new row."
+    },
     "paint_gallons": {
       "type": "number",
       "default": 0

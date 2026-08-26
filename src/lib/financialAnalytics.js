@@ -1,19 +1,25 @@
 import { db } from '@/api/apiClient';
-import { computeEffectiveTaxRate, getJoistDeckTaxRate } from '@/lib/taxRate';
+import { getJoistDeckTaxRate } from '@/lib/taxRate';
 
 const ERECTION_CATEGORIES = ['steel_erection', 'outsourced_misc_material_erection', 'erection_labor_hours', 'crane_rental', 'mobilization', 'field_rigging'];
 
 // Shared with BidProposalPrintView.jsx so the structural-vs-Joist & Deck tax
 // split is computed identically everywhere it's shown, instead of drifting
-// across separate copies of the same math.
+// across separate copies of the same math. Reads bid.tax_rate directly
+// (the value already snapshotted at calculation time by TakeoffEngine.jsx's
+// handleSave / BidDetail.jsx's Base Info save) rather than recomputing via
+// computeEffectiveTaxRate — recomputing here would defeat the whole point of
+// snapshotting: a later jurisdiction rate change in Admin would silently
+// change the tax shown on an already-calculated bid's proposal/analytics
+// every time this function ran, instead of only on its next real recalculation.
 export function computeBidTaxBreakdown(bid, lines) {
-  const taxRate = computeEffectiveTaxRate(bid);
+  const taxRate = Number(bid?.tax_rate || 0);
   const joistDeckTaxRate = getJoistDeckTaxRate(bid);
-  const structuralTaxAmount = lines.reduce((s, l) => {
+  const structuralTaxAmount = bid?.tax_exempt ? 0 : lines.reduce((s, l) => {
     if (ERECTION_CATEGORIES.includes(l.cost_category) || l.cost_category === 'joist_deck') return s;
     return s + (l.total_cost || 0) * taxRate;
   }, 0);
-  const joistDeckTaxAmount = lines
+  const joistDeckTaxAmount = bid?.tax_exempt ? 0 : lines
     .filter((l) => l.cost_category === 'joist_deck')
     .reduce((s, l) => s + (l.total_cost || 0), 0) * joistDeckTaxRate;
   return { taxRate, joistDeckTaxRate, structuralTaxAmount, joistDeckTaxAmount };

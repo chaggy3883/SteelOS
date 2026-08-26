@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { computeBidTaxBreakdown } from '@/lib/financialAnalytics';
+import { getTaxDisplayLabel } from '@/lib/taxRate';
 import { getActiveTemplate, isColumnVisible } from '@/lib/reportTemplates';
 
 const ERECTION_CATEGORIES = ['steel_erection', 'outsourced_misc_material_erection', 'erection_labor_hours', 'crane_rental', 'mobilization', 'field_rigging'];
@@ -9,6 +10,7 @@ export default function BidProposalPrintView({ bid }) {
   const [lines, setLines] = useState([]);
   const [companyLogoUrl, setCompanyLogoUrl] = useState(null);
   const [template, setTemplate] = useState(null);
+  const [taxLabel, setTaxLabel] = useState('Sales Tax');
 
   useEffect(() => {
     if (!bid?.id) return;
@@ -17,7 +19,12 @@ export default function BidProposalPrintView({ bid }) {
     // Fails open: no active template means every line shows, same as before
     // this feature existed.
     getActiveTemplate('proposal').then(setTemplate).catch(() => setTemplate(null));
-  }, [bid?.id]);
+    // Reads bid.tax_rate_source/tax_zone_id (the snapshot) rather than
+    // recomputing live, so this never shows a specific Ohio county's name for
+    // a job that isn't actually in that jurisdiction, and never relabels a
+    // historical bid just because a jurisdiction rate changed since.
+    getTaxDisplayLabel(bid).then(setTaxLabel).catch(() => setTaxLabel('Sales Tax'));
+  }, [bid?.id, bid?.tax_exempt, bid?.tax_exempt_reason, bid?.tax_rate_source, bid?.tax_zone_id]);
 
   const sum = (keys) => lines.filter((l) => keys.includes(l.cost_category)).reduce((s, l) => s + (l.total_cost || 0), 0);
 
@@ -87,8 +94,13 @@ export default function BidProposalPrintView({ bid }) {
           )}
           {isColumnVisible(template, 'show_tax_breakdown') && (
             <>
-              <tr className="border-b border-gray-200"><td className="py-2">Hancock County Tax ({(taxRate * 100).toFixed(2)}%)</td><td className="py-2 text-right font-mono">{fmt(structuralTaxAmount)}</td></tr>
-              <tr className="border-b border-gray-200"><td className="py-2">Joist &amp; Deck Tax ({(joistDeckTaxRate * 100).toFixed(2)}%)</td><td className="py-2 text-right font-mono">{fmt(joistDeckTaxAmount)}</td></tr>
+              <tr className="border-b border-gray-200">
+                <td className="py-2">{bid.tax_exempt ? taxLabel : `${taxLabel} (${(taxRate * 100).toFixed(2)}%)`}</td>
+                <td className="py-2 text-right font-mono">{fmt(structuralTaxAmount)}</td>
+              </tr>
+              {!bid.tax_exempt && (
+                <tr className="border-b border-gray-200"><td className="py-2">Joist &amp; Deck Tax ({(joistDeckTaxRate * 100).toFixed(2)}%)</td><td className="py-2 text-right font-mono">{fmt(joistDeckTaxAmount)}</td></tr>
+              )}
             </>
           )}
           <tr className="border-t-2 border-black"><td className="py-3 font-bold text-base">Bid Total</td><td className="py-3 text-right font-mono font-bold text-base">{fmt(grandTotal)}</td></tr>

@@ -44,8 +44,18 @@ export default function TaxZoneLookup() {
         await db.entities.TaxRate.update(editId, data);
         toast({ title: 'Tax rate updated' });
       } else {
-        await db.entities.TaxRate.create(data);
-        toast({ title: 'Tax rate added' });
+        // Adding a new rate for a ZIP/address that already has an active one
+        // supersedes it (end_date + is_active: false) rather than silently
+        // overwriting, so a bid calculated under the old rate stays traceable
+        // to the row that actually produced it.
+        const today = new Date().toISOString().slice(0, 10);
+        const zip = String(form.zip_code || '').trim();
+        const normalizedAddress = String(form.street_address || '').trim().toLowerCase();
+        const existingActive = await db.entities.TaxRate.filter({ zip_code: zip, is_active: true }, '-created_date', 50);
+        const superseded = existingActive.filter((r) => String(r.street_address || '').trim().toLowerCase() === normalizedAddress);
+        await Promise.all(superseded.map((r) => db.entities.TaxRate.update(r.id, { end_date: today, is_active: false })));
+        await db.entities.TaxRate.create({ ...data, effective_date: today, end_date: null, is_active: true });
+        toast({ title: superseded.length > 0 ? 'New rate added — previous rate superseded' : 'Tax rate added' });
       }
       setShowAdd(false); setEditId(null);
       setForm({ street_address: '', zip_code: '', city: '', state: '', county: '', tax_percentage: '' });

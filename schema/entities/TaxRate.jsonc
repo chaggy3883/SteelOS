@@ -27,6 +27,16 @@
       "type": "boolean",
       "default": true
     },
+    "effective_date": {
+      "type": "string",
+      "format": "date",
+      "description": "When this rate takes effect. Defaults to the row's creation date if not set. A new rate created for a ZIP/address that already has an active row ends the old row (end_date/is_active) rather than overwriting it, so a bid calculated under the old rate can still be traced back to it."
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "When this rate was superseded by a newer row for the same ZIP/address. Null while the row is the current active rate."
+    },
     "source": {
       "type": "string",
       "enum": [

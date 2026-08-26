@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
 import { downloadFile } from '@/lib/downloadFile';
+import { findTaxRateForAddress } from '@/lib/taxRate';
 
 // Forces project_id to always be a valid, non-empty string before it reaches
 // any Document/Bid write, and provides the same fallback chain everywhere:
@@ -52,6 +53,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
   const [projects, setProjects] = useState([]);
   const [projectOverride, setProjectOverride] = useState('');
   const [pdfViewer, setPdfViewer] = useState(null);
+  const [taxRateCheck, setTaxRateCheck] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
     setParseProgress(0);
     setApproved(false);
     setParseError('');
+    setTaxRateCheck(null);
     try {
       // Upload files
       for (let i = 0; i < files.length; i++) {
@@ -140,6 +143,29 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
       });
       setParseProgress(100);
       setAiResult(response);
+
+      // Cross-check the AI-suggested tax_rate against the real jurisdiction
+      // table for this job's ZIP (per standing rule 3, AI output is always
+      // human-reviewed before it writes anything — this never auto-applies
+      // either number, it only flags a mismatch for the reviewer).
+      const zip = bid?.zip || '';
+      if (zip) {
+        try {
+          const zoneMatch = await findTaxRateForAddress({ zip_code: zip, street_address: bid?.street });
+          const jurisdictionRate = zoneMatch ? Number(zoneMatch.tax_percentage || 0) / 100 : null;
+          const aiRate = Number(response.tax_rate || 0);
+          setTaxRateCheck({
+            zipKnown: true,
+            jurisdictionRate,
+            mismatch: jurisdictionRate != null && Math.abs(jurisdictionRate - aiRate) > 0.0005,
+          });
+        } catch (e) {
+          setTaxRateCheck({ zipKnown: true, jurisdictionRate: null, mismatch: false });
+        }
+      } else {
+        setTaxRateCheck({ zipKnown: false, jurisdictionRate: null, mismatch: false });
+      }
+
       toast({ title: 'AI parsing complete', description: 'Review suggested fields before saving.' });
     } catch (e) {
       const message = e?.message || 'The AI parse failed unexpectedly.';
@@ -154,7 +180,6 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
     if (!aiResult) return;
     try {
       const projectId = resolveProjectId(projectOverride, bid, bidId);
-      const numericTaxRate = Number(aiResult.tax_rate || 0);
       const lines = (aiResult.line_items || []).map(li => ({
         bid_id: bidId,
         cost_category: li.cost_category,
@@ -167,10 +192,14 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
       }));
       if (lines.length > 0) await db.entities.TakeoffLine.bulkCreate(lines);
       // Update bid header
+      // tax_rate is deliberately NOT written here — it's the one authoritative
+      // tax calculation path's job (computeEffectiveTaxRate, run from Base
+      // Info Save / the takeoff save), not this AI extraction. The AI's
+      // suggested rate is shown above for review only; see the mismatch flag
+      // against the jurisdiction table when the job's ZIP is already known.
       await db.entities.Bid.update(bidId, {
         estimated_tons: Number(aiResult.estimated_tons || 0),
         estimated_man_hours: Number(aiResult.estimated_man_hours || 0),
-        tax_rate: Number.isFinite(numericTaxRate) ? numericTaxRate : 0,
         job_city: String(aiResult.job_city || ''),
         job_state: String(aiResult.job_state || ''),
         inclusions: String(aiResult.inclusions || ''),
@@ -316,7 +345,20 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="p-2 rounded bg-muted/50"><span className="text-muted-foreground">Est. Tons:</span> <strong>{aiResult.estimated_tons || 0}</strong></div>
                   <div className="p-2 rounded bg-muted/50"><span className="text-muted-foreground">Est. Man-Hrs:</span> <strong>{aiResult.estimated_man_hours || 0}</strong></div>
-                  <div className="p-2 rounded bg-muted/50"><span className="text-muted-foreground">Tax Rate:</span> <strong>{((aiResult.tax_rate || 0) * 100).toFixed(2)}%</strong></div>
+                  <div className="p-2 rounded bg-muted/50 col-span-2">
+                    <span className="text-muted-foreground">Tax Rate (not auto-applied):</span> <strong>{((aiResult.tax_rate || 0) * 100).toFixed(2)}%</strong>
+                    {taxRateCheck?.zipKnown === false && (
+                      <p className="text-[10px] text-amber-600 mt-0.5">AI estimate — not verified against jurisdiction table (job ZIP not yet set on this bid).</p>
+                    )}
+                    {taxRateCheck?.zipKnown && taxRateCheck.jurisdictionRate != null && taxRateCheck.mismatch && (
+                      <p className="text-[10px] text-red-600 mt-0.5">
+                        AI suggested {((aiResult.tax_rate || 0) * 100).toFixed(2)}%, jurisdiction table shows {(taxRateCheck.jurisdictionRate * 100).toFixed(2)}% for this ZIP — verify.
+                      </p>
+                    )}
+                    {taxRateCheck?.zipKnown && taxRateCheck.jurisdictionRate == null && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">No jurisdiction table entry for this ZIP yet — not cross-checked.</p>
+                    )}
+                  </div>
                   <div className="p-2 rounded bg-muted/50"><span className="text-muted-foreground">Location:</span> <strong>{[aiResult.job_city, aiResult.job_state].filter(Boolean).join(', ') || '—'}</strong></div>
                 </div>
                 {(aiResult.line_items || []).filter(li => li.quantity > 0 || li.unit_cost > 0).slice(0, 12).map((li, i) => (
@@ -330,7 +372,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
           </div>
           <div className="flex items-center gap-3 mt-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
             <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-            <p className="text-xs text-yellow-700 dark:text-yellow-400 flex-1">Review all AI-suggested values. Approving will populate the BID Worksheet with these estimates — you can adjust any cell afterward.</p>
+            <p className="text-xs text-yellow-700 dark:text-yellow-400 flex-1">Review all AI-suggested values. Approving will populate the BID Worksheet with these estimates — you can adjust any cell afterward. The suggested tax rate is not saved automatically; confirm it on the Base Information tab.</p>
             <Button onClick={approveAndSave} size="sm" className="bg-green-600 hover:bg-green-700 text-white border-0">
               <CheckCircle2 className="w-4 h-4 mr-1" />Approve & Save
             </Button>
