@@ -649,7 +649,7 @@ export default function Accounting() {
     }
   };
 
-  const wip = selectedProject ? calculateWIPSchedule(selectedProject, sovLines, ledgerEntries, jobCostRows) : null;
+  const wip = selectedProject ? calculateWIPSchedule(selectedProject, sovLines, ledgerEntries, jobCostRows, invoiceReceivables) : null;
 
   const totalContractValue = projects.reduce((s, p) => s + (p.contract_value || 0), 0);
   const activeProjects = projects.filter(p => !['complete','cancelled','lead'].includes(p.status));
@@ -1129,6 +1129,16 @@ export default function Accounting() {
                       <p className={`font-mono font-bold text-lg ${wip.isOverBudget ? 'text-red-500' : 'text-green-500'}`}>
                         {wip.marginVariancePct > 0 ? '+' : ''}{wip.marginVariancePct.toFixed(1)}%
                         {wip.isOverBudget && <span className="text-xs ml-1">(over 3% threshold)</span>}
+                      </p>
+                    </button>
+                    <button type="button" onClick={() => setActiveTab('arbilling')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
+                      <p className="text-xs text-muted-foreground">Billings to Date</p><p className="font-mono font-bold text-lg">${wip.billingsToDate.toLocaleString()}</p>
+                    </button>
+                    <button type="button" onClick={() => setActiveTab('arbilling')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
+                      <p className="text-xs text-muted-foreground">Over/Under Billing</p>
+                      <p className={`font-mono font-bold text-lg ${wip.billingStatus === 'overbilled' ? 'text-amber-500' : wip.billingStatus === 'underbilled' ? 'text-blue-500' : ''}`}>
+                        ${Math.abs(wip.overUnderBilling).toLocaleString()}
+                        {wip.billingStatus !== 'even' && <span className="text-xs ml-1">({wip.billingStatus === 'overbilled' ? 'Overbilled' : 'Underbilled'})</span>}
                       </p>
                     </button>
                   </div>

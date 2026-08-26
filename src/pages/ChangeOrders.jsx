@@ -104,7 +104,10 @@ export default function ChangeOrders() {
       const created = await db.entities.change_orders.create(nextOrder);
       const nextList = [created, ...changeOrders];
       setChangeOrders(nextList);
-      const updatedProject = await syncProjectChangeOrderMetrics(selectedProject, nextList);
+      const updatedProject = await syncProjectChangeOrderMetrics(selectedProject, nextList, {
+        changedBy: user?.full_name || user?.email || 'System',
+        triggeringChangeOrder: created,
+      });
       setSelectedProject(updatedProject);
       setForm(emptyForm());
 
@@ -174,9 +177,18 @@ export default function ChangeOrders() {
         added_labor_hours: Number(editForm.added_labor_hours) || 0,
       };
       const updated = await db.entities.change_orders.update(selectedCo.id, payload);
-      setChangeOrders((prev) => prev.map((c) => (c.id === selectedCo.id ? updated : c)));
+      const nextList = changeOrders.map((c) => (c.id === selectedCo.id ? updated : c));
+      setChangeOrders(nextList);
       setSelectedCo(updated);
       setEditingCo(false);
+
+      if (selectedProject) {
+        const updatedProject = await syncProjectChangeOrderMetrics(selectedProject, nextList, {
+          changedBy: user?.full_name || user?.email || 'System',
+          triggeringChangeOrder: updated,
+        });
+        setSelectedProject(updatedProject);
+      }
 
       let recipientCount = 0;
       if (payload.received_from_customer && !selectedCo.received_from_customer) {
@@ -256,7 +268,7 @@ export default function ChangeOrders() {
             <div className="steel-card p-5 space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-sm">Change Orders — {selectedProject.name}</h3>
-                <span className="text-xs text-muted-foreground">{changeOrders.length} logged · Revised Value ${Number(selectedProject.current_revised_contract_value || 0).toLocaleString()}</span>
+                <span className="text-xs text-muted-foreground">{changeOrders.length} logged · Revised Value ${Number(selectedProject.contract_value || 0).toLocaleString()}</span>
               </div>
               {changeOrders.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">No change orders logged for this project yet.</p>

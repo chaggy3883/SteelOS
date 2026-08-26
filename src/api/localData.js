@@ -475,11 +475,15 @@ const buildSeedData = () => {
         status: 'active',
         execution_status: 'Prefabrication',
         is_archived: false,
-        original_contract_value: 1250000,
-        approved_change_orders_total: 0,
-        current_revised_contract_value: 1250000,
+        // Kept consistent with the seeded 'co-1' change order below
+        // (Approved, cost_impact 18000): change_orders_to_date and
+        // contract_value must already reflect it, the same as
+        // syncProjectChangeOrderMetrics would compute at runtime.
+        original_contract: 1250000,
+        change_orders_to_date: 18000,
+        contract_value: 1268000,
         total_invoiced_to_date: 420000,
-        remaining_project_balance: 830000,
+        remaining_project_balance: 848000,
         estimated_tons: 280,
         fabricated_tons: 92,
         drawing_release_date: '2026-07-10',
@@ -489,7 +493,6 @@ const buildSeedData = () => {
         field_mobilization_date: '2026-08-01',
         crane_setup_date: '2026-08-05',
         erection_progress: 24,
-        contract_value: 1250000,
         salesman_id: 'employee-1',
         created_date: now,
         updated_date: now
@@ -504,14 +507,13 @@ const buildSeedData = () => {
         status: 'active',
         execution_status: 'Prefabrication',
         is_archived: false,
-        original_contract_value: 640000,
-        approved_change_orders_total: 0,
-        current_revised_contract_value: 640000,
+        original_contract: 640000,
+        change_orders_to_date: 0,
+        contract_value: 640000,
         total_invoiced_to_date: 0,
         remaining_project_balance: 640000,
         estimated_tons: 140,
         fabricated_tons: 0,
-        contract_value: 640000,
         // Deliberately no salesman_id — this is the "not mine" project used to
         // verify a salesman's search is actually scoped (should never surface
         // this one), while admin/PM/estimator searches should see both.
@@ -528,9 +530,9 @@ const buildSeedData = () => {
         status: 'active',
         execution_status: 'Erection',
         is_archived: false,
-        original_contract_value: 2100000,
-        approved_change_orders_total: 0,
-        current_revised_contract_value: 2100000,
+        original_contract: 2100000,
+        change_orders_to_date: 0,
+        contract_value: 2100000,
         total_invoiced_to_date: 600000,
         remaining_project_balance: 1500000,
         estimated_tons: 340,
@@ -538,7 +540,6 @@ const buildSeedData = () => {
         field_mobilization_date: '2026-08-01',
         crane_setup_date: '2026-08-05',
         erection_progress: 18,
-        contract_value: 2100000,
         created_date: now,
         updated_date: now
       }

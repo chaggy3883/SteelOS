@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
 import { openLocalServerPath } from '@/lib/localServerPath';
+import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,6 +37,7 @@ const milestoneLabels = ['Material Received', 'Fabrication Started', 'QA Structu
 export default function ProjectManagement() {
   const { id } = useParams();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [project, setProject] = useState(null);
   const [changeOrders, setChangeOrders] = useState([]);
   const [shopSequences, setShopSequences] = useState([]);
@@ -79,8 +81,11 @@ export default function ProjectManagement() {
     }
   };
 
-  const syncProjectMetrics = async (nextProject, nextOrders = changeOrders) => {
-    const updatedProject = await syncProjectChangeOrderMetrics(nextProject, nextOrders);
+  const syncProjectMetrics = async (nextProject, nextOrders = changeOrders, triggeringChangeOrder = null) => {
+    const updatedProject = await syncProjectChangeOrderMetrics(nextProject, nextOrders, {
+      changedBy: user?.full_name || user?.email || 'System',
+      triggeringChangeOrder,
+    });
     setProject(updatedProject);
     return updatedProject;
   };
@@ -88,6 +93,19 @@ export default function ProjectManagement() {
   const saveProjectField = async (field, value) => {
     if (!project) return;
     const updated = await db.entities.Project.update(project.id, { [field]: value });
+    setProject(updated);
+  };
+
+  // remaining_project_balance is derived from contract_value, so any direct
+  // edit to total_invoiced_to_date here has to recompute it in the same
+  // write — syncProjectChangeOrderMetrics only re-derives it on a change
+  // order event, not on this field.
+  const saveTotalInvoiced = async (value) => {
+    if (!project) return;
+    const updated = await db.entities.Project.update(project.id, {
+      total_invoiced_to_date: value,
+      remaining_project_balance: Number(project.contract_value || 0) - value,
+    });
     setProject(updated);
   };
 
@@ -109,7 +127,7 @@ export default function ProjectManagement() {
     const nextList = [created, ...changeOrders];
     setChangeOrders(nextList);
     setCoForm(defaultCoForm);
-    await syncProjectMetrics(project, nextList);
+    await syncProjectMetrics(project, nextList, created);
     toast({ title: 'Change order created' });
   };
 
@@ -117,7 +135,7 @@ export default function ProjectManagement() {
     const updated = await db.entities.change_orders.update(entry.id, { status });
     const nextList = changeOrders.map((item) => (item.id === entry.id ? updated : item));
     setChangeOrders(nextList);
-    await syncProjectMetrics(project, nextList);
+    await syncProjectMetrics(project, nextList, updated);
     toast({ title: `Change order ${status}` });
   };
 
@@ -192,10 +210,10 @@ export default function ProjectManagement() {
     );
   }
 
-  const originalValue = Number(project.original_contract_value || project.contract_value || 0);
-  const approvedCOs = changeOrders.filter((item) => item.status === 'Approved').reduce((sum, item) => sum + Number(item.cost_impact || 0), 0);
-  const revisedValue = Number(project.current_revised_contract_value || originalValue + approvedCOs);
-  const remainingBalance = Number(project.remaining_project_balance || revisedValue - Number(project.total_invoiced_to_date || 0));
+  const originalValue = Number(project.original_contract || 0);
+  const approvedCOs = Number(project.change_orders_to_date || 0);
+  const revisedValue = Number(project.contract_value || 0);
+  const remainingBalance = Number(project.remaining_project_balance || 0);
   const tonnageProgress = project.estimated_tons ? Math.min(100, Math.round((Number(project.fabricated_tons || 0) / Number(project.estimated_tons)) * 100)) : 0;
 
   return (
@@ -292,18 +310,29 @@ export default function ProjectManagement() {
             <h2 className="text-lg font-semibold">Contract allocation trackers</h2>
           </div>
           <div className="grid gap-3">
+            {/* Original Contract, Approved CO Total, Revised Contract Value, and
+                Remaining Balance are all derived/CO-driven (see Project.jsonc) —
+                shown read-only here so this card can't drift out of sync with
+                syncProjectChangeOrderMetrics. Only Total Invoiced is still a
+                free-form rollup a PM enters directly. */}
             {[
-              { label: 'Original Contract Value', value: originalValue, field: 'original_contract_value' },
-              { label: 'Approved CO Total', value: approvedCOs, field: 'approved_change_orders_total' },
-              { label: 'Revised Contract Value', value: revisedValue, field: 'current_revised_contract_value' },
-              { label: 'Total Invoiced', value: Number(project.total_invoiced_to_date || 0), field: 'total_invoiced_to_date' },
-              { label: 'Remaining Balance', value: remainingBalance, field: 'remaining_project_balance' }
+              { label: 'Original Contract Value', value: originalValue },
+              { label: 'Approved CO Total', value: approvedCOs },
+              { label: 'Revised Contract Value', value: revisedValue },
             ].map((item) => (
               <div key={item.label} className="rounded-xl border border-border p-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">{item.label}</p>
-                <Input type="number" value={item.value} onChange={(event) => saveProjectField(item.field, Number(event.target.value))} className="mt-2" />
+                <p className="mt-2 font-mono font-semibold">${item.value.toLocaleString()}</p>
               </div>
             ))}
+            <div className="rounded-xl border border-border p-3">
+              <Label className="text-xs uppercase tracking-wide">Total Invoiced</Label>
+              <Input type="number" value={Number(project.total_invoiced_to_date || 0)} onChange={(event) => saveTotalInvoiced(Number(event.target.value))} className="mt-2" />
+            </div>
+            <div className="rounded-xl border border-border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Remaining Balance</p>
+              <p className="mt-2 font-mono font-semibold">${remainingBalance.toLocaleString()}</p>
+            </div>
           </div>
         </div>
       </div>

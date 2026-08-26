@@ -41,9 +41,16 @@ export default function ProjectNew() {
     }
     setSaving(true);
     try {
+      const contractValue = form.contract_value ? parseFloat(form.contract_value) : null;
       const project = await db.entities.Project.create({
         ...form,
-        contract_value: form.contract_value ? parseFloat(form.contract_value) : null,
+        contract_value: contractValue,
+        // No change orders exist yet, so contract_value is just the base
+        // contract at this point — original_contract has to be seeded here
+        // too, since it's what change order approval later adds on top of
+        // (see syncProjectChangeOrderMetrics in changeOrderMetrics.js).
+        original_contract: contractValue || 0,
+        change_orders_to_date: 0,
         estimated_tons: form.estimated_tons ? parseFloat(form.estimated_tons) : null,
         is_archived: false,
         is_pinned: false,

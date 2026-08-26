@@ -55,15 +55,18 @@
       "description": "FK to employees — carried over from Bid.salesman_id when a won bid auto-creates its project (see createProjectFromWonBid in BidDetail.jsx). Drives ProjectCommission via src/lib/commissionEngine.js."
     },
     "contract_value": {
-      "type": "number"
+      "type": "number",
+      "description": "DERIVED = original_contract + change_orders_to_date, recomputed by syncProjectChangeOrderMetrics (src/lib/changeOrderMetrics.js) whenever either changes — never manually edited. Set once at project creation (ProjectNew.jsx / createProjectFromWonBid in BidDetail.jsx) equal to original_contract when there are no change orders yet."
     },
     "original_contract": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Base contract value at signing — set once at project creation, immutable afterward. Change orders never modify this field; they roll into change_orders_to_date instead."
     },
     "change_orders_to_date": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Running total of this project's APPROVED change_orders.cost_impact — maintained only by syncProjectChangeOrderMetrics (src/lib/changeOrderMetrics.js), which recomputes it from scratch on every change order create/status update so a later rejection/void of a previously-approved CO correctly reverses out. Never edited directly."
     },
     "billed_to_date": {
       "type": "number",
@@ -84,6 +87,16 @@
     "left_to_bill": {
       "type": "number",
       "default": 0
+    },
+    "total_invoiced_to_date": {
+      "type": "number",
+      "default": 0,
+      "description": "Rollup of amounts billed to the customer. Has the same staleness risk as any manually-synced rollup — for WIP over/underbilling math, wipCalculations.js sums real InvoiceReceivable.gross_amount records instead of trusting this field."
+    },
+    "remaining_project_balance": {
+      "type": "number",
+      "default": 0,
+      "description": "DERIVED = contract_value - total_invoiced_to_date, recomputed alongside contract_value by syncProjectChangeOrderMetrics. Never manually edited."
     },
     "estimated_tons": {
       "type": "number"

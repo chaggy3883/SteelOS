@@ -84,7 +84,7 @@ export function computeProjectWipRadar(projects, ledgerEntries) {
     return {
       projectId: project.id,
       projectName: project.name,
-      contractValue: project.current_revised_contract_value || project.contract_value || 0,
+      contractValue: project.contract_value || 0,
       jtdCost,
     };
   });

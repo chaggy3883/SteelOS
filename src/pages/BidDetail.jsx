@@ -207,6 +207,11 @@ export default function BidDetail() {
       tm_markup_percentage: wonBid.tm_markup_percentage ?? undefined,
       status: 'awarded',
       contract_value: wonBid.bid_quoted_price || wonBid.bid_total_cost || null,
+      // Mirrors contract_value at creation (no change orders exist yet) —
+      // original_contract is what change order approval later adds on top
+      // of (see syncProjectChangeOrderMetrics in changeOrderMetrics.js).
+      original_contract: wonBid.bid_quoted_price || wonBid.bid_total_cost || 0,
+      change_orders_to_date: 0,
       estimated_tons: wonBid.estimated_tons || null,
       address: wonBid.street,
       city: wonBid.city || wonBid.job_city,

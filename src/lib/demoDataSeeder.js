@@ -194,6 +194,10 @@ export async function seedDemoData() {
     customer_name: bid.customer_name,
     estimator_id: bid.estimator_id,
     contract_value: bid.bid_total_cost,
+    // No change orders in this demo set — original_contract mirrors
+    // contract_value at creation (see syncProjectChangeOrderMetrics).
+    original_contract: bid.bid_total_cost,
+    change_orders_to_date: 0,
     city: bid.job_city,
     state: bid.job_state,
     award_date: bid.bid_due_date,
