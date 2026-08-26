@@ -8,10 +8,11 @@ const OVERRUN_THRESHOLD_PCT = 15;
 export async function flagCostCodeOverruns(projectId) {
   if (!projectId) return [];
 
-  const [bids, jobCostRows] = await Promise.all([
+  const [bids, allJobCostRows] = await Promise.all([
     db.entities.Bid.filter({ won_project_id: projectId }, '-created_date', 1),
     db.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 200),
   ]);
+  const jobCostRows = allJobCostRows.filter((r) => !r.is_deleted);
   const bid = bids[0];
   if (!bid || jobCostRows.length === 0) return [];
 

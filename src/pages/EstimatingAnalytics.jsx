@@ -38,13 +38,14 @@ export default function EstimatingAnalytics() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [varData, bidData, jobCostRows, projectData, employeeData] = await Promise.all([
+      const [varData, bidData, allJobCostRows, projectData, employeeData] = await Promise.all([
         db.entities.HistoricalVariance.list('-completed_date', 100),
         db.entities.Bid.filter({ is_archived: false }, '-created_date', 500),
         db.entities.ProjectJobCostSummary.list('-created_date', 500),
         db.entities.Project.list('-created_date', 200),
         db.entities.employees.list('full_name', 500),
       ]);
+      const jobCostRows = allJobCostRows.filter((r) => !r.is_deleted);
       setVariances(varData);
       setBids(bidData);
       setProjectNames(projectData.reduce((acc, p) => ({ ...acc, [p.id]: p.name }), {}));

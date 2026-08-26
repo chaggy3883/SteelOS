@@ -110,7 +110,7 @@ export default function Purchasing() {
     setPoForm(f => ({ ...f, project_id: projectId, cost_code: '' }));
     try {
       const rows = await db.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 100);
-      setCostCodes(rows.filter(r => (r.cost_code || '').startsWith('05')));
+      setCostCodes(rows.filter(r => !r.is_deleted && (r.cost_code || '').startsWith('05')));
     } catch (e) {
       setCostCodes([]);
     }

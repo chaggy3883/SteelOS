@@ -21,6 +21,9 @@ import { handleProcorePayWebhook, handleTexturaWebhook } from '@/lib/webhookHand
 import { exportToQuickBooksCSV, exportToSage100CSV } from '@/lib/glExport';
 import { triggerCommissionOnPayment } from '@/lib/commissionEngine';
 import { computeActualLaborCost, computeSubVariance, applyMarkup } from '@/lib/tmEngine';
+import { isPeriodLocked, periodLockedMessage } from '@/lib/periodLock';
+import { hasFinanceOverrideAccess } from '@/lib/financeAccess';
+import { logFinancialOverride } from '@/lib/financialAudit';
 import CashManagementPanel from '@/components/accounting/CashManagementPanel';
 import CashForecastPanel from '@/components/accounting/CashForecastPanel';
 import IncomingAchPanel from '@/components/accounting/IncomingAchPanel';
@@ -135,6 +138,32 @@ export default function Accounting() {
   const [editingRow, setEditingRow] = useState(null);
   const [rowForm, setRowForm] = useState(emptyRowForm());
   const [savingRow, setSavingRow] = useState(false);
+  const [deletingRow, setDeletingRow] = useState(null);
+  const [deleteRowReason, setDeleteRowReason] = useState('');
+  const [deletingRowSaving, setDeletingRowSaving] = useState(false);
+
+  // --- Closed-period / post-payment override gate (accounting controls
+  // audit). One shared dialog for every gated financial mutation below —
+  // set overrideDialog to open it; onConfirm receives the trimmed reason and
+  // performs the actual save/delete. Mirrors PayrollRunPanel's reopen-reason
+  // pattern (see src/components/payroll/PayrollRunPanel.jsx). ---
+  const [overrideDialog, setOverrideDialog] = useState(null);
+  const [overrideReason, setOverrideReason] = useState('');
+  const [overrideSaving, setOverrideSaving] = useState(false);
+  const closeOverrideDialog = () => { setOverrideDialog(null); setOverrideReason(''); };
+  const confirmOverride = async () => {
+    const reason = overrideReason.trim();
+    if (!reason) { toast({ title: 'A reason is required', variant: 'destructive' }); return; }
+    setOverrideSaving(true);
+    try {
+      await overrideDialog.onConfirm(reason);
+      closeOverrideDialog();
+    } catch (e) {
+      toast({ title: overrideDialog.errorTitle || 'Unable to save', variant: 'destructive' });
+    } finally {
+      setOverrideSaving(false);
+    }
+  };
 
   const [editingContract, setEditingContract] = useState(false);
   const [contractForm, setContractForm] = useState({});
@@ -177,6 +206,7 @@ export default function Accounting() {
 
   const isAdmin = isAdminUser(currentUser);
   const canAccessTab = (tabId) => isAdmin || userRoles.some((r) => (TAB_ROLES[tabId] || []).includes(r));
+  const canOverrideFinanceLock = hasFinanceOverrideAccess(userRoles);
   const accessibleTabs = TAB_ORDER.filter(canAccessTab);
 
   useEffect(() => {
@@ -235,7 +265,7 @@ export default function Accounting() {
     setLoadingJobCost(true);
     try {
       const rows = await db.entities.ProjectJobCostSummary.filter({ project_id: projectId }, '-created_date', 200);
-      setJobCostRows(rows);
+      setJobCostRows(rows.filter((r) => !r.is_deleted));
     } catch (e) {
       setJobCostRows([]);
     } finally {
@@ -290,13 +320,40 @@ export default function Accounting() {
     }
   };
 
-  const handleDeleteRow = async (row) => {
+  const openDeleteRow = (row) => { setDeletingRow(row); setDeleteRowReason(''); };
+  const closeDeleteRow = () => { setDeletingRow(null); setDeleteRowReason(''); };
+
+  // Soft-delete, not a real delete — historical job cost data must survive
+  // removal from the UI (accounting controls audit). ProjectJobCostSummary
+  // has no per-row transaction date, so the period-lock check gates on
+  // today's period rather than a specific historical one.
+  const handleConfirmDeleteRow = async () => {
+    if (!deletingRow) return;
+    const reason = deleteRowReason.trim();
+    if (!reason) { toast({ title: 'A reason is required to delete a job cost row', variant: 'destructive' }); return; }
+    setDeletingRowSaving(true);
     try {
-      await db.entities.ProjectJobCostSummary.delete(row.id);
+      const locked = await isPeriodLocked(new Date().toISOString().slice(0, 10));
+      if (locked && !canOverrideFinanceLock) {
+        toast({ title: periodLockedMessage(new Date().toISOString().slice(0, 10)), variant: 'destructive' });
+        return;
+      }
+      await db.entities.ProjectJobCostSummary.update(deletingRow.id, {
+        is_deleted: true,
+        deleted_reason: reason,
+        deleted_by: currentUser?.full_name || currentUser?.email || 'Unknown',
+        deleted_date: new Date().toISOString(),
+      });
+      await logFinancialOverride({
+        entityType: 'ProjectJobCostSummary', entityId: deletingRow.id, action: 'delete', reason, changedBy: currentUser,
+      });
       toast({ title: 'Row deleted' });
+      closeDeleteRow();
       loadJobCostRows(selectedProjectId);
     } catch (e) {
       toast({ title: 'Unable to delete row', variant: 'destructive' });
+    } finally {
+      setDeletingRowSaving(false);
     }
   };
 
@@ -436,6 +493,24 @@ export default function Accounting() {
 
   const handleSaveBill = async () => {
     if (!billForm.vendor_id || !billForm.po_id) { toast({ title: 'Vendor and PO are required', variant: 'destructive' }); return; }
+    const locked = await isPeriodLocked(billForm.invoice_date);
+    if (locked) {
+      if (!canOverrideFinanceLock) {
+        toast({ title: periodLockedMessage(billForm.invoice_date), variant: 'destructive' });
+        return;
+      }
+      setOverrideDialog({
+        title: 'Closed Period — Confirm Vendor Bill Save',
+        description: `${periodLockedMessage(billForm.invoice_date)} You have permission to override — enter a reason to continue.`,
+        errorTitle: 'Unable to save vendor bill',
+        onConfirm: (reason) => saveBillNow(reason),
+      });
+      return;
+    }
+    await saveBillNow(null);
+  };
+
+  const saveBillNow = async (overrideReason) => {
     setSavingBill(true);
     try {
       const po = purchaseOrders.find(p => p.id === billForm.po_id);
@@ -445,6 +520,14 @@ export default function Accounting() {
         savedBill = await db.entities.VendorBill.update(editingBill.id, payload);
       } else {
         savedBill = await db.entities.VendorBill.create(payload);
+      }
+
+      if (overrideReason) {
+        await logFinancialOverride({
+          entityType: 'VendorBill', entityId: savedBill.id,
+          action: editingBill && editingBill !== 'new' ? 'update' : 'create',
+          reason: `Closed-period override: ${overrideReason}`, changedBy: currentUser,
+        });
       }
 
       if (invoiceFileUrl) {
@@ -583,8 +666,45 @@ export default function Accounting() {
     }
   };
 
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
   const handleSaveInvoice = async () => {
     if (!invoiceForm.billing_period) { toast({ title: 'Billing period is required', variant: 'destructive' }); return; }
+
+    // wasReleased/isNowReleased below feed the commission-trigger logic
+    // further down in saveInvoiceNow — do not touch that, it's correct.
+    // Here it's only used to decide whether a paid invoice's dollar amount
+    // is being changed, which needs its own elevated-role + reason gate
+    // regardless of period-lock status (accounting controls audit).
+    const wasReleased = !!editingInvoice && editingInvoice !== 'new' && editingInvoice.payment_status === 'Released';
+    const financialFieldsChanged = wasReleased && (
+      round2(invoiceForm.gross_amount) !== round2(editingInvoice.gross_amount) ||
+      round2(invoiceForm.retainage_held) !== round2(editingInvoice.retainage_held)
+    );
+    const locked = await isPeriodLocked(invoiceForm.billing_period);
+
+    if (locked || financialFieldsChanged) {
+      if (!canOverrideFinanceLock) {
+        toast({
+          title: locked ? periodLockedMessage(invoiceForm.billing_period) : 'This invoice has already been paid — changing its dollar amount requires an Admin, Controller, or Super Admin with a reason.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      setOverrideDialog({
+        title: locked ? 'Closed Period — Confirm Progress Billing Save' : 'Paid Invoice — Confirm Dollar Amount Change',
+        description: locked
+          ? `${periodLockedMessage(invoiceForm.billing_period)} You have permission to override — enter a reason to continue.`
+          : 'This invoice was already released for payment. Changing gross amount or retainage is significant even within an open period — enter a reason to continue.',
+        errorTitle: 'Unable to save progress billing',
+        onConfirm: (reason) => saveInvoiceNow(reason, { locked, financialFieldsChanged }),
+      });
+      return;
+    }
+    await saveInvoiceNow(null, { locked: false, financialFieldsChanged: false });
+  };
+
+  const saveInvoiceNow = async (overrideReason, { locked, financialFieldsChanged }) => {
     try {
       const netBilling = (Number(invoiceForm.gross_amount) || 0) - (Number(invoiceForm.retainage_held) || 0);
       const wasReleased = !!editingInvoice && editingInvoice !== 'new' && editingInvoice.payment_status === 'Released';
@@ -597,6 +717,16 @@ export default function Accounting() {
         ? await db.entities.InvoiceReceivable.update(editingInvoice.id, payload)
         : await db.entities.InvoiceReceivable.create(payload);
       toast({ title: 'Progress billing saved' });
+
+      if (overrideReason) {
+        const overrideKind = locked && financialFieldsChanged ? 'Closed-period + paid-invoice dollar change override'
+          : locked ? 'Closed-period override' : 'Paid-invoice dollar change override';
+        await logFinancialOverride({
+          entityType: 'InvoiceReceivable', entityId: savedInvoice.id,
+          action: editingInvoice && editingInvoice !== 'new' ? 'update' : 'create',
+          reason: `${overrideKind}: ${overrideReason}`, changedBy: currentUser,
+        });
+      }
 
       if (isNowReleased && !wasReleased) {
         try {
@@ -860,7 +990,7 @@ export default function Accounting() {
                               </td>
                               <td className="py-3 px-4 text-right">
                                 <button onClick={(e) => { e.stopPropagation(); startEditRow(row); }} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
-                                <button onClick={(e) => { e.stopPropagation(); handleDeleteRow(row); }} className="text-muted-foreground hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>
+                                <button onClick={(e) => { e.stopPropagation(); openDeleteRow(row); }} className="text-muted-foreground hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>
                               </td>
                             </tr>
                           );
@@ -1619,6 +1749,42 @@ export default function Accounting() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingLedger(null)}>Cancel</Button>
             <Button onClick={handleSaveLedger} className="steel-gradient text-white border-0">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deletingRow} onOpenChange={(open) => !open && closeDeleteRow()}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Delete Job Cost Row</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {deletingRow ? `${deletingRow.cost_code}${deletingRow.description ? ` — ${deletingRow.description}` : ''}` : ''} will be removed from this view. The underlying record is kept for audit history, not permanently destroyed.
+          </p>
+          <div>
+            <Label className="text-xs">Reason (required)</Label>
+            <Textarea value={deleteRowReason} onChange={(e) => setDeleteRowReason(e.target.value)} placeholder="Why is this row being deleted?" rows={2} className="mt-1" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeDeleteRow}>Cancel</Button>
+            <Button variant="destructive" onClick={handleConfirmDeleteRow} disabled={deletingRowSaving || !deleteRowReason.trim()}>
+              {deletingRowSaving ? 'Deleting…' : 'Delete Row'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!overrideDialog} onOpenChange={(open) => !open && closeOverrideDialog()}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{overrideDialog?.title || 'Confirm Override'}</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">{overrideDialog?.description}</p>
+          <div>
+            <Label className="text-xs">Reason (required)</Label>
+            <Textarea value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Why is this override necessary?" rows={2} className="mt-1" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeOverrideDialog}>Cancel</Button>
+            <Button onClick={confirmOverride} disabled={overrideSaving || !overrideReason.trim()} className="steel-gradient text-white border-0">
+              {overrideSaving ? 'Saving…' : 'Confirm & Save'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

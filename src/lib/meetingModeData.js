@@ -129,7 +129,7 @@ export function buildJobCostRows({ project, activeCostCodes, jobCostSummaries, l
 }
 
 export async function loadJobCostAgendaData() {
-  const [liveProjects, activeCostCodes, jobCostSummaries, ledgerEntries, subcontracts, payApps] = await Promise.all([
+  const [liveProjects, activeCostCodes, allJobCostSummaries, ledgerEntries, subcontracts, payApps] = await Promise.all([
     getLiveProjects(),
     db.entities.CostCode.filter({ is_active: true }, 'code_name', 200),
     db.entities.ProjectJobCostSummary.list('-created_date', 1000),
@@ -137,6 +137,7 @@ export async function loadJobCostAgendaData() {
     db.entities.Subcontract.list('-created_date', 500),
     db.entities.SubcontractPayApp.list('-created_date', 1000),
   ]);
+  const jobCostSummaries = allJobCostSummaries.filter((r) => !r.is_deleted);
 
   return liveProjects.map((project) => ({
     project,

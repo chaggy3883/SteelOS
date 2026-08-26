@@ -14,6 +14,7 @@ import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import { calculateDistance, isGoogleMapsConfigured } from '@/lib/googleMapsService';
+import { isPeriodLocked, formatPeriodLabel } from '@/lib/periodLock';
 
 // No DeliveryPricingTier is tagged with a CostCode, so the ledger posting
 // buckets the selected code into JobCostLedgerEntry's fixed MAT/SUB/EQP/LAB
@@ -319,17 +320,27 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     if (!projectId || !deliveryCostCode || deliveryTotalCost <= 0) {
       return bid.delivery_job_cost_entry_id || null;
     }
+    const transactionDate = new Date().toISOString().slice(0, 10);
     const payload = {
       project_id: projectId,
       cost_code: deliveryCostCode,
       cost_class: inferCostClassFromCodeName(deliveryCostCode),
       amount: deliveryTotalCost,
-      transaction_date: new Date().toISOString().slice(0, 10),
+      transaction_date: transactionDate,
       source_type: 'other',
       source_id: bid.id,
       description: `Delivery — ${deliveryTripCount} trip(s) @ $${deliveryCostPerTrip.toFixed(2)}/trip (${deliveryCostCode})`,
     };
     if (bid.delivery_job_cost_entry_id) {
+      // Accounting controls audit: JobCostLedgerEntry has no delete path
+      // anywhere in the app, but this re-save was its one existing .update()
+      // call site with zero period-lock awareness — a closed period is
+      // supposed to freeze historical job cost data, so this check stays
+      // here even though nothing else currently edits this entity. Don't
+      // strip it out without checking src/lib/periodLock.js first.
+      if (await isPeriodLocked(transactionDate)) {
+        throw new Error(`This period (${formatPeriodLabel(transactionDate.slice(0, 7))}) is closed. An Admin, Controller, or Super Admin must reopen it before this delivery cost can be re-saved.`);
+      }
       const updated = await db.entities.JobCostLedgerEntry.update(bid.delivery_job_cost_entry_id, payload);
       return updated.id;
     }
@@ -394,7 +405,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       setDirty(false);
       onSaved?.();
     } catch (e) {
-      toast({ title: 'Save failed', variant: 'destructive' });
+      toast({ title: 'Save failed', description: e?.message, variant: 'destructive' });
     } finally { setSaving(false); }
   };
 

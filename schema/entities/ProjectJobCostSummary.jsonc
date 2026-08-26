@@ -44,6 +44,21 @@
     },
     "source_report_name": {
       "type": "string"
+    },
+    "is_deleted": {
+      "type": "boolean",
+      "default": false,
+      "// note": "Soft-delete marker — handleDeleteRow in Accounting.jsx sets this instead of calling .delete(), so a row's history survives removal from the UI."
+    },
+    "deleted_reason": {
+      "type": "string"
+    },
+    "deleted_by": {
+      "type": "string"
+    },
+    "deleted_date": {
+      "type": "string",
+      "format": "date-time"
     }
   },
   "required": [
