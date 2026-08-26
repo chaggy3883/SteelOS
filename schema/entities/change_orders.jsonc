@@ -19,12 +19,17 @@
     "cost_impact": {
       "type": "number",
       "default": 0,
-      "description": "Dollar contract-value impact — the authoritative field ProjectManagement.jsx's revised-contract-value rollup reads. total_change_order_value_cents mirrors this in cents; do not let them diverge."
+      "description": "Dollar contract-value impact — the authoritative field ProjectManagement.jsx's revised-contract-value rollup reads."
     },
-    "total_change_order_value_cents": {
+    "estimated_cost_impact": {
       "type": "number",
       "default": 0,
-      "description": "Derived mirror of cost_impact in cents (cost_impact * 100) — kept for callers that want a cents-denominated field. cost_impact remains the source of truth."
+      "description": "Estimator/PM's projection of what this change order will actually cost to execute (labor + material + subcontractor), entered manually when the CO is priced. Distinct from cost_impact, which is the contract/billing side."
+    },
+    "margin_impact": {
+      "type": "number",
+      "default": 0,
+      "description": "Derived — cost_impact minus estimated_cost_impact. Recomputed whenever either changes; never manually edited."
     },
     "schedule_impact": {
       "type": "number",

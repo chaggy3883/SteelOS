@@ -27,6 +27,7 @@ const defaultCoForm = {
   change_order_id: '',
   description: '',
   cost_impact: '',
+  estimated_cost_impact: '',
   schedule_impact: '',
   status: 'Draft',
   attachment_path: ''
@@ -113,11 +114,15 @@ export default function ProjectManagement() {
     event?.preventDefault?.();
     if (!project) return;
 
+    const costImpact = Number(coForm.cost_impact || 0);
+    const estimatedCostImpact = Number(coForm.estimated_cost_impact || 0);
     const nextOrder = {
       project_id: project.id,
       change_order_id: coForm.change_order_id || `CO-${String(changeOrders.length + 1).padStart(3, '0')}`,
       description: coForm.description,
-      cost_impact: Number(coForm.cost_impact || 0),
+      cost_impact: costImpact,
+      estimated_cost_impact: estimatedCostImpact,
+      margin_impact: costImpact - estimatedCostImpact,
       schedule_impact: Number(coForm.schedule_impact || 0),
       status: coForm.status || 'Draft',
       attachment_path: coForm.attachment_path || ''
@@ -360,6 +365,10 @@ export default function ProjectManagement() {
               <Input type="number" value={coForm.cost_impact} onChange={(event) => setCoForm((current) => ({ ...current, cost_impact: event.target.value }))} className="mt-2" />
             </div>
             <div>
+              <Label>Estimated Cost</Label>
+              <Input type="number" value={coForm.estimated_cost_impact} onChange={(event) => setCoForm((current) => ({ ...current, estimated_cost_impact: event.target.value }))} className="mt-2" />
+            </div>
+            <div>
               <Label>Schedule Impact (days)</Label>
               <Input type="number" value={coForm.schedule_impact} onChange={(event) => setCoForm((current) => ({ ...current, schedule_impact: event.target.value }))} className="mt-2" />
             </div>
@@ -396,6 +405,8 @@ export default function ProjectManagement() {
                   <th className="py-2 pr-3">CO ID</th>
                   <th className="py-2 pr-3">Scope</th>
                   <th className="py-2 pr-3">Cost</th>
+                  <th className="py-2 pr-3">Est. Cost</th>
+                  <th className="py-2 pr-3">Margin</th>
                   <th className="py-2 pr-3">Days</th>
                   <th className="py-2 pr-3">Status</th>
                 </tr>
@@ -406,6 +417,8 @@ export default function ProjectManagement() {
                     <td className="py-3 pr-3 font-medium">{entry.change_order_id}</td>
                     <td className="py-3 pr-3">{entry.description}</td>
                     <td className="py-3 pr-3">{entry.cost_impact > 0 ? `+$${entry.cost_impact}` : `-$${Math.abs(entry.cost_impact)}`}</td>
+                    <td className="py-3 pr-3">${Number(entry.estimated_cost_impact || 0).toLocaleString()}</td>
+                    <td className="py-3 pr-3">${Number(entry.margin_impact ?? ((entry.cost_impact || 0) - (entry.estimated_cost_impact || 0))).toLocaleString()}</td>
                     <td className="py-3 pr-3">{entry.schedule_impact}</td>
                     <td className="py-3 pr-3">
                       <select value={entry.status} onChange={(event) => updateChangeOrderStatus(entry, event.target.value)} className="rounded-lg border border-border bg-background px-2 py-1 text-xs">

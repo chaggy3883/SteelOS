@@ -16,6 +16,7 @@ import { generateDelayImpactNoticePDF } from '@/lib/delayNoticePdf';
 import { useAuth } from '@/lib/AuthContext';
 import { logStatusChange } from '@/lib/statusHistory';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
+import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
 
 // RFI status lifecycle: draft -> submitted -> answered -> closed, with a
 // void branch reachable from any active state and a reopen path back out of
@@ -176,15 +177,23 @@ export default function RFIs() {
         status: 'uploaded',
       });
 
-      await db.entities.change_orders.create({
+      const createdChangeOrder = await db.entities.change_orders.create({
         project_id: rfi.project_id,
         change_order_id: `CO-DELAY-${rfi.rfi_number}`,
         description: `Schedule impact from unanswered ${rfi.rfi_number} (${rfi.subject}) — ${daysDelayed} day(s) beyond the contractual RFI response window. Delay Impact Notice attached as supporting legal evidence.`,
         cost_impact: 0,
         schedule_impact: daysDelayed,
-        status: 'Pending Review',
+        status: 'Draft',
         attachment_path: file_url,
       });
+
+      if (project) {
+        const projectChangeOrders = await db.entities.change_orders.filter({ project_id: rfi.project_id }, '-created_date', 100);
+        await syncProjectChangeOrderMetrics(project, projectChangeOrders, {
+          changedBy: user?.full_name || user?.email || 'System',
+          triggeringChangeOrder: createdChangeOrder,
+        });
+      }
 
       await db.entities.LegalAuditEvent.create({
         project_id: rfi.project_id,

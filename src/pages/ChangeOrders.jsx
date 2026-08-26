@@ -16,7 +16,7 @@ import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 
 const STATUS_OPTIONS = ['Draft', 'Submitted to GC', 'Approved', 'Rejected', 'Void'];
-const emptyForm = () => ({ title: '', status: 'Draft', tonnage: '', hours: '', dollars: '', receivedFromCustomer: false });
+const emptyForm = () => ({ title: '', status: 'Draft', tonnage: '', hours: '', dollars: '', estimatedCost: '', receivedFromCustomer: false });
 
 // Cross-project Change Order Hub — pick any active project, log a CO against
 // it without leaving this page. Writes to the SAME `change_orders` entity
@@ -88,6 +88,7 @@ export default function ChangeOrders() {
     setSaving(true);
     try {
       const dollars = Number(form.dollars || 0);
+      const estimatedCost = Number(form.estimatedCost || 0);
       const nextOrder = {
         project_id: selectedProject.id,
         change_order_id: `CO-${String(changeOrders.length + 1).padStart(3, '0')}`,
@@ -95,7 +96,8 @@ export default function ChangeOrders() {
         description: form.title.trim(),
         status: form.status,
         cost_impact: dollars,
-        total_change_order_value_cents: Math.round(dollars * 100),
+        estimated_cost_impact: estimatedCost,
+        margin_impact: dollars - estimatedCost,
         added_tonnage_weight_lbs: Number(form.tonnage || 0),
         added_labor_hours: Number(form.hours || 0),
         date_submitted: new Date().toISOString().slice(0, 10),
@@ -137,10 +139,10 @@ export default function ChangeOrders() {
       status: selectedCo.status || 'Draft',
       date_submitted: selectedCo.date_submitted || '',
       cost_impact: selectedCo.cost_impact ?? 0,
+      estimated_cost_impact: selectedCo.estimated_cost_impact ?? 0,
       schedule_impact: selectedCo.schedule_impact ?? 0,
       added_tonnage_weight_lbs: selectedCo.added_tonnage_weight_lbs ?? 0,
       added_labor_hours: selectedCo.added_labor_hours ?? 0,
-      total_change_order_value_cents: selectedCo.total_change_order_value_cents ?? 0,
       received_from_customer: selectedCo.received_from_customer || false,
     });
     setEditingCo(true);
@@ -153,25 +155,25 @@ export default function ChangeOrders() {
       status: selectedCo.status || 'Draft',
       date_submitted: selectedCo.date_submitted || '',
       cost_impact: selectedCo.cost_impact ?? 0,
+      estimated_cost_impact: selectedCo.estimated_cost_impact ?? 0,
       schedule_impact: selectedCo.schedule_impact ?? 0,
       added_tonnage_weight_lbs: selectedCo.added_tonnage_weight_lbs ?? 0,
       added_labor_hours: selectedCo.added_labor_hours ?? 0,
-      total_change_order_value_cents: selectedCo.total_change_order_value_cents ?? 0,
       received_from_customer: selectedCo.received_from_customer || false,
     });
-  };
-
-  const handleCostImpactChange = (value) => {
-    setEditForm((f) => ({ ...f, cost_impact: value, total_change_order_value_cents: Math.round((Number(value) || 0) * 100) }));
   };
 
   const handleSaveCoEdit = async () => {
     if (!selectedCo) return;
     setSavingEdit(true);
     try {
+      const costImpact = Number(editForm.cost_impact) || 0;
+      const estimatedCostImpact = Number(editForm.estimated_cost_impact) || 0;
       const payload = {
         ...editForm,
-        cost_impact: Number(editForm.cost_impact) || 0,
+        cost_impact: costImpact,
+        estimated_cost_impact: estimatedCostImpact,
+        margin_impact: costImpact - estimatedCostImpact,
         schedule_impact: Number(editForm.schedule_impact) || 0,
         added_tonnage_weight_lbs: Number(editForm.added_tonnage_weight_lbs) || 0,
         added_labor_hours: Number(editForm.added_labor_hours) || 0,
@@ -255,6 +257,10 @@ export default function ChangeOrders() {
                   <Label>Extra Contract Dollars</Label>
                   <Input type="number" min={0} value={form.dollars} onChange={(e) => setForm((f) => ({ ...f, dollars: e.target.value }))} className="mt-1" placeholder="$" />
                 </div>
+                <div>
+                  <Label>Estimated Cost</Label>
+                  <Input type="number" min={0} value={form.estimatedCost} onChange={(e) => setForm((f) => ({ ...f, estimatedCost: e.target.value }))} className="mt-1" placeholder="$" />
+                </div>
                 <div className="md:col-span-2 flex items-center gap-2">
                   <Checkbox id="co-received-from-customer" checked={form.receivedFromCustomer} onCheckedChange={(v) => setForm((f) => ({ ...f, receivedFromCustomer: !!v }))} />
                   <Label htmlFor="co-received-from-customer" className="font-normal cursor-pointer">Received from customer — notify PM and Estimating</Label>
@@ -323,14 +329,6 @@ export default function ChangeOrders() {
                   <p className="font-medium whitespace-pre-wrap">{selectedCo.description || '—'}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Cost Impact</p>
-                  <p className="font-medium">{fmtCurrency(selectedCo.cost_impact)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Contract value impact</p>
-                  <p className="font-medium">{fmtCurrency((selectedCo.total_change_order_value_cents || 0) / 100)}</p>
-                </div>
-                <div>
                   <p className="text-xs text-muted-foreground">Schedule Impact</p>
                   <p className="font-medium">{selectedCo.schedule_impact || 0} days</p>
                 </div>
@@ -341,6 +339,20 @@ export default function ChangeOrders() {
                 <div>
                   <p className="text-xs text-muted-foreground">Added Labor Hours</p>
                   <p className="font-medium">{selectedCo.added_labor_hours || 0} hours</p>
+                </div>
+                <div className="col-span-2 rounded-lg border border-border p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Profitability</p>
+                  {(() => {
+                    const contractImpact = Number(selectedCo.cost_impact || 0);
+                    const estCost = Number(selectedCo.estimated_cost_impact || 0);
+                    const margin = Number(selectedCo.margin_impact ?? (contractImpact - estCost));
+                    const marginPct = contractImpact !== 0 ? (margin / contractImpact) * 100 : 0;
+                    return (
+                      <p className="font-medium">
+                        Contract Impact: {contractImpact >= 0 ? '+' : ''}{fmtCurrency(contractImpact)} | Est. Cost: {fmtCurrency(estCost)} | Margin: {fmtCurrency(margin)}{contractImpact !== 0 ? ` (${marginPct.toFixed(0)}%)` : ''}
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -379,7 +391,11 @@ export default function ChangeOrders() {
                   </div>
                   <div>
                     <Label>Cost Impact ($)</Label>
-                    <Input type="number" value={editForm.cost_impact} onChange={(e) => handleCostImpactChange(e.target.value)} className="mt-1" />
+                    <Input type="number" value={editForm.cost_impact} onChange={(e) => setEditForm((f) => ({ ...f, cost_impact: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Estimated Cost ($)</Label>
+                    <Input type="number" value={editForm.estimated_cost_impact} onChange={(e) => setEditForm((f) => ({ ...f, estimated_cost_impact: e.target.value }))} className="mt-1" />
                   </div>
                   <div>
                     <Label>Schedule Impact (days)</Label>

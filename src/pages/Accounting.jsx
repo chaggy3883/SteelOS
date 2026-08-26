@@ -225,6 +225,7 @@ export default function Accounting() {
   const [ledgerEntries, setLedgerEntries] = useState([]);
   const [editingLedger, setEditingLedger] = useState(null);
   const [ledgerForm, setLedgerForm] = useState(emptyLedgerForm());
+  const [projectChangeOrders, setProjectChangeOrders] = useState([]);
 
   const isAdmin = isAdminUser(currentUser);
   const canAccessTab = (tabId) => isAdmin || userRoles.some((r) => (TAB_ROLES[tabId] || []).includes(r));
@@ -268,6 +269,7 @@ export default function Accounting() {
     if (selectedProjectId) {
       loadJobCostRows(selectedProjectId);
       loadSovAndLedger(selectedProjectId);
+      loadProjectChangeOrders(selectedProjectId);
     }
   }, [selectedProjectId]);
 
@@ -331,7 +333,19 @@ export default function Accounting() {
     }
   };
 
+  const loadProjectChangeOrders = async (projectId) => {
+    try {
+      const coData = await db.entities.change_orders.filter({ project_id: projectId }, '-created_date', 200);
+      setProjectChangeOrders(coData);
+    } catch (e) {
+      setProjectChangeOrders([]);
+    }
+  };
+
   const selectedProject = projects.find(p => p.id === selectedProjectId);
+  const changeOrderMargin = projectChangeOrders
+    .filter((co) => co.status === 'Approved')
+    .reduce((sum, co) => sum + Number(co.margin_impact || 0), 0);
 
   // --- Balances / Aging (Stages 4-5) ---
   const customerBalances = computeCustomerBalances({ invoices: allInvoices, payments, memos, projects, customers });
@@ -1623,6 +1637,12 @@ export default function Accounting() {
                       <p className={`font-mono font-bold text-lg ${wip.billingStatus === 'overbilled' ? 'text-amber-500' : wip.billingStatus === 'underbilled' ? 'text-blue-500' : ''}`}>
                         ${Math.abs(wip.overUnderBilling).toLocaleString()}
                         {wip.billingStatus !== 'even' && <span className="text-xs ml-1">({wip.billingStatus === 'overbilled' ? 'Overbilled' : 'Underbilled'})</span>}
+                      </p>
+                    </button>
+                    <button type="button" onClick={() => navigate('/projects/change-orders')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
+                      <p className="text-xs text-muted-foreground">Change Order Margin</p>
+                      <p className={`font-mono font-bold text-lg ${changeOrderMargin < 0 ? 'text-red-500' : 'text-green-500'}`}>
+                        {changeOrderMargin >= 0 ? '+' : '-'}${Math.abs(changeOrderMargin).toLocaleString()}
                       </p>
                     </button>
                   </div>

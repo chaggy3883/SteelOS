@@ -663,7 +663,6 @@ export async function seedDemoData() {
         description: item.description,
         status: item.status,
         cost_impact: item.cost_impact,
-        total_change_order_value_cents: item.cost_impact * 100,
         schedule_impact: item.schedule_impact,
         date_submitted: daysFromNow(item.dateOffset),
       });
