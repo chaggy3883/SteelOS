@@ -1489,6 +1489,24 @@ export async function seedDemoData() {
     }))
   );
 
+  // Guard against PayrollProcessing.jsx — the sole payroll pipeline now that
+  // Payroll.jsx (whose register/job-cost-posting shape this synthetic period
+  // otherwise mirrors) has been retired — re-running against this exact
+  // period. PayrollRunPanel.jsx's duplicate-run guard only checks for an
+  // existing PayrollRun row; without one here, this legacy-shaped seed data
+  // would silently reopen the double-labor-post bug that retirement fixed.
+  const postedGrossCents = postedRegisterLines.reduce((s, l) => s + (l.gross_pay_cents || 0), 0);
+  await db.entities.PayrollRun.create({
+    pay_period_id: postedPeriod.id,
+    status: 'locked',
+    run_date: postedPeriod.pay_date || postedPeriod.period_end,
+    total_gross: postedGrossCents / 100,
+    total_net: postedGrossCents / 100,
+    total_employer_tax: 0,
+    locked_by: 'Demo Data Seeder',
+    locked_at: isoDaysFromNow(-12),
+  });
+
   const payrollEntryIdByProject = {};
   Object.keys(payrollProjectTotals).forEach((projectId, i) => { payrollEntryIdByProject[projectId] = payrollJobCostEntries[i].id; });
 

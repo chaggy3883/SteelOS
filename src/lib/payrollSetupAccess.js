@@ -3,7 +3,7 @@ import { BUILTIN_ROLES, normalizeRoleName } from '@/components/dashboard/rbacCon
 // Payroll Setup (master data: pay rates, tax withholding, deductions, GL
 // mappings, pay period calendar, payroll rules) is payroll/HR/admin only —
 // narrower than general HR access (compensation + tax setup, not just
-// personnel records) but broader than Payroll.jsx's own ALLOWED_ROLES since
+// personnel records) but broader than PayrollProcessing.jsx's own ALLOWED_ROLES since
 // hr_admin also needs to set up new hires' pay rates and withholding. Names
 // are checked against BUILTIN_ROLES below so this can never silently drift
 // from the roles that actually exist.

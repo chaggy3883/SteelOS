@@ -8,9 +8,9 @@ import TimeEntryPanel from '@/components/payroll/TimeEntryPanel';
 import TimecardsPanel from '@/components/payroll/TimecardsPanel';
 import PayrollRunPanel from '@/components/payroll/PayrollRunPanel';
 
-// Same audience as Payroll.jsx's own weekly processing (register/lock/
-// export/job-cost-posting) — running payroll is a narrower, more sensitive
-// action than the broader payroll/HR/admin Payroll Setup surface.
+// Same audience as retired Payroll.jsx's weekly processing (register/lock/
+// export/job-cost-posting) had — running payroll is a narrower, more
+// sensitive action than the broader payroll/HR/admin Payroll Setup surface.
 const PAYROLL_PROCESSING_ALLOWED_ROLES = ['admin', 'super_admin', 'payroll_admin', 'controller'];
 
 const VALID_ROLE_NAMES = new Set(BUILTIN_ROLES.map((r) => r.name));

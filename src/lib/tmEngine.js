@@ -5,11 +5,12 @@
 // traced by hand against a concrete example.
 //
 // IMPORTANT: this module never writes a JobCostLedgerEntry for labor. Actual
-// internal labor cost keeps posting through the existing payroll-period flow
-// (Payroll.jsx's handlePostLaborToJobCost) — TmLaborRate is a customer BILL
-// rate, not the employee's pay rate, and is only used here to compute
-// estimate/billing totals on the fly. Posting a second LAB entry from this
-// module would double-count labor cost per the "no double-entry" rule.
+// internal labor cost keeps posting through the existing payroll pipeline
+// (PayrollRunPanel.jsx's job costing block, in PayrollProcessing.jsx) —
+// TmLaborRate is a customer BILL rate, not the employee's pay rate, and is
+// only used here to compute estimate/billing totals on the fly. Posting a
+// second LAB entry from this module would double-count labor cost per the
+// "no double-entry" rule.
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 

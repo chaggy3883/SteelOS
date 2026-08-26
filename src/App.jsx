@@ -71,7 +71,6 @@ import ShopFloorCommandCenter from '@/pages/ShopFloorCommandCenter';
 import HumanResources from '@/pages/HumanResources';
 import NewEmployee from '@/pages/NewEmployee';
 import AdminEmployees from '@/pages/AdminEmployees';
-import Payroll from '@/pages/Payroll';
 import PayrollHours from '@/pages/PayrollHours';
 import PayrollSetup from '@/pages/PayrollSetup';
 import PayrollProcessing from '@/pages/PayrollProcessing';
@@ -176,7 +175,11 @@ const AuthenticatedApp = () => {
           <Route path="/users" element={<Users />} />
           <Route path="/human-resources" element={<HumanResources />} />
           <Route path="/human-resources/new-employee" element={<NewEmployee />} />
-          <Route path="/payroll" element={<Payroll />} />
+          {/* Payroll.jsx retired — its pipeline could double-post labor to
+              JobCostLedgerEntry against PayrollProcessing.jsx without either
+              knowing about the other. Redirect rather than 404 for anyone
+              with the old URL bookmarked. */}
+          <Route path="/payroll" element={<Navigate to="/payroll/processing" replace />} />
           <Route path="/payroll/hours" element={<PayrollHours />} />
           <Route path="/payroll/setup" element={<PayrollSetup />} />
           <Route path="/payroll/processing" element={<PayrollProcessing />} />

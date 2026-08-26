@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { PlayCircle, AlertTriangle, Info, ShieldAlert, CheckCircle2, Lock, Undo2, ShieldCheck, Pencil, Plus } from 'lucide-react';
+import { PlayCircle, AlertTriangle, Info, ShieldAlert, CheckCircle2, Lock, Undo2, ShieldCheck, Pencil, Plus, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,7 @@ import { hasPayrollAdjustmentAccess } from '@/lib/payrollAdjustmentAccess';
 import { queueCommissionsForPayroll, attachPendingCommissionPayoutsToRun, finalizeCommissionPayoutsForRun } from '@/lib/commissionEngine';
 import { logStatusChange } from '@/lib/statusHistory';
 import { buildAchOutgoingPayloads } from '@/lib/achEngine';
+import { exportPayrollRunCSV } from '@/lib/payrollExport';
 import PayStubDetail from '@/components/payroll/PayStubDetail';
 
 const HOURS_FIELDS = ['regular_hours', 'ot_hours', 'double_time_hours'];
@@ -664,6 +665,10 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
     }
   };
 
+  const handleExportRun = () => {
+    exportPayrollRunCSV(runDetail.period, viewingRun, runDetail.lines, employees);
+  };
+
   const handleReopen = async () => {
     const reason = reopenReason.trim();
     if (!reason) {
@@ -787,7 +792,10 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
               {viewingRun?.status === 'locked' && (
                 <div className="space-y-2">
                   <div className="text-xs text-muted-foreground">Locked by {viewingRun.locked_by} on {viewingRun.locked_at?.slice(0, 10)} — timecards for this pay period are read-only.</div>
-                  <div className="flex justify-end">
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="outline" className="gap-1.5" onClick={handleExportRun}>
+                      <Download className="w-3.5 h-3.5" />Export for Payroll Provider
+                    </Button>
                     <Button size="sm" variant="outline" className="gap-1.5" disabled={savingAction || !canReopen} onClick={() => setReopenDialogOpen(true)} title={!canReopen ? 'Requires Admin, Payroll Admin, Controller, or Super Admin' : undefined}>
                       <Undo2 className="w-3.5 h-3.5" />Reopen
                     </Button>

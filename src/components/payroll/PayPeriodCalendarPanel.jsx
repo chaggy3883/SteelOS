@@ -45,9 +45,10 @@ const emptySingleForm = () => ({ period_start: '', period_end: '', pay_date: '',
 const emptyBulkForm = () => ({ start_date: '', frequency: 'biweekly', workweek_start_day: 'Monday', count: '4', pay_date_offset_days: '5' });
 
 // Setup-side calendar: defines the pay period schedule in advance.
-// Processing a period (generating a register, locking, exporting, posting to
-// job cost) stays exclusively in Payroll.jsx — this panel never duplicates
-// those actions, only the master-data shape (dates + workweek_start_day).
+// Processing a period (time entry, timecards, running/approving/locking a
+// PayrollRun, job cost posting) stays exclusively in PayrollProcessing.jsx —
+// this panel never duplicates those actions, only the master-data shape
+// (dates + workweek_start_day).
 export default function PayPeriodCalendarPanel() {
   const { toast } = useToast();
   const [periods, setPeriods] = useState([]);

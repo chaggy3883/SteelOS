@@ -15,8 +15,9 @@ import PayrollRulesPanel from '@/components/payroll/PayrollRulesPanel';
 
 // Master data only — pay rates, tax withholding, deductions, GL mappings,
 // the pay period calendar, and payroll rules. No weekly processing logic
-// lives here; that stays in Payroll.jsx (register generation, locking,
-// export, job cost posting).
+// lives here; that stays in PayrollProcessing.jsx (time entry, timecards,
+// run/approve/lock, job cost posting) — the sole payroll pipeline since
+// Payroll.jsx's retirement (see App.jsx's /payroll redirect).
 export default function PayrollSetup() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [allowed, setAllowed] = useState(false);

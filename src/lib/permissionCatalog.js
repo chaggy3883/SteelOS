@@ -138,11 +138,6 @@ export const PERMISSION_CATALOG = [
     { key: 'tab:/human-resources:files', label: 'Employee Files' },
   ] },
   { key: 'module:/payroll/hours', label: 'Hours at a Glance' },
-  { key: 'module:/payroll', label: 'Payroll', tabs: [
-    { key: 'tab:/payroll:periods', label: 'Pay Periods' },
-    { key: 'tab:/payroll:register', label: 'Register' },
-    { key: 'tab:/payroll:jobcost', label: 'Job Cost Posting' },
-  ] },
   { key: 'module:/payroll/processing', label: 'Run Payroll', tabs: [
     { key: 'tab:/payroll/processing:time', label: 'Time Entries' },
     { key: 'tab:/payroll/processing:timecards', label: 'Timecards' },
