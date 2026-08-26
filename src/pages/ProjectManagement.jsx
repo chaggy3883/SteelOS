@@ -56,7 +56,7 @@ export default function ProjectManagement() {
     setLoading(true);
     try {
       const [projectRecord, coList, sequenceList, loadList, manifestList, carrierList] = await Promise.all([
-        db.entities.projects.get(id),
+        db.entities.Project.get(id),
         db.entities.change_orders.filter({ project_id: id }, '-created_date', 100),
         db.entities.shop_sequences.filter({ project_id: id }, '-created_date', 100),
         db.entities.loads.filter({ project_id: id }, '-created_date', 100),
@@ -87,7 +87,7 @@ export default function ProjectManagement() {
 
   const saveProjectField = async (field, value) => {
     if (!project) return;
-    const updated = await db.entities.projects.update(project.id, { [field]: value });
+    const updated = await db.entities.Project.update(project.id, { [field]: value });
     setProject(updated);
   };
 

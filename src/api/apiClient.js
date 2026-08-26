@@ -127,7 +127,6 @@ const createLocalApi = () => ({
     saved_kpi_dashboards: createEntityApi('saved_kpi_dashboards'),
     Project: createEntityApi('Project'),
     ProjectJobCostSummary: createEntityApi('ProjectJobCostSummary'),
-    projects: createEntityApi('projects'),
     change_orders: createEntityApi('change_orders'),
     shop_sequences: createEntityApi('shop_sequences'),
     purchase_orders: createEntityApi('purchase_orders'),

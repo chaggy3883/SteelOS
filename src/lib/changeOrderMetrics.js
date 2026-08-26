@@ -13,7 +13,7 @@ export async function syncProjectChangeOrderMetrics(project, changeOrders) {
   const revisedValue = Number(project?.original_contract_value || 0) + approvedTotal;
   const remainingBalance = revisedValue - Number(project?.total_invoiced_to_date || 0);
 
-  return db.entities.projects.update(project.id, {
+  return db.entities.Project.update(project.id, {
     approved_change_orders_total: approvedTotal,
     current_revised_contract_value: revisedValue,
     remaining_project_balance: remainingBalance,

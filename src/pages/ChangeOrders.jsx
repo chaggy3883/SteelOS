@@ -60,7 +60,7 @@ export default function ChangeOrders() {
   const loadProjects = async () => {
     setLoadingProjects(true);
     try {
-      const rows = await db.entities.projects.filter({ is_archived: false }, 'name', 100);
+      const rows = await db.entities.Project.filter({ is_archived: false }, 'name', 100);
       setProjects(rows);
     } catch (e) { setProjects([]); }
     finally { setLoadingProjects(false); }
@@ -70,7 +70,7 @@ export default function ChangeOrders() {
     setLoadingOrders(true);
     try {
       const [projectRecord, orders] = await Promise.all([
-        db.entities.projects.get(projectId),
+        db.entities.Project.get(projectId),
         db.entities.change_orders.filter({ project_id: projectId }, '-created_date', 100),
       ]);
       setSelectedProject(projectRecord || null);

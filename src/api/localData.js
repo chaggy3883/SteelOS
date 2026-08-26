@@ -543,58 +543,6 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
-    projects: [
-      {
-        id: 'project-harbor',
-        company_id: 'company-hancock',
-        name: 'Harbor Tower',
-        project_number: 'JOB-26-008',
-        customer_id: 'customer-acme',
-        customer_name: 'Acme Construction',
-        status: 'active',
-        execution_status: 'Prefabrication',
-        is_archived: false,
-        original_contract_value: 1250000,
-        approved_change_orders_total: 0,
-        current_revised_contract_value: 1250000,
-        total_invoiced_to_date: 420000,
-        remaining_project_balance: 830000,
-        estimated_tons: 280,
-        fabricated_tons: 92,
-        drawing_release_date: '2026-07-10',
-        detailer_crm_link: 'https://crm.local/detailer/harbor',
-        approved_shop_drawings_path: '/uploads/harbor-shop-drawings.pdf',
-        erector_crm_link: 'https://crm.local/erector/harbor',
-        field_mobilization_date: '2026-08-01',
-        crane_setup_date: '2026-08-05',
-        erection_progress: 24,
-        contract_value: 1250000,
-        salesman_id: 'employee-1',
-        created_date: now,
-        updated_date: now
-      },
-      {
-        id: 'project-peak',
-        company_id: 'company-hancock',
-        name: 'Peak Distribution Center',
-        project_number: 'JOB-26-014',
-        customer_id: 'customer-peak',
-        customer_name: 'Peak Steel',
-        status: 'active',
-        execution_status: 'Prefabrication',
-        is_archived: false,
-        original_contract_value: 640000,
-        approved_change_orders_total: 0,
-        current_revised_contract_value: 640000,
-        total_invoiced_to_date: 0,
-        remaining_project_balance: 640000,
-        estimated_tons: 140,
-        fabricated_tons: 0,
-        contract_value: 640000,
-        created_date: now,
-        updated_date: now
-      }
-    ],
     change_orders: [
       {
         id: 'co-1',
@@ -2702,7 +2650,7 @@ const migrateStore = (store) => {
       return;
     }
 
-    if (entityName === 'Project' || entityName === 'projects') {
+    if (entityName === 'Project') {
       const targetId = seedItems[0]?.id;
       const existing = migrated[entityName].find((item) => item.id === targetId);
       if (existing) {
@@ -2718,9 +2666,11 @@ const migrateStore = (store) => {
     }
   });
 
-  if (!Array.isArray(migrated.projects)) {
-    migrated.projects = Array.isArray(migrated.Project) ? migrated.Project.map((item) => ({ ...item })) : [...seeded.projects];
-  }
+  // `projects` (lowercase) was a duplicate, orphaned entity that diverged
+  // from the canonical `Project` — retired in favor of a single source of
+  // truth. Purge any copy still sitting in a browser's persisted store from
+  // before the retirement so it doesn't linger as dead, unread data.
+  delete migrated.projects;
 
   // quality_inspection_records predates the AISC Fabricator/Erector track
   // split (Quality.jsx) and has no seed data, so the seeded-entity loop above
@@ -2912,7 +2862,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'projects', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification', 'AuditLog', 'FailedAccessLog', 'TmLaborRate', 'TmLaborEstimateLineItem', 'TmMaterialLineItem', 'TmSubcontractorLineItem', 'TmMaterialUsage', 'BankIntegrationConfig', 'EmployeeBankAccount', 'AchOutgoing', 'AchIncoming', 'candidate_profiles', 'candidate_documents', 'employee_hiring_documents'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification', 'AuditLog', 'FailedAccessLog', 'TmLaborRate', 'TmLaborEstimateLineItem', 'TmMaterialLineItem', 'TmSubcontractorLineItem', 'TmMaterialUsage', 'BankIntegrationConfig', 'EmployeeBankAccount', 'AchOutgoing', 'AchIncoming', 'candidate_profiles', 'candidate_documents', 'employee_hiring_documents'];
 
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();
