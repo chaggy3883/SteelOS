@@ -31,8 +31,9 @@
     },
     "status": {
       "type": "string",
-      "enum": ["Pending_Match", "Approved", "Flagged_Review"],
-      "default": "Pending_Match"
+      "enum": ["Pending_Match", "Approved", "Flagged_Review", "Paid"],
+      "default": "Pending_Match",
+      "description": "'Paid' is set once db.entities.Payment rows applied against this bill (src/lib/paymentEngine.js) cover gross_amount in full — see 'Record Payment' in Accounting.jsx's Vendor Bills tab / VendorBillDetailModal. A bill can only reach 'Paid' from 'Approved'."
     },
     "variance_pct": {
       "type": "number",

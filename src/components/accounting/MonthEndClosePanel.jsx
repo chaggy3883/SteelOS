@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, CheckCircle2, Lock, Unlock, ListChecks, AlertTriangle } from 'lucide-react';
+import { Loader2, CheckCircle2, Lock, Unlock, ListChecks, AlertTriangle, ArrowUpRight } from 'lucide-react';
 
 // This is a checklist/status workflow that ties together data that already
 // exists elsewhere (bank reconciliation, vendor bills, AR, WIP) — it does
@@ -38,8 +39,16 @@ const formatPeriodLabel = (period) => {
   return parsed.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 };
 
+// task_name values that link to a real report tab rather than staying a
+// bare checklist string — currently only AR aging, since that's the report
+// this checklist previously had nothing to point to.
+const TASK_LINKS = {
+  'Review AR aging and follow up on overdue accounts': { label: 'View AR Aging →', to: '/accounting?tab=araging' },
+};
+
 export default function MonthEndClosePanel() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [period, setPeriod] = useState(currentPeriod());
   const [close, setClose] = useState(null);
   const [loadingClose, setLoadingClose] = useState(true);
@@ -322,7 +331,14 @@ export default function MonthEndClosePanel() {
                     <div className="space-y-3">
                       {items.map((item) => (
                         <div key={item.id} className="grid grid-cols-1 md:grid-cols-[1fr_160px_160px_1fr] gap-2 items-start">
-                          <p className={`text-sm mt-1.5 ${item.status === 'Complete' ? 'text-muted-foreground line-through' : ''}`}>{item.task_name}</p>
+                          <p className={`text-sm mt-1.5 ${item.status === 'Complete' ? 'text-muted-foreground line-through' : ''}`}>
+                            {item.task_name}
+                            {TASK_LINKS[item.task_name] && (
+                              <button type="button" onClick={() => navigate(TASK_LINKS[item.task_name].to)} className="ml-2 inline-flex items-center gap-0.5 text-xs text-primary hover:underline align-middle">
+                                {TASK_LINKS[item.task_name].label}<ArrowUpRight className="w-3 h-3" />
+                              </button>
+                            )}
+                          </p>
                           <Select value={item.status || 'Not Started'} onValueChange={(v) => handleStatusChange(item, v)}>
                             <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                             <SelectContent>

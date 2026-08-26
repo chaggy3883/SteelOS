@@ -1,0 +1,82 @@
+{
+  "name": "Payment",
+  "type": "object",
+  "// note": "The real payment layer underneath both AR and AP, added alongside the existing single-flip status fields (InvoiceReceivable.payment_status, VendorBill.status) rather than replacing them — see src/lib/paymentEngine.js. Supports partial payments: one invoice/bill/pay-app can have multiple Payment rows against it. Existing paid-in-full records created before this entity existed have NO Payment rows behind them — 'fully paid' for those is still whatever the single-flip field says. Only payments recorded going forward flow through this entity.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["receivable", "payable"],
+      "description": "'receivable' = money coming in against an InvoiceReceivable (AR). 'payable' = money going out against a VendorBill or SubcontractPayApp (AP)."
+    },
+    "related_entity_type": {
+      "type": "string",
+      "enum": ["InvoiceReceivable", "VendorBill", "SubcontractPayApp"]
+    },
+    "related_entity_id": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "number",
+      "default": 0,
+      "description": "Total dollar amount of this payment — may exceed what's actually owed on the related record (overpayment), in which case the excess is tracked via unapplied_amount rather than silently applied."
+    },
+    "payment_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "payment_method": {
+      "type": "string",
+      "enum": ["check", "ach", "wire", "credit_card", "cash", "other"]
+    },
+    "reference_number": {
+      "type": "string",
+      "description": "Check #, ACH trace #, wire confirmation #, etc."
+    },
+    "applied_amount": {
+      "type": "number",
+      "default": 0,
+      "description": "Portion of amount actually applied against the related record's outstanding balance at the time this payment was recorded — amount minus unapplied_amount."
+    },
+    "is_fully_applied": {
+      "type": "boolean",
+      "default": true,
+      "description": "false only when unapplied_amount > 0 (an overpayment left as unapplied cash)."
+    },
+    "is_write_off": {
+      "type": "boolean",
+      "default": false,
+      "description": "True for a Write Off action (InvoiceReceivable, elevated role + mandatory reason) rather than an actual cash payment — still zeroes the outstanding balance and shows in payment history, but must be visually distinguishable everywhere from a real payment (aging, balances, statements)."
+    },
+    "is_unapplied": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when this payment (or an unmatched AchIncoming deposit applied through the Unapplied Cash panel) exceeded what was owed, or arrived with nothing to match against yet."
+    },
+    "unapplied_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "is_retainage_release": {
+      "type": "boolean",
+      "default": false,
+      "description": "True for the AP-side retainage release payment created against a SubcontractPayApp (see src/lib/retainageRelease.js) — distinguishes it from an ordinary bill/pay-app payment in payment history. The AR-side equivalent doesn't need this flag: it's a distinct InvoiceReceivable (billing_type='retainage_release') with its own normal Payment rows."
+    },
+    "notes": {
+      "type": "string"
+    },
+    "created_by": {
+      "type": "string",
+      "description": "Display name/email of whoever recorded this payment."
+    }
+  },
+  "required": [
+    "direction",
+    "related_entity_type",
+    "related_entity_id",
+    "amount",
+    "payment_date"
+  ]
+}

@@ -85,6 +85,8 @@ const createLocalApi = () => ({
     remnant_inventory: createEntityApi('remnant_inventory'),
     manager_overrides: createEntityApi('manager_overrides'),
     MaterialTakeoffLine: createEntityApi('MaterialTakeoffLine'),
+    Payment: createEntityApi('Payment'),
+    Memo: createEntityApi('Memo'),
     Subcontract: createEntityApi('Subcontract'),
     SubcontractPayApp: createEntityApi('SubcontractPayApp'),
     TmLaborRate: createEntityApi('TmLaborRate'),

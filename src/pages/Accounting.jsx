@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
-import { isAdminUser } from '@/lib/tenantContext';
+import { isAdminUser, getEffectiveCompany } from '@/lib/tenantContext';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -20,6 +20,8 @@ import { calculateWIPSchedule } from '@/lib/wipCalculations';
 import { handleProcorePayWebhook, handleTexturaWebhook } from '@/lib/webhookHandlers';
 import { exportToQuickBooksCSV, exportToSage100CSV } from '@/lib/glExport';
 import { triggerCommissionOnPayment } from '@/lib/commissionEngine';
+import { loadAllPayments, appliedTotalFromList } from '@/lib/paymentEngine';
+import { loadAllMemos } from '@/lib/memoEngine';
 import { computeActualLaborCost, computeSubVariance, applyMarkup } from '@/lib/tmEngine';
 import { isPeriodLocked, periodLockedMessage } from '@/lib/periodLock';
 import { hasFinanceOverrideAccess } from '@/lib/financeAccess';
@@ -27,12 +29,17 @@ import { logFinancialOverride } from '@/lib/financialAudit';
 import CashManagementPanel from '@/components/accounting/CashManagementPanel';
 import CashForecastPanel from '@/components/accounting/CashForecastPanel';
 import IncomingAchPanel from '@/components/accounting/IncomingAchPanel';
+import UnappliedCashPanel from '@/components/accounting/UnappliedCashPanel';
 import MonthEndClosePanel from '@/components/accounting/MonthEndClosePanel';
 import BudgetPanel from '@/components/accounting/BudgetPanel';
 import LedgerDrilldownModal from '@/components/accounting/LedgerDrilldownModal';
 import VendorBillDetailModal from '@/components/accounting/VendorBillDetailModal';
 import InvoiceReceivableDetailModal from '@/components/accounting/InvoiceReceivableDetailModal';
 import PurchaseOrderDetailModal from '@/components/purchasing/PurchaseOrderDetailModal';
+import BalanceDrilldownModal from '@/components/accounting/BalanceDrilldownModal';
+import { computeCustomerBalances, computeVendorBalances } from '@/lib/balancesReport';
+import { computeArAging, computeApAging, AGING_BUCKETS, AGING_BUCKET_LABELS } from '@/lib/agingReport';
+import { generateCustomerStatementPdf } from '@/lib/customerStatementPdf';
 
 const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
 const LEDGER_COST_CLASSES = ['MAT', 'SUB', 'EQP', 'LAB'];
@@ -62,8 +69,12 @@ const TAB_ROLES = {
   arbilling: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
   wip: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
   ai: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
+  custbalances: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
+  vendbalances: ['finance_department', 'controller', 'president', 'ceo'],
+  araging: ['project_manager', 'finance_department', 'controller', 'president', 'ceo'],
+  apaging: ['finance_department', 'controller', 'president', 'ceo'],
 };
-const TAB_ORDER = ['jobs', 'jobcostdetail', 'vendorbills', 'cash', 'close', 'budget', 'arbilling', 'wip', 'ai'];
+const TAB_ORDER = ['jobs', 'jobcostdetail', 'vendorbills', 'cash', 'close', 'budget', 'arbilling', 'custbalances', 'vendbalances', 'araging', 'apaging', 'wip', 'ai'];
 
 const CONTRACT_FIELDS = [
   { key: 'original_contract', label: 'Original Contract' },
@@ -109,6 +120,7 @@ function emptyLedgerForm() {
 export default function Accounting() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // --- Drill-down targets (standing rule: every data point navigates to its
   // full underlying detail). Kept separate from the existing edit-form state
@@ -174,6 +186,16 @@ export default function Accounting() {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [receivingLogs, setReceivingLogs] = useState([]);
   const [vendorBills, setVendorBills] = useState([]);
+  const [payments, setPayments] = useState([]);
+
+  // --- Balances / Aging (Stages 4-5) — company-wide data, not scoped to
+  // selectedProjectId the way sovLines/invoiceReceivables/ledgerEntries are. ---
+  const [customers, setCustomers] = useState([]);
+  const [allInvoices, setAllInvoices] = useState([]);
+  const [subcontracts, setSubcontracts] = useState([]);
+  const [allPayApps, setAllPayApps] = useState([]);
+  const [memos, setMemos] = useState([]);
+  const [balanceDrilldown, setBalanceDrilldown] = useState(null);
   const [editingVendor, setEditingVendor] = useState(false);
   const [vendorForm, setVendorForm] = useState(emptyVendorForm());
   const [editingBill, setEditingBill] = useState(null);
@@ -226,11 +248,20 @@ export default function Accounting() {
   }, []);
 
   useEffect(() => {
-    if (accessChecked && !activeTab) {
+    if (!accessChecked) return;
+    // ?tab= in the URL always wins (e.g. MonthEndClosePanel's "View AR Aging"
+    // link navigating within this already-mounted page) — re-checked on every
+    // searchParams change, not just at mount, so it works after initial load too.
+    const requestedTab = searchParams.get('tab');
+    if (requestedTab && TAB_ORDER.includes(requestedTab) && canAccessTab(requestedTab)) {
+      if (requestedTab !== activeTab) setActiveTab(requestedTab);
+      return;
+    }
+    if (!activeTab) {
       const firstAccessible = TAB_ORDER.find(canAccessTab);
       if (firstAccessible) setActiveTab(firstAccessible);
     }
-  }, [accessChecked]);
+  }, [accessChecked, searchParams]);
 
   useEffect(() => { if (accessChecked && accessibleTabs.length > 0) loadData(); }, [accessChecked]);
   useEffect(() => {
@@ -243,13 +274,19 @@ export default function Accounting() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [projData, findData, vendorData, poData, rlData, billData] = await Promise.all([
+      const [projData, findData, vendorData, poData, rlData, billData, paymentData, customerData, invoiceData, subcontractData, payAppData, memoData] = await Promise.all([
         db.entities.Project.filter({ is_archived: false }, '-contract_value', 50),
         db.entities.AIFinding.filter({ review_package: 'accounting' }, '-created_date', 50),
         db.entities.Vendor.list('-created_date', 100),
         db.entities.purchase_orders.list('-created_date', 100),
         db.entities.receiving_logs.list('-created_date', 100),
         db.entities.VendorBill.list('-created_date', 100),
+        loadAllPayments(),
+        db.entities.Customer.list('name', 500),
+        db.entities.InvoiceReceivable.list('-created_date', 2000),
+        db.entities.Subcontract.list('-created_date', 500),
+        db.entities.SubcontractPayApp.list('-created_date', 2000),
+        loadAllMemos(),
       ]);
       setProjects(projData);
       setFindings(findData);
@@ -257,6 +294,12 @@ export default function Accounting() {
       setPurchaseOrders(poData);
       setReceivingLogs(rlData);
       setVendorBills(billData);
+      setPayments(paymentData);
+      setCustomers(customerData);
+      setAllInvoices(invoiceData);
+      setSubcontracts(subcontractData);
+      setAllPayApps(payAppData);
+      setMemos(memoData);
       if (!selectedProjectId && projData.length > 0) setSelectedProjectId(projData[0].id);
     } catch (e) {} finally { setLoading(false); }
   };
@@ -289,6 +332,77 @@ export default function Accounting() {
   };
 
   const selectedProject = projects.find(p => p.id === selectedProjectId);
+
+  // --- Balances / Aging (Stages 4-5) ---
+  const customerBalances = computeCustomerBalances({ invoices: allInvoices, payments, memos, projects, customers });
+  const vendorBalances = computeVendorBalances({ vendorBills, payApps: allPayApps, subcontracts, payments, memos, vendors });
+  const arAging = computeArAging({ invoices: allInvoices, payments, memos, projects, customers });
+  const apAging = computeApAging({ vendorBills, payments, memos, vendors });
+
+  const handleGenerateStatement = async (row) => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      const invoiceIds = new Set(row.invoices.map(({ invoice }) => invoice.id));
+      const customerPayments = payments.filter((p) => p.related_entity_type === 'InvoiceReceivable' && invoiceIds.has(p.related_entity_id));
+      const customerMemos = memos.filter((m) => m.related_entity_type === 'InvoiceReceivable' && invoiceIds.has(m.related_entity_id));
+      generateCustomerStatementPdf({ customer: row.customer, company, invoiceRows: row.invoices, payments: customerPayments, memos: customerMemos });
+      toast({ title: 'Statement generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate statement', variant: 'destructive' });
+    }
+  };
+
+  const openCustomerBalanceDrilldown = (row) => {
+    setBalanceDrilldown({
+      title: `${row.customer?.name || 'Unknown Customer'} — Balance`,
+      subtitle: 'Every non-Draft progress billing contributing to this balance.',
+      rows: row.invoices.map(({ invoice, project, outstanding }) => ({
+        id: invoice.id, label: `${project?.name || 'Unknown Project'} — ${invoice.billing_period}`, sublabel: invoice.payment_status, amount: outstanding, raw: invoice,
+      })),
+      onRowClick: (r) => { setBalanceDrilldown(null); setViewingInvoiceId(r.raw.id); },
+    });
+  };
+
+  const openVendorBalanceDrilldown = (row) => {
+    const billRows = row.bills.map(({ bill, outstanding }) => ({
+      id: bill.id, label: `Bill ${bill.invoice_number || bill.id}`, sublabel: bill.status, amount: outstanding, raw: bill, kind: 'VendorBill',
+    }));
+    const payAppRows = row.payApps.map(({ payApp, outstanding }) => ({
+      id: payApp.id, label: `Pay App #${payApp.pay_app_number}`, sublabel: payApp.status, amount: outstanding, raw: payApp, kind: 'SubcontractPayApp',
+    }));
+    setBalanceDrilldown({
+      title: `${row.vendor?.name || 'Unknown Vendor'} — Balance`,
+      subtitle: 'Approved/Paid vendor bills and approved subcontractor pay applications making up this balance.',
+      rows: [...billRows, ...payAppRows],
+      onRowClick: (r) => {
+        setBalanceDrilldown(null);
+        if (r.kind === 'VendorBill') setViewingBillId(r.raw.id);
+        else { navigate('/subcontracts'); toast({ title: `Find Pay App #${r.raw.pay_app_number} on the Pay Applications tab` }); }
+      },
+    });
+  };
+
+  const openArAgingDrilldown = (row, bucket) => {
+    setBalanceDrilldown({
+      title: `${row.customer?.name || 'Unknown Customer'} — ${AGING_BUCKET_LABELS[bucket]}`,
+      subtitle: 'Invoices in this aging bucket.',
+      rows: row.items.filter((i) => i.bucket === bucket).map(({ invoice, project, outstanding }) => ({
+        id: invoice.id, label: `${project?.name || 'Unknown Project'} — ${invoice.billing_period}`, sublabel: invoice.payment_status, amount: outstanding, raw: invoice,
+      })),
+      onRowClick: (r) => { setBalanceDrilldown(null); setViewingInvoiceId(r.raw.id); },
+    });
+  };
+
+  const openApAgingDrilldown = (row, bucket) => {
+    setBalanceDrilldown({
+      title: `${row.vendor?.name || 'Unknown Vendor'} — ${AGING_BUCKET_LABELS[bucket]}`,
+      subtitle: 'Vendor bills in this aging bucket.',
+      rows: row.items.filter((i) => i.bucket === bucket).map(({ bill, outstanding }) => ({
+        id: bill.id, label: `Bill ${bill.invoice_number || bill.id}`, sublabel: bill.status, amount: outstanding, raw: bill,
+      })),
+      onRowClick: (r) => { setBalanceDrilldown(null); setViewingBillId(r.raw.id); },
+    });
+  };
 
   const startAddRow = () => { setEditingRow('new'); setRowForm(emptyRowForm()); };
   const startEditRow = (row) => {
@@ -668,6 +782,66 @@ export default function Accounting() {
 
   const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+  // Stage 6 (AR retainage release) — one real InvoiceReceivable for the
+  // retainage_held accumulated across every prior Released billing on this
+  // project, distinct via billing_type='retainage_release' so it's never
+  // confused with a normal progress billing. Guarded against double-release
+  // by projectRetainageAlreadyReleased below (any existing invoice of that
+  // billing_type for the project).
+  const projectInvoicesForRetainage = invoiceReceivables.filter((i) => i.project_id === selectedProjectId);
+  const projectRetainageAlreadyReleased = projectInvoicesForRetainage.some((i) => i.billing_type === 'retainage_release');
+  const projectRetainageAvailable = round2(
+    projectInvoicesForRetainage
+      .filter((i) => i.payment_status === 'Released' && i.billing_type !== 'retainage_release')
+      .reduce((s, i) => s + (Number(i.retainage_held) || 0), 0)
+  );
+  const canReleaseArRetainage = selectedProject?.status === 'complete' && !projectRetainageAlreadyReleased && projectRetainageAvailable > 0.01;
+
+  const handleReleaseArRetainage = async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const locked = await isPeriodLocked(today);
+    if (locked) {
+      if (!canOverrideFinanceLock) {
+        toast({ title: periodLockedMessage(today), variant: 'destructive' });
+        return;
+      }
+      setOverrideDialog({
+        title: 'Closed Period — Confirm Retainage Release',
+        description: `${periodLockedMessage(today)} You have permission to override — enter a reason to continue.`,
+        errorTitle: 'Unable to release retainage',
+        onConfirm: (reason) => releaseArRetainageNow(reason),
+      });
+      return;
+    }
+    await releaseArRetainageNow(null);
+  };
+
+  const releaseArRetainageNow = async (overrideReason) => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const amount = projectRetainageAvailable;
+      const created = await db.entities.InvoiceReceivable.create({
+        project_id: selectedProjectId,
+        billing_period: `Retainage Release — ${today}`,
+        billing_type: 'retainage_release',
+        gross_amount: amount,
+        retainage_held: 0,
+        net_billing: amount,
+        payment_status: 'Draft',
+      });
+      if (overrideReason) {
+        await logFinancialOverride({
+          entityType: 'InvoiceReceivable', entityId: created.id, action: 'create',
+          reason: `Closed-period override — retainage release: ${overrideReason}`, changedBy: currentUser,
+        });
+      }
+      toast({ title: 'Retainage release invoice created', description: `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })} for ${selectedProject?.name || 'this project'}` });
+      loadSovAndLedger(selectedProjectId);
+    } catch (e) {
+      toast({ title: 'Unable to release retainage', variant: 'destructive' });
+    }
+  };
+
   const handleSaveInvoice = async () => {
     if (!invoiceForm.billing_period) { toast({ title: 'Billing period is required', variant: 'destructive' }); return; }
 
@@ -838,6 +1012,10 @@ export default function Accounting() {
           {canAccessTab('close') && <TabsTrigger value="close"><ListChecks className="w-3.5 h-3.5 mr-1.5" />Month-End Close</TabsTrigger>}
           {canAccessTab('budget') && <TabsTrigger value="budget"><ClipboardList className="w-3.5 h-3.5 mr-1.5" />Budget</TabsTrigger>}
           {canAccessTab('arbilling') && <TabsTrigger value="arbilling"><FileText className="w-3.5 h-3.5 mr-1.5" />AR &amp; Billings</TabsTrigger>}
+          {canAccessTab('custbalances') && <TabsTrigger value="custbalances"><DollarSign className="w-3.5 h-3.5 mr-1.5" />Customer Balances</TabsTrigger>}
+          {canAccessTab('vendbalances') && <TabsTrigger value="vendbalances"><DollarSign className="w-3.5 h-3.5 mr-1.5" />Vendor Balances</TabsTrigger>}
+          {canAccessTab('araging') && <TabsTrigger value="araging"><Gauge className="w-3.5 h-3.5 mr-1.5" />AR Aging</TabsTrigger>}
+          {canAccessTab('apaging') && <TabsTrigger value="apaging"><Gauge className="w-3.5 h-3.5 mr-1.5" />AP Aging</TabsTrigger>}
           {canAccessTab('wip') && <TabsTrigger value="wip"><Gauge className="w-3.5 h-3.5 mr-1.5" />WIP Report</TabsTrigger>}
           {canAccessTab('ai') && <TabsTrigger value="ai">AI Financial Flags ({findings.length})</TabsTrigger>}
         </TabsList>
@@ -1065,7 +1243,15 @@ export default function Accounting() {
                         </td>
                         <td className="py-3 px-4 text-right font-mono">${(bill.gross_amount || 0).toLocaleString()}</td>
                         <td className="py-3 px-4 text-right font-mono">{bill.variance_pct != null ? `${bill.variance_pct}%` : '—'}</td>
-                        <td className="py-3 px-4"><StatusBadge status={bill.status} /></td>
+                        <td className="py-3 px-4">
+                          <StatusBadge status={bill.status} />
+                          {bill.status === 'Approved' && (() => {
+                            const applied = appliedTotalFromList(payments, 'VendorBill', bill.id);
+                            return applied > 0.01 ? (
+                              <p className="text-[11px] text-amber-600 mt-1">Partially Paid: ${applied.toLocaleString(undefined, { minimumFractionDigits: 2 })} of ${(bill.gross_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                            ) : null;
+                          })()}
+                        </td>
                         <td className="py-3 px-4 text-xs text-muted-foreground">
                           {bill.conditional_waiver_signed ? 'Cond ✓' : 'Cond —'} / {bill.unconditional_waiver_received ? 'Uncond ✓' : 'Uncond —'}
                         </td>
@@ -1090,6 +1276,7 @@ export default function Accounting() {
               <TabsTrigger value="accounts">Accounts &amp; Reconciliation</TabsTrigger>
               <TabsTrigger value="forecast"><TrendingUp className="w-3.5 h-3.5 mr-1.5" />90-Day Forecast</TabsTrigger>
               <TabsTrigger value="incomingach"><Landmark className="w-3.5 h-3.5 mr-1.5" />Incoming ACH</TabsTrigger>
+              <TabsTrigger value="unappliedcash"><DollarSign className="w-3.5 h-3.5 mr-1.5" />Unapplied Cash</TabsTrigger>
             </TabsList>
             <TabsContent value="accounts">
               <CashManagementPanel />
@@ -1099,6 +1286,9 @@ export default function Accounting() {
             </TabsContent>
             <TabsContent value="incomingach">
               <IncomingAchPanel />
+            </TabsContent>
+            <TabsContent value="unappliedcash">
+              <UnappliedCashPanel />
             </TabsContent>
           </Tabs>
         </TabsContent>
@@ -1169,9 +1359,19 @@ export default function Accounting() {
               </div>
 
               <div className="steel-card overflow-hidden mb-4">
-                <div className="flex items-center justify-between p-4 border-b border-border">
-                  <h3 className="font-semibold">Progress Billings (AIA G702/G703)</h3>
-                  <Button size="sm" onClick={startAddInvoice}><Plus className="w-3.5 h-3.5 mr-1" />Add Billing</Button>
+                <div className="flex items-center justify-between p-4 border-b border-border flex-wrap gap-2">
+                  <div>
+                    <h3 className="font-semibold">Progress Billings (AIA G702/G703)</h3>
+                    {projectRetainageAlreadyReleased && <p className="text-[11px] text-muted-foreground mt-0.5">Retainage has been released for this project.</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    {canReleaseArRetainage && (
+                      <Button size="sm" variant="outline" onClick={handleReleaseArRetainage} className="text-purple-600 border-purple-500/30 hover:bg-purple-500/10">
+                        Release Retainage (${projectRetainageAvailable.toLocaleString(undefined, { minimumFractionDigits: 2 })})
+                      </Button>
+                    )}
+                    <Button size="sm" onClick={startAddInvoice}><Plus className="w-3.5 h-3.5 mr-1" />Add Billing</Button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -1194,7 +1394,15 @@ export default function Accounting() {
                           <td className="py-3 px-4 text-right font-mono">${(inv.gross_amount || 0).toLocaleString()}</td>
                           <td className="py-3 px-4 text-right font-mono">${(inv.retainage_held || 0).toLocaleString()}</td>
                           <td className="py-3 px-4 text-right font-mono">${(inv.net_billing || 0).toLocaleString()}</td>
-                          <td className="py-3 px-4"><StatusBadge status={inv.payment_status} /></td>
+                          <td className="py-3 px-4">
+                            <StatusBadge status={inv.payment_status} />
+                            {inv.payment_status !== 'Released' && (() => {
+                              const applied = appliedTotalFromList(payments, 'InvoiceReceivable', inv.id);
+                              return applied > 0.01 ? (
+                                <p className="text-[11px] text-amber-600 mt-1">Partially Paid: ${applied.toLocaleString(undefined, { minimumFractionDigits: 2 })} of ${(inv.net_billing || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                              ) : null;
+                            })()}
+                          </td>
                           <td className="py-3 px-4 text-right">
                             <button onClick={(e) => { e.stopPropagation(); startEditInvoice(inv); }} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
                           </td>
@@ -1234,6 +1442,152 @@ export default function Accounting() {
               </div>
             </>
           )}
+        </TabsContent>
+        )}
+
+        {canAccessTab('custbalances') && (
+        <TabsContent value="custbalances">
+          <div className="steel-card overflow-hidden">
+            <div className="p-4 border-b border-border">
+              <h3 className="font-semibold">Customer Balances</h3>
+              <p className="text-xs text-muted-foreground mt-1">Computed from every non-Draft progress billing's net billing minus applied payments — not a stored field.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left py-3 px-4">Customer</th>
+                    <th className="text-right py-3 px-4">Balance</th>
+                    <th className="text-right py-3 px-4">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customerBalances.length === 0 ? (
+                    <tr><td colSpan={3} className="py-12 text-center text-muted-foreground">No open customer balances.</td></tr>
+                  ) : customerBalances.map((row) => (
+                    <tr key={row.customerId} onClick={() => openCustomerBalanceDrilldown(row)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                      <td className="py-3 px-4 text-primary hover:underline">{row.customer?.name || row.customerId}</td>
+                      <td className="py-3 px-4 text-right font-mono font-semibold">${row.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-3 px-4 text-right">
+                        <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleGenerateStatement(row); }}>
+                          <Download className="w-3.5 h-3.5 mr-1" />Generate Statement
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </TabsContent>
+        )}
+
+        {canAccessTab('vendbalances') && (
+        <TabsContent value="vendbalances">
+          <div className="steel-card overflow-hidden">
+            <div className="p-4 border-b border-border">
+              <h3 className="font-semibold">Vendor Balances</h3>
+              <p className="text-xs text-muted-foreground mt-1">Approved/Paid vendor bills plus approved subcontractor pay applications, minus applied payments — not a stored field.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left py-3 px-4">Vendor</th>
+                    <th className="text-right py-3 px-4">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vendorBalances.length === 0 ? (
+                    <tr><td colSpan={2} className="py-12 text-center text-muted-foreground">No open vendor balances.</td></tr>
+                  ) : vendorBalances.map((row) => (
+                    <tr key={row.vendorId} onClick={() => openVendorBalanceDrilldown(row)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                      <td className="py-3 px-4 text-primary hover:underline">{row.vendor?.name || row.vendorId}</td>
+                      <td className="py-3 px-4 text-right font-mono font-semibold">${row.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </TabsContent>
+        )}
+
+        {canAccessTab('araging') && (
+        <TabsContent value="araging">
+          <div className="steel-card overflow-hidden">
+            <div className="p-4 border-b border-border">
+              <h3 className="font-semibold">AR Aging</h3>
+              <p className="text-xs text-muted-foreground mt-1">Outstanding progress billing balances bucketed by days past expected payment date. Click any cell to see the invoices behind it.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left py-3 px-4">Customer</th>
+                    {AGING_BUCKETS.map((b) => <th key={b} className="text-right py-3 px-4">{AGING_BUCKET_LABELS[b]}</th>)}
+                    <th className="text-right py-3 px-4">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {arAging.length === 0 ? (
+                    <tr><td colSpan={AGING_BUCKETS.length + 2} className="py-12 text-center text-muted-foreground">No overdue or open AR to age.</td></tr>
+                  ) : arAging.map((row) => (
+                    <tr key={row.customerId} className="border-b border-border/50">
+                      <td className="py-3 px-4 font-medium">{row.customer?.name || row.customerId}</td>
+                      {AGING_BUCKETS.map((b) => (
+                        <td key={b} className="py-3 px-4 text-right font-mono">
+                          {row.buckets[b] > 0.01 ? (
+                            <button className="hover:underline" onClick={() => openArAgingDrilldown(row, b)}>${row.buckets[b].toLocaleString(undefined, { minimumFractionDigits: 2 })}</button>
+                          ) : '—'}
+                        </td>
+                      ))}
+                      <td className="py-3 px-4 text-right font-mono font-bold">${row.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </TabsContent>
+        )}
+
+        {canAccessTab('apaging') && (
+        <TabsContent value="apaging">
+          <div className="steel-card overflow-hidden">
+            <div className="p-4 border-b border-border">
+              <h3 className="font-semibold">AP Aging</h3>
+              <p className="text-xs text-muted-foreground mt-1">Outstanding vendor bill balances bucketed by days past due date. Click any cell to see the bills behind it.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left py-3 px-4">Vendor</th>
+                    {AGING_BUCKETS.map((b) => <th key={b} className="text-right py-3 px-4">{AGING_BUCKET_LABELS[b]}</th>)}
+                    <th className="text-right py-3 px-4">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {apAging.length === 0 ? (
+                    <tr><td colSpan={AGING_BUCKETS.length + 2} className="py-12 text-center text-muted-foreground">No overdue or open AP to age.</td></tr>
+                  ) : apAging.map((row) => (
+                    <tr key={row.vendorId} className="border-b border-border/50">
+                      <td className="py-3 px-4 font-medium">{row.vendor?.name || row.vendorId}</td>
+                      {AGING_BUCKETS.map((b) => (
+                        <td key={b} className="py-3 px-4 text-right font-mono">
+                          {row.buckets[b] > 0.01 ? (
+                            <button className="hover:underline" onClick={() => openApAgingDrilldown(row, b)}>${row.buckets[b].toLocaleString(undefined, { minimumFractionDigits: 2 })}</button>
+                          ) : '—'}
+                        </td>
+                      ))}
+                      <td className="py-3 px-4 text-right font-mono font-bold">${row.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </TabsContent>
         )}
 
@@ -1797,17 +2151,32 @@ export default function Accounting() {
         emptyMessage={ledgerModal.emptyMessage}
       />
 
+      <BalanceDrilldownModal
+        open={!!balanceDrilldown}
+        onOpenChange={(open) => !open && setBalanceDrilldown(null)}
+        title={balanceDrilldown?.title}
+        subtitle={balanceDrilldown?.subtitle}
+        rows={balanceDrilldown?.rows || []}
+        onRowClick={balanceDrilldown?.onRowClick}
+      />
+
       <VendorBillDetailModal
         open={!!viewingBillId}
         onOpenChange={(open) => !open && setViewingBillId(null)}
         billId={viewingBillId}
         onViewPO={(poId) => setViewingPOId(poId)}
+        currentUser={currentUser}
+        canOverrideFinanceLock={canOverrideFinanceLock}
+        onChanged={loadData}
       />
 
       <InvoiceReceivableDetailModal
         open={!!viewingInvoiceId}
         onOpenChange={(open) => !open && setViewingInvoiceId(null)}
         invoiceId={viewingInvoiceId}
+        currentUser={currentUser}
+        canOverrideFinanceLock={canOverrideFinanceLock}
+        onChanged={() => { loadSovAndLedger(selectedProjectId); loadAllPayments().then(setPayments); }}
       />
 
       <PurchaseOrderDetailModal

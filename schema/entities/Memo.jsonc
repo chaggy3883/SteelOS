@@ -1,0 +1,47 @@
+{
+  "name": "Memo",
+  "type": "object",
+  "// note": "Minimum-viable credit/debit memo — one entity with a type discriminator rather than separate CreditMemo/DebitMemo entities, per src/lib/architecture guidance to prefer a discriminator over a parallel entity when the difference is which fields/direction apply, not which workflows run. Reduces the invoice/bill's effective outstanding balance (via src/lib/paymentEngine.js) without altering the original InvoiceReceivable/VendorBill's own numbers — the original stays untouched as history, matching the audit-trail principle from the Accounting Controls fix. Intentionally minimal: no multi-invoice application UI — a memo applies to exactly one related_entity_id.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["customer_credit", "vendor_debit"],
+      "description": "'customer_credit' reduces an InvoiceReceivable's effective balance owed by the customer. 'vendor_debit' reduces a VendorBill's effective balance owed to the vendor."
+    },
+    "related_entity_type": {
+      "type": "string",
+      "enum": ["InvoiceReceivable", "VendorBill"]
+    },
+    "related_entity_id": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "number",
+      "default": 0
+    },
+    "reason": {
+      "type": "string"
+    },
+    "issued_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "applied_to_payment_id": {
+      "type": "string",
+      "description": "Payment.id this memo offset, if any — nullable. Set when the memo is used to reconcile a short/over payment rather than standing alone against the invoice/bill balance."
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "related_entity_type",
+    "related_entity_id",
+    "amount",
+    "issued_date"
+  ]
+}

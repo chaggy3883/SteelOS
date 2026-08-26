@@ -12,6 +12,8 @@ import { useAuth } from '@/lib/AuthContext';
 import { matchIncomingAchToPurchaseOrder, notifyArUnmatchedAch } from '@/lib/achEngine';
 import { exportRowsToCsv } from '@/lib/csvExport';
 import { cn } from '@/lib/utils';
+import { recordInvoiceReceivablePayment } from '@/lib/paymentEngine';
+import { memoTotalFromList } from '@/lib/memoEngine';
 
 const ASSIGN_TARGETS = [
   { value: 'PO', label: 'Purchase Order' },
@@ -165,6 +167,38 @@ export default function IncomingAchPanel() {
       const matchedToEntity = assignForm.target_type === 'Custom'
         ? assignForm.custom_text.trim()
         : `${assignForm.target_type}:${assignForm.target_id}`;
+
+      // Assigning to an Invoice used to just set this string — it never
+      // actually reduced the invoice's balance under the new Payment layer
+      // (paymentEngine.js). Route it through the same
+      // recordInvoiceReceivablePayment path InvoiceReceivableDetailModal's
+      // Record Payment action uses, so it can complete the invoice
+      // (Released + commission) exactly like a manually-recorded payment.
+      if (assignForm.target_type === 'Invoice') {
+        const invoice = invoices.find((i) => i.id === assignForm.target_id);
+        if (invoice) {
+          const [existingPayments, existingMemos] = await Promise.all([
+            db.entities.Payment.filter({ related_entity_type: 'InvoiceReceivable', related_entity_id: invoice.id }, '-payment_date', 200),
+            db.entities.Memo.filter({ related_entity_type: 'InvoiceReceivable', related_entity_id: invoice.id }, '-issued_date', 200),
+          ]);
+          const memoTotal = memoTotalFromList(existingMemos, 'InvoiceReceivable', invoice.id);
+          const { commissionPayment } = await recordInvoiceReceivablePayment({
+            invoice,
+            amount: assigning.amount,
+            paymentDate: assigning.received_date,
+            paymentMethod: 'ach',
+            referenceNumber: assigning.transaction_id || '',
+            notes: `Incoming ACH from ${assigning.sender_name}`,
+            createdBy: identity,
+            existingPayments,
+            memoTotal,
+          });
+          if (commissionPayment) {
+            toast({ title: `Commission triggered: $${commissionPayment.commission_for_this_payment.toLocaleString(undefined, { minimumFractionDigits: 2 })} to be paid in next payroll cycle` });
+          }
+        }
+      }
+
       await db.entities.AchIncoming.update(assigning.id, {
         matched_to_entity: matchedToEntity,
         status: 'assigned',

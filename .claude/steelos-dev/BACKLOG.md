@@ -1,9 +1,93 @@
 # SteelOS Backlog
 
-Snapshot as of Aug 25 2026. This file is meant to be kept current —
+Snapshot as of Aug 26 2026. This file is meant to be kept current —
 update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
+
+## Also Closed (2026-08-26)
+
+- **Real AR/AP payment layer** — closes the gap where "payment" was only a
+  single status-flag flip (`InvoiceReceivable.payment_status`, and
+  `VendorBill.status` had no paid state at all). New `Payment` entity
+  (`schema/entities/Payment.jsonc`, `src/lib/paymentEngine.js`): supports
+  partial payments, `is_write_off`/`is_unapplied`/`is_retainage_release`
+  flags, direction (`receivable`/`payable`), `related_entity_type`
+  (`InvoiceReceivable`/`VendorBill`/`SubcontractPayApp`). Transition rule:
+  existing single-flip records (already-Released invoices, already-marked
+  pay apps) have no fabricated `Payment` history behind them — only payments
+  recorded going forward flow through this entity; `payment_status`/`status`
+  remain the lifecycle fields, "fully paid" is now derived from summed
+  applied `Payment` rows. `VendorBill.status` gained `Paid` (previously
+  stopped at `Pending_Match`/`Approved`/`Flagged_Review` despite
+  `ReceivingKiosk.jsx` telling users AP would process payment — nothing ever
+  did). Both `VendorBillDetailModal.jsx` and `InvoiceReceivableDetailModal.jsx`
+  gained a "Record Payment" action (period-lock gated, same override-reason
+  pattern as the prior Accounting Controls fix) with a Payment History table;
+  a bill/invoice shows "Partially Paid: $X of $Y" in its list row once any
+  payment applies without covering it in full. The existing manual
+  payment_status dropdown flip in `Accounting.jsx`'s `saveInvoiceNow` is
+  UNCHANGED (still works exactly as before for a single-action full payment)
+  — the new Record Payment path is additive, and both share the same
+  wasReleased/isNowReleased commission-trigger guard via the new
+  `recordInvoiceReceivablePayment` (src/lib/paymentEngine.js), so commission
+  still fires exactly once at the real moment of full payment no matter
+  which path completed the invoice.
+  Computed (never stored) **Customer Balances** and **Vendor Balances** tabs
+  (`src/lib/balancesReport.js`) and **AR Aging**/**AP Aging** tabs
+  (`src/lib/agingReport.js`, standard Current/1-30/31-60/61-90/90+ buckets) —
+  every row/cell drills down to the underlying invoices/bills via the new
+  `BalanceDrilldownModal.jsx`. The month-end checklist's long-dead "Review AR
+  aging" item now links straight to the AR Aging tab
+  (`MonthEndClosePanel.jsx` → `/accounting?tab=araging`).
+  **Retainage release**: AR side adds a "Release Retainage" action on a
+  `complete`-status project (sums `retainage_held` across its Released
+  billings into one new `InvoiceReceivable`, `billing_type:
+  'retainage_release'` — a real invoice with its own Payment tracking, not a
+  status flip); AP side adds "Release Retainage" on a `SubcontractPayApp`
+  once its `Subcontract.status` is `complete` (one `Payment`,
+  `is_retainage_release: true`, covering every `retention_held` dollar
+  across that subcontract's pay apps) — both period-lock gated.
+  **Credit/debit memos**: single `Memo` entity (`type:
+  'customer_credit'|'vendor_debit'`) rather than two parallel entities —
+  "Issue Credit Memo"/"Issue Debit Memo" actions reduce the effective
+  balance everywhere (aging, balances, statements, the release/commission
+  threshold) without touching the original invoice/bill's own numbers.
+  **Write-offs**: "Write Off" on an InvoiceReceivable requires
+  Admin/Controller/Super Admin + a mandatory reason (reuses
+  `hasFinanceOverrideAccess`) — modeled as a `Payment` with `is_write_off`
+  (zeroes the balance everywhere) but excluded from the cash total that
+  drives Released/commission, so a write-off can never look like a real
+  payment or fire commission.
+  **Customer statements**: "Generate Statement" on the Customer Balances tab
+  produces a PDF (`src/lib/customerStatementPdf.js`, same manual-jsPDF +
+  Blob-download pattern as `certifiedPayrollReportPdf.js`) listing open
+  invoices, applied payments (write-offs labeled distinctly), credit memos,
+  and total balance due.
+  **Unapplied cash**: an overpayment recorded through either detail modal is
+  tracked via `Payment.is_unapplied`/`unapplied_amount`; the new "Unapplied
+  Cash" tab under Bank & Cash (`UnappliedCashPanel.jsx`) lists them with an
+  "Apply to Invoice/Bill" action (`applyUnappliedCash`). `IncomingAchPanel.jsx`'s
+  existing "Assign to Invoice" flow previously only wrote a
+  `matched_to_entity` string and never actually reduced the invoice's
+  balance — it now routes through `recordInvoiceReceivablePayment` too, so
+  an ACH deposit assigned to an invoice can complete it (Released +
+  commission) exactly like a manually-recorded payment.
+  Verified stage-by-stage (Payment entity → VendorBill gap → InvoiceReceivable
+  payment recording → balances → aging → retainage → memos → write-offs →
+  statements → unapplied cash) with `npm run build`/`npm run lint` passing
+  clean after every stage, plus the release/commission math traced by hand
+  (partial payment stays Approved with correct remaining balance; second
+  payment completing it flips to Released and fires commission exactly
+  once; a hand-computed 56-days-past-due invoice lands in the AR Aging
+  31-60 bucket as expected). NOT done in this pass, flagged as follow-ups:
+  a full multi-invoice memo-application UI (the current Memo is
+  intentionally single-invoice/single-bill only), and interactive
+  browser click-through testing — this session's environment has no
+  browser-automation tool available (per the `browser-testing` skill, this
+  project has none of Playwright/Puppeteer/Cypress installed), so the UI
+  paths above are unverified by an actual click-through and should get a
+  manual pass before being treated as fully signed off.
 
 ## Also Closed (2026-08-25)
 

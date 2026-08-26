@@ -16,6 +16,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/lib/AuthContext';
+import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
+import { hasFinanceOverrideAccess } from '@/lib/financeAccess';
+import { isPeriodLocked, periodLockedMessage } from '@/lib/periodLock';
+import { logFinancialOverride } from '@/lib/financialAudit';
+import { recordPayment } from '@/lib/paymentEngine';
 
 const SC_STATUSES = ['draft', 'executed', 'active', 'complete', 'terminated'];
 const SCOPE_OPTIONS = ['erection', 'painting', 'fireproofing', 'concrete', 'misc'];
@@ -61,8 +67,11 @@ const emptyWaiverForm = () => ({
 
 export default function Subcontracts() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const initialProjectFilter = searchParams.get('project') || 'all';
+  const identity = user?.full_name || user?.email || 'Unknown';
+  const canOverrideFinanceLock = hasFinanceOverrideAccess((user?.roles || []).map(normalizeRoleName));
 
   const [subcontracts, setSubcontracts] = useState([]);
   const [payApps, setPayApps] = useState([]);
@@ -71,6 +80,7 @@ export default function Subcontracts() {
   const [vendors, setVendors] = useState([]);
   const [certifiedPayrollSubmissions, setCertifiedPayrollSubmissions] = useState([]);
   const [costCodes, setCostCodes] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadData(); }, []);
@@ -78,7 +88,7 @@ export default function Subcontracts() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [scList, paList, lwList, projList, vendorList, cprList, costCodeList] = await Promise.all([
+      const [scList, paList, lwList, projList, vendorList, cprList, costCodeList, paymentList] = await Promise.all([
         db.entities.Subcontract.list('-created_date', 200),
         db.entities.SubcontractPayApp.list('-created_date', 500),
         db.entities.LienWaiver.list('-created_date', 500),
@@ -86,6 +96,7 @@ export default function Subcontracts() {
         db.entities.Vendor.filter({ is_active: true }, 'name', 200),
         db.entities.CertifiedPayrollSubmission.list('-week_ending_date', 1000),
         db.entities.CostCode.filter({ is_active: true }, 'code_name', 200),
+        db.entities.Payment.filter({ related_entity_type: 'SubcontractPayApp' }, '-payment_date', 2000),
       ]);
       setSubcontracts(scList);
       setPayApps(paList);
@@ -93,6 +104,7 @@ export default function Subcontracts() {
       setProjects(projList);
       setVendors(vendorList);
       setCertifiedPayrollSubmissions(cprList);
+      setPayments(paymentList);
       setCostCodes(costCodeList);
     } catch (e) {
       console.error('Failed to load subcontract data', e);
@@ -342,6 +354,50 @@ export default function Subcontracts() {
       toast({ title: 'Pay application approved' });
     } catch (e) {
       toast({ title: 'Unable to approve', variant: 'destructive' });
+    } finally {
+      setPayAppActionLoading(null);
+    }
+  };
+
+  // Stage 6 (AP retainage release) — creates ONE Payment covering every
+  // retention_held dollar accumulated across every pay app on this
+  // subcontract, tagged is_retainage_release so it's never mistaken for an
+  // ordinary payment and never released twice. Only available once the
+  // subcontract itself is marked complete.
+  const handleReleaseRetainage = async (payApp) => {
+    const subcontract = subcontractById(payApp.subcontract_id);
+    const totalRetention = payApps.filter((p) => p.subcontract_id === payApp.subcontract_id).reduce((s, p) => s + (Number(p.retention_held) || 0), 0);
+    if (totalRetention <= 0) { toast({ title: 'No retention held for this subcontract', variant: 'destructive' }); return; }
+    const alreadyReleased = payments.some((p) => p.is_retainage_release && payApps.some((pa) => pa.id === p.related_entity_id && pa.subcontract_id === payApp.subcontract_id));
+    if (alreadyReleased) { toast({ title: 'Retainage has already been released for this subcontract', variant: 'destructive' }); return; }
+
+    const proceed = window.confirm(`Release ${money(totalRetention)} in held retainage to ${subcontract?.subcontractor_name || 'this subcontractor'}? This creates a payment record and cannot be undone.`);
+    if (!proceed) return;
+
+    const paymentDate = todayStr();
+    const locked = await isPeriodLocked(paymentDate);
+    let overrideReason = null;
+    if (locked) {
+      if (!canOverrideFinanceLock) { toast({ title: periodLockedMessage(paymentDate), variant: 'destructive' }); return; }
+      overrideReason = window.prompt(`${periodLockedMessage(paymentDate)} Enter a reason to override and continue.`);
+      if (!overrideReason || !overrideReason.trim()) { toast({ title: 'A reason is required', variant: 'destructive' }); return; }
+    }
+
+    setPayAppActionLoading(payApp.id);
+    try {
+      await recordPayment({
+        direction: 'payable', relatedEntityType: 'SubcontractPayApp', relatedEntityId: payApp.id,
+        amount: totalRetention, paymentDate, paymentMethod: 'other', notes: 'Retainage release',
+        createdBy: identity, owedAmount: totalRetention, isRetainageRelease: true,
+      });
+      if (overrideReason) {
+        await logFinancialOverride({ entityType: 'SubcontractPayApp', entityId: payApp.id, action: 'update', reason: `Closed-period override — retainage release: ${overrideReason.trim()}`, changedBy: user });
+      }
+      const freshPayments = await db.entities.Payment.filter({ related_entity_type: 'SubcontractPayApp' }, '-payment_date', 2000);
+      setPayments(freshPayments);
+      toast({ title: 'Retainage released', description: `${money(totalRetention)} recorded as paid.` });
+    } catch (e) {
+      toast({ title: 'Unable to release retainage', variant: 'destructive' });
     } finally {
       setPayAppActionLoading(null);
     }
@@ -1041,6 +1097,16 @@ export default function Subcontracts() {
                 {selectedPayApp.status !== 'paid' && (
                   <Button variant="outline" className="text-green-600 border-green-500/30 hover:bg-green-500/10" disabled={payAppActionLoading === selectedPayApp.id} onClick={() => handleQuickMarkPaid(selectedPayApp)}>
                     <HandCoins className="w-4 h-4 mr-1.5" />{payAppActionLoading === selectedPayApp.id ? 'Posting…' : 'Mark Paid'}
+                  </Button>
+                )}
+                {subcontractById(selectedPayApp.subcontract_id)?.status === 'complete' && (
+                  <Button
+                    variant="outline"
+                    className="text-purple-600 border-purple-500/30 hover:bg-purple-500/10"
+                    disabled={payAppActionLoading === selectedPayApp.id}
+                    onClick={() => handleReleaseRetainage(selectedPayApp)}
+                  >
+                    <Banknote className="w-4 h-4 mr-1.5" />{payAppActionLoading === selectedPayApp.id ? 'Releasing…' : 'Release Retainage'}
                   </Button>
                 )}
                 <Button onClick={startEditingPayApp} className="steel-gradient text-white border-0">Edit</Button>

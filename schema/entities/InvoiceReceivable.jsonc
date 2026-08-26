@@ -13,9 +13,9 @@
     },
     "billing_type": {
       "type": "string",
-      "enum": ["sov", "time_and_material"],
+      "enum": ["sov", "time_and_material", "retainage_release"],
       "default": "sov",
-      "description": "'sov' is the existing schedule-of-values / percent-complete billing model. 'time_and_material' is set when the source project has pricing_type 'time_and_material' and this invoice was built from actual labor/material/subcontractor costs via the \"Generate from Actuals\" action in InvoiceReceivableDetailModal.jsx (src/lib/tmEngine.js)."
+      "description": "'sov' is the existing schedule-of-values / percent-complete billing model. 'time_and_material' is set when the source project has pricing_type 'time_and_material' and this invoice was built from actual labor/material/subcontractor costs via the \"Generate from Actuals\" action in InvoiceReceivableDetailModal.jsx (src/lib/tmEngine.js). 'retainage_release' is set by the \"Release Retainage\" action in Accounting.jsx's AR & Billings tab — a real invoice for the retainage_held accumulated across a project's prior Released billings, created once a project reaches status 'complete'. gross_amount/net_billing equal the released amount; retainage_held is 0 (there's nothing further held back on the release itself)."
     },
     "tm_labor_amount": {
       "type": "number",
