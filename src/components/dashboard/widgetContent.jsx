@@ -12,8 +12,27 @@ import { Loader2, Package, CalendarClock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { getBidHoldDays, getBidPricingHoldState } from '@/lib/bidPricingHold';
+import { BUILTIN_ROLES } from '@/components/dashboard/rbacConfig';
 
 export const REQUISITION_APPROVAL_ROLES = ['controller', 'finance_department', 'admin', 'super_admin'];
+
+// Purchasing/Procurement's operational role — the only non-admin role
+// BUILTIN_ROLES (rbacConfig.jsx) grants the /purchasing, /purchasing/module,
+// and /purchasing/receiving-kiosk modules to. admin/super_admin are NOT
+// listed here on purpose: they bypass via isAdminUser() at each call site,
+// same convention as Accounting.jsx's TAB_ROLES.
+export const PURCHASING_ALLOWED_ROLES = ['purchasing_agent'];
+
+// Same roles Accounting.jsx's TAB_ROLES grants its `vendorbills` (AP) tab —
+// invoice 3-way match in Procurement is the AP-side counterpart of that tab.
+export const INVOICE_APPROVAL_ROLES = ['finance_department', 'controller', 'president', 'ceo'];
+
+const _PURCHASING_ROLE_NAMES = new Set(BUILTIN_ROLES.map((r) => r.name));
+[...PURCHASING_ALLOWED_ROLES, ...REQUISITION_APPROVAL_ROLES, ...INVOICE_APPROVAL_ROLES].forEach((name) => {
+  if (!_PURCHASING_ROLE_NAMES.has(name)) {
+    throw new Error(`widgetContent.jsx: role "${name}" referenced in a purchasing role list is not present in BUILTIN_ROLES.`);
+  }
+});
 
 function WidgetSkeleton({ lines = 4 }) {
   return <div className="space-y-2">{Array.from({ length: lines }).map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div>;

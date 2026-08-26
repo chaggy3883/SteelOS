@@ -9,10 +9,19 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
-import { Plus, Truck, ClipboardCheck, FileText, DollarSign, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Plus, Truck, ClipboardCheck, FileText, DollarSign, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { generateQrPayload } from '@/lib/qrSerialization';
 import PurchaseOrderDetailModal from '@/components/purchasing/PurchaseOrderDetailModal';
-import { REQUISITION_APPROVAL_ROLES } from '@/components/dashboard/widgetContent';
+import { REQUISITION_APPROVAL_ROLES, PURCHASING_ALLOWED_ROLES, INVOICE_APPROVAL_ROLES } from '@/components/dashboard/widgetContent';
+import { isAdminUser } from '@/lib/tenantContext';
+
+// Anyone who can reach this page at all — buys (purchasing_agent), approves
+// requisitions (REQUISITION_APPROVAL_ROLES), or runs the AP 3-way match
+// (INVOICE_APPROVAL_ROLES, same roles as Accounting.jsx's vendorbills tab).
+// admin/super_admin bypass via isAdminUser() instead of being listed here.
+const PROCUREMENT_PAGE_ROLES = Array.from(new Set([
+  ...PURCHASING_ALLOWED_ROLES, ...REQUISITION_APPROVAL_ROLES, ...INVOICE_APPROVAL_ROLES,
+]));
 
 const AUTO_APPROVE_THRESHOLD = 5000;
 
@@ -41,16 +50,29 @@ export default function ProcurementModule() {
   const [rejectReq, setRejectReq] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [savingReqAction, setSavingReqAction] = useState(false);
+  const [accessChecked, setAccessChecked] = useState(false);
+  const [pageAllowed, setPageAllowed] = useState(false);
+  const [canBuy, setCanBuy] = useState(false);
+  const [canInvoice, setCanInvoice] = useState(false);
 
   useEffect(() => {
-    loadData();
     db.auth.me()
       .then((me) => {
+        const roles = me?.roles || [];
+        const admin = isAdminUser(me);
         setCurrentUser(me || null);
-        setCanApproveReq((me?.roles || []).some((r) => REQUISITION_APPROVAL_ROLES.includes(r)));
+        setCanApproveReq(admin || roles.some((r) => REQUISITION_APPROVAL_ROLES.includes(r)));
+        setCanBuy(admin || roles.some((r) => PURCHASING_ALLOWED_ROLES.includes(r)));
+        setCanInvoice(admin || roles.some((r) => PURCHASING_ALLOWED_ROLES.includes(r) || INVOICE_APPROVAL_ROLES.includes(r)));
+        setPageAllowed(admin || roles.some((r) => PROCUREMENT_PAGE_ROLES.includes(r)));
       })
-      .catch(() => setCanApproveReq(false));
+      .catch(() => {
+        setCanApproveReq(false); setCanBuy(false); setCanInvoice(false); setPageAllowed(false);
+      })
+      .finally(() => setAccessChecked(true));
   }, []);
+
+  useEffect(() => { if (accessChecked && pageAllowed) loadData(); }, [accessChecked, pageAllowed]);
 
   const loadData = async () => {
     setLoading(true);
@@ -224,6 +246,22 @@ export default function ProcurementModule() {
     return { budgeted, actual, variance: budgeted - actual, pendingApprovals, partials };
   }, [purchaseOrders, requisitions, receivingLogs]);
 
+  if (!accessChecked) {
+    return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  if (!pageAllowed) {
+    return (
+      <div className="p-6">
+        <div className="steel-card p-8 text-center max-w-md mx-auto mt-12">
+          <ShieldAlert className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <h2 className="font-semibold text-lg mb-1">Access Restricted</h2>
+          <p className="text-sm text-muted-foreground">Purchasing &amp; Procurement is only available to Purchasing, Controller, Finance, and executive roles (and admins).</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 animate-fade-in space-y-6">
       <PageHeader title="Purchasing & Procurement" subtitle="Mill buyouts, requisitions, receiving, and payable reconciliation" />
@@ -253,6 +291,10 @@ export default function ProcurementModule() {
         </TabsList>
 
         <TabsContent value="buyouts" className="space-y-4">
+          {!canBuy && (
+            <p className="text-sm text-muted-foreground steel-card p-3">You have view-only access to mill buyouts. Creating a buyout requires the Purchasing Agent role.</p>
+          )}
+          {canBuy && (
           <div onKeyDown={makeFormKeyDown(createPurchaseOrder)} className="steel-card p-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
@@ -294,6 +336,7 @@ export default function ProcurementModule() {
               <Button type="button" onClick={createPurchaseOrder} className="steel-gradient text-white border-0"><Plus className="mr-2 h-4 w-4" />Create Buyout</Button>
             </div>
           </div>
+          )}
 
           <div className="steel-card overflow-hidden">
             <div className="overflow-x-auto">
@@ -332,6 +375,10 @@ export default function ProcurementModule() {
         </TabsContent>
 
         <TabsContent value="requisitions" className="space-y-4">
+          {!canBuy && (
+            <p className="text-sm text-muted-foreground steel-card p-3">You have view-only access to requisitions here. Submitting a requisition requires the Purchasing Agent role.</p>
+          )}
+          {canBuy && (
           <div onKeyDown={makeFormKeyDown(createRequisition)} className="steel-card p-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
@@ -361,6 +408,7 @@ export default function ProcurementModule() {
               <Button type="button" onClick={createRequisition} className="steel-gradient text-white border-0">Submit Requisition</Button>
             </div>
           </div>
+          )}
 
           <div className="space-y-3">
             {requisitions.map((item) => (
@@ -389,6 +437,10 @@ export default function ProcurementModule() {
         </TabsContent>
 
         <TabsContent value="receiving" className="space-y-4">
+          {!canBuy && (
+            <p className="text-sm text-muted-foreground steel-card p-3">You have view-only access to receiving logs here. Logging a receipt requires the Purchasing Agent role.</p>
+          )}
+          {canBuy && (
           <div onKeyDown={makeFormKeyDown(createReceivingLog)} className="steel-card p-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
@@ -433,6 +485,7 @@ export default function ProcurementModule() {
               <Button type="button" onClick={createReceivingLog} className="steel-gradient text-white border-0"><Truck className="mr-2 h-4 w-4" />Log Receiving</Button>
             </div>
           </div>
+          )}
 
           <div className="space-y-3">
             {receivingLogs.map((item) => {
@@ -461,6 +514,10 @@ export default function ProcurementModule() {
         </TabsContent>
 
         <TabsContent value="invoices" className="space-y-4">
+          {!canInvoice && (
+            <p className="text-sm text-muted-foreground steel-card p-3">You have view-only access to the 3-way match here. Running a match requires a Purchasing or Finance/AP role.</p>
+          )}
+          {canInvoice && (
           <div onKeyDown={makeFormKeyDown(createInvoice)} className="steel-card p-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
@@ -494,6 +551,7 @@ export default function ProcurementModule() {
               <Button type="button" onClick={createInvoice} className="steel-gradient text-white border-0"><CheckCircle2 className="mr-2 h-4 w-4" />Run Match</Button>
             </div>
           </div>
+          )}
 
           <div className="space-y-3">
             {payables.map((item) => (

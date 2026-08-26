@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
   ShoppingCart, AlertTriangle, Package, TrendingDown, Plus, Search, ArrowRight,
-  UploadCloud, Brain, FileText, RefreshCw, AlertCircle, Trash2
+  UploadCloud, Brain, FileText, RefreshCw, AlertCircle, Trash2, ShieldAlert
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { isAdminUser } from '@/lib/tenantContext';
+import { PURCHASING_ALLOWED_ROLES } from '@/components/dashboard/widgetContent';
 
 const AUTO_APPROVE_THRESHOLD = 5000;
 
@@ -25,6 +27,8 @@ const lineTotal = (line) => (Number(line.quantity) || 0) * (Number(line.unit_cos
 
 export default function Purchasing() {
   const { toast } = useToast();
+  const [accessChecked, setAccessChecked] = useState(false);
+  const [allowed, setAllowed] = useState(false);
   const [inventory, setInventory] = useState([]);
   const [findings, setFindings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +58,22 @@ export default function Purchasing() {
   const [reviewLines, setReviewLines] = useState([]);
   const [creatingAiPo, setCreatingAiPo] = useState(false);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    const checkAccess = async () => {
+      try {
+        const me = await db.auth.me();
+        const roles = me?.roles || me?.user?.roles || ['user'];
+        setAllowed(isAdminUser(me) || roles.some((r) => PURCHASING_ALLOWED_ROLES.includes(r)));
+      } catch (e) {
+        setAllowed(false);
+      } finally {
+        setAccessChecked(true);
+      }
+    };
+    checkAccess();
+  }, []);
+
+  useEffect(() => { if (accessChecked && allowed) loadData(); }, [accessChecked, allowed]);
 
   const loadData = async () => {
     setLoading(true);
@@ -329,6 +348,22 @@ export default function Purchasing() {
   const filteredInventory = inventory.filter(i =>
     !search || i.description?.toLowerCase().includes(search.toLowerCase()) || i.item_number?.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (!accessChecked) {
+    return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  if (!allowed) {
+    return (
+      <div className="p-6">
+        <div className="steel-card p-8 text-center max-w-md mx-auto mt-12">
+          <ShieldAlert className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <h2 className="font-semibold text-lg mb-1">Access Restricted</h2>
+          <p className="text-sm text-muted-foreground">Purchasing is only available to the Purchasing Agent role (and admins).</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 animate-fade-in">
