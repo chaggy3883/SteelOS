@@ -2865,16 +2865,22 @@ export const setAuthState = (state) => {
 // this app is unaffected.
 const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification', 'AuditLog', 'FailedAccessLog', 'TmLaborRate', 'TmLaborEstimateLineItem', 'TmMaterialLineItem', 'TmSubcontractorLineItem', 'TmMaterialUsage', 'BankIntegrationConfig', 'EmployeeBankAccount', 'AchOutgoing', 'AchIncoming', 'candidate_profiles', 'candidate_documents', 'employee_hiring_documents', 'Payment', 'Memo'];
 
+// A super_admin session NEVER falls back to its own User row's company_id —
+// even a seeded demo account holding both 'admin' and 'super_admin' plus a
+// home company_id (e.g. "Demo Admin" / company-hancock) must not resolve a
+// tenant until it explicitly impersonates one. Mirrors tenantContext.js's
+// getEffectiveCompanyId (duplicated rather than imported, like the rest of
+// this file's tenant-scoping logic already was before this change).
 const getEffectiveCompanyId = () => {
   const auth = getAuthState();
   if (!auth?.user) return null;
-  return auth.impersonating_company_id || auth.user.company_id || null;
+  if (auth.impersonating_company_id) return auth.impersonating_company_id;
+  const roles = (auth.user.roles || []).map((r) => String(r).toLowerCase());
+  if (roles.includes('super_admin')) return null;
+  return auth.user.company_id || null;
 };
 
-// A super_admin session that is NOT currently impersonating a tenant sees
-// every tenant's data unfiltered — that's the platform-operator visibility
-// the super-admin dashboard needs. The moment they impersonate, scoping
-// applies normally using the impersonated tenant's company_id.
+// A super_admin session that is NOT currently impersonating a tenant.
 const isSuperAdminSession = () => {
   const auth = getAuthState();
   if (auth?.impersonating_company_id) return false;
@@ -2882,12 +2888,27 @@ const isSuperAdminSession = () => {
   return roles.includes('super_admin');
 };
 
-// Fails OPEN (no filter) when there's no resolvable tenant — this is a demo
-// app where correctness/non-breakage during edge cases (auth still loading,
-// seed/migration code running before any session exists) matters more than
-// pretending this is a real security control.
+// The only tenant-scoped entities a non-impersonating super_admin may read
+// unfiltered, cross-tenant — the platform-metrics numbers on the Super Admin
+// landing page (active session hours, integration error counts). Everything
+// else that's individual-tenant operational/financial data (Project, Bid,
+// employees, VendorBill, ...) must stay invisible until they explicitly
+// impersonate a specific tenant via startImpersonation().
+const PLATFORM_METRICS_ENTITIES = ['ApiIntegrationLog', 'UserSessionLog'];
+
+// Fails OPEN (no filter) when there's no resolvable tenant for an ordinary
+// session — this is a demo app where correctness/non-breakage during edge
+// cases (auth still loading, seed/migration code running before any session
+// exists) matters more than pretending this is a real security control. A
+// non-impersonating super_admin session is the one case that fails CLOSED
+// instead: it has no home tenant by design (see getEffectiveCompanyId), so
+// "no resolvable tenant" there means "hasn't picked one yet," not "an
+// edge case to wave through."
 const applyTenantScope = (entityName, records) => {
-  if (!TENANT_SCOPED_ENTITIES.includes(entityName) || isSuperAdminSession()) return records;
+  if (!TENANT_SCOPED_ENTITIES.includes(entityName)) return records;
+  if (isSuperAdminSession()) {
+    return PLATFORM_METRICS_ENTITIES.includes(entityName) ? records : [];
+  }
   const companyId = getEffectiveCompanyId();
   if (!companyId) return records;
   return records.filter((item) => item.company_id === companyId);
@@ -2895,12 +2916,19 @@ const applyTenantScope = (entityName, records) => {
 
 const stampTenant = (entityName, data) => {
   if (!TENANT_SCOPED_ENTITIES.includes(entityName) || data.company_id) return data;
+  if (isSuperAdminSession() && !PLATFORM_METRICS_ENTITIES.includes(entityName)) {
+    throw new Error('Cross-tenant write denied — impersonate a tenant before creating its data.');
+  }
   const companyId = getEffectiveCompanyId();
   return companyId ? { ...data, company_id: companyId } : data;
 };
 
 const assertTenantAccess = (entityName, record) => {
-  if (!TENANT_SCOPED_ENTITIES.includes(entityName) || isSuperAdminSession()) return;
+  if (!TENANT_SCOPED_ENTITIES.includes(entityName)) return;
+  if (isSuperAdminSession()) {
+    if (PLATFORM_METRICS_ENTITIES.includes(entityName)) return;
+    throw new Error('Cross-tenant access denied — impersonate a tenant before modifying its data.');
+  }
   const companyId = getEffectiveCompanyId();
   if (!companyId || !record.company_id) return;
   if (record.company_id !== companyId) {

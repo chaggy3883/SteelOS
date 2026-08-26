@@ -32,10 +32,19 @@ export function isAdminUser(user) {
 
 // The session's home tenant, or the tenant a super_admin is currently
 // impersonating — this is the single value the query interceptor scopes by.
+//
+// A super_admin session NEVER falls back to its own User row's company_id,
+// even for a seeded demo account that happens to carry one (e.g. "Demo
+// Admin" holding both 'admin' and 'super_admin' and a home company_id) —
+// otherwise that tenant's data would be visible the instant the platform
+// operator logs in, without ever clicking "Impersonate". A super_admin has
+// no effective tenant until startImpersonation() sets one explicitly.
 export function getEffectiveCompanyId() {
   const auth = getAuthState();
   if (!auth?.user) return null;
-  return auth.impersonating_company_id || auth.user.company_id || null;
+  if (auth.impersonating_company_id) return auth.impersonating_company_id;
+  if (isSuperAdmin(auth.user)) return null;
+  return auth.user.company_id || null;
 }
 
 export function isImpersonating() {
