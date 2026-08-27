@@ -1,0 +1,40 @@
+{
+  "name": "MeetingNoteLog",
+  "type": "object",
+  "description": "Append-only history of Meeting Mode notes, one new row per save (never overwritten in place) — same discipline as StatusHistoryEntry. The note shown when a meeting/section is reopened is simply the most recent row for a given meeting_id+section, which is what makes last week's notes stay visible until someone types new ones. Written and read by src/components/meeting-mode/MeetingSectionNotesPanel.jsx.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "meeting_id": {
+      "type": "string",
+      "description": "FK to Meeting.id."
+    },
+    "meeting_type": {
+      "type": "string",
+      "description": "Denormalized snapshot of the parent Meeting's *name* at the time this note was saved, so a later rename doesn't rewrite historical context. Field name kept for continuity even though meetings no longer have a fixed type."
+    },
+    "section": {
+      "type": "string",
+      "description": "Section key (see src/lib/meetingModeSections.js) this note was captured under, e.g. 'project_status', 'estimating_updates'."
+    },
+    "note_text": {
+      "type": "string"
+    },
+    "saved_by": {
+      "type": "string",
+      "description": "User.id of whoever was logged in when this note was saved."
+    },
+    "saved_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "meeting_id",
+    "section",
+    "note_text",
+    "saved_by",
+    "saved_at"
+  ]
+}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat, Presentation } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getEffectiveCompany, isAdminUser, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
@@ -16,6 +16,7 @@ import ShopFloorLayoutEditor from '@/components/admin/ShopFloorLayoutEditor';
 import CompanyBrandingPanel from '@/components/admin/CompanyBrandingPanel';
 import FormReportSettingsPanel from '@/components/admin/FormReportSettingsPanel';
 import SteelCatalogPanel from '@/components/settings/SteelCatalogPanel';
+import MeetingModeSettingsPanel from '@/components/admin/MeetingModeSettingsPanel';
 
 const TABS = [
   { id: 'users', label: 'User Management', icon: Users, Component: UserManagement },
@@ -32,6 +33,7 @@ const TABS = [
   // setting, not just branding.
   { id: 'branding', label: 'Company Settings', icon: Palette, Component: CompanyBrandingPanel, roles: ['admin', 'super_admin', 'hr_admin'] },
   { id: 'form-report-settings', label: 'Form & Report Settings', icon: LayoutTemplate, Component: FormReportSettingsPanel },
+  { id: 'meeting-mode', label: 'Meeting Mode', icon: Presentation, Component: MeetingModeSettingsPanel, modulePath: '/meeting-mode' },
   // Fab-pack only — steel stock inventory categories don't apply to an
   // Erector-only company with no shop material to catalog.
   { id: 'steel-catalog', label: 'Steel Inventory Catalog', icon: Layers, Component: SteelCatalogPanel, modulePath: '/inventory' },

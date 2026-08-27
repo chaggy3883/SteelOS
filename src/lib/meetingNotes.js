@@ -16,9 +16,3 @@ export function getOpenActionItems(notes) {
     .filter(({ item }) => item.status !== 'Complete')
     .sort((a, b) => (a.item.due_date || '9999-99-99').localeCompare(b.item.due_date || '9999-99-99'));
 }
-
-// localStorage draft key — scoped per project so switching which job's on
-// screen in Meeting Mode never bleeds one job's in-progress note into
-// another's, and scoped to the browser tab only (never a real
-// ProjectMeetingNote row until the PM explicitly clicks Save).
-export const noteDraftKey = (projectId) => `steelos_meeting_note_draft_${projectId}`;

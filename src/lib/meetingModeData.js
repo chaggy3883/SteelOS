@@ -1,5 +1,4 @@
 import { db } from '@/api/apiClient';
-import { hasModule } from '@/lib/moduleEntitlement';
 
 // Subcontract statuses that represent a real, still-open obligation —
 // 'draft' has no signed commitment yet, 'terminated' has none anymore.
@@ -17,23 +16,6 @@ const EXCLUDED_PROJECT_STATUSES = ['cancelled'];
 export async function getLiveProjects() {
   const projects = await db.entities.Project.filter({ is_archived: false }, 'name', 200);
   return projects.filter((p) => !EXCLUDED_PROJECT_STATUSES.includes(p.status));
-}
-
-export const MEETING_TYPES = [
-  { id: 'manpower', label: 'Manpower', packHint: 'Erector pack', requiresModulePath: '/field-operations' },
-  { id: 'project_review', label: 'Project Review', packHint: 'Fab pack', requiresModulePath: '/production' },
-  { id: 'executive', label: 'Executive', packHint: 'Both packs', requiresModulePath: null },
-];
-
-// A meeting type is selectable if its pack requirement (if any) is actually
-// granted to this company — same hasModule() single source of truth every
-// other pack-gated page uses, never a direct subscription_plan string
-// comparison here.
-export function getAvailableMeetingTypes(company) {
-  return MEETING_TYPES.map((type) => ({
-    ...type,
-    available: !type.requiresModulePath || hasModule(company, type.requiresModulePath),
-  }));
 }
 
 function sumPaidPayApps(payApps, subcontractId) {

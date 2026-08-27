@@ -1,0 +1,35 @@
+{
+  "name": "Meeting",
+  "type": "object",
+  "description": "A saved, reusable Meeting Mode meeting definition — created once from the 'Add Meeting' modal and reopened repeatedly over time (e.g. every week), rather than recreated per occurrence. See src/lib/meetingModeSections.js for the section keys this can contain and src/pages/MeetingModeSession.jsx for how it's rendered.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "description": "Freely chosen by the company, e.g. 'Monday Shop Meeting' or 'Estimating Review'. No fixed meeting-type enum."
+    },
+    "meeting_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Section keys from src/lib/meetingModeSections.js chosen for this specific meeting — defaults from Company.meeting_mode_sections at creation, adjustable per meeting.",
+      "default": []
+    },
+    "created_by": {
+      "type": "string",
+      "description": "User.id of whoever created this meeting."
+    }
+  },
+  "required": [
+    "name",
+    "meeting_date",
+    "sections"
+  ]
+}

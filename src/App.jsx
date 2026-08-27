@@ -84,6 +84,7 @@ import FieldOperations from '@/pages/FieldOperations';
 import RiggingInspectionForm from '@/pages/RiggingInspectionForm';
 import EquipmentServiceForm from '@/pages/EquipmentServiceForm';
 import MeetingMode from '@/pages/MeetingMode';
+import MeetingModeSession from '@/pages/MeetingModeSession';
 
 // External Portal pages
 import PortalLogin from '@/pages/portal/PortalLogin';
@@ -213,6 +214,7 @@ const AuthenticatedApp = () => {
           shell instead of rendering under the normal TopBar/NavBar chrome. */}
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route path="/meeting-mode" element={<MeetingMode />} />
+        <Route path="/meeting-mode/:meetingId" element={<MeetingModeSession />} />
       </Route>
 
       <Route path="*" element={<PageNotFound />} />

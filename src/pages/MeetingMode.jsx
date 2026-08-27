@@ -1,74 +1,27 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { X, Lock, ChevronUp, ChevronDown } from 'lucide-react';
+import { Lock, Plus } from 'lucide-react';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { isAdminUser, getEffectiveCompany } from '@/lib/tenantContext';
-import { getAvailableMeetingTypes, loadJobCostAgendaData } from '@/lib/meetingModeData';
-import { loadManpowerAgendaData, loadEmployeeRoster } from '@/lib/manpowerData';
-import JobCostByJobSlide from '@/components/meeting-mode/JobCostByJobSlide';
-import ManpowerSection from '@/components/meeting-mode/ManpowerSection';
-import ProjectReviewNotesPanel from '@/components/meeting-mode/ProjectReviewNotesPanel';
+import { getSectionDefinition } from '@/lib/meetingModeSections';
+import AddMeetingModal from '@/components/meeting-mode/AddMeetingModal';
 
-// Who actually runs recurring meetings in this app today. Financial/job-cost
-// data is the only agenda content that exists so far, so this mirrors the
-// financial-page role lists in Accounting.jsx/Legal.jsx rather than
-// inventing a new tier. admin/super_admin bypass via isAdminUser() below,
-// same convention as those pages.
+// Who actually runs recurring meetings in this app today. admin/super_admin
+// bypass via isAdminUser() below, same convention as Accounting.jsx/Legal.jsx.
 const MEETING_MODE_ROLES = ['project_manager', 'shop_manager', 'finance_department', 'controller', 'president', 'ceo'];
 
-// Job Cost is universal (applies to both packs per the spec this was built
-// against) — every meeting type gets it. Manpower is erector-only and only
-// relevant to the Manpower meeting itself; Project Review notes (fab-only)
-// don't exist yet. meetingType is threaded through so that addition, when
-// it happens, doesn't require reworking this function's callers.
-function buildAgendaSections(meetingType, jobCostAgendaData, manpowerAgendaData) {
-  const jobCostSections = jobCostAgendaData.map(({ project, rows }) => ({
-    id: `job-cost-${project.id}`,
-    navLabel: project.name,
-    navSubLabel: project.project_number,
-    kind: 'job-cost',
-    project,
-    rows,
-  }));
-
-  let sections = jobCostSections;
-  if (meetingType === 'manpower' && manpowerAgendaData) {
-    // Manpower is what this meeting type is FOR — its slides lead, with Job
-    // Cost (universal across every meeting type) trailing as supplementary.
-    const manpowerSections = manpowerAgendaData.projectData.map(({ project, assignments, staffing }) => ({
-      id: `manpower-${project.id}`,
-      navLabel: project.name,
-      navSubLabel: project.project_number,
-      kind: 'manpower',
-      project,
-      assignments,
-      staffing,
-    }));
-    sections = [...manpowerSections, ...jobCostSections];
-  }
-
-  return sections.length > 0 ? sections : [{ id: 'no-jobs', navLabel: 'No Active Jobs', kind: 'empty' }];
-}
+const openMeeting = (meetingId) => window.open(`/meeting-mode/${meetingId}`, '_blank', 'noopener,noreferrer');
 
 export default function MeetingMode() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [allowed, setAllowed] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
   const [company, setCompany] = useState(null);
-  const [meetingType, setMeetingType] = useState(null);
-  const [loadingAgenda, setLoadingAgenda] = useState(false);
-  const [jobCostAgendaData, setJobCostAgendaData] = useState([]);
-  const [manpowerAgendaData, setManpowerAgendaData] = useState(null);
-  const [employeeRoster, setEmployeeRoster] = useState({ employees: [], certifications: [] });
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [meetings, setMeetings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
-    // Full-bleed presentation surface: force dark/high-contrast regardless
-    // of the app's own light/dark toggle (that state lives in AppLayout,
-    // which doesn't render here), same trick Login.jsx uses. Restored on
-    // unmount so leaving Meeting Mode doesn't change the user's normal
-    // in-app theme.
     const hadDark = document.documentElement.classList.contains('dark');
     document.documentElement.classList.add('dark');
     return () => { if (!hadDark) document.documentElement.classList.remove('dark'); };
@@ -78,7 +31,6 @@ export default function MeetingMode() {
     (async () => {
       try {
         const me = await db.auth.me();
-        setCurrentUser(me);
         const roles = (me?.roles || ['user']).map(normalizeRoleName);
         setAllowed(isAdminUser(me) || roles.some((r) => MEETING_MODE_ROLES.includes(r)));
       } catch (e) {
@@ -90,63 +42,27 @@ export default function MeetingMode() {
     getEffectiveCompany().then(setCompany).catch(() => setCompany(null));
   }, []);
 
-  const meetingTypes = useMemo(() => getAvailableMeetingTypes(company), [company]);
-
-  const refreshManpowerData = useCallback(async () => {
+  const loadMeetings = async () => {
+    setLoading(true);
     try {
-      setManpowerAgendaData(await loadManpowerAgendaData());
+      const rows = await db.entities.Meeting.list('-meeting_date', 200);
+      setMeetings(rows);
     } catch (e) {
-      setManpowerAgendaData({ projectData: [], employees: [], certifications: [], assignments: [], leaveRequests: [], projectsById: new Map(), assets: [] });
-    }
-  }, []);
-
-  const selectMeetingType = useCallback(async (typeId) => {
-    setMeetingType(typeId);
-    setActiveIndex(0);
-    setLoadingAgenda(true);
-    try {
-      const [jobCostData, manpowerData, roster] = await Promise.all([
-        loadJobCostAgendaData(),
-        typeId === 'manpower' ? loadManpowerAgendaData() : Promise.resolve(null),
-        typeId === 'project_review' ? loadEmployeeRoster() : Promise.resolve({ employees: [], certifications: [] }),
-      ]);
-      setJobCostAgendaData(jobCostData);
-      setManpowerAgendaData(manpowerData);
-      setEmployeeRoster(roster);
-    } catch (e) {
-      setJobCostAgendaData([]);
-      setManpowerAgendaData(null);
+      setMeetings([]);
     } finally {
-      setLoadingAgenda(false);
+      setLoading(false);
     }
-  }, []);
+  };
 
-  const sections = useMemo(
-    () => (meetingType ? buildAgendaSections(meetingType, jobCostAgendaData, manpowerAgendaData) : []),
-    [meetingType, jobCostAgendaData, manpowerAgendaData]
-  );
+  useEffect(() => { if (allowed) loadMeetings(); }, [allowed]);
 
-  const goTo = useCallback((index) => {
-    setActiveIndex((current) => {
-      if (sections.length === 0) return current;
-      return ((index % sections.length) + sections.length) % sections.length;
-    });
-  }, [sections.length]);
-
-  useEffect(() => {
-    if (!meetingType) return;
-    const handleKeyDown = (e) => {
-      // Don't hijack navigation while a drilldown dialog is reading arrow
-      // keys or anything else — Radix marks its open dialog content with
-      // role="dialog" + data-state="open".
-      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); goTo(activeIndex + 1); }
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); goTo(activeIndex - 1); }
-      else if (e.key === 'Escape') { e.preventDefault(); setMeetingType(null); }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [meetingType, activeIndex, goTo]);
+  const handleCreate = async ({ name, meeting_date, sections }) => {
+    const me = await db.auth.me().catch(() => null);
+    const created = await db.entities.Meeting.create({ name, meeting_date, sections, created_by: me?.id || '' });
+    setShowAddModal(false);
+    await loadMeetings();
+    openMeeting(created.id);
+  };
 
   if (checkingAccess) {
     return <div className="fixed inset-0 bg-slate-950" />;
@@ -167,127 +83,59 @@ export default function MeetingMode() {
     );
   }
 
-  if (!meetingType) {
-    return (
-      <div className="fixed inset-0 bg-slate-950 text-white flex flex-col">
-        <div className="flex items-center justify-between px-8 py-6">
-          <h1 className="text-2xl font-semibold">Meeting Mode</h1>
-          <Link to="/" className="text-slate-400 hover:text-white flex items-center gap-1.5">
-            <X className="w-5 h-5" /> Exit
-          </Link>
+  return (
+    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col">
+      <div className="flex items-center justify-between px-8 py-6">
+        <h1 className="text-2xl font-semibold">Meeting Mode</h1>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 rounded px-4 py-2 text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" /> Add Meeting
+          </button>
+          <Link to="/" className="text-slate-400 hover:text-white text-sm">Exit</Link>
         </div>
-        <div className="flex-1 flex items-center justify-center px-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl w-full">
-            {meetingTypes.map((type) => (
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-8 pb-8">
+        {loading ? (
+          <p className="text-slate-400">Loading meetings…</p>
+        ) : meetings.length === 0 ? (
+          <div className="max-w-md mx-auto mt-20 text-center">
+            <p className="text-slate-400 mb-4">No meetings yet. Create one to get started.</p>
+            <button type="button" onClick={() => setShowAddModal(true)} className="text-blue-400 hover:text-white underline">
+              Add Meeting
+            </button>
+          </div>
+        ) : (
+          <div className="max-w-3xl mx-auto space-y-2">
+            {meetings.map((meeting) => (
               <button
-                key={type.id}
+                key={meeting.id}
                 type="button"
-                disabled={!type.available}
-                onClick={() => selectMeetingType(type.id)}
-                className={`text-left rounded-2xl border-2 p-8 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                  type.available
-                    ? 'border-slate-700 hover:border-blue-500 hover:bg-slate-900 cursor-pointer'
-                    : 'border-slate-800 opacity-50 cursor-not-allowed'
-                }`}
+                onClick={() => openMeeting(meeting.id)}
+                className="w-full text-left flex items-center justify-between gap-4 rounded-lg border border-slate-800 hover:border-blue-500 hover:bg-slate-900 px-6 py-5 transition-colors"
               >
-                <h2 className="text-3xl font-bold mb-2">{type.label}</h2>
-                <p className="text-lg text-slate-400 flex items-center gap-1.5">
-                  {!type.available && <Lock className="w-4 h-4" aria-hidden="true" />}
-                  {type.packHint}
-                </p>
-                {!type.available && (
-                  <p className="text-sm text-amber-400 mt-3">Not included in your company's current pack</p>
-                )}
+                <div>
+                  <p className="text-lg font-medium">{meeting.name}</p>
+                  <p className="text-sm text-slate-500">{meeting.meeting_date}</p>
+                </div>
+                <div className="flex flex-wrap gap-1.5 justify-end max-w-xs">
+                  {(meeting.sections || []).map((key) => (
+                    <span key={key} className="text-[10px] uppercase tracking-wide bg-slate-800 text-slate-300 rounded px-1.5 py-0.5">
+                      {getSectionDefinition(key)?.label || key}
+                    </span>
+                  ))}
+                </div>
               </button>
             ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const activeSection = sections[activeIndex];
-
-  return (
-    <div className="fixed inset-0 bg-slate-950 text-white flex">
-      {/* Section list — always visible, per-section keyboard/click nav */}
-      <div className="w-72 flex-shrink-0 border-r border-slate-800 flex flex-col">
-        <div className="px-5 py-5 border-b border-slate-800">
-          <p className="text-sm text-slate-400 uppercase tracking-wide">{meetingTypes.find((t) => t.id === meetingType)?.label} Meeting</p>
-          <button type="button" onClick={() => setMeetingType(null)} className="text-xs text-blue-400 hover:text-white mt-1 underline">
-            Change meeting type
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto py-2">
-          {sections.map((section, idx) => (
-            <button
-              key={section.id}
-              type="button"
-              onClick={() => goTo(idx)}
-              aria-current={idx === activeIndex ? 'true' : undefined}
-              className={`w-full text-left px-5 py-3 border-l-4 transition-colors ${
-                idx === activeIndex ? 'border-blue-500 bg-slate-900 text-white' : 'border-transparent text-slate-400 hover:text-white hover:bg-slate-900/50'
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                {section.kind === 'manpower' && <span className="text-[10px] uppercase tracking-wide bg-blue-500/20 text-blue-300 rounded px-1.5 py-0.5 flex-shrink-0">Manpower</span>}
-                <div className="text-base font-medium truncate">{section.navLabel}</div>
-              </div>
-              {section.navSubLabel && <div className="text-xs text-slate-500 truncate">{section.navSubLabel}</div>}
-            </button>
-          ))}
-        </div>
-        <div className="px-5 py-4 border-t border-slate-800 flex items-center justify-between">
-          <div className="flex gap-2">
-            <button type="button" onClick={() => goTo(activeIndex - 1)} aria-label="Previous section" className="p-2 rounded hover:bg-slate-800">
-              <ChevronUp className="w-4 h-4" />
-            </button>
-            <button type="button" onClick={() => goTo(activeIndex + 1)} aria-label="Next section" className="p-2 rounded hover:bg-slate-800">
-              <ChevronDown className="w-4 h-4" />
-            </button>
-          </div>
-          <Link to="/" className="text-slate-400 hover:text-white flex items-center gap-1.5 text-sm">
-            <X className="w-4 h-4" /> Exit
-          </Link>
-        </div>
-      </div>
-
-      {/* Active slide */}
-      <div className="flex-1 min-w-0">
-        {loadingAgenda || !activeSection ? (
-          <div className="h-full flex items-center justify-center">
-            <p className="text-2xl text-slate-400">Loading agenda data…</p>
-          </div>
-        ) : activeSection.kind === 'job-cost' ? (
-          <JobCostByJobSlide project={activeSection.project} rows={activeSection.rows} />
-        ) : activeSection.kind === 'manpower' ? (
-          <ManpowerSection
-            project={activeSection.project}
-            staffing={activeSection.staffing}
-            assignments={activeSection.assignments}
-            manpowerData={manpowerAgendaData}
-            currentUser={currentUser}
-            onDataChange={refreshManpowerData}
-          />
-        ) : (
-          <div className="h-full flex items-center justify-center">
-            <p className="text-2xl text-slate-400">No active jobs to review right now.</p>
           </div>
         )}
       </div>
 
-      {/* Project Review meeting: notes pane docked alongside whatever
-          project-bearing slide is active, rebinding to that project — never
-          its own agenda section. */}
-      {meetingType === 'project_review' && activeSection?.project && (
-        <ProjectReviewNotesPanel
-          project={activeSection.project}
-          currentUser={currentUser}
-          meetingType={meetingType}
-          employees={employeeRoster.employees}
-          certifications={employeeRoster.certifications}
-        />
-      )}
+      <AddMeetingModal open={showAddModal} onOpenChange={setShowAddModal} company={company} onCreate={handleCreate} />
     </div>
   );
 }

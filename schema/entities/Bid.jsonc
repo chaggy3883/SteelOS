@@ -222,6 +222,19 @@
     "dnb_reason_notes": {
       "type": "string"
     },
+    "meeting_follow_up_dismissed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set by 'Remove from list' in Meeting Mode's Estimating Updates section (src/components/meeting-mode/sections/EstimatingUpdatesSection.jsx) — only removes this bid from that recurring section's 21+ day follow-up surfacing. Never touches status (won/lost/Did_Not_Bid)."
+    },
+    "meeting_follow_up_dismissed_by": {
+      "type": "string",
+      "description": "User.id who dismissed it, set alongside meeting_follow_up_dismissed."
+    },
+    "meeting_follow_up_dismissed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "competitor_name": {
       "type": "string"
     },

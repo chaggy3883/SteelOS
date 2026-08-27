@@ -669,9 +669,11 @@ export default function ProjectDetail() {
           </div>
         </TabsContent>
 
-        {/* Meeting Notes — captured live in Meeting Mode's Project Review
-            type (src/components/meeting-mode/ProjectReviewNotesPanel.jsx);
-            this tab is read-only surfacing of what already got saved. */}
+        {/* Meeting Notes — historical ProjectMeetingNote records. Meeting
+            Mode itself now logs notes per meeting+section (MeetingNoteLog,
+            see src/pages/MeetingModeSession.jsx) rather than per project, so
+            this tab is read-only surfacing of whatever was saved here before
+            that redesign; nothing currently writes new ProjectMeetingNote rows. */}
         <TabsContent value="notes">
           <div className="space-y-4">
             <div className="steel-card p-5">
