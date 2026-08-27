@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Loader2, Building2, Phone, Mail, Search } from 'lucide-react';
+import { Loader2, Building2, Phone, Mail, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Input } from '@/components/ui/input';
@@ -38,6 +38,17 @@ export default function CrmDirectories() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [viewingRecord, setViewingRecord] = useState(null);
+  const [sortBy, setSortBy] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+
+  const toggleSort = (column) => {
+    if (sortBy === column) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(column);
+      setSortDir('asc');
+    }
+  };
 
   useEffect(() => { loadData(); }, []);
 
@@ -76,6 +87,12 @@ export default function CrmDirectories() {
 
   const filteredRows = rows.filter((r) => r.name?.toLowerCase().includes(search.trim().toLowerCase()));
 
+  const sortValue = (r, column) => (column === 'type' ? (r.customer_type || r.vendor_type || 'other') : (r.name || '')).toLowerCase();
+  const sortedRows = [...filteredRows].sort((a, b) => {
+    const cmp = sortValue(a, sortBy).localeCompare(sortValue(b, sortBy));
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
   return (
     <div className="p-6 w-full max-w-none space-y-4 animate-fade-in">
       <PageHeader
@@ -109,16 +126,26 @@ export default function CrmDirectories() {
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-left">
               <tr>
-                <th className="p-3 font-medium">Name</th>
-                <th className="p-3 font-medium">Type</th>
+                <th className="p-3 font-medium">
+                  <button type="button" onClick={() => toggleSort('name')} className="inline-flex items-center gap-1.5 hover:text-primary transition-colors">
+                    Name
+                    {sortBy === 'name' ? (sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />) : <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground/50" />}
+                  </button>
+                </th>
+                <th className="p-3 font-medium">
+                  <button type="button" onClick={() => toggleSort('type')} className="inline-flex items-center gap-1.5 hover:text-primary transition-colors">
+                    Type
+                    {sortBy === 'type' ? (sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />) : <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground/50" />}
+                  </button>
+                </th>
                 <th className="p-3 font-medium">Phone</th>
                 <th className="p-3 font-medium">Email</th>
               </tr>
             </thead>
             <tbody>
-              {filteredRows.length === 0 ? (
+              {sortedRows.length === 0 ? (
                 <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">No records found.</td></tr>
-              ) : filteredRows.map((r) => (
+              ) : sortedRows.map((r) => (
                 <tr key={r.id} onClick={() => setViewingRecord(r)} className="border-t cursor-pointer hover:bg-muted/30 transition-colors">
                   <td className="p-3 font-medium">{r.name}</td>
                   <td className="p-3">
