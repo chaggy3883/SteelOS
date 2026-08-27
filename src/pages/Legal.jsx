@@ -11,6 +11,9 @@ import PageHeader from '@/components/ui/PageHeader';
 import { Scale, ShieldAlert, FileText, Upload, Brain, AlertTriangle, ScrollText, Eye } from 'lucide-react';
 import { computeRiskFlags, RISK_FLAG_LABELS } from '@/lib/legalBaselines';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 // A Document counts as an in-app-viewable PDF when it has a file to open and
 // either its MIME type or file name says so — covers both real uploads
@@ -40,9 +43,18 @@ export default function Legal() {
   const [contractForm, setContractForm] = useState(emptyContractForm());
   const [contractFile, setContractFile] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
 
   useEffect(() => {
     db.auth.me().then((u) => { setCurrentUser(u); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/legal')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
   }, []);
 
   useEffect(() => { if (currentUser) loadData(); }, [currentUser]);
@@ -214,12 +226,19 @@ export default function Legal() {
     }
   };
 
-  if (loading) {
+  if (loading || checkingModuleAccess) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="w-8 h-8 border-4 border-border border-t-primary rounded-full animate-spin" />
       </div>
     );
+  }
+
+  // Route guard — a direct URL to /legal can't bypass the nav's module-pack
+  // filtering. Strictly earlier/coarser than the role-based check below.
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/legal" title="Legal & Contracts Not Included" />;
   }
 
   const isAuthorized = (currentUser?.roles || []).some(r => LEGAL_ROLES.includes(r)) || currentUser?.is_admin === true;

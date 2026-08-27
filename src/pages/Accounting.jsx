@@ -3,7 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
-import { isAdminUser, getEffectiveCompany } from '@/lib/tenantContext';
+import { isAdminUser, getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -139,6 +141,8 @@ export default function Accounting() {
   const [userRoles, setUserRoles] = useState([]);
   const [accessChecked, setAccessChecked] = useState(false);
   const [activeTab, setActiveTab] = useState(null);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
 
   const [projects, setProjects] = useState([]);
   const [findings, setFindings] = useState([]);
@@ -246,6 +250,13 @@ export default function Accounting() {
       }
     };
     checkAccess();
+  }, []);
+
+  useEffect(() => {
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/accounting')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
   }, []);
 
   useEffect(() => {
@@ -973,8 +984,16 @@ export default function Accounting() {
   const activeProjects = projects.filter(p => !['complete','cancelled','lead'].includes(p.status));
   const activeValue = activeProjects.reduce((s, p) => s + (p.contract_value || 0), 0);
 
-  if (!accessChecked) {
+  if (!accessChecked || checkingModuleAccess) {
     return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  // Route guard — a direct URL to /accounting can't bypass the nav's
+  // module-pack filtering. Strictly earlier/coarser than the role-based tab
+  // gating below: "is this module in the company's pack at all."
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/accounting" title="Accounting Not Included" />;
   }
 
   if (accessibleTabs.length === 0) {

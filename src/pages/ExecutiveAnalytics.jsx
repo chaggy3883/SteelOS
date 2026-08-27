@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
 import { computeWinLossStats, computeProjectWipRadar, computeQuarterlyTaxExposure } from '@/lib/financialAnalytics';
 import { calculateWIPSchedule } from '@/lib/wipCalculations';
 import { computeArAging, computeApAging, AGING_BUCKETS, AGING_BUCKET_LABELS } from '@/lib/agingReport';
@@ -98,6 +100,13 @@ export default function ExecutiveAnalytics() {
   const [commissionBySalesman, setCommissionBySalesman] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingSnapshot, setSavingSnapshot] = useState(false);
+  const [company, setCompany] = useState(null);
+  // Gate on the '/accounting' module, never on a pack-name comparison — see
+  // the architectural rule in modulePacks.js. Shop Fab is the only pack that
+  // excludes '/accounting', so this naturally hides the accounting-sourced
+  // sections (WIP Radar, WIP Overbilling/Underbilling, AR/AP Aging, Cash
+  // Position) there without this page needing to know pack names at all.
+  const showAccountingSections = hasModule(company, '/accounting');
 
   const wipRadarRef = useRef(null);
   const wipSummaryRef = useRef(null);
@@ -110,7 +119,10 @@ export default function ExecutiveAnalytics() {
   const salesRef = useRef(null);
   const taxRef = useRef(null);
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    loadAll();
+    getEffectiveCompany().then(setCompany).catch(() => setCompany(null));
+  }, []);
 
   const loadAll = async () => {
     setLoading(true);
@@ -329,6 +341,10 @@ export default function ExecutiveAnalytics() {
         Snapshots are captured manually here — there's no backend scheduler in this app to run them automatically.
       </p>
 
+      {/* 1-4: accounting-sourced sections — hidden entirely on packs without
+          '/accounting' (currently just Shop Fab) rather than shown empty. */}
+      {showAccountingSections && (
+      <>
       {/* 1. Financial WIP Radar */}
       <div className="steel-card p-5" ref={wipRadarRef}>
         <SectionHeader
@@ -455,6 +471,8 @@ export default function ExecutiveAnalytics() {
           <CashForecastPanel />
         </div>
       </div>
+      </>
+      )}
 
       {/* 5. Bid Win/Loss */}
       <div className="steel-card p-5" ref={winLossRef}>

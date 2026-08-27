@@ -5,6 +5,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PageHeader from '@/components/ui/PageHeader';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { PAYROLL_SETUP_ALLOWED_ROLES } from '@/lib/payrollSetupAccess';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 import PayRatesPanel from '@/components/payroll/PayRatesPanel';
 import TaxWithholdingPanel from '@/components/payroll/TaxWithholdingPanel';
 import DeductionsPanel from '@/components/payroll/DeductionsPanel';
@@ -24,11 +27,15 @@ export default function PayrollSetup() {
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState([]);
   const [activeTab, setActiveTab] = useState('rates');
+  const [currentUser, setCurrentUser] = useState(null);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
 
   useEffect(() => {
     const checkAccess = async () => {
       try {
         const me = await db.auth.me();
+        setCurrentUser(me || null);
         const roles = me?.roles || me?.user?.roles || ['user'];
         setAllowed(roles.some((r) => PAYROLL_SETUP_ALLOWED_ROLES.includes(normalizeRoleName(r))));
       } catch (e) {
@@ -38,6 +45,13 @@ export default function PayrollSetup() {
       }
     };
     checkAccess();
+  }, []);
+
+  useEffect(() => {
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/payroll/setup')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
   }, []);
 
   useEffect(() => {
@@ -56,8 +70,16 @@ export default function PayrollSetup() {
     }
   };
 
-  if (!accessChecked) {
+  if (!accessChecked || checkingModuleAccess) {
     return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  // Route guard — a direct URL to /payroll/setup can't bypass the nav's
+  // module-pack filtering. Strictly earlier/coarser than the role-based
+  // check below.
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/payroll/setup" title="Payroll Not Included" />;
   }
 
   if (!allowed) {

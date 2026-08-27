@@ -4,6 +4,9 @@ import { BarChart3, TrendingUp, DollarSign, Package, Download } from 'lucide-rea
 import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/ui/PageHeader';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308'];
 
@@ -11,8 +14,18 @@ export default function Reports() {
   const [projects, setProjects] = useState([]);
   const [pieces, setPieces] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/reports')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   const loadData = async () => {
     setLoading(true);
@@ -46,6 +59,17 @@ export default function Reports() {
   const totalContractValue = projects.reduce((s, p) => s + (p.contract_value || 0), 0);
   const totalTons = projects.reduce((s, p) => s + (p.estimated_tons || 0), 0);
   const avgHealth = projects.length > 0 ? Math.round(projects.reduce((s, p) => s + (p.health_score || 100), 0) / projects.length) : 0;
+
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /reports can't bypass the nav's
+  // module-pack filtering.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/reports" title="Reports Not Included" />;
+  }
 
   return (
     <div className="p-6 animate-fade-in">

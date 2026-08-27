@@ -58,6 +58,25 @@ const navGroups = [
     ]
   },
   {
+    // Executive Analytics and Meeting Mode both moved into
+    // TRUE_MINIMAL_SHARED (see modulePacks.js) — every pack, including Shop
+    // Fab, gets them. They used to live in "Accounting & Job Costing", but
+    // for a Shop Fab company that group's other three items (Accounting,
+    // Legal, Reports) are all gated out, which would've stranded these two
+    // as the only entries left in a dropdown labeled for back-office
+    // functions they aren't. Neither is accounting-specific to begin with
+    // (Executive Analytics rolls up Estimating/Shop/HR/Sales too, and
+    // internally hides its own accounting-sourced cards when '/accounting'
+    // isn't granted; Meeting Mode spans Job Cost/Manpower/Project Review
+    // agendas) — a standalone group fits every pack, not just the ones with
+    // back-office access.
+    label: 'Insights',
+    items: [
+      { icon: Gauge, label: 'Executive Analytics', path: '/executive-analytics' },
+      { icon: Presentation, label: 'Meeting Mode', path: '/meeting-mode' },
+    ]
+  },
+  {
     label: 'Payroll',
     items: [
       { icon: CalendarClock, label: 'Hours at a Glance', path: '/payroll/hours' },
@@ -82,8 +101,6 @@ const navGroups = [
       { icon: DollarSign, label: 'Accounting', path: '/accounting' },
       { icon: Scale, label: 'Legal & Contracts', path: '/legal' },
       { icon: BarChart3, label: 'Reports', path: '/reports' },
-      { icon: Gauge, label: 'Executive Analytics', path: '/executive-analytics' },
-      { icon: Presentation, label: 'Meeting Mode', path: '/meeting-mode' },
     ]
   },
   {

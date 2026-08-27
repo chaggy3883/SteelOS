@@ -26,6 +26,9 @@ import HiringDocumentsPanel from '@/components/hr/HiringDocumentsPanel';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import RoleMultiSelect from '@/components/admin/RoleMultiSelect';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse, CalendarPlus, FileText, History } from 'lucide-react';
 
 export const POSITIONS = ['Ironworker', 'Welder', 'Fabricator', 'Painter', 'Shop Manager', 'Inspector', 'Office'];
@@ -70,6 +73,8 @@ export default function HumanResources() {
   const [roles, setRoles] = useState(['user']);
   const [currentUser, setCurrentUser] = useState(null);
   const [permissionOverrides, setPermissionOverrides] = useState([]);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [candidates, setCandidates] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [certifications, setCertifications] = useState([]);
@@ -121,6 +126,12 @@ export default function HumanResources() {
   const [viewingCertification, setViewingCertification] = useState(null);
 
   useEffect(() => { init(); }, []);
+  useEffect(() => {
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/human-resources')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   // Deep-link target for "employee" drill-downs from other pages/tabs
   // (equipment usage operator, time-off requester, cert radar, etc.) —
@@ -450,7 +461,15 @@ export default function HumanResources() {
   const defaultTabValue = visibleTabValues[0] || 'ats';
   const currentTab = activeTab || defaultTabValue;
 
-  if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+  if (loading || checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /human-resources can't bypass the nav's
+  // module-pack filtering. Strictly earlier/coarser than the tab-level
+  // permission checks above (isTabVisible / isFullAccess).
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/human-resources" title="Human Resources Not Included" />;
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-4 animate-fade-in">

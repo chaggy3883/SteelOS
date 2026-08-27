@@ -7,6 +7,9 @@ import { normalizeRoleName, BUILTIN_ROLES } from '@/components/dashboard/rbacCon
 import TimeEntryPanel from '@/components/payroll/TimeEntryPanel';
 import TimecardsPanel from '@/components/payroll/TimecardsPanel';
 import PayrollRunPanel from '@/components/payroll/PayrollRunPanel';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 // Same audience as retired Payroll.jsx's weekly processing (register/lock/
 // export/job-cost-posting) had — running payroll is a narrower, more
@@ -36,11 +39,15 @@ export default function PayrollProcessing() {
   const [costCodes, setCostCodes] = useState([]);
   const [payPeriods, setPayPeriods] = useState([]);
   const [payrollRules, setPayrollRules] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
 
   useEffect(() => {
     const checkAccess = async () => {
       try {
         const me = await db.auth.me();
+        setCurrentUser(me || null);
         const roles = me?.roles || me?.user?.roles || ['user'];
         setAllowed(roles.some((r) => PAYROLL_PROCESSING_ALLOWED_ROLES.includes(normalizeRoleName(r))));
       } catch (e) {
@@ -50,6 +57,13 @@ export default function PayrollProcessing() {
       }
     };
     checkAccess();
+  }, []);
+
+  useEffect(() => {
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/payroll/processing')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
   }, []);
 
   useEffect(() => {
@@ -78,8 +92,16 @@ export default function PayrollProcessing() {
     }
   };
 
-  if (!accessChecked) {
+  if (!accessChecked || checkingModuleAccess) {
     return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  // Route guard — a direct URL to /payroll/processing can't bypass the
+  // nav's module-pack filtering. Strictly earlier/coarser than the
+  // role-based check below.
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/payroll/processing" title="Payroll Not Included" />;
   }
 
   if (!allowed) {

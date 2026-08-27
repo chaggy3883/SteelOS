@@ -13,7 +13,9 @@ import { Plus, Truck, ClipboardCheck, FileText, DollarSign, CheckCircle2, AlertT
 import { generateQrPayload } from '@/lib/qrSerialization';
 import PurchaseOrderDetailModal from '@/components/purchasing/PurchaseOrderDetailModal';
 import { REQUISITION_APPROVAL_ROLES, PURCHASING_ALLOWED_ROLES, INVOICE_APPROVAL_ROLES } from '@/components/dashboard/widgetContent';
-import { isAdminUser } from '@/lib/tenantContext';
+import { isAdminUser, getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 // Anyone who can reach this page at all — buys (purchasing_agent), approves
 // requisitions (REQUISITION_APPROVAL_ROLES), or runs the AP 3-way match
@@ -54,6 +56,15 @@ export default function ProcurementModule() {
   const [pageAllowed, setPageAllowed] = useState(false);
   const [canBuy, setCanBuy] = useState(false);
   const [canInvoice, setCanInvoice] = useState(false);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+
+  useEffect(() => {
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/purchasing/module')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   useEffect(() => {
     db.auth.me()
@@ -246,8 +257,16 @@ export default function ProcurementModule() {
     return { budgeted, actual, variance: budgeted - actual, pendingApprovals, partials };
   }, [purchaseOrders, requisitions, receivingLogs]);
 
-  if (!accessChecked) {
+  if (!accessChecked || checkingModuleAccess) {
     return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  // Route guard — a direct URL to /purchasing/module can't bypass the nav's
+  // module-pack filtering. Strictly earlier/coarser than the role-based
+  // check below.
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/purchasing/module" title="Procurement Module Not Included" />;
   }
 
   if (!pageAllowed) {

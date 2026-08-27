@@ -10,7 +10,8 @@ import PageHeader from '@/components/ui/PageHeader';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { computeOvertimeForClockOut, startOfWeek } from '@/lib/attendanceMath';
 import { hasModule } from '@/lib/moduleEntitlement';
-import { getEffectiveCompany } from '@/lib/tenantContext';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const ALLOWED_ROLES = ['admin', 'super_admin', 'payroll_admin', 'controller', 'project_manager', 'shop_manager'];
 const ACTIVE_PROJECT_STATUSES = ['awarded', 'engineering', 'fabrication', 'erection'];
@@ -74,6 +75,21 @@ export default function PayrollHours() {
   const [showOtSeparately, setShowOtSeparately] = useState(false);
 
   const [selectedCell, setSelectedCell] = useState(null); // { employee, dayIdx }
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Independent of the role-based checkAccess effect below and of the
+  // `company` state loaded by loadData() for the unrelated 'equipment'
+  // add-on check — this is a coarser, earlier gate: "is /payroll/hours in
+  // the company's pack at all," and must resolve regardless of role.
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((c) => setModuleAllowed(hasModule(c, '/payroll/hours')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   useEffect(() => {
     const checkAccess = async () => {
@@ -230,8 +246,16 @@ export default function PayrollHours() {
     setAnchorDate(dateKey(d));
   };
 
-  if (!accessChecked) {
+  if (!accessChecked || checkingModuleAccess) {
     return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  // Route guard — a direct URL to /payroll/hours can't bypass the nav's
+  // module-pack filtering. Strictly earlier/coarser than the role-based
+  // check below.
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/payroll/hours" title="Payroll Not Included" />;
   }
 
   if (!allowed) {

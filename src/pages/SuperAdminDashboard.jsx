@@ -16,24 +16,29 @@ import { ShieldAlert, LogIn, LogOut, Plus, Webhook, Building2, AlertTriangle, Cp
 
 const SUBSCRIPTION_STATUSES = ['Active', 'Past_Due', 'Inactive'];
 const SUBSCRIPTION_PLANS = [
-  { value: 'SteelOS_Fab', label: 'SteelOS Fab (Fabricator Pack)' },
-  { value: 'SteelOS_Erect', label: 'SteelOS Erect (Erector Pack)' },
+  { value: 'SteelOS_ShopFab', label: 'Shop Fab (Shop Floor Only)' },
+  { value: 'SteelOS_Fab', label: 'Full Fabrication (Shop + Back Office)' },
+  { value: 'SteelOS_Erect', label: 'Erection Only' },
   { value: 'Enterprise_Connect', label: 'Enterprise Connect (Unified Suite)' },
 ];
 const STATUS_COLOR = { Active: 'bg-green-500/10 text-green-600', Past_Due: 'bg-yellow-500/10 text-yellow-700', Inactive: 'bg-red-500/10 text-red-600' };
 const emptyTenantForm = () => ({ name: '', company_type: 'structural_steel_fabricator', city: '', state: '' });
 
 // Separate from SUBSCRIPTION_PLANS above (which only lists the 3 plans a new
-// tenant can be assigned) — the stats breakdown needs all 6 values the
+// tenant can be assigned) — the stats breakdown needs all 7 values the
 // Company schema actually allows, including the two legacy/generic tiers.
-const ALL_SUBSCRIPTION_PLANS = ['starter', 'professional', 'enterprise', 'SteelOS_Fab', 'SteelOS_Erect', 'Enterprise_Connect'];
+// Labels here mirror modulePacks.js's PACK_LABELS (kept as a separate
+// literal map, not an import, since this dashboard also has to label the
+// three legacy plan strings PACK_LABELS doesn't know about).
+const ALL_SUBSCRIPTION_PLANS = ['starter', 'professional', 'enterprise', 'SteelOS_Fab', 'SteelOS_Erect', 'Enterprise_Connect', 'SteelOS_ShopFab'];
 const PLAN_LABELS = {
   starter: 'Starter',
   professional: 'Professional',
   enterprise: 'Enterprise',
-  SteelOS_Fab: 'SteelOS Fab',
-  SteelOS_Erect: 'SteelOS Erect',
+  SteelOS_Fab: 'Full Fabrication',
+  SteelOS_Erect: 'Erection Only',
   Enterprise_Connect: 'Enterprise Connect',
+  SteelOS_ShopFab: 'Shop Fab',
 };
 const AI_PROVIDERS = ['local', 'claude', 'openai'];
 const AI_PROVIDER_LABELS = { local: 'Local / On-Prem', claude: 'Claude', openai: 'OpenAI' };

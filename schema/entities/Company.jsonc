@@ -59,7 +59,8 @@
         "enterprise",
         "SteelOS_Fab",
         "SteelOS_Erect",
-        "Enterprise_Connect"
+        "Enterprise_Connect",
+        "SteelOS_ShopFab"
       ],
       "default": "starter"
     },

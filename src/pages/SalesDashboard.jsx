@@ -146,7 +146,7 @@ export default function SalesDashboard() {
     );
   }
 
-  if (!hasModule(company, 'sales')) {
+  if (!hasModule(company, '/sales/dashboard') || !hasModule(company, 'sales')) {
     return <ModuleLocked modulePath="/sales/dashboard" title="Salesman Dashboard Not Included" description="Ask your platform admin to enable the Salesman Dashboard module for this company." />;
   }
 

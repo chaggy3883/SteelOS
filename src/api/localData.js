@@ -210,6 +210,22 @@ const buildSeedData = () => {
         is_active: true,
         created_date: now,
         updated_date: now
+      },
+      {
+        id: 'user-ridgeline-admin',
+        email: 'morgan@ridgelinefab.local',
+        password: 'password123',
+        // Plain 'admin', same reasoning as user-steelrise-admin above — a
+        // non-impersonating super_admin session bypasses pack gating
+        // entirely, which would defeat the reason this tenant exists: seeing
+        // SteelOS_ShopFab pack gating apply with nothing else muddying the
+        // result.
+        roles: ['admin'],
+        full_name: 'Morgan Reyes',
+        company_id: 'company-ridgeline',
+        is_active: true,
+        created_date: now,
+        updated_date: now
       }
     ],
     Company: [
@@ -263,6 +279,26 @@ const buildSeedData = () => {
         subscription_plan: 'SteelOS_Erect',
         subscription_status: 'Active',
         brand_color_hex: '#ea580c',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      },
+      {
+        id: 'company-ridgeline',
+        name: 'Ridgeline Fabricators',
+        company_code: 'ridgeline',
+        company_type: 'structural_steel_fabricator',
+        city: 'Canton',
+        state: 'OH',
+        logo_url: '',
+        // Shop Fab pack — the new, smallest tier: shop-floor + estimating/PM
+        // only, none of BACK_OFFICE_MODULES (no Accounting/Legal/Reports/
+        // Payroll/HR/Purchasing/Quality/Safety). Its own demo tenant so this
+        // pack has a real, testable end-to-end path. See modulePacks.js
+        // PACKS.SHOP_FAB.
+        subscription_plan: 'SteelOS_ShopFab',
+        subscription_status: 'Active',
+        brand_color_hex: '#059669',
         is_active: true,
         created_date: now,
         updated_date: now
@@ -1660,6 +1696,34 @@ const buildSeedData = () => {
         phone: '412-555-1111',
         created_date: now,
         updated_date: now
+      },
+      {
+        id: 'employee-ridgeline-1',
+        company_id: 'company-ridgeline',
+        employee_number: '201',
+        full_name: 'Morgan Reyes',
+        classification: 'Fabricator',
+        job_title: 'Shop Manager',
+        department: 'Shop Fabrication',
+        hire_date: '2025-02-01',
+        is_active: true,
+        pin_encrypted: encodeFormulaPin({ employee_number: '201', ssn_last4: '2222' }),
+        is_timeclock_locked: false,
+        has_w4_approved: true,
+        i9_on_file: true,
+        i9_date: '2025-02-01',
+        i9_reverification_due_date: '2028-02-01',
+        i9_reverification_completed_date: '',
+        e_verify_status: 'verified',
+        e_verify_initiated_date: '2025-02-02',
+        e_verify_verified_date: '2025-02-03',
+        e_verify_recheck_due_date: '2026-09-01',
+        ssn_last4: '2222',
+        pay_rate_cents: 2600,
+        is_active_login: true,
+        phone: '330-555-2222',
+        created_date: now,
+        updated_date: now
       }
     ],
     employee_certifications: [
@@ -2630,6 +2694,25 @@ const migrateStore = (store) => {
         }
       });
       migrated[entityName] = mergedUsers;
+      return;
+    }
+
+    // New demo tenants (e.g. the SteelOS_ShopFab pack's Ridgeline company)
+    // and their seed employees are added to buildSeedData() over time, same
+    // as the demo Users above — merge any seed row whose id isn't already
+    // present rather than falling into the generic "only replaces an EMPTY
+    // array" branch below, which would silently never add them to anyone's
+    // already-persisted local store (this app's normal steady state — see
+    // the portable-persistence comment in vite.config.js). Existing rows are
+    // never touched.
+    if (entityName === 'Company' || entityName === 'employees') {
+      const merged = [...migrated[entityName]];
+      seedItems.forEach((seedItem) => {
+        if (!merged.some((entry) => entry.id === seedItem.id)) {
+          merged.push(seedItem);
+        }
+      });
+      migrated[entityName] = merged;
       return;
     }
 

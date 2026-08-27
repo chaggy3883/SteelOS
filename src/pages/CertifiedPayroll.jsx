@@ -16,10 +16,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
 import { normalizeRoleName, BUILTIN_ROLES } from '@/components/dashboard/rbacConfig';
-import { getEffectiveCompany } from '@/lib/tenantContext';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { buildCertifiedPayrollReportRows } from '@/lib/certifiedPayrollReport';
 import { generateWH347Pdf } from '@/lib/certifiedPayrollReportPdf';
 import { resolveEmployerTaxRules } from '@/lib/payrollEngine';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 // Same payroll-adjacent audience already granted the /certified-payroll
 // module in rbacConfig.jsx — this page previously relied entirely on the nav
@@ -93,6 +95,8 @@ export default function CertifiedPayroll() {
   const [projects, setProjects] = useState([]);
   const [subcontracts, setSubcontracts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -106,6 +110,13 @@ export default function CertifiedPayroll() {
         setAccessChecked(true);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/certified-payroll')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
   }, []);
 
   useEffect(() => { if (accessChecked && allowed) loadData(); }, [accessChecked, allowed]);
@@ -343,8 +354,16 @@ export default function CertifiedPayroll() {
     }
   };
 
-  if (!accessChecked) {
+  if (!accessChecked || checkingModuleAccess) {
     return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  // Route guard — a direct URL to /certified-payroll can't bypass the nav's
+  // module-pack filtering. Strictly earlier/coarser than the role-based
+  // check below.
+  const isPlatformOperatorView = isSuperAdmin(user) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/certified-payroll" title="Certified Payroll Not Included" />;
   }
 
   if (!allowed) {

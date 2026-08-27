@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const DOC_TYPE_ICONS = {
   specification: '📋', contract: '📝', structural_drawing: '📐', architectural_drawing: '🏗️',
@@ -26,8 +29,18 @@ export default function Documents() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
   const highlightRef = useRef(null);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/documents')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   useEffect(() => {
     if (highlightId && highlightRef.current) {
@@ -63,6 +76,17 @@ export default function Documents() {
   };
 
   const DOC_TYPES = ['specification','contract','general_conditions','structural_drawing','architectural_drawing','addendum','bid_form','rfi','submittal','other'];
+
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /documents can't bypass the nav's
+  // module-pack filtering.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/documents" title="Documents Not Included" />;
+  }
 
   return (
     <div className="p-6 animate-fade-in">

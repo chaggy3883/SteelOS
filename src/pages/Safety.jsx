@@ -5,6 +5,9 @@ import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SafetyMeetingLog from '@/components/safety/SafetyMeetingLog';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const SAFETY_ITEMS = [
   'Fall Protection Requirements (>6ft)', 'Site Safety Plan Required', 'OSHA 10/30 Hour Training',
@@ -16,8 +19,18 @@ const SAFETY_ITEMS = [
 export default function Safety() {
   const [findings, setFindings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/safety')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   const loadData = async () => {
     setLoading(true);
@@ -29,6 +42,17 @@ export default function Safety() {
 
   const critical = findings.filter(f => f.risk_level === 'critical' || f.status === 'fail');
   const warnings = findings.filter(f => f.status === 'warning');
+
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  const showModule = moduleAllowed || isPlatformOperatorView;
+
+  if (checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /safety can't bypass the nav's
+  // module-pack filtering.
+  if (!showModule) {
+    return <ModuleLocked modulePath="/safety" title="Safety Not Included" />;
+  }
 
   return (
     <div className="p-6 animate-fade-in">

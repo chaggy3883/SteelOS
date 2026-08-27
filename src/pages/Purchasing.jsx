@@ -14,8 +14,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { isAdminUser } from '@/lib/tenantContext';
+import { isAdminUser, getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { PURCHASING_ALLOWED_ROLES } from '@/components/dashboard/widgetContent';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const AUTO_APPROVE_THRESHOLD = 5000;
 
@@ -57,11 +59,15 @@ export default function Purchasing() {
   const [aiQuote, setAiQuote] = useState(null);
   const [reviewLines, setReviewLines] = useState([]);
   const [creatingAiPo, setCreatingAiPo] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
 
   useEffect(() => {
     const checkAccess = async () => {
       try {
         const me = await db.auth.me();
+        setCurrentUser(me || null);
         const roles = me?.roles || me?.user?.roles || ['user'];
         setAllowed(isAdminUser(me) || roles.some((r) => PURCHASING_ALLOWED_ROLES.includes(r)));
       } catch (e) {
@@ -71,6 +77,13 @@ export default function Purchasing() {
       }
     };
     checkAccess();
+  }, []);
+
+  useEffect(() => {
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/purchasing')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
   }, []);
 
   useEffect(() => { if (accessChecked && allowed) loadData(); }, [accessChecked, allowed]);
@@ -349,8 +362,16 @@ export default function Purchasing() {
     !search || i.description?.toLowerCase().includes(search.toLowerCase()) || i.item_number?.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (!accessChecked) {
+  if (!accessChecked || checkingModuleAccess) {
     return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  }
+
+  // Route guard — a direct URL to /purchasing can't bypass the nav's
+  // module-pack filtering. Strictly earlier/coarser than the role-based
+  // check below.
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/purchasing" title="Purchasing Not Included" />;
   }
 
   if (!allowed) {

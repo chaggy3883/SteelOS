@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/ui/PageHeader';
 import { normalizeRoleName, BUILTIN_ROLES } from '@/components/dashboard/rbacConfig';
 import { exportRowsToCsv } from '@/lib/csvExport';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
+import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 
 const ALLOWED_ROLES = ['admin', 'super_admin', 'payroll_admin', 'hr_admin'];
 
@@ -29,11 +32,15 @@ export default function Retirement401kReport() {
   const [rows, setRows] = useState([]);
   const [runsById, setRunsById] = useState({});
   const [periodsById, setPeriodsById] = useState({});
+  const [currentUser, setCurrentUser] = useState(null);
+  const [moduleAllowed, setModuleAllowed] = useState(false);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
 
   useEffect(() => {
     const checkAccess = async () => {
       try {
         const me = await db.auth.me();
+        setCurrentUser(me || null);
         const roles = me?.roles || me?.user?.roles || ['user'];
         setAllowed(roles.some((r) => ALLOWED_ROLES.includes(normalizeRoleName(r))));
       } catch (e) {
@@ -43,6 +50,13 @@ export default function Retirement401kReport() {
       }
     };
     checkAccess();
+  }, []);
+
+  useEffect(() => {
+    getEffectiveCompany()
+      .then((company) => setModuleAllowed(hasModule(company, '/payroll/401k-contributions')))
+      .catch(() => setModuleAllowed(false))
+      .finally(() => setCheckingModuleAccess(false));
   }, []);
 
   useEffect(() => { if (accessChecked && allowed) loadData(); }, [accessChecked, allowed]);
@@ -96,7 +110,15 @@ export default function Retirement401kReport() {
     });
   };
 
-  if (!accessChecked) return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+  if (!accessChecked || checkingModuleAccess) return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
+
+  // Route guard — a direct URL to /payroll/401k-contributions can't bypass
+  // the nav's module-pack filtering. Strictly earlier/coarser than the
+  // role-based check below.
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(moduleAllowed || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/payroll/401k-contributions" title="Payroll Not Included" />;
+  }
 
   if (!allowed) {
     return (

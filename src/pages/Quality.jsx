@@ -12,8 +12,9 @@ import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { getEffectiveCompany } from '@/lib/tenantContext';
+import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
+import ModuleLocked from '@/components/shared/ModuleLocked';
 import { getCertStatus } from '@/lib/certAlerts';
 import { listEmployeesForRole } from '@/lib/employeesApi';
 
@@ -100,9 +101,14 @@ export default function Quality() {
   const [certifications, setCertifications] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [showWeldersList, setShowWeldersList] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
 
   useEffect(() => { loadData(); }, []);
-  useEffect(() => { getEffectiveCompany().then(setCompany).catch(() => setCompany(null)); }, []);
+  useEffect(() => {
+    db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
+    getEffectiveCompany().then(setCompany).catch(() => setCompany(null)).finally(() => setCheckingModuleAccess(false));
+  }, []);
 
   // Fabricator/Erector cert tracks are visible per the same pack gating as
   // the Shop Fabrication and Field Operations modules — Quality itself is a
@@ -208,6 +214,19 @@ export default function Quality() {
     pass: findings.filter(f => f.status === 'pass').length,
     pending: findings.filter(f => f.review_status === 'pending').length,
   };
+
+  if (checkingModuleAccess) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
+
+  // Route guard — a direct URL to /quality can't bypass the nav's
+  // module-pack filtering. This is an OUTER gate in front of the
+  // Fabricator/Erector track logic above (canFabricator/canErector, a
+  // different, finer-grained concern about which tracks within Quality to
+  // show) — if the company's pack lacks '/quality' entirely (e.g. Shop
+  // Fab), nothing below this runs.
+  const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
+  if (!(hasModule(company, '/quality') || isPlatformOperatorView)) {
+    return <ModuleLocked modulePath="/quality" title="Quality Not Included" />;
+  }
 
   return (
     <div className="p-6 animate-fade-in">

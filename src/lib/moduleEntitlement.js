@@ -1,26 +1,32 @@
 // Module entitlement — two independent axes, both reached only through
 // hasModule() below:
-//   1. Module PACK gating (Fabricator / Erector / Enterprise Connect) for
-//      page/section-shaped keys (moduleKey starts with '/'), resolved
-//      against company.subscription_plan via modulePacks.js's MODULE_PACKS
-//      — the single source of truth for the pack -> module mapping. This is
-//      module-based gating; nothing here compares subscription_plan against
-//      a literal string outside of packModulesFor(), and no other file in
-//      the app is allowed to either — they all call hasModule().
+//   1. Module PACK gating (Shop Fab / Full Fabrication / Erection Only /
+//      Enterprise Connect) for page/section-shaped keys (moduleKey starts
+//      with '/'), resolved against company.subscription_plan via
+//      modulePacks.js's MODULE_PACKS — the single source of truth for the
+//      pack -> module mapping. This is module-based gating; nothing here
+//      compares subscription_plan against a literal string outside of
+//      packModulesFor(), and no other file in the app is allowed to either
+//      — they all call hasModule().
 //   2. Per-company add-on entitlement toggles for non-path keys ('payroll',
 //      'equipment', 'ironsight', ...) via company.enabled_modules — this is
 //      the original mechanism, unrelated to pack/plan, independently
 //      switchable per company from SuperAdminDashboard regardless of pack.
+//      A small number of non-path keys (PACK_DERIVED_ADDON_KEYS, e.g.
+//      'meeting-mode-dwell-report') are a deliberate exception: they track
+//      pack membership like a path-shaped module instead, because the rule
+//      they encode is "which pack" rather than "did this company toggle it
+//      on" — see modulePacks.js for why that key in particular needs it.
 //
 // rbacConfig.jsx answers a third, separate question — "can this user's
 // ROLE see this module" — and is never consulted here.
 //
-// A company on a legacy/unset plan (not one of the three pack keys) is
+// A company on a legacy/unset plan (not one of the four pack keys) is
 // treated as "everything on" for pack-gated paths, same "missing data =
 // unrestricted" philosophy this file has always used for enabled_modules,
 // so pre-existing demo data and any tenant not yet migrated to a pack is
 // unaffected.
-import { MODULE_PACKS, PACK_EXEMPT_MODULES } from '@/lib/modulePacks';
+import { MODULE_PACKS, PACK_EXEMPT_MODULES, PACK_DERIVED_ADDON_KEYS } from '@/lib/modulePacks';
 
 function packModulesFor(company) {
   const plan = company?.subscription_plan;
@@ -32,6 +38,12 @@ export function hasModule(company, moduleKey) {
   // bypass. See module docblock above.
   if (typeof moduleKey === 'string' && moduleKey.startsWith('/')) {
     if (PACK_EXEMPT_MODULES.includes(moduleKey)) return true;
+    const packModules = packModulesFor(company);
+    if (!packModules) return true;
+    return packModules.includes(moduleKey);
+  }
+
+  if (PACK_DERIVED_ADDON_KEYS.includes(moduleKey)) {
     const packModules = packModulesFor(company);
     if (!packModules) return true;
     return packModules.includes(moduleKey);
