@@ -149,7 +149,6 @@ export default function ShopFabrication() {
       setPieces(pieceData);
       setStationLogs(finalLogs);
       setQaInspections(qaData);
-      if (pieceData[0] && !selectedPieceId) setSelectedPieceId(pieceData[0].id);
     } catch (error) {
       console.error(error);
     } finally {
@@ -174,7 +173,88 @@ export default function ShopFabrication() {
     return layoutApproved ? '2_Weld' : '1_Layout';
   };
 
-  const handleScan = () => {
+  // Mirrors the "Ready for Layout" / "Ready for Weld" gating below: station 5
+  // is the only QA-gated station, and it's gated until whichever stage is
+  // still pending is requested.
+  const requiresInspectionRouting = (piece) => piece.current_station_id === 5
+    && (piece.workflow_status === 'In_Fabrication' || piece.workflow_status === 'Weld_Unlocked');
+
+  const startWork = async (pieceOverride, options = {}) => {
+    const target = pieceOverride || selectedPiece;
+    if (!target || target.workflow_status === 'Inspector_Queue') return { ok: false };
+    const expedited = hasActiveOverride(overrides, target.id, 'Expedite_Part');
+    if (!expedited) {
+      const clearance = await assertStationCertClearance(employeeId, target.current_station_id);
+      if (!clearance.ok) {
+        toast({ title: 'Certification block', description: clearance.message, variant: 'destructive' });
+        return { ok: false, message: clearance.message };
+      }
+    }
+    const log = await db.entities.station_logs.create({
+      piece_id: target.id,
+      employee_id: employeeId,
+      station_id: target.current_station_id,
+      status: 'In_Progress',
+      start_time: new Date().toISOString(),
+      elapsed_minutes: 0,
+      auto_paused: false,
+    });
+    setStationLogs((prev) => [log, ...prev]);
+    await db.entities.piece_timing_events.create({
+      company_id: target.company_id,
+      piece_id: target.id,
+      station_id: target.current_station_id,
+      event_type: 'start_work',
+      scanned_by: employeeId,
+      scanned_at: new Date().toISOString(),
+    });
+    if (!options.silent) toast({ title: 'Work started' });
+    return { ok: true, log };
+  };
+
+  const finishWork = async (nextStatus, logOverride, options = {}) => {
+    const log = logOverride || activeLog;
+    if (!log) return null;
+    const endTime = new Date().toISOString();
+    const elapsed_minutes = Math.max(1, Math.round((new Date(endTime).getTime() - new Date(log.start_time).getTime()) / 60000));
+    const updated = await db.entities.station_logs.update(log.id, {
+      status: nextStatus,
+      end_time: endTime,
+      elapsed_minutes,
+      auto_paused: false,
+    });
+    setStationLogs((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+    if (!options.silent) toast({ title: nextStatus === 'Paused' ? 'Timer paused' : 'Work completed' });
+    return updated;
+  };
+
+  const requestInspection = async (pieceOverride, options = {}) => {
+    const target = pieceOverride || selectedPiece;
+    if (!target) return;
+    const fromStatus = target.workflow_status;
+    const updated = await db.entities.pieces.update(target.id, { workflow_status: 'Inspector_Queue' });
+    setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    await logStatusChange({
+      entityType: 'pieces',
+      entityId: target.id,
+      fieldName: 'workflow_status',
+      fromValue: fromStatus,
+      toValue: 'Inspector_Queue',
+      changedBy: employeeId,
+    });
+    await db.entities.piece_timing_events.create({
+      company_id: target.company_id,
+      piece_id: target.id,
+      station_id: target.current_station_id,
+      event_type: 'ready_for_inspection',
+      scanned_by: employeeId,
+      scanned_at: new Date().toISOString(),
+      notes: `${pendingStage(target).replace('_', ' ')} inspection requested`,
+    });
+    if (!options.silent) toast({ title: 'Sent to Inspector Queue', description: 'Workspace frozen pending approval.' });
+  };
+
+  const handleScan = async () => {
     const { piece: found, ambiguous } = matchPieceByScan(pieces, scanValue);
     if (ambiguous) {
       toast({ title: 'Multiple pieces match that piece mark', description: 'This piece mark exists on more than one project — scan the QR code instead of typing the piece mark.', variant: 'destructive' });
@@ -184,54 +264,31 @@ export default function ShopFabrication() {
       toast({ title: 'Piece not found', variant: 'destructive' });
       return;
     }
+
+    const activeLogForPiece = stationLogs.find((entry) => entry.piece_id === found.id && entry.status === 'In_Progress');
+
+    if (activeLogForPiece) {
+      // Second scan of a piece already In_Progress — finish it and route.
+      setSelectedPieceId(found.id);
+      await finishWork('Complete', activeLogForPiece, { silent: true });
+      if (requiresInspectionRouting(found)) {
+        await requestInspection(found, { silent: true });
+        toast({ title: 'Sent to inspection queue', description: `${found.piece_mark} is queued for ${pendingStage(found).replace('_', ' ')} inspection.` });
+      } else {
+        toast({ title: 'Piece marked complete', description: `${found.piece_mark} work finished.` });
+      }
+      setShowBlueprint(false);
+      return;
+    }
+
+    // First scan — start work immediately; only select/open the blueprint if
+    // that succeeds, so a certification block never opens the blueprint or
+    // starts the timer.
+    const result = await startWork(found, { silent: true });
+    if (!result.ok) return;
     setSelectedPieceId(found.id);
     setShowBlueprint(true);
-    toast({ title: `Loaded ${found.piece_mark}`, description: 'Blueprint opened.' });
-  };
-
-  const startWork = async () => {
-    if (!selectedPiece || isFrozen) return;
-    const expedited = hasActiveOverride(overrides, selectedPiece.id, 'Expedite_Part');
-    if (!expedited) {
-      const clearance = await assertStationCertClearance(employeeId, selectedPiece.current_station_id);
-      if (!clearance.ok) {
-        toast({ title: 'Certification block', description: clearance.message, variant: 'destructive' });
-        return;
-      }
-    }
-    const log = await db.entities.station_logs.create({
-      piece_id: selectedPiece.id,
-      employee_id: employeeId,
-      station_id: selectedPiece.current_station_id,
-      status: 'In_Progress',
-      start_time: new Date().toISOString(),
-      elapsed_minutes: 0,
-      auto_paused: false,
-    });
-    setStationLogs((prev) => [log, ...prev]);
-    await db.entities.piece_timing_events.create({
-      company_id: selectedPiece.company_id,
-      piece_id: selectedPiece.id,
-      station_id: selectedPiece.current_station_id,
-      event_type: 'start_work',
-      scanned_by: employeeId,
-      scanned_at: new Date().toISOString(),
-    });
-    toast({ title: 'Work started' });
-  };
-
-  const finishWork = async (nextStatus) => {
-    if (!activeLog) return;
-    const endTime = new Date().toISOString();
-    const elapsed_minutes = Math.max(1, Math.round((new Date(endTime).getTime() - new Date(activeLog.start_time).getTime()) / 60000));
-    const updated = await db.entities.station_logs.update(activeLog.id, {
-      status: nextStatus,
-      end_time: endTime,
-      elapsed_minutes,
-      auto_paused: false,
-    });
-    setStationLogs((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-    toast({ title: nextStatus === 'Paused' ? 'Timer paused' : 'Work completed' });
+    toast({ title: `Loaded ${found.piece_mark}`, description: 'Blueprint opened and work started.' });
   };
 
   const resumeWork = async (pausedLog) => {
@@ -276,31 +333,6 @@ export default function ShopFabrication() {
     } catch (e) {
       toast({ title: 'Routing blocked', description: e.message, variant: 'destructive' });
     }
-  };
-
-  const requestInspection = async () => {
-    if (!selectedPiece) return;
-    const fromStatus = selectedPiece.workflow_status;
-    const updated = await db.entities.pieces.update(selectedPiece.id, { workflow_status: 'Inspector_Queue' });
-    setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    await logStatusChange({
-      entityType: 'pieces',
-      entityId: selectedPiece.id,
-      fieldName: 'workflow_status',
-      fromValue: fromStatus,
-      toValue: 'Inspector_Queue',
-      changedBy: employeeId,
-    });
-    await db.entities.piece_timing_events.create({
-      company_id: selectedPiece.company_id,
-      piece_id: selectedPiece.id,
-      station_id: selectedPiece.current_station_id,
-      event_type: 'ready_for_inspection',
-      scanned_by: employeeId,
-      scanned_at: new Date().toISOString(),
-      notes: `${pendingStage(selectedPiece).replace('_', ' ')} inspection requested`,
-    });
-    toast({ title: 'Sent to Inspector Queue', description: 'Workspace frozen pending approval.' });
   };
 
   const submitInspection = async (status) => {
@@ -422,7 +454,7 @@ export default function ShopFabrication() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="gap-2" onClick={() => setShowBlueprint(true)}><ScanLine className="w-4 h-4" />View Blueprint</Button>
-                <Button variant="outline" className="gap-2" disabled={isFrozen || !!activeLog} onClick={startWork}><PlayCircle className="w-4 h-4" />Start Work</Button>
+                <Button variant="outline" className="gap-2" disabled={isFrozen || !!activeLog} onClick={() => startWork()}><PlayCircle className="w-4 h-4" />Start Work</Button>
                 <Button variant="outline" className="gap-2" disabled={!activeLog} onClick={() => finishWork('Complete')}><CheckCircle2 className="w-4 h-4" />Complete</Button>
                 <Button variant="outline" className="gap-2" disabled={!activeLog} onClick={() => finishWork('Paused')}><PauseCircle className="w-4 h-4" />Pause / End Shift</Button>
               </div>
@@ -433,10 +465,10 @@ export default function ShopFabrication() {
                   </Button>
                 )}
                 {selectedPiece.current_station_id === 5 && selectedPiece.workflow_status === 'In_Fabrication' && (
-                  <Button variant="outline" className="gap-2" onClick={requestInspection}><ClipboardCheck className="w-4 h-4" />Ready for Layout</Button>
+                  <Button variant="outline" className="gap-2" onClick={() => requestInspection()}><ClipboardCheck className="w-4 h-4" />Ready for Layout</Button>
                 )}
                 {selectedPiece.current_station_id === 5 && selectedPiece.workflow_status === 'Weld_Unlocked' && (
-                  <Button variant="outline" className="gap-2" onClick={requestInspection}><ClipboardCheck className="w-4 h-4" />Ready for Weld</Button>
+                  <Button variant="outline" className="gap-2" onClick={() => requestInspection()}><ClipboardCheck className="w-4 h-4" />Ready for Weld</Button>
                 )}
                 {selectedPiece.workflow_status === 'Paint_Unlocked' && selectedPiece.current_station_id !== 6 && (
                   <Button variant="outline" className="gap-2" onClick={() => moveToStation(6)}><ArrowRightCircle className="w-4 h-4" />Route to Paint (Station 6)</Button>
@@ -521,7 +553,7 @@ export default function ShopFabrication() {
         </TabsContent>
         <TabsContent value="pieces" className="space-y-3">
           {sortedPieces.map((piece) => (
-            <div key={piece.id} onClick={() => setSelectedPieceId(piece.id)} className={`steel-card p-3 text-sm flex items-center justify-between w-full text-left transition-colors cursor-pointer ${piece.id === selectedPieceId ? 'ring-1 ring-primary' : ''}`}>
+            <div key={piece.id} className={`steel-card p-3 text-sm flex items-center justify-between w-full text-left transition-colors ${piece.id === selectedPieceId ? 'ring-1 ring-primary' : ''}`}>
               <div>
                 <p className="font-medium flex items-center gap-1.5">
                   {piece.piece_mark}
