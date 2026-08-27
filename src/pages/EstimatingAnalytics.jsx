@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { flagCostCodeOverruns } from '@/lib/jobCostAnalysis';
 import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
+import { computeGeometryBreakdown } from '@/lib/estimatingAnalytics';
 
 const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308', '#14b8a6'];
 const STATIONS = ['saw', 'drill', 'fab', 'weld', 'paint'];
@@ -99,18 +100,7 @@ export default function EstimatingAnalytics() {
   const estimatorLabel = computeLabelWidth(winRateByEstimator);
 
   // Win rate by geometry type
-  const geoStats = {};
-  decided.forEach(b => {
-    const geo = b.structural_geometry_type || 'other';
-    if (!geoStats[geo]) geoStats[geo] = { won: 0, total: 0 };
-    geoStats[geo].total++;
-    if (b.status === 'won') geoStats[geo].won++;
-  });
-  const winRateByGeo = Object.entries(geoStats).map(([geo, s]) => ({
-    name: geo.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-    value: s.total,
-    winRate: Math.round(s.won / s.total * 100),
-  }));
+  const winRateByGeo = computeGeometryBreakdown(bids);
 
   // Win rate by margin bracket
   const marginBrackets = [
