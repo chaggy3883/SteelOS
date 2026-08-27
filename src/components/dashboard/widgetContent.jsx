@@ -428,6 +428,7 @@ function ProjectHealthSummaryWidget() {
 function ChangeOrderPipelineWidget() {
   const navigate = useNavigate();
   const [data, setData] = useState([]);
+  const [receivedCount, setReceivedCount] = useState(0);
   useEffect(() => {
     db.entities.change_orders.list('-created_date', 50).then((orders) => {
       const summary = {
@@ -438,7 +439,11 @@ function ChangeOrderPipelineWidget() {
         Void: orders.filter((item) => item.status === 'Void').length,
       };
       setData(Object.entries(summary).filter(([, value]) => value > 0).map(([name, value]) => ({ name, value })));
-    }).catch(() => setData([]));
+      // received_from_customer is an intake flag, independent of approval status
+      // (a CO can be received while still Draft) — counted separately, never
+      // folded into the status pie above.
+      setReceivedCount(orders.filter((item) => item.received_from_customer).length);
+    }).catch(() => { setData([]); setReceivedCount(0); });
   }, []);
 
   if (data.length === 0) return <WidgetEmpty message="No change orders yet" />;
@@ -446,7 +451,7 @@ function ChangeOrderPipelineWidget() {
   const goToChangeOrders = () => navigate('/projects/change-orders');
   return (
     <div onClick={goToChangeOrders} title="View Change Orders" className="h-full cursor-pointer rounded hover:bg-muted/30 transition-colors">
-      <ResponsiveContainer width="100%" height={140}>
+      <ResponsiveContainer width="100%" height={receivedCount > 0 ? 118 : 140}>
         <PieChart>
           <Pie data={data} dataKey="value" innerRadius={34} outerRadius={58} paddingAngle={2} onClick={goToChangeOrders} className="cursor-pointer">
             {data.map((entry, index) => (
@@ -456,6 +461,9 @@ function ChangeOrderPipelineWidget() {
           <Tooltip />
         </PieChart>
       </ResponsiveContainer>
+      {receivedCount > 0 && (
+        <p className="text-center text-xs text-muted-foreground -mt-1">{receivedCount} received from customer</p>
+      )}
     </div>
   );
 }

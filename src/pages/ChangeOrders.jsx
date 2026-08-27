@@ -274,7 +274,7 @@ export default function ChangeOrders() {
             <div className="steel-card p-5 space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-sm">Change Orders — {selectedProject.name}</h3>
-                <span className="text-xs text-muted-foreground">{changeOrders.length} logged · Revised Value ${Number(selectedProject.contract_value || 0).toLocaleString()}</span>
+                <span className="text-xs text-muted-foreground">{changeOrders.length} logged · {changeOrders.filter((co) => co.received_from_customer).length} received from customer · Revised Value ${Number(selectedProject.contract_value || 0).toLocaleString()}</span>
               </div>
               {changeOrders.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">No change orders logged for this project yet.</p>
