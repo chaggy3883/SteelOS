@@ -8,6 +8,7 @@ import { CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
+import { getEffectiveCompany } from '@/lib/tenantContext';
 import { generateBolPdf } from '@/lib/bolPdf';
 
 // Formalizes the physical scan-verification Yard Scanning already performs
@@ -35,7 +36,9 @@ export default function CallInspectionModal({ open, onOpenChange, load, project,
     if (!canConfirm) return;
     setConfirming(true);
     try {
-      const { dataUri } = generateBolPdf({
+      const company = await getEffectiveCompany().catch(() => null);
+      const { dataUri } = await generateBolPdf({
+        company,
         load,
         project,
         carrierLabel: load.carrier_name,
