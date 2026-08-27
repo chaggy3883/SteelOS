@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { ArrowLeft, FolderKanban, Save } from 'lucide-react';
@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
+import { getEffectiveCompany } from '@/lib/tenantContext';
 
 export default function ProjectNew() {
   const navigate = useNavigate();
@@ -29,7 +30,15 @@ export default function ProjectNew() {
     state: '',
     risk_level: 'low',
     health_score: 100,
+    pricing_type: 'fixed_price',
   });
+  const [defaultTmMarkup, setDefaultTmMarkup] = useState(0);
+
+  useEffect(() => {
+    getEffectiveCompany().then(company => {
+      setDefaultTmMarkup(Number(company?.default_tm_markup_percentage) || 0);
+    }).catch(() => {});
+  }, []);
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -54,6 +63,8 @@ export default function ProjectNew() {
         estimated_tons: form.estimated_tons ? parseFloat(form.estimated_tons) : null,
         is_archived: false,
         is_pinned: false,
+        pricing_type: form.pricing_type,
+        tm_markup_percentage: form.pricing_type === 'time_and_material' ? defaultTmMarkup : undefined,
       });
       toast({ title: 'Project created!', description: `${form.name} has been created successfully.` });
       navigate(`/projects/${project.id}`);
@@ -136,6 +147,21 @@ export default function ProjectNew() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Pricing Type</Label>
+              <Select value={form.pricing_type} onValueChange={v => set('pricing_type', v)}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fixed_price">Fixed Price</SelectItem>
+                  <SelectItem value="time_and_material">Time &amp; Material</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                {form.pricing_type === 'time_and_material'
+                  ? 'Shows the T&M tabs (shop labor rates, materials, subcontractors) instead of the fixed-price tabs.'
+                  : 'Standard tonnage/takeoff-based project.'}
+              </p>
             </div>
           </div>
         </div>
