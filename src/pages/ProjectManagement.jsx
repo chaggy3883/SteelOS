@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
 import { openLocalServerPath } from '@/lib/localServerPath';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { saveShopDrawingFile, getShopDrawingFileUrl, deleteShopDrawingFile } from '@/lib/shopDrawingBlobStore';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +13,7 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   ArrowLeft,
   FileText,
+  FileStack,
   Factory,
   Plus,
   Truck,
@@ -48,6 +51,18 @@ export default function ProjectManagement() {
   const [loading, setLoading] = useState(true);
   const [coForm, setCoForm] = useState(defaultCoForm);
   const [dragActive, setDragActive] = useState(false);
+  const [sequenceAreas, setSequenceAreas] = useState([]);
+  const [shopDrawings, setShopDrawings] = useState([]);
+  const [newSequenceAreaName, setNewSequenceAreaName] = useState('');
+  const [drawingUploadTarget, setDrawingUploadTarget] = useState('');
+  const [uploadingDrawings, setUploadingDrawings] = useState(false);
+  const [collapsedDrawingGroups, setCollapsedDrawingGroups] = useState(() => new Set());
+  const [expandedDrawingId, setExpandedDrawingId] = useState(null);
+  const drawingObjectUrls = useRef({});
+
+  useEffect(() => () => {
+    Object.values(drawingObjectUrls.current).forEach((url) => URL.revokeObjectURL(url));
+  }, []);
 
   useEffect(() => {
     if (id) {
@@ -58,13 +73,15 @@ export default function ProjectManagement() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [projectRecord, coList, sequenceList, loadList, manifestList, carrierList] = await Promise.all([
+      const [projectRecord, coList, sequenceList, loadList, manifestList, carrierList, sequenceAreaList, shopDrawingList] = await Promise.all([
         db.entities.Project.get(id),
         db.entities.change_orders.filter({ project_id: id }, '-created_date', 100),
         db.entities.shop_sequences.filter({ project_id: id }, '-created_date', 100),
         db.entities.loads.filter({ project_id: id }, '-created_date', 100),
         db.entities.shipping_manifests.list('-created_date', 200),
         db.entities.Vendor.filter({ vendor_type: 'carrier' }, 'name', 50),
+        db.entities.ProjectSequenceArea.filter({ project_id: id }, 'sort_order', 200),
+        db.entities.ShopDrawing.filter({ project_id: id }, '-created_date', 500),
       ]);
 
       setProject(projectRecord || null);
@@ -74,6 +91,8 @@ export default function ProjectManagement() {
       const loadIds = new Set((loadList || []).map((l) => l.id));
       setProjectManifests((manifestList || []).filter((m) => loadIds.has(m.load_id)));
       setCarriers(carrierList || []);
+      setSequenceAreas(sequenceAreaList || []);
+      setShopDrawings(shopDrawingList || []);
     } catch (error) {
       console.error(error);
       toast({ title: 'Unable to load project lifecycle data', variant: 'destructive' });
@@ -154,6 +173,113 @@ export default function ProjectManagement() {
     setShopSequences(shopSequences.map((item) => (item.id === sequenceId ? updated : item)));
   };
 
+  const createSequenceArea = async () => {
+    if (!project || !newSequenceAreaName.trim()) return;
+    const created = await db.entities.ProjectSequenceArea.create({
+      project_id: project.id,
+      name: newSequenceAreaName.trim(),
+      sort_order: sequenceAreas.length,
+    });
+    setSequenceAreas([...sequenceAreas, created]);
+    setNewSequenceAreaName('');
+    toast({ title: 'Sequence/Area added' });
+  };
+
+  const deleteSequenceArea = async (sequenceAreaId) => {
+    const affected = shopDrawings.filter((drawing) => drawing.sequence_area_id === sequenceAreaId);
+    await Promise.all(affected.map((drawing) => db.entities.ShopDrawing.update(drawing.id, { sequence_area_id: null })));
+    await db.entities.ProjectSequenceArea.delete(sequenceAreaId);
+    setSequenceAreas(sequenceAreas.filter((item) => item.id !== sequenceAreaId));
+    setShopDrawings(shopDrawings.map((drawing) => (drawing.sequence_area_id === sequenceAreaId ? { ...drawing, sequence_area_id: null } : drawing)));
+    if (drawingUploadTarget === sequenceAreaId) setDrawingUploadTarget('');
+    toast({ title: 'Sequence/Area removed' });
+  };
+
+  const toggleDrawingGroup = (groupKey) => {
+    setCollapsedDrawingGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
+      return next;
+    });
+  };
+
+  const toggleDrawingExpanded = (drawingId) => {
+    setExpandedDrawingId((current) => (current === drawingId ? null : drawingId));
+  };
+
+  const handleShopDrawingFiles = async (fileList) => {
+    const files = Array.from(fileList || []).filter((file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
+    if (!files.length || !project) return;
+
+    setUploadingDrawings(true);
+    try {
+      const created = [];
+      for (const file of files) {
+        const record = await db.entities.ShopDrawing.create({
+          project_id: project.id,
+          sequence_area_id: drawingUploadTarget || null,
+          drawing_number: file.name.replace(/\.pdf$/i, ''),
+          description: '',
+          file_name: file.name,
+          file_url: '',
+          uploaded_date: new Date().toISOString(),
+          uploaded_by: user?.full_name || user?.email || 'System',
+          status: 'pending_review',
+        });
+        await saveShopDrawingFile(record.id, file);
+        created.push(record);
+      }
+      setShopDrawings((current) => [...created, ...current]);
+      toast({ title: `${created.length} shop drawing${created.length === 1 ? '' : 's'} uploaded` });
+    } catch (error) {
+      console.error(error);
+      toast({ title: 'Unable to upload shop drawings', variant: 'destructive' });
+    } finally {
+      setUploadingDrawings(false);
+    }
+  };
+
+  const updateShopDrawingField = async (drawingId, field, value) => {
+    const updated = await db.entities.ShopDrawing.update(drawingId, { [field]: value });
+    setShopDrawings((current) => current.map((drawing) => (drawing.id === drawingId ? updated : drawing)));
+  };
+
+  const toggleShopDrawingReviewed = async (drawing) => {
+    const nextStatus = drawing.status === 'reviewed' ? 'pending_review' : 'reviewed';
+    const updated = await db.entities.ShopDrawing.update(drawing.id, { status: nextStatus });
+    setShopDrawings((current) => current.map((item) => (item.id === drawing.id ? updated : item)));
+  };
+
+  const markShopDrawingSuperseded = async (drawing) => {
+    const updated = await db.entities.ShopDrawing.update(drawing.id, { status: 'superseded' });
+    setShopDrawings((current) => current.map((item) => (item.id === drawing.id ? updated : item)));
+  };
+
+  const deleteShopDrawing = async (drawing) => {
+    await db.entities.ShopDrawing.delete(drawing.id);
+    await deleteShopDrawingFile(drawing.id);
+    const url = drawingObjectUrls.current[drawing.id];
+    if (url) {
+      URL.revokeObjectURL(url);
+      delete drawingObjectUrls.current[drawing.id];
+    }
+    setShopDrawings((current) => current.filter((item) => item.id !== drawing.id));
+    if (expandedDrawingId === drawing.id) setExpandedDrawingId(null);
+  };
+
+  const viewShopDrawing = async (drawing) => {
+    let url = drawingObjectUrls.current[drawing.id];
+    if (!url) {
+      url = await getShopDrawingFileUrl(drawing.id);
+      if (!url) {
+        toast({ title: 'Drawing file not found', variant: 'destructive' });
+        return;
+      }
+      drawingObjectUrls.current[drawing.id] = url;
+    }
+    openDocumentViewer(url, drawing.file_name);
+  };
+
   const handleFileSelect = (event, target) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -191,6 +317,24 @@ export default function ProjectManagement() {
     };
     return Object.entries(summary).filter(([, value]) => value > 0).map(([name, value]) => ({ name, value }));
   }, [changeOrders]);
+
+  const drawingGroups = useMemo(() => {
+    const byArea = new Map();
+    sequenceAreas.forEach((area) => byArea.set(area.id, { area, drawings: [] }));
+    const unassigned = [];
+    shopDrawings.forEach((drawing) => {
+      if (drawing.sequence_area_id && byArea.has(drawing.sequence_area_id)) {
+        byArea.get(drawing.sequence_area_id).drawings.push(drawing);
+      } else {
+        unassigned.push(drawing);
+      }
+    });
+    const groups = [...byArea.values()];
+    if (unassigned.length > 0 || byArea.size === 0) {
+      groups.push({ area: null, drawings: unassigned });
+    }
+    return groups;
+  }, [sequenceAreas, shopDrawings]);
 
   if (loading) {
     return (
@@ -488,10 +632,6 @@ export default function ProjectManagement() {
               <Label>Detailer CRM Link</Label>
               <Input value={project.detailer_crm_link || ''} onChange={(event) => saveProjectField('detailer_crm_link', event.target.value)} className="mt-2" />
             </div>
-            <div className="md:col-span-2">
-              <Label>Approved Shop Drawings Upload</Label>
-              <Input value={project.approved_shop_drawings_path || ''} onChange={(event) => saveProjectField('approved_shop_drawings_path', event.target.value)} className="mt-2" placeholder="/uploads/shop-drawings.pdf" />
-            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -584,6 +724,144 @@ export default function ProjectManagement() {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="steel-card p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileStack className="w-4 h-4 text-primary" />
+            <h2 className="text-lg font-semibold">Shop Drawings</h2>
+          </div>
+          <div className="rounded-full bg-muted px-3 py-1 text-xs">{shopDrawings.length} drawing{shopDrawings.length === 1 ? '' : 's'}</div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex-1 min-w-[220px]">
+            <Label>Add Sequence/Area</Label>
+            <Input
+              value={newSequenceAreaName}
+              onChange={(event) => setNewSequenceAreaName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); createSequenceArea(); } }}
+              placeholder="e.g. Sequence 1, Area A - North Wing"
+              className="mt-2"
+            />
+          </div>
+          <Button type="button" variant="outline" onClick={createSequenceArea} disabled={!newSequenceAreaName.trim()} className="gap-2">
+            <Plus className="w-4 h-4" /> Add Sequence/Area
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-border p-3">
+          <div className="flex-1 min-w-[220px]">
+            <Label>Upload To</Label>
+            <select
+              className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              value={drawingUploadTarget}
+              onChange={(event) => setDrawingUploadTarget(event.target.value)}
+            >
+              <option value="">Unassigned</option>
+              {sequenceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
+            </select>
+          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted/50">
+            <Upload className="w-4 h-4" />
+            {uploadingDrawings ? 'Uploading…' : 'Upload PDF drawing(s)'}
+            <input type="file" accept="application/pdf,.pdf" multiple className="hidden" onChange={(event) => handleShopDrawingFiles(event.target.files)} disabled={uploadingDrawings} />
+          </label>
+        </div>
+
+        <div className="space-y-3">
+          {drawingGroups.map((group) => {
+            const groupKey = group.area?.id || 'unassigned';
+            const collapsed = collapsedDrawingGroups.has(groupKey);
+            const label = group.area?.name || 'Unassigned';
+            return (
+              <div key={groupKey} className="rounded-xl border border-border overflow-hidden">
+                <button type="button" onClick={() => toggleDrawingGroup(groupKey)} className="flex w-full items-center justify-between px-3 py-2 bg-muted/40 text-left">
+                  <span className="text-sm font-medium">{label}</span>
+                  <span className="flex items-center gap-3 text-xs text-muted-foreground">
+                    {group.drawings.length} drawing{group.drawings.length === 1 ? '' : 's'}
+                    {group.area && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(event) => { event.stopPropagation(); deleteSequenceArea(group.area.id); }}
+                        onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); deleteSequenceArea(group.area.id); } }}
+                        className="text-destructive hover:underline"
+                      >
+                        Remove
+                      </span>
+                    )}
+                    <span>{collapsed ? '▸' : '▾'}</span>
+                  </span>
+                </button>
+                {!collapsed && (
+                  <div className="divide-y divide-border">
+                    {group.drawings.length === 0 ? (
+                      <p className="px-3 py-3 text-sm text-muted-foreground">No drawings in this {group.area ? 'sequence/area' : 'bucket'} yet.</p>
+                    ) : group.drawings.map((drawing) => {
+                      const expanded = expandedDrawingId === drawing.id;
+                      const checked = drawing.status === 'reviewed';
+                      return (
+                        <div key={drawing.id}>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => toggleDrawingExpanded(drawing.id)}
+                            onKeyDown={(event) => { if (event.key === 'Enter') toggleDrawingExpanded(drawing.id); }}
+                            className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm hover:bg-muted/30"
+                          >
+                            <button
+                              type="button"
+                              onClick={(event) => { event.stopPropagation(); toggleShopDrawingReviewed(drawing); }}
+                              title="Reviewed"
+                              className={`inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${checked ? 'border-primary bg-primary text-white' : 'border-border bg-background'}`}
+                            >
+                              {checked ? '✓' : ''}
+                            </button>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-medium">{drawing.drawing_number}{drawing.description ? ` — ${drawing.description}` : ''}</p>
+                              <button type="button" onClick={(event) => { event.stopPropagation(); viewShopDrawing(drawing); }} className="block truncate text-xs text-primary hover:underline">
+                                {drawing.file_name}
+                              </button>
+                            </div>
+                            <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-xs ${drawing.status === 'superseded' ? 'bg-muted text-muted-foreground' : checked ? 'bg-primary/10 text-primary' : 'bg-amber-500/10 text-amber-600'}`}>
+                              {drawing.status.replace('_', ' ')}
+                            </span>
+                          </div>
+                          {expanded && (
+                            <div className="space-y-2 bg-muted/20 px-3 pb-3 pt-1 text-sm">
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div>
+                                  <Label className="text-xs uppercase tracking-wide">Drawing Number</Label>
+                                  <Input value={drawing.drawing_number || ''} onChange={(event) => updateShopDrawingField(drawing.id, 'drawing_number', event.target.value)} className="mt-1" />
+                                </div>
+                                <div>
+                                  <Label className="text-xs uppercase tracking-wide">Description</Label>
+                                  <Input value={drawing.description || ''} onChange={(event) => updateShopDrawingField(drawing.id, 'description', event.target.value)} className="mt-1" />
+                                </div>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Uploaded {drawing.uploaded_date ? new Date(drawing.uploaded_date).toLocaleString() : '—'} by {drawing.uploaded_by || 'Unknown'}
+                              </p>
+                              <div className="flex items-center gap-3">
+                                <Button type="button" variant="outline" size="sm" onClick={() => viewShopDrawing(drawing)}>View PDF</Button>
+                                {drawing.status !== 'superseded' && (
+                                  <Button type="button" variant="outline" size="sm" onClick={() => markShopDrawingSuperseded(drawing)}>Mark Superseded</Button>
+                                )}
+                                <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => deleteShopDrawing(drawing)}>Delete</Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

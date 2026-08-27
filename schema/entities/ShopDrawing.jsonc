@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "sequence_area_id": {
+      "type": "string",
+      "description": "Links to ProjectSequenceArea. Nullable — some projects skip sequence/area breakdown and keep a flat drawing list."
+    },
+    "drawing_number": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "file_url": {
+      "type": "string"
+    },
+    "file_name": {
+      "type": "string"
+    },
+    "uploaded_date": {
+      "type": "string"
+    },
+    "uploaded_by": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending_review",
+        "reviewed",
+        "superseded"
+      ],
+      "default": "pending_review"
+    }
+  },
+  "required": [
+    "project_id",
+    "drawing_number",
+    "file_name"
+  ],
+  "name": "ShopDrawing"
+}

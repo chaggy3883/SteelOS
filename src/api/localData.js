@@ -524,7 +524,6 @@ const buildSeedData = () => {
         fabricated_tons: 92,
         drawing_release_date: '2026-07-10',
         detailer_crm_link: 'https://crm.local/detailer/harbor',
-        approved_shop_drawings_path: '/uploads/harbor-shop-drawings.pdf',
         erector_crm_link: 'https://crm.local/erector/harbor',
         field_mobilization_date: '2026-08-01',
         crane_setup_date: '2026-08-05',

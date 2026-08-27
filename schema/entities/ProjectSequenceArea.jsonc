@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "description": "e.g. 'Sequence 1', 'Area A - North Wing'."
+    },
+    "sort_order": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "project_id",
+    "name"
+  ],
+  "name": "ProjectSequenceArea"
+}
