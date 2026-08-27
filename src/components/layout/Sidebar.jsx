@@ -19,6 +19,7 @@ const navGroups = [
       { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
       { icon: Calculator, label: 'Estimating', path: '/estimating' },
       { icon: FolderKanban, label: 'Projects', path: '/projects' },
+      { icon: MessageSquare, label: 'RFIs', path: '/rfis' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
       { icon: Radar, label: 'Intelligence Signals', path: '/intelligence-signals' },
     ]
@@ -43,7 +44,6 @@ const navGroups = [
       { icon: CheckSquare, label: 'Quality', path: '/quality' },
       { icon: Shield, label: 'Safety', path: '/safety' },
       { icon: FileText, label: 'Documents', path: '/documents' },
-      { icon: MessageSquare, label: 'RFIs', path: '/rfis' },
     ]
   },
   {

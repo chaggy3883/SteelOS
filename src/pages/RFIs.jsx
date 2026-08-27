@@ -423,8 +423,16 @@ Draft the response now.`;
     }
   };
 
+  const projectById = new Map(projects.map(p => [p.id, p]));
+
   const filtered = rfis.filter(r => {
-    const matchSearch = !search || r.subject?.toLowerCase().includes(search.toLowerCase()) || r.rfi_number?.toLowerCase().includes(search.toLowerCase());
+    const q = search.trim().toLowerCase();
+    const proj = projectById.get(r.project_id);
+    const matchSearch = !q
+      || r.rfi_number?.toLowerCase().includes(q)
+      || r.subject?.toLowerCase().includes(q)
+      || r.description?.toLowerCase().includes(q)
+      || proj?.name?.toLowerCase().includes(q);
     const matchStatus = statusFilter === 'all' || r.status === statusFilter;
     return matchSearch && matchStatus;
   });
