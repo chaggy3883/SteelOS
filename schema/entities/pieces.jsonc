@@ -31,6 +31,10 @@
     "qr_payload_string": {
       "type": "string"
     },
+    "qr_sequence_number": {
+      "type": "number",
+      "description": "Company-scoped sequential QR number assigned the first time this piece is included in a QR export (see src/lib/qrSequence.js). Blank until export — the UI shows the literal text \"Received\" in the QR column until then. Once set, it never changes: re-exporting a piece reuses this number rather than issuing a new one, since a physical label may already be printed against it."
+    },
     "current_station_id": {
       "type": "number",
       "enum": [1, 2, 3, 4, 5, 6],
@@ -40,12 +44,14 @@
       "type": "string",
       "enum": [
         "In_Fabrication",
+        "Received",
         "Inspector_Queue",
         "Weld_Unlocked",
         "Paint_Unlocked",
         "Rejected"
       ],
-      "default": "In_Fabrication"
+      "default": "In_Fabrication",
+      "description": "Received sits between In_Fabrication and the QA/tagging states: a fabricated piece manually checked in by office/receiving staff (see verified_by/verified_date) as physically staged and ready for a QR tag, distinct from the receiving_logs entity which tracks raw material/PO receiving instead."
     },
     "field_status": {
       "type": "string",
@@ -54,6 +60,15 @@
         "On_Site"
       ],
       "default": "In_Shop"
+    },
+    "verified_by": {
+      "type": "string",
+      "description": "Name of the office/receiving staff who marked this piece workflow_status='Received'. Set alongside verified_date."
+    },
+    "verified_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp this piece was marked workflow_status='Received'."
     }
   },
   "required": [

@@ -14,6 +14,8 @@ import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import { AlertTriangle, Zap, Users, PackageX, Gauge, Plus, Printer } from 'lucide-react';
 import LabelPrintingPanel from '@/components/barcode-printing/LabelPrintingPanel';
+import PieceReceivingQueue from '@/components/barcode-printing/PieceReceivingQueue';
+import QrExportQueue from '@/components/barcode-printing/QrExportQueue';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
@@ -51,12 +53,13 @@ export default function ShopOperations() {
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [company, setCompany] = useState(null);
 
   useEffect(() => { loadAll(); }, []);
   useEffect(() => {
     db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
     getEffectiveCompany()
-      .then((company) => setModuleAllowed(hasModule(company, '/shop-operations')))
+      .then((company) => { setModuleAllowed(hasModule(company, '/shop-operations')); setCompany(company); })
       .catch(() => setModuleAllowed(false))
       .finally(() => setCheckingModuleAccess(false));
   }, []);
@@ -395,6 +398,8 @@ export default function ShopOperations() {
         </TabsContent>
 
         <TabsContent value="labels" className="space-y-4">
+          <PieceReceivingQueue pieces={pieces} projects={projects} onReload={loadAll} />
+          <QrExportQueue pieces={pieces} projects={projects} company={company} onReload={loadAll} />
           <LabelPrintingPanel
             pieces={pieces}
             manifests={manifests}

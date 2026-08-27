@@ -164,6 +164,12 @@ export default function ShopFabrication() {
   const activeLog = useMemo(() => pieceLogs.find((entry) => entry.status === 'In_Progress'), [pieceLogs]);
   const autoPausedLogs = useMemo(() => pieceLogs.filter((entry) => entry.status === 'Paused' && entry.auto_paused), [pieceLogs]);
   const isFrozen = selectedPiece?.workflow_status === 'Inspector_Queue';
+  // Received pieces are done with active floor work — confirmed complete and
+  // staged for a QR tag by office/receiving staff (PieceReceivingQueue.jsx) —
+  // so Start Work/Advance shouldn't reopen them. Kept separate from isFrozen
+  // (which also drives the QA inspection gateway panel below; a Received
+  // piece is not queued for inspection).
+  const isReceived = selectedPiece?.workflow_status === 'Received';
   // Module 10b real-time priority sync: Expedite_Part overrides always sort
   // first, then each piece's project priority_weight from the Scheduler
   // Matrix — a single shared function (shopOpsMetrics.js) keeps this in sync
@@ -184,7 +190,7 @@ export default function ShopFabrication() {
 
   const startWork = async (pieceOverride, options = {}) => {
     const target = pieceOverride || selectedPiece;
-    if (!target || target.workflow_status === 'Inspector_Queue') return { ok: false };
+    if (!target || target.workflow_status === 'Inspector_Queue' || target.workflow_status === 'Received') return { ok: false };
     const expedited = hasActiveOverride(overrides, target.id, 'Expedite_Part');
     if (!expedited) {
       const clearance = await assertStationCertClearance(employeeId, target.current_station_id);
@@ -465,6 +471,7 @@ export default function ShopFabrication() {
                 </div>
                 <div className="flex items-center gap-2">
                   {isFrozen && <span className="flex items-center gap-1 rounded-full bg-red-500/10 px-3 py-1 text-xs font-medium text-red-600"><Lock className="w-3 h-3" />Frozen</span>}
+                  {isReceived && <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-3 py-1 text-xs font-medium text-green-700"><Lock className="w-3 h-3" />Received — Awaiting Tag</span>}
                   <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{stationName(selectedPiece.current_station_id)}</span>
                 </div>
               </div>
@@ -476,13 +483,13 @@ export default function ShopFabrication() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="gap-2" onClick={() => setShowBlueprint(true)}><ScanLine className="w-4 h-4" />View Blueprint</Button>
-                <Button variant="outline" className="gap-2" disabled={isFrozen || !!activeLog} onClick={() => startWork()}><PlayCircle className="w-4 h-4" />Start Work</Button>
+                <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || !!activeLog} onClick={() => startWork()}><PlayCircle className="w-4 h-4" />Start Work</Button>
                 <Button variant="outline" className="gap-2" disabled={!activeLog} onClick={() => finishWork('Complete')}><CheckCircle2 className="w-4 h-4" />Complete</Button>
                 <Button variant="outline" className="gap-2" disabled={!activeLog} onClick={() => finishWork('Paused')}><PauseCircle className="w-4 h-4" />Pause / End Shift</Button>
               </div>
               <div className="flex flex-wrap gap-2 border-t border-border pt-3">
                 {selectedPiece.current_station_id < 5 && (
-                  <Button variant="outline" className="gap-2" disabled={isFrozen || !!activeLog} onClick={() => moveToStation(selectedPiece.current_station_id + 1)}>
+                  <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || !!activeLog} onClick={() => moveToStation(selectedPiece.current_station_id + 1)}>
                     <ArrowRightCircle className="w-4 h-4" />Advance to {stationName(selectedPiece.current_station_id + 1)}
                   </Button>
                 )}

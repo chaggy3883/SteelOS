@@ -749,6 +749,10 @@ export async function seedDemoData() {
       fabricated: { workflow_status: 'Paint_Unlocked', field_status: 'In_Shop', current_station_id: 5 },
       in_fab: { workflow_status: 'In_Fabrication', field_status: 'In_Shop', current_station_id: 3 },
       pending: { workflow_status: 'In_Fabrication', field_status: 'In_Shop', current_station_id: 1 },
+      // Checked in by office/receiving staff (PieceReceivingQueue.jsx) as
+      // physically staged and ready for a QR tag — awaiting the QrExportQueue
+      // export step, which is what assigns qr_sequence_number.
+      received: { workflow_status: 'Received', field_status: 'In_Shop', current_station_id: 5, verified_by: 'Shop Office', verified_date: isoDaysFromNow(-1) },
     };
     const payloads = [];
     const statuses = [];
@@ -776,7 +780,7 @@ export async function seedDemoData() {
     return { payloads, statuses };
   }
 
-  const fabricationStatusPlan = [...Array(8).fill('fabricated'), ...Array(4).fill('in_fab'), ...Array(3).fill('pending')];
+  const fabricationStatusPlan = [...Array(8).fill('fabricated'), ...Array(4).fill('in_fab'), ...Array(1).fill('pending'), ...Array(2).fill('received')];
   const erectionStatusPlan = Array(15).fill('shipped');
 
   const [fabricationPieceMarkLookup, erectionPieceMarkLookup] = await Promise.all([
