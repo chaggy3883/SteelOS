@@ -12,6 +12,7 @@ import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
+const STANDARD_MATERIAL_GRADES = ['A36', 'A572 Gr50', 'A992', 'A500 Gr B/C', 'A53', 'A1085'];
 
 function emptyRow() {
   return {
@@ -254,9 +255,46 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                   </Select>
                 </div>
 
-                <div className="col-span-6 sm:col-span-1">
+                <div className="col-span-6 sm:col-span-2">
                   <Label className="text-xs">Grade</Label>
-                  <Input value={row.grade} onChange={(e) => updateRow(idx, 'grade', e.target.value)} className="mt-1 h-8 text-sm" placeholder="A992" />
+                  {(() => {
+                    // A row loaded from an existing bid may carry a custom
+                    // grade string typed before this dropdown existed (or one
+                    // outside the standard list below) — treat anything not in
+                    // the standard list as "Other" automatically so it's never
+                    // silently dropped, matching the requirement to keep a
+                    // free-text escape hatch.
+                    const isOther = !!row.grade_is_other || (!!row.grade && !STANDARD_MATERIAL_GRADES.includes(row.grade));
+                    return (
+                      <>
+                        <Select
+                          value={isOther ? 'Other' : row.grade}
+                          onValueChange={(v) => {
+                            if (v === 'Other') {
+                              updateRow(idx, 'grade_is_other', true);
+                            } else {
+                              updateRow(idx, 'grade', v);
+                              updateRow(idx, 'grade_is_other', false);
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select grade" /></SelectTrigger>
+                          <SelectContent>
+                            {STANDARD_MATERIAL_GRADES.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                            <SelectItem value="Other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {isOther && (
+                          <Input
+                            value={row.grade}
+                            onChange={(e) => updateRow(idx, 'grade', e.target.value)}
+                            className="mt-1 h-8 text-sm"
+                            placeholder="Enter grade"
+                          />
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="col-span-6 sm:col-span-2">

@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '@/api/apiClient';
-import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Factory, Target, Percent, Clock3 } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Factory, Target, Percent, Clock3, Download } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { flagCostCodeOverruns } from '@/lib/jobCostAnalysis';
+import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
 
 const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308', '#14b8a6'];
 const STATIONS = ['saw', 'drill', 'fab', 'weld', 'paint'];
@@ -32,6 +35,8 @@ export default function EstimatingAnalytics() {
   const [projectNames, setProjectNames] = useState({});
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [shopHoursProjectId, setShopHoursProjectId] = useState('all');
+  const shopHoursCardRef = useRef(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -127,12 +132,26 @@ export default function EstimatingAnalytics() {
 
   // Smart Adjuster alerts
   const adjusterAlerts = variances.filter(v => v.auto_adjuster_alert);
-  const stationVariances = variances.length > 0
+
+  // Estimated vs. Shop Hours — project selector for the Est. vs. Actual Hours
+  // by Shop Station chart below. Options come from variances themselves (only
+  // completed projects that actually have EVA data), not the full Project
+  // list, so "All Projects" never offers a project with nothing to show.
+  const shopHoursProjectOptions = Array.from(new Map(variances.map(v => [v.project_id, v])).values())
+    .map(v => ({ id: v.project_id, label: v.project_number ? `${v.project_number} — ${projectNames[v.project_id] || v.project_id}` : (projectNames[v.project_id] || v.project_id) }));
+  const shopHoursVariances = shopHoursProjectId === 'all'
+    ? variances
+    : variances.filter(v => v.project_id === shopHoursProjectId);
+  const stationVariances = shopHoursVariances.length > 0
     ? STATIONS.map(station => {
-        const totalVar = variances.reduce((sum, v) => sum + (v.station_variances?.[station]?.variance_pct || 0), 0);
-        return { station: station.toUpperCase(), avgVariance: variances.length > 0 ? totalVar / variances.length : 0 };
+        const totalVar = shopHoursVariances.reduce((sum, v) => sum + (v.station_variances?.[station]?.variance_pct || 0), 0);
+        return { station: station.toUpperCase(), avgVariance: totalVar / shopHoursVariances.length };
       })
     : [];
+  const handleExportShopHoursPdf = () => {
+    const suffix = shopHoursProjectId === 'all' ? 'all-projects' : (shopHoursProjectOptions.find(p => p.id === shopHoursProjectId)?.label || shopHoursProjectId).replace(/[^a-z0-9_-]+/gi, '_');
+    exportNodeToPdf(shopHoursCardRef.current, `estimated-vs-shop-hours_${suffix}.pdf`);
+  };
 
   return (
     <div className="p-6 animate-fade-in">
@@ -196,8 +215,22 @@ export default function EstimatingAnalytics() {
       )}
 
       {/* EVA Station Variances */}
-      <div className="steel-card p-5 mb-6">
-        <h3 className="font-semibold mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-primary" />Estimated vs. Actual Hours by Shop Station</h3>
+      <div className="steel-card p-5 mb-6" ref={shopHoursCardRef}>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <h3 className="font-semibold flex items-center gap-2"><BarChart3 className="w-4 h-4 text-primary" />Estimated vs. Actual Hours by Shop Station</h3>
+          <div className="flex items-center gap-2">
+            <Select value={shopHoursProjectId} onValueChange={setShopHoursProjectId}>
+              <SelectTrigger className="h-8 w-52 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Projects</SelectItem>
+                {shopHoursProjectOptions.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="outline" onClick={handleExportShopHoursPdf} disabled={stationVariances.length === 0}>
+              <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
+            </Button>
+          </div>
+        </div>
         {stationVariances.length === 0 ? (
           <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
             No completed-project variance data yet. When projects complete in PM, EVA pairs will appear here.

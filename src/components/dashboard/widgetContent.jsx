@@ -92,21 +92,21 @@ function BidPricingHoldWidget() {
     <div className="grid grid-cols-2 gap-2 h-full">
       <button
         type="button"
-        onClick={() => navigate('/estimating?pricing_hold=warning')}
-        title="View bids with an expiring pricing hold"
+        onClick={() => navigate('/estimating?follow_up=warning')}
+        title="View bids approaching their follow-up window"
         className="flex flex-col items-center justify-center rounded cursor-pointer hover:bg-muted/50 transition-colors min-h-[44px]"
       >
         <p className="text-2xl font-bold text-yellow-600">{counts.warning}</p>
-        <p className="text-xs text-muted-foreground mt-1">Expiring Soon</p>
+        <p className="text-xs text-muted-foreground mt-1">Follow-Up Due Soon</p>
       </button>
       <button
         type="button"
-        onClick={() => navigate('/estimating?pricing_hold=expired')}
-        title="View bids with an expired pricing hold"
+        onClick={() => navigate('/estimating?follow_up=expired')}
+        title="View bids past their follow-up window with no decision logged"
         className="flex flex-col items-center justify-center rounded cursor-pointer hover:bg-muted/50 transition-colors min-h-[44px]"
       >
         <p className="text-2xl font-bold text-red-600">{counts.expired}</p>
-        <p className="text-xs text-muted-foreground mt-1">Pricing Expired</p>
+        <p className="text-xs text-muted-foreground mt-1">Follow-Up Overdue</p>
       </button>
     </div>
   );

@@ -72,6 +72,21 @@ export const COST_CATEGORIES = [
   { key: 'additional_cost_leed_govt', label: "Additional Cost: LEED / Gov't Job", unit: 'lot', override: true },
 ];
 
+// Mirrors the Bid.structural_geometry_type enum already declared in the
+// schema — this dropdown is what actually populates it (previously nothing
+// did, so EstimatingAnalytics.jsx's "Bid Volume by Geometry Type" chart
+// always bucketed every bid under "other").
+const GEOMETRY_TYPES = [
+  { value: 'beam_column', label: 'Beam & Column' },
+  { value: 'truss', label: 'Truss' },
+  { value: 'frame', label: 'Frame' },
+  { value: 'misc_metals', label: 'Misc. Metals' },
+  { value: 'stairs_rails', label: 'Stairs & Rails' },
+  { value: 'deck_joist', label: 'Deck & Joist' },
+  { value: 'bridge', label: 'Bridge' },
+  { value: 'other', label: 'Other' },
+];
+
 const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const { toast } = useToast();
   const [lines, setLines] = useState({});
@@ -103,6 +118,10 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const [editingCoverageKey, setEditingCoverageKey] = useState(null);
   const [inclusions, setInclusions] = useState(bid?.inclusions || '');
   const [exclusions, setExclusions] = useState(bid?.exclusions || '');
+  const [drawingsUsed, setDrawingsUsed] = useState(bid?.drawings_used || '');
+  const [addendums, setAddendums] = useState(bid?.addendums || '');
+  const [markupPct, setMarkupPct] = useState(bid?.markup_percentage ?? 0);
+  const [structuralGeometryType, setStructuralGeometryType] = useState(bid?.structural_geometry_type || 'beam_column');
 
   const [company, setCompany] = useState(null);
   const [costCodeOptions, setCostCodeOptions] = useState([]);
@@ -210,6 +229,10 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   useEffect(() => {
     setInclusions(bid?.inclusions || '');
     setExclusions(bid?.exclusions || '');
+    setDrawingsUsed(bid?.drawings_used || '');
+    setAddendums(bid?.addendums || '');
+    setMarkupPct(bid?.markup_percentage ?? 0);
+    setStructuralGeometryType(bid?.structural_geometry_type || 'beam_column');
   }, [bid?.id]);
 
   useEffect(() => {
@@ -280,25 +303,36 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const updateInsuranceEnabled = (checked) => { setInsuranceEnabled(checked); setDirty(true); };
   const updateBondEnabled = (checked) => { setBondEnabled(checked); setDirty(true); };
   const updateJoistDeckTaxable = (checked) => { setJoistDeckTaxable(checked); setDirty(true); };
+  const updateMarkupPct = (value) => { setMarkupPct(value); setDirty(true); };
+  const updateStructuralGeometryType = (value) => { setStructuralGeometryType(value); setDirty(true); };
 
   const subtotal = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0), 0);
+  // Profit markup is applied to the line-item subtotal BEFORE tax — tax is
+  // charged on the marked-up (sell) price, not on raw cost, matching how this
+  // business actually prices a job. At the default 0%, every figure below is
+  // identical to the pre-markup calculation (markupMultiplier === 1).
+  const markupMultiplier = 1 + ((parseFloat(markupPct) || 0) / 100);
+  const markupAmount = subtotal * (markupMultiplier - 1);
+  const subtotalWithMarkup = subtotal * markupMultiplier;
   const overrideTotal = ['insurance', 'bond', 'procore_pay', 'textura'].reduce((s, k) => s + (parseFloat(overrides[k]) || 0), 0);
-  const grandTotal = subtotal + overrideTotal;
+  const grandTotal = subtotalWithMarkup + overrideTotal;
   const calculatedTaxRate = taxInfo.rate;
   const joistDeckTaxRate = getJoistDeckTaxRate(bid);
   // Taxable/non-taxable is a data flag on COST_CATEGORIES (is_taxable, default
   // true) rather than a hardcoded category-key list — steel_erection,
   // outsourced_misc_material_erection, and joist_deck are the only categories
   // flagged is_taxable: false today, matching the exact set this replaces.
+  // Each line's cost is scaled by markupMultiplier before tax, same as the
+  // subtotal above.
   const structuralTaxAmount = Object.entries(lines).reduce((sum, [categoryKey, line]) => {
     const cat = COST_CATEGORIES.find((c) => c.key === categoryKey);
     if (cat?.is_taxable === false) return sum;
-    return sum + Number(line?.total_cost || 0) * calculatedTaxRate;
+    return sum + Number(line?.total_cost || 0) * markupMultiplier * calculatedTaxRate;
   }, 0);
-  const joistDeckTaxAmount = joistDeckTaxable && !bid?.tax_exempt ? Number(lines['joist_deck']?.total_cost || 0) * joistDeckTaxRate : 0;
+  const joistDeckTaxAmount = joistDeckTaxable && !bid?.tax_exempt ? Number(lines['joist_deck']?.total_cost || 0) * markupMultiplier * joistDeckTaxRate : 0;
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
   const bondAmount = (() => {
-    const contractValue = Math.max(0, subtotal + overrideTotal);
+    const contractValue = Math.max(0, subtotalWithMarkup + overrideTotal);
     if (contractValue <= 500000) return contractValue * 0.00810;
     if (contractValue <= 2500000) return contractValue * 0.00567;
     if (contractValue <= 5000000) return contractValue * 0.00486;
@@ -377,6 +411,10 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         bid_total_cost: totalWithTax,
         inclusions,
         exclusions,
+        drawings_used: drawingsUsed,
+        addendums,
+        markup_percentage: parseFloat(markupPct) || 0,
+        structural_geometry_type: structuralGeometryType,
         insurance_override: parseFloat(overrides.insurance) || null,
         insurance_enabled: insuranceEnabled,
         insurance_general_liability: parseFloat(insuranceInputs.general_liability) || null,
@@ -453,6 +491,21 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         </div>
       )}
 
+      {/* Bid Classification */}
+      <div className="steel-card p-5">
+        <h4 className="font-semibold mb-1">Bid Classification</h4>
+        <p className="text-xs text-muted-foreground mb-3">Feeds the "Bid Volume by Geometry Type" chart on Historic Cost Analytics.</p>
+        <div className="max-w-xs">
+          <Label className="text-xs">Structural Geometry Type</Label>
+          <Select value={structuralGeometryType} onValueChange={updateStructuralGeometryType}>
+            <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {GEOMETRY_TYPES.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {/* Cost Breakdown Form */}
       <div className="steel-card p-5">
         <h4 className="font-semibold mb-4">Cost Breakdown — Line Items</h4>
@@ -526,7 +579,13 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
                     </div>
                   </>
                 )}
-                <div className="col-span-4 sm:col-span-3 text-right font-mono text-sm font-bold">
+                {/* Explicit col-start (rather than relying on auto-flow) so this
+                    cell always lands in the row's rightmost slot — the coverage
+                    branch above (Primer/Paint's 3 inputs) fills more columns than
+                    the other branches, and without a pinned start it overflows
+                    into a fresh row anchored at column 1 instead of the right
+                    edge, throwing off "$ total" alignment for that row only. */}
+                <div className="col-start-9 col-span-4 sm:col-start-10 sm:col-span-3 text-right font-mono text-sm font-bold">
                   ${(line.total_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
                 <div className="col-span-12 sm:col-span-1 flex justify-end">
@@ -707,6 +766,23 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       <div className="steel-card p-5 bg-primary/5">
         <div className="space-y-1">
           <div className="flex justify-between text-sm"><span>Line Item Subtotal</span><span className="font-mono">${subtotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
+          <div className="flex justify-between items-center text-sm">
+            <span className="flex items-center gap-2">
+              Profit Markup
+              <span className="relative inline-block">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={markupPct}
+                  onChange={(e) => updateMarkupPct(e.target.value === '' ? '' : parseFloat(e.target.value) || 0)}
+                  className="h-7 w-20 text-xs pr-5"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">%</span>
+              </span>
+            </span>
+            <span className="font-mono">${markupAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+          </div>
           <div className="flex justify-between text-sm"><span>Administrative Overrides</span><span className="font-mono">${overrideTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
           <div className="flex justify-between text-sm">
             <span>Bond Estimate{!bondEnabled && <span className="text-xs text-muted-foreground"> (off — not included)</span>}</span>
@@ -759,6 +835,26 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             placeholder="List items excluded from this bid scope…"
             className="mt-2 min-h-[120px]"
             id="exclusions"
+          />
+        </div>
+        <div className="steel-card p-5">
+          <Label className="font-semibold">Drawings Used</Label>
+          <Textarea
+            value={drawingsUsed}
+            onChange={e => { setDrawingsUsed(e.target.value); setDirty(true); }}
+            placeholder="List the drawing set(s)/revisions this bid was priced from…"
+            className="mt-2 min-h-[120px]"
+            id="drawings_used"
+          />
+        </div>
+        <div className="steel-card p-5">
+          <Label className="font-semibold">Addendums</Label>
+          <Textarea
+            value={addendums}
+            onChange={e => { setAddendums(e.target.value); setDirty(true); }}
+            placeholder="List any addenda/bulletins incorporated into this bid…"
+            className="mt-2 min-h-[120px]"
+            id="addendums"
           />
         </div>
       </div>

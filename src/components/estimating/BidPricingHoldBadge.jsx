@@ -23,7 +23,7 @@ export default function BidPricingHoldBadge({ bid, holdDays, onClick, className 
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onClick(); }}
-      title="Click for pricing hold details"
+      title="Click for follow-up window details"
       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border cursor-pointer ${LEVEL_STYLES[state.level]} ${className}`}
     >
       {LEVEL_TEXT[state.level](state.daysOld)}

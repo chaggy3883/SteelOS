@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '@/api/apiClient';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Settings2, Calculator, TrendingUp, CheckCircle2, XCircle, Archive, ListChecks, Eye, EyeOff, Pencil, X } from 'lucide-react';
+import { Plus, Settings2, Calculator, TrendingUp, CheckCircle2, XCircle, Archive, ListChecks, Eye, EyeOff, Pencil, X, Download } from 'lucide-react';
+import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,6 +39,7 @@ export default function Estimating() {
   const customerFilterId = searchParams.get('customer');
   const bidListRef = useRef(null);
   const bidHistoryRef = useRef(null);
+  const dnbRef = useRef(null);
   const widgetsMenuRef = useRef(null);
   const [bids, setBids] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -52,7 +54,7 @@ export default function Estimating() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [showDnbModal, setShowDnbModal] = useState(false);
   const [statusBid, setStatusBid] = useState(null);
-  const [pricingHoldBid, setPricingHoldBid] = useState(null);
+  const [followUpBid, setFollowUpBid] = useState(null);
   const [bidHoldDays, setBidHoldDays] = useState(() => getBidHoldDays(null));
 
   useEffect(() => {
@@ -81,12 +83,25 @@ export default function Estimating() {
     if (companyId) navigate(`/crm?customer=${companyId}`);
   };
 
+  // Opens a bid in a new tab rather than navigating away from this list —
+  // clicking through several bids in a row shouldn't lose your place here.
+  // window.open (not <Link target="_blank">) since these are onClick-driven
+  // row/cell interactions, not anchors; a `tab` query param stands in for
+  // the old navigate(...,{state}) tab hint since window.open can't carry
+  // router state into the new tab (see BidDetail.jsx's activeTab fallback).
+  const openBid = (bidId, tab) => {
+    const url = tab ? `/estimating/${bidId}?tab=${tab}` : `/estimating/${bidId}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const goToBidFinancials = (bidId, e) => {
     e?.stopPropagation();
-    navigate(`/estimating/${bidId}`, { state: { tab: 'fulltakeoff' } });
+    openBid(bidId, 'fulltakeoff');
   };
 
   const scrollToRef = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  const exportListToPdf = (ref, filename) => exportNodeToPdf(ref.current, filename);
 
   const startEditBid = (bid) => {
     setEditingBid(bid);
@@ -140,13 +155,17 @@ export default function Estimating() {
     localStorage.setItem('estimating_widgets', JSON.stringify(updated));
   };
 
-  const pricingHoldFilter = searchParams.get('pricing_hold'); // 'warning' | 'expired' | null
+  // 21-Day Response Window filter — was a "pricing_hold" query param, but
+  // this has nothing to do with price; it's whether a submitted bid still
+  // hasn't gotten a Won/Lost/Did Not Bid decision within the follow-up
+  // window. See bidPricingHold.js.
+  const followUpFilter = searchParams.get('follow_up'); // 'warning' | 'expired' | null
   const customerFilteredBids = customerFilterId
     ? bids.filter(b => b.customer_id === customerFilterId || b.general_contractor_id === customerFilterId)
     : bids;
   const activeBidsUnfiltered = customerFilteredBids.filter(b => ['draft', 'in_progress', 'submitted'].includes(b.status));
-  const activeBids = pricingHoldFilter
-    ? activeBidsUnfiltered.filter(b => getBidPricingHoldState(b, bidHoldDays)?.level === pricingHoldFilter)
+  const activeBids = followUpFilter
+    ? activeBidsUnfiltered.filter(b => getBidPricingHoldState(b, bidHoldDays)?.level === followUpFilter)
     : activeBidsUnfiltered;
   const wonBids = customerFilteredBids.filter(b => b.status === 'won');
   const lostBids = customerFilteredBids.filter(b => b.status === 'lost');
@@ -202,10 +221,10 @@ export default function Estimating() {
         </div>
       )}
 
-      {pricingHoldFilter && (
-        <div className={`flex items-center justify-between text-sm mb-4 px-3 py-2 rounded-lg ${pricingHoldFilter === 'expired' ? 'bg-red-500/10 text-red-600' : 'bg-yellow-500/10 text-yellow-600'}`}>
+      {followUpFilter && (
+        <div className={`flex items-center justify-between text-sm mb-4 px-3 py-2 rounded-lg ${followUpFilter === 'expired' ? 'bg-red-500/10 text-red-600' : 'bg-yellow-500/10 text-yellow-600'}`}>
           <span>
-            Showing only active bids with {pricingHoldFilter === 'expired' ? 'an expired' : 'a warning-level'} pricing hold.
+            Showing only active bids {followUpFilter === 'expired' ? 'overdue for follow-up (21-Day Response Window expired)' : 'approaching their follow-up window'}.
           </span>
           <button className="flex items-center gap-1 hover:underline" onClick={() => navigate('/estimating')}><X className="w-3.5 h-3.5" />Clear filter</button>
         </div>
@@ -257,7 +276,12 @@ export default function Estimating() {
         <div ref={bidListRef} className="steel-card overflow-hidden mb-6">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary" />Bid List — Active</h3>
-            <Link to="/estimating/new" className="text-xs text-primary hover:underline">+ New Bid</Link>
+            <div className="flex items-center gap-3">
+              <Button size="sm" variant="outline" onClick={() => exportListToPdf(bidListRef, 'active-bids.pdf')}>
+                <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
+              </Button>
+              <Link to="/estimating/new" className="text-xs text-primary hover:underline">+ New Bid</Link>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -283,7 +307,7 @@ export default function Estimating() {
                 ) : (
                   activeBids.map(b => (
                     <tr key={b.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
-                      onClick={() => navigate(`/estimating/${b.id}`)}>
+                      onClick={() => openBid(b.id)}>
                       <td className="py-3 px-4 font-mono font-bold text-primary">{b.bid_number}</td>
                       <td className="py-3 px-4 font-medium">{b.job_name}</td>
                       <td className="py-3 px-4">
@@ -304,7 +328,7 @@ export default function Estimating() {
                         </button>
                       </td>
                       <td className="py-3 px-4 text-xs">
-                        <button onClick={(e) => { e.stopPropagation(); navigate(`/estimating/${b.id}`); }} className="hover:text-primary hover:underline">
+                        <button onClick={(e) => { e.stopPropagation(); openBid(b.id); }} className="hover:text-primary hover:underline">
                           {b.bid_due_date || '—'}
                         </button>
                       </td>
@@ -318,7 +342,7 @@ export default function Estimating() {
                           <button onClick={(e) => { e.stopPropagation(); setStatusBid(b); }}>
                             <StatusBadge status={b.status} />
                           </button>
-                          <BidPricingHoldBadge bid={b} holdDays={bidHoldDays} onClick={() => setPricingHoldBid(b)} />
+                          <BidPricingHoldBadge bid={b} holdDays={bidHoldDays} onClick={() => setFollowUpBid(b)} />
                         </div>
                       </td>
                       <td className="py-3 px-4 text-right">
@@ -343,6 +367,9 @@ export default function Estimating() {
         <div ref={bidHistoryRef} className="steel-card overflow-hidden">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><Archive className="w-4 h-4 text-muted-foreground" />Bid History — Won & Lost</h3>
+            <Button size="sm" variant="outline" onClick={() => exportListToPdf(bidHistoryRef, 'bid-history.pdf')}>
+              <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
+            </Button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -368,7 +395,7 @@ export default function Estimating() {
                 ) : (
                   [...wonBids, ...lostBids].map(b => (
                     <tr key={b.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
-                      onClick={() => navigate(`/estimating/${b.id}`)}>
+                      onClick={() => openBid(b.id)}>
                       <td className="py-3 px-4 font-mono font-bold text-primary">{b.bid_number}</td>
                       <td className="py-3 px-4 font-medium">{b.job_name}</td>
                       <td className="py-3 px-4">
@@ -417,9 +444,12 @@ export default function Estimating() {
 
       {/* Did Not Bid — pinned directly below Bid History */}
       {widgetConfig.bidHistory && (
-        <div className="steel-card overflow-hidden mt-6">
+        <div ref={dnbRef} className="steel-card overflow-hidden mt-6">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><XCircle className="w-4 h-4 text-muted-foreground" />Did Not Bid</h3>
+            <Button size="sm" variant="outline" onClick={() => exportListToPdf(dnbRef, 'did-not-bid.pdf')}>
+              <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
+            </Button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -439,7 +469,7 @@ export default function Estimating() {
                 ) : (
                   dnbBids.map(b => (
                     <tr key={b.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer"
-                      onClick={() => navigate(`/estimating/${b.id}`)}>
+                      onClick={() => openBid(b.id)}>
                       <td className="py-3 px-4 font-mono font-bold text-primary">{b.bid_number}</td>
                       <td className="py-3 px-4 font-medium">{b.job_name}</td>
                       <td className="py-3 px-4">
@@ -561,10 +591,10 @@ export default function Estimating() {
       />
 
       <BidPricingHoldModal
-        bid={pricingHoldBid}
+        bid={followUpBid}
         holdDays={bidHoldDays}
-        open={!!pricingHoldBid}
-        onOpenChange={(open) => !open && setPricingHoldBid(null)}
+        open={!!followUpBid}
+        onOpenChange={(open) => !open && setFollowUpBid(null)}
       />
     </div>
   );

@@ -15,25 +15,25 @@ export default function BidPricingHoldModal({ bid, holdDays, open, onOpenChange 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Pricing Hold — {bid?.bid_number}</DialogTitle>
+          <DialogTitle>Follow-Up Due — {bid?.bid_number}</DialogTitle>
         </DialogHeader>
         {state ? (
           <div className="space-y-3 text-sm">
             <p className="text-muted-foreground">
-              Quoted pricing on this bid is held for {state.holdDays} days from the bid due date. After that,
-              material and labor costs may have moved — the estimator should confirm pricing is still valid
-              before proceeding, or requote. This is a visibility flag only; it never changes the bid's status.
+              This bid was submitted {state.holdDays} days ago (the 21-Day Response Window). If no Won / Lost /
+              Did Not Bid decision is logged before it expires, it's flagged here as needing follow-up and at risk
+              of being marked lost. This is a visibility flag only; it never changes the bid's status automatically.
             </p>
             <div className="grid grid-cols-3 gap-2 border-b border-border/50 pb-2">
-              <span className="text-muted-foreground">Quote Date</span>
-              <span className="col-span-2 font-medium">{state.quoteDate}</span>
+              <span className="text-muted-foreground">Submitted Date</span>
+              <span className="col-span-2 font-medium">{state.submittedDate}</span>
             </div>
             <div className="grid grid-cols-3 gap-2 border-b border-border/50 pb-2">
-              <span className="text-muted-foreground">Days Old</span>
+              <span className="text-muted-foreground">Days Since Submitted</span>
               <span className="col-span-2 font-medium">{state.daysOld} day(s)</span>
             </div>
             <div className="grid grid-cols-3 gap-2 border-b border-border/50 pb-2">
-              <span className="text-muted-foreground">Expiration Date</span>
+              <span className="text-muted-foreground">Follow-Up Due By</span>
               <span className="col-span-2 font-medium">{state.expirationDate}</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -43,7 +43,7 @@ export default function BidPricingHoldModal({ bid, holdDays, open, onOpenChange 
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            This bid has no due date on file, or is no longer awaiting a decision, so the pricing hold doesn't apply.
+            This bid hasn't been marked Bid Submitted yet, or is no longer awaiting a decision, so the follow-up window doesn't apply.
           </p>
         )}
         <DialogFooter>

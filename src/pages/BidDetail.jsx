@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat } from 'lucide-react';
+import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat, Send } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import BidProposalPrintView from '@/components/estimating/BidProposalPrintView';
 import PdfViewerModal from '@/components/shared/PdfViewerModal';
@@ -46,6 +46,7 @@ export default function BidDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { user } = useAuth();
   const [bid, setBid] = useState(null);
@@ -53,7 +54,11 @@ export default function BidDetail() {
   const [bidHoldDays, setBidHoldDays] = useState(() => getBidHoldDays(null));
   const [showPricingHold, setShowPricingHold] = useState(false);
   const [showStatusHistory, setShowStatusHistory] = useState(false);
-  const [activeTab, setActiveTab] = useState(location.state?.tab || 'files');
+  // location.state carries the tab hint for an in-app navigate(); a bid
+  // opened via window.open() (see Estimating.jsx's openBid) is a fresh
+  // browsing context with no router state, so it passes the same hint as a
+  // ?tab= query param instead — check that as the fallback.
+  const [activeTab, setActiveTab] = useState(location.state?.tab || searchParams.get('tab') || 'files');
   const [showLossForm, setShowLossForm] = useState(false);
   const [showDnbModal, setShowDnbModal] = useState(false);
   const [lossForm, setLossForm] = useState({ reason: '', notes: '', competitor: '' });
@@ -281,6 +286,19 @@ export default function BidDetail() {
     } catch (e) { toast({ title: 'Update failed', variant: 'destructive' }); }
   };
 
+  // Starts the 21-day follow-up countdown (see bidPricingHold.js) from today
+  // rather than from bid creation or bid_due_date — re-clickable so
+  // re-submitting a revised bid resets the clock. Deliberately does not
+  // change bid.status itself; Won/Lost/Did Not Bid remain the only status
+  // transitions.
+  const handleMarkBidSubmitted = async () => {
+    try {
+      await db.entities.Bid.update(id, { bid_submitted_date: new Date().toISOString().slice(0, 10) });
+      toast({ title: 'Bid marked as submitted', description: '21-day follow-up window starts today.' });
+      loadBid();
+    } catch (e) { toast({ title: 'Update failed', variant: 'destructive' }); }
+  };
+
   const submitLossReason = async () => {
     if (!lossForm.reason) { toast({ title: 'Select a loss reason', variant: 'destructive' }); return; }
     setSavingLoss(true);
@@ -449,6 +467,9 @@ export default function BidDetail() {
             </Button>
             {bid.status !== 'won' && bid.status !== 'lost' && bid.status !== 'cancelled' && bid.status !== 'Did_Not_Bid' && (
               <>
+                <Button size="sm" variant="outline" className="text-blue-600 border-blue-500/30 hover:bg-blue-500/10" onClick={handleMarkBidSubmitted}>
+                  <Send className="w-3.5 h-3.5 mr-1" />{bid.bid_submitted_date ? 'Re-Mark Bid Submitted' : 'Bid Submitted'}
+                </Button>
                 <Button size="sm" variant="outline" className="text-green-600 border-green-500/30 hover:bg-green-500/10" onClick={() => updateBidStatus('won')}>
                   <Award className="w-3.5 h-3.5 mr-1" />Mark Won
                 </Button>

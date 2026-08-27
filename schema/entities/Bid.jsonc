@@ -52,6 +52,11 @@
       "type": "string",
       "format": "date"
     },
+    "bid_submitted_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Set by the 'Bid Submitted' action on BidDetail.jsx — anchors the 21-day follow-up window (see bidPricingHold.js) instead of bid_due_date. Null until the bid has actually gone out."
+    },
     "status": {
       "type": "string",
       "enum": [
@@ -76,6 +81,19 @@
     "margin_percentage": {
       "type": "number",
       "default": 0
+    },
+    "markup_percentage": {
+      "type": "number",
+      "default": 0,
+      "description": "Profit markup applied to the Worksheet's line-item subtotal before tax — separate from tax_rate. Set on the BID Worksheet (TakeoffEngine.jsx); rolled into bid_total_cost as subtotal * (1 + markup_percentage/100), taxed on top of the marked-up amount."
+    },
+    "drawings_used": {
+      "type": "string",
+      "description": "Free-text list of drawing revisions/sets referenced for this bid. Entered on the BID Worksheet."
+    },
+    "addendums": {
+      "type": "string",
+      "description": "Free-text list of addenda/bulletins incorporated into this bid. Entered on the BID Worksheet."
     },
     "pricing_type": {
       "type": "string",

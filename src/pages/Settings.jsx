@@ -290,7 +290,7 @@ export default function Settings() {
               <p className="text-xs text-muted-foreground mb-4">Company-wide thresholds used across SteelOS.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <Label>Bid Pricing Hold (days)</Label>
+                  <Label>Bid Follow-Up Window (days)</Label>
                   <Input
                     type="number"
                     min="1"
@@ -299,7 +299,7 @@ export default function Settings() {
                     className="mt-1"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    How long quoted bid pricing is held before it's flagged as expired. Defaults to {DEFAULT_BID_PRICING_HOLD_DAYS}.
+                    How many days after a bid is marked "Bid Submitted" it's flagged as needing follow-up with no Won/Lost/Did Not Bid decision logged. Defaults to {DEFAULT_BID_PRICING_HOLD_DAYS}.
                   </p>
                 </div>
               </div>
