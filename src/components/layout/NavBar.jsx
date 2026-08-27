@@ -39,7 +39,6 @@ const navGroups = [
       { icon: Building2, label: 'CRM', path: '/crm' },
       { icon: Users, label: 'Relationship Manager', path: '/crm/directory' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
-      { icon: MessageSquare, label: 'RFIs', path: '/rfis' },
     ]
   },
   {
@@ -48,6 +47,7 @@ const navGroups = [
       { icon: FolderKanban, label: 'Projects', path: '/projects' },
       { icon: FileEdit, label: 'Change Orders', path: '/projects/change-orders' },
       { icon: FileSignature, label: 'Subcontracts', path: '/subcontracts' },
+      { icon: MessageSquare, label: 'RFIs', path: '/rfis' },
       { icon: Factory, label: 'Production', path: '/production' },
       { icon: Truck, label: 'Shipping', path: '/shipping' },
       { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },
@@ -243,6 +243,8 @@ export default function NavBar() {
                   <DropdownMenuItem key={item.label} asChild>
                     <Link
                       to={item.path + (item.query || '')}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className={cn('flex items-center gap-2.5 cursor-pointer', active && 'font-medium')}
                       style={active ? { color: 'var(--tenant-brand-color, hsl(var(--primary)))' } : undefined}
                     >
