@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
 import { findTaxRateForAddress } from '@/lib/taxRate';
 
@@ -52,7 +52,6 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
   const [parseError, setParseError] = useState('');
   const [projects, setProjects] = useState([]);
   const [projectOverride, setProjectOverride] = useState('');
-  const [pdfViewer, setPdfViewer] = useState(null);
   const [taxRateCheck, setTaxRateCheck] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -284,7 +283,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
                   {f.file_url && isPdfName(f.file.name) && (
                     <button
                       title="Open"
-                      onClick={(e) => { e.stopPropagation(); setPdfViewer({ source: f.file_url, fileName: f.file.name }); }}
+                      onClick={(e) => { e.stopPropagation(); openDocumentViewer(f.file_url, f.file.name); }}
                       className="text-muted-foreground hover:text-primary flex-shrink-0"
                     >
                       <Eye className="w-4 h-4" />
@@ -386,13 +385,6 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
           <p className="text-sm">AI fields approved and saved to takeoff. Switch to the BID Worksheet tab to adjust line items.</p>
         </div>
       )}
-
-      <PdfViewerModal
-        open={!!pdfViewer}
-        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
-        source={pdfViewer?.source}
-        fileName={pdfViewer?.fileName}
-      />
     </div>
   );
 }

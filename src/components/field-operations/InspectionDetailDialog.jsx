@@ -5,7 +5,7 @@ import { CheckCircle2, XCircle, AlertTriangle, FileText, Eye, Download } from 'l
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
 import { getPersonTierMismatch } from '@/lib/heavyEquipmentChecklists';
 
@@ -16,7 +16,6 @@ const isPdfName = (name) => !!name?.match(/\.pdf$/i);
 export default function InspectionDetailDialog({ inspection, open, onOpenChange, assets = [] }) {
   const navigate = useNavigate();
   const [certDoc, setCertDoc] = useState(null);
-  const [pdfViewer, setPdfViewer] = useState(null);
 
   useEffect(() => {
     if (open && inspection?.cert_document_id) {
@@ -97,7 +96,7 @@ export default function InspectionDetailDialog({ inspection, open, onOpenChange,
             <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
             <span className="truncate flex-1">{certDoc?.file_name || 'Certificate / checklist document'}</span>
             {certDoc?.file_url && isPdfName(certDoc.file_name) && (
-              <button className="text-muted-foreground hover:text-primary" onClick={() => setPdfViewer({ source: certDoc.file_url, fileName: certDoc.file_name })}>
+              <button className="text-muted-foreground hover:text-primary" onClick={() => openDocumentViewer(certDoc.file_url, certDoc.file_name)}>
                 <Eye className="w-4 h-4" />
               </button>
             )}
@@ -112,8 +111,6 @@ export default function InspectionDetailDialog({ inspection, open, onOpenChange,
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
-
-        <PdfViewerModal open={!!pdfViewer} onOpenChange={(o) => { if (!o) setPdfViewer(null); }} source={pdfViewer?.source} fileName={pdfViewer?.fileName} />
       </DialogContent>
     </Dialog>
   );

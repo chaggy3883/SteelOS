@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import { downloadFile } from '@/lib/downloadFile';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { scanValueMatches } from '@/lib/pieceScan';
 import { createDocumentId, pieceDocumentsKey, getDocumentRecords, saveDocumentRecords } from '@/lib/pieceMarkDocumentStore';
@@ -47,7 +47,6 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode }) {
   const [viewingDocs, setViewingDocs] = useState([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [objectUrls, setObjectUrls] = useState({});
-  const [viewingPdf, setViewingPdf] = useState(null);
 
   const groups = React.useMemo(() => {
     const map = new Map();
@@ -294,7 +293,7 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode }) {
                     <p className="font-medium truncate">{doc.filename}</p>
                     <p className="text-muted-foreground">{formatSize(doc.size)}{doc.uploadDate ? ` • ${new Date(doc.uploadDate).toLocaleDateString()}` : ''}</p>
                   </div>
-                  <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="View" onClick={() => setViewingPdf({ ...doc, url: objectUrls[doc.id] })}>
+                  <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="View" onClick={() => openDocumentViewer(objectUrls[doc.id], doc.filename)}>
                     <Eye className="w-4 h-4" />
                   </button>
                   <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="Download" onClick={() => downloadFile(objectUrls[doc.id], doc.filename)}>
@@ -306,8 +305,6 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode }) {
           )}
         </DialogContent>
       </Dialog>
-
-      <PdfViewerModal open={!!viewingPdf} onOpenChange={(o) => !o && setViewingPdf(null)} source={viewingPdf?.url} fileName={viewingPdf?.filename} />
     </div>
   );
 }

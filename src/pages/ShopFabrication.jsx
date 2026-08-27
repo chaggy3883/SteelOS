@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { getCertStatus } from '@/lib/certAlerts';
 import { sortPiecesByPriority, hasActiveOverride } from '@/lib/shopOpsMetrics';
 import { matchPieceByScan } from '@/lib/pieceScan';
+import CameraQrScanner, { useIsTouchPrimaryDevice } from '@/components/shared/CameraQrScanner';
 import { LABEL_STOCK_SIZES, buildZplPayload } from '@/lib/zplLabels';
 import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelSheet';
 import { logStatusChange } from '@/lib/statusHistory';
@@ -20,7 +21,7 @@ import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
-  CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer,
+  CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer, Camera,
 } from 'lucide-react';
 
 const STATIONS = [
@@ -82,6 +83,8 @@ export default function ShopFabrication() {
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
+  const touchPrimary = useIsTouchPrimaryDevice();
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => {
@@ -254,8 +257,9 @@ export default function ShopFabrication() {
     if (!options.silent) toast({ title: 'Sent to Inspector Queue', description: 'Workspace frozen pending approval.' });
   };
 
-  const handleScan = async () => {
-    const { piece: found, ambiguous } = matchPieceByScan(pieces, scanValue);
+  const handleScan = async (valueOverride) => {
+    const value = valueOverride ?? scanValue;
+    const { piece: found, ambiguous } = matchPieceByScan(pieces, value);
     if (ambiguous) {
       toast({ title: 'Multiple pieces match that piece mark', description: 'This piece mark exists on more than one project — scan the QR code instead of typing the piece mark.', variant: 'destructive' });
       return;
@@ -289,6 +293,12 @@ export default function ShopFabrication() {
     setSelectedPieceId(found.id);
     setShowBlueprint(true);
     toast({ title: `Loaded ${found.piece_mark}`, description: 'Blueprint opened and work started.' });
+  };
+
+  const handleCameraScan = (decodedText) => {
+    setShowCameraScanner(false);
+    setScanValue(decodedText);
+    handleScan(decodedText);
   };
 
   const resumeWork = async (pausedLog) => {
@@ -429,9 +439,21 @@ export default function ShopFabrication() {
             <QrCode className="w-5 h-5 text-primary" />
             <span className="text-sm font-medium">QR / Piece Scan</span>
           </div>
-          <div className="flex flex-col gap-2 md:flex-row">
-            <Input value={scanValue} onChange={(e) => setScanValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleScan()} placeholder="Scan QR payload or enter piece mark" />
-            <Button onClick={handleScan} className="steel-gradient text-white border-0">Scan</Button>
+          <div className={`flex flex-col gap-2 md:flex-row ${touchPrimary ? 'md:flex-col' : ''}`}>
+            {touchPrimary && (
+              <Button size="lg" className="gap-2 steel-gradient text-white border-0" onClick={() => setShowCameraScanner(true)}>
+                <Camera className="w-5 h-5" />Scan with Camera
+              </Button>
+            )}
+            <div className="flex flex-col gap-2 md:flex-row flex-1">
+              <Input value={scanValue} onChange={(e) => setScanValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleScan()} placeholder="Scan QR payload or enter piece mark" />
+              <Button onClick={() => handleScan()} className="steel-gradient text-white border-0">Scan</Button>
+              {!touchPrimary && (
+                <Button variant="outline" className="gap-2" onClick={() => setShowCameraScanner(true)}>
+                  <Camera className="w-4 h-4" />Scan with Camera
+                </Button>
+              )}
+            </div>
           </div>
 
           {selectedPiece ? (
@@ -612,6 +634,10 @@ export default function ShopFabrication() {
         subtitle={printSheet?.subtitle}
         qrPayload={printSheet?.qrPayload}
       />
+
+      {showCameraScanner && (
+        <CameraQrScanner onScan={handleCameraScan} onCancel={() => setShowCameraScanner(false)} />
+      )}
     </div>
   );
 }

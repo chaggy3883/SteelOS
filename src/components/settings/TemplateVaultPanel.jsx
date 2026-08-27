@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
 
 const CATEGORIES = ['Proposal', 'Invoice', 'Packing_Slip', 'Spreadsheet', 'Custom'];
@@ -25,7 +25,6 @@ export default function TemplateVaultPanel() {
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [savingId, setSavingId] = useState(null);
-  const [pdfViewer, setPdfViewer] = useState(null);
 
   useEffect(() => { loadTemplates(); }, []);
 
@@ -129,7 +128,7 @@ export default function TemplateVaultPanel() {
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {isPdfName(t.file_name) && (
-                      <Button size="sm" variant="outline" onClick={() => setPdfViewer({ source: t.file_url, fileName: t.file_name })}>
+                      <Button size="sm" variant="outline" onClick={() => openDocumentViewer(t.file_url, t.file_name)}>
                         <Eye className="w-3.5 h-3.5 mr-1.5" />Open
                       </Button>
                     )}
@@ -170,13 +169,6 @@ export default function TemplateVaultPanel() {
           </div>
         )}
       </div>
-
-      <PdfViewerModal
-        open={!!pdfViewer}
-        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
-        source={pdfViewer?.source}
-        fileName={pdfViewer?.fileName}
-      />
     </div>
   );
 }

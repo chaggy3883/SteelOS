@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import FileDropzone from '@/components/ui/FileDropzone';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 
 const DOCUMENT_TYPES = ['Drivers_License', 'SSN_Card', 'Birth_Cert', 'Training_Cert', 'I9_Form', 'EVerify_Confirmation'];
 
@@ -16,7 +16,6 @@ export default function ComplianceDocumentCenter({ employee }) {
   const [documents, setDocuments] = useState([]);
   const [docType, setDocType] = useState('Drivers_License');
   const [loading, setLoading] = useState(true);
-  const [pdfViewer, setPdfViewer] = useState(null);
 
   const loadDocuments = async () => {
     try {
@@ -77,7 +76,7 @@ export default function ComplianceDocumentCenter({ employee }) {
             <div className="flex items-center gap-3 flex-shrink-0">
               {isPdfDataUri(doc.file_uri) && (
                 <button
-                  onClick={() => setPdfViewer({ source: doc.file_uri, fileName: `${doc.document_type_key}.pdf` })}
+                  onClick={() => openDocumentViewer(doc.file_uri, `${doc.document_type_key}.pdf`)}
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                 >
                   <Eye className="w-3.5 h-3.5" />Open
@@ -90,13 +89,6 @@ export default function ComplianceDocumentCenter({ employee }) {
           </div>
         ))}
       </div>
-
-      <PdfViewerModal
-        open={!!pdfViewer}
-        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
-        source={pdfViewer?.source}
-        fileName={pdfViewer?.fileName}
-      />
     </div>
   );
 }

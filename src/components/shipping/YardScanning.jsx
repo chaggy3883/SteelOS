@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { QrCode, PackageCheck, Ban, MapPin, Upload, Truck, Printer, Info, ClipboardCheck, FileCheck } from 'lucide-react';
+import { QrCode, PackageCheck, Ban, MapPin, Upload, Truck, Printer, Info, ClipboardCheck, FileCheck, Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,11 +10,12 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { LABEL_STOCK_SIZES, buildZplPayload } from '@/lib/zplLabels';
 import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelSheet';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import CallInspectionModal from '@/components/shipping/CallInspectionModal';
 import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
 import { matchPieceByScan } from '@/lib/pieceScan';
+import CameraQrScanner, { useIsTouchPrimaryDevice } from '@/components/shared/CameraQrScanner';
 
 const TRAILER_TYPES = ['Flatbed', 'Drop_Deck', 'Stretch', 'Step_Deck'];
 const emptyManifestForm = () => ({ driver_name: '', driver_phone: '', trailer_type: 'Flatbed', license_plate: '' });
@@ -31,7 +32,8 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, proj
   const [deliveryTicketUri, setDeliveryTicketUri] = useState('');
   const [printSheet, setPrintSheet] = useState(null);
   const [showInspectionModal, setShowInspectionModal] = useState(false);
-  const [viewingBol, setViewingBol] = useState(false);
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
+  const touchPrimary = useIsTouchPrimaryDevice();
 
   const selectedLoad = useMemo(() => loads.find((l) => l.id === selectedLoadId) || null, [loads, selectedLoadId]);
   const selectedProject = useMemo(() => projects.find((p) => p.id === selectedLoad?.project_id) || null, [projects, selectedLoad]);
@@ -56,8 +58,8 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, proj
   const showTransitPanel = selectedLoad && ['In_Transit', 'Field_Issue'].includes(selectedLoad.status) && manifest;
   const showDeliveredPanel = selectedLoad && selectedLoad.status === 'Delivered';
 
-  const handleScanToLoad = async () => {
-    const value = scanValue.trim();
+  const handleScanToLoad = async (valueOverride) => {
+    const value = (valueOverride ?? scanValue).trim();
     // `pieces` here spans every project (Shipping.jsx loads it unscoped) — a
     // piece_mark-only match must be scoped to this load's own project, since
     // the same detailer part number can legitimately exist on another job's
@@ -115,8 +117,8 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, proj
     }
   };
 
-  const handleMasterReceiptScan = async () => {
-    const value = scanValue.trim();
+  const handleMasterReceiptScan = async (valueOverride) => {
+    const value = (valueOverride ?? scanValue).trim();
     if (!manifest || value !== manifest.manifest_qr_payload_string) {
       toast({ title: 'Master QR mismatch — blocked', description: 'This code does not match the manifest for this load.', variant: 'destructive' });
       return;
@@ -144,6 +146,13 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, proj
     await onReload();
     toast({ title: `${selectedLoad.load_number_id} delivered`, description: 'Linked pieces marked On-Site.' });
     setScanValue('');
+  };
+
+  const handleCameraScan = (decodedText) => {
+    setShowCameraScanner(false);
+    setScanValue(decodedText);
+    if (showScanningPanel) handleScanToLoad(decodedText);
+    else if (showTransitPanel) handleMasterReceiptScan(decodedText);
   };
 
   const rejectItem = async (item) => {
@@ -231,9 +240,19 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, proj
                   <span className="text-sm font-medium">Yard Scan-to-Load</span>
                   <span className="ml-auto text-xs text-muted-foreground">{loadedCount} / {items.length} loaded</span>
                 </div>
+                {touchPrimary && (
+                  <Button size="lg" className="w-full gap-2 steel-gradient text-white border-0" onClick={() => setShowCameraScanner(true)}>
+                    <Camera className="w-5 h-5" />Scan with Camera
+                  </Button>
+                )}
                 <div className="flex flex-col gap-2 md:flex-row">
                   <Input value={scanValue} onChange={(e) => setScanValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleScanToLoad()} placeholder="Scan a piece QR payload" />
-                  <Button onClick={handleScanToLoad} className="steel-gradient text-white border-0">Scan</Button>
+                  <Button onClick={() => handleScanToLoad()} className="steel-gradient text-white border-0">Scan</Button>
+                  {!touchPrimary && (
+                    <Button variant="outline" className="gap-2" onClick={() => setShowCameraScanner(true)}>
+                      <Camera className="w-4 h-4" />Camera
+                    </Button>
+                  )}
                 </div>
               </>
             )}
@@ -258,7 +277,7 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, proj
                   <ClipboardCheck className="w-5 h-5" />Inspection passed — BOL generated
                 </div>
                 {selectedLoad.bol_pdf_data_uri && (
-                  <Button variant="outline" className="w-full gap-2" onClick={() => setViewingBol(true)}>
+                  <Button variant="outline" className="w-full gap-2" onClick={() => openDocumentViewer(selectedLoad.bol_pdf_data_uri, `BOL-${selectedLoad.load_number_id || ''}.pdf`)}>
                     <FileCheck className="w-4 h-4" />View / Print BOL
                   </Button>
                 )}
@@ -274,9 +293,19 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, proj
                   <MapPin className="w-5 h-5 text-primary" />
                   <span className="text-sm font-medium">Jobsite Master Receipt Scan</span>
                 </div>
+                {touchPrimary && (
+                  <Button size="lg" className="w-full gap-2 steel-gradient text-white border-0" onClick={() => setShowCameraScanner(true)}>
+                    <Camera className="w-5 h-5" />Scan with Camera
+                  </Button>
+                )}
                 <div className="flex flex-col gap-2 md:flex-row">
                   <Input value={scanValue} onChange={(e) => setScanValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleMasterReceiptScan()} placeholder="Scan the master manifest QR code" />
-                  <Button onClick={handleMasterReceiptScan} className="steel-gradient text-white border-0">Receive Load</Button>
+                  <Button onClick={() => handleMasterReceiptScan()} className="steel-gradient text-white border-0">Receive Load</Button>
+                  {!touchPrimary && (
+                    <Button variant="outline" className="gap-2" onClick={() => setShowCameraScanner(true)}>
+                      <Camera className="w-4 h-4" />Camera
+                    </Button>
+                  )}
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <button
@@ -391,12 +420,9 @@ export default function YardScanning({ pieces, loads, loadItems, manifests, proj
         onReload={onReload}
       />
 
-      <PdfViewerModal
-        open={viewingBol}
-        onOpenChange={setViewingBol}
-        source={selectedLoad?.bol_pdf_data_uri}
-        fileName={`BOL-${selectedLoad?.load_number_id || ''}.pdf`}
-      />
+      {showCameraScanner && (
+        <CameraQrScanner onScan={handleCameraScan} onCancel={() => setShowCameraScanner(false)} />
+      )}
     </div>
   );
 }

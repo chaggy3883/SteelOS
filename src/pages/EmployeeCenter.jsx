@@ -30,7 +30,7 @@ import {
   User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt, DoorOpen,
   Timer, Square, Eye, ShieldCheck, AlertCircle, Landmark,
 } from 'lucide-react';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import PayStubDetail from '@/components/payroll/PayStubDetail';
 
 const isPdfFileUri = (uri) => /\.pdf($|[?#])/i.test(uri || '') || /^data:application\/pdf/i.test(uri || '');
@@ -112,7 +112,6 @@ export default function EmployeeCenter() {
   const [allDeductions, setAllDeductions] = useState([]);
   const [viewingLineStub, setViewingLineStub] = useState(null);
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
-  const [pdfViewer, setPdfViewer] = useState(null);
   const [showVaultGate, setShowVaultGate] = useState(false);
   const [vaultPin, setVaultPin] = useState('');
 
@@ -1075,7 +1074,7 @@ export default function EmployeeCenter() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => setPdfViewer({ source: doc.file_secure_uri, fileName: `${doc.document_type}-${doc.tax_year}.pdf` })}
+                            onClick={() => openDocumentViewer(doc.file_secure_uri, `${doc.document_type}-${doc.tax_year}.pdf`)}
                           >
                             <Eye className="w-3.5 h-3.5 mr-1.5" />Open
                           </Button>
@@ -1244,13 +1243,6 @@ export default function EmployeeCenter() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <PdfViewerModal
-        open={!!pdfViewer}
-        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
-        source={pdfViewer?.source}
-        fileName={pdfViewer?.fileName}
-      />
     </div>
   );
 }

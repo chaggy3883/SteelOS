@@ -10,7 +10,7 @@ import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
 import { Scale, ShieldAlert, FileText, Upload, Brain, AlertTriangle, ScrollText, Eye } from 'lucide-react';
 import { computeRiskFlags, RISK_FLAG_LABELS } from '@/lib/legalBaselines';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
@@ -38,7 +38,6 @@ export default function Legal() {
   const [notices, setNotices] = useState([]);
   const [auditEvents, setAuditEvents] = useState([]);
   const [documents, setDocuments] = useState([]);
-  const [pdfViewer, setPdfViewer] = useState(null);
 
   const [contractForm, setContractForm] = useState(emptyContractForm());
   const [contractFile, setContractFile] = useState(null);
@@ -318,7 +317,7 @@ export default function Legal() {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {isPdfDocument(contractDoc) && (
-                        <Button size="sm" variant="outline" onClick={() => setPdfViewer({ source: contractDoc.file_url, fileName: contractDoc.file_name })}>
+                        <Button size="sm" variant="outline" onClick={() => openDocumentViewer(contractDoc.file_url, contractDoc.file_name)}>
                           <Eye className="w-3.5 h-3.5 mr-1.5" />Open
                         </Button>
                       )}
@@ -355,7 +354,6 @@ export default function Legal() {
             projectName={projectName}
             onFieldSave={handleNoticeFieldSave}
             onFiledUpload={handleFiledUpload}
-            onOpenPdf={setPdfViewer}
           />
         </TabsContent>
 
@@ -382,18 +380,11 @@ export default function Legal() {
           </div>
         </TabsContent>
       </Tabs>
-
-      <PdfViewerModal
-        open={!!pdfViewer}
-        onOpenChange={(o) => { if (!o) setPdfViewer(null); }}
-        source={pdfViewer?.source}
-        fileName={pdfViewer?.fileName}
-      />
     </div>
   );
 }
 
-function LienRightsRadar({ notices, documents, projectName, onFieldSave, onFiledUpload, onOpenPdf }) {
+function LienRightsRadar({ notices, documents, projectName, onFieldSave, onFiledUpload }) {
   const [edits, setEdits] = useState(emptyNoticeEdits);
 
   const getField = (notice, field) => edits[notice.id]?.[field] ?? notice[field] ?? '';
@@ -427,7 +418,7 @@ function LienRightsRadar({ notices, documents, projectName, onFieldSave, onFiled
                   {notice.filed_status === 'filed' && <Badge variant="secondary">Filed {notice.filed_date}</Badge>}
                   {!isExpired && !isDanger && notice.filed_status === 'pending' && <Badge variant="outline">{remaining}d left</Badge>}
                   {isPdfDocument(filedDoc) && (
-                    <Button size="sm" variant="outline" onClick={() => onOpenPdf({ source: filedDoc.file_url, fileName: filedDoc.file_name })}>
+                    <Button size="sm" variant="outline" onClick={() => openDocumentViewer(filedDoc.file_url, filedDoc.file_name)}>
                       <Eye className="w-3.5 h-3.5 mr-1.5" />Open
                     </Button>
                   )}

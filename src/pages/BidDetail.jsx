@@ -4,7 +4,7 @@ import { db } from '@/api/apiClient';
 import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat, Send } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import BidProposalPrintView from '@/components/estimating/BidProposalPrintView';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -74,7 +74,6 @@ export default function BidDetail() {
   const [savingEstimator, setSavingEstimator] = useState(false);
   const [savingSalesman, setSavingSalesman] = useState(false);
   const [certUploading, setCertUploading] = useState(false);
-  const [certViewerOpen, setCertViewerOpen] = useState(false);
   const certFileInputRef = useRef(null);
   const takeoffRef = useRef(null);
   const materialRef = useRef(null);
@@ -613,7 +612,7 @@ export default function BidDetail() {
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-600 border border-green-500/20">
                     <FileCheck2 className="w-3.5 h-3.5" />Certificate on file
                   </span>
-                  <Button size="sm" variant="outline" onClick={() => setCertViewerOpen(true)}>View</Button>
+                  <Button size="sm" variant="outline" onClick={() => openDocumentViewer(bid.tax_exempt_certificate_uri, 'Tax Exemption Certificate.pdf')}>View</Button>
                   <Button size="sm" variant="outline" onClick={() => certFileInputRef.current?.click()} disabled={certUploading}>
                     {certUploading ? 'Uploading…' : 'Replace'}
                   </Button>
@@ -707,13 +706,6 @@ export default function BidDetail() {
         entityId={id}
         fieldName="status"
         title={`Bid Status — ${bid.bid_number}`}
-      />
-
-      <PdfViewerModal
-        open={certViewerOpen}
-        onOpenChange={setCertViewerOpen}
-        source={bid.tax_exempt_certificate_uri}
-        fileName="Tax Exemption Certificate.pdf"
       />
 
       <BidPricingHoldModal

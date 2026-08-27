@@ -151,8 +151,8 @@
   }
 }
 
-/* Universal print support (PdfViewerModal's Print button, and any other
-   window.print() call made while a modal is open). AppLayout.jsx's root
+/* Universal print support for any window.print() call made while a Radix
+   Dialog is open. AppLayout.jsx's root
    element, NavBar.jsx's <nav>, and TopBar.jsx's <header> already hide
    themselves and let <main> fill the page via Tailwind's print: variant
    (print:hidden / print:h-auto / print:overflow-visible / print:flex-none)

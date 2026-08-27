@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, AlertTriangle, FileCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 
 const STATUS_STYLES = {
   Draft: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
@@ -33,7 +33,6 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
   const [carrier, setCarrier] = useState(null);
   const [manifest, setManifest] = useState(null);
   const [showStatusHistory, setShowStatusHistory] = useState(false);
-  const [viewingBol, setViewingBol] = useState(false);
 
   useEffect(() => {
     if (!open || !loadId) return;
@@ -198,7 +197,7 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
             {load.bol_pdf_data_uri && (
-              <Button variant="outline" className="gap-2" onClick={() => setViewingBol(true)}>
+              <Button variant="outline" className="gap-2" onClick={() => openDocumentViewer(load.bol_pdf_data_uri, `BOL-${load.load_number_id || ''}.pdf`)}>
                 <FileCheck className="w-4 h-4" />View / Print BOL
               </Button>
             )}
@@ -212,12 +211,6 @@ export default function LoadDetailModal({ open, onOpenChange, loadId, onViewPiec
         entityId={load?.id}
         fieldName="status"
         title={`${load?.load_number_id || 'Load'} — Status History`}
-      />
-      <PdfViewerModal
-        open={viewingBol}
-        onOpenChange={setViewingBol}
-        source={load?.bol_pdf_data_uri}
-        fileName={`BOL-${load?.load_number_id || ''}.pdf`}
       />
     </Dialog>
   );

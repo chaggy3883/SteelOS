@@ -6,7 +6,7 @@ import { createDocumentId } from '@/lib/inspectionDocumentStore';
 import { downloadFile } from '@/lib/downloadFile';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { useToast } from '@/components/ui/use-toast';
 
 const ACCEPT = '.pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf';
@@ -51,7 +51,6 @@ export default function InspectionDocumentUpload({
   const [processing, setProcessing] = useState(null); // { current, total } | null
   const [objectUrls, setObjectUrls] = useState({});
   const [viewingImage, setViewingImage] = useState(null);
-  const [viewingPdf, setViewingPdf] = useState(null);
 
   const allDocs = [...savedDocuments, ...pendingFiles];
 
@@ -94,7 +93,7 @@ export default function InspectionDocumentUpload({
     const url = objectUrls[doc.id];
     if (!url) return;
     if (isImageFile({ type: doc.mimetype, name: doc.filename })) setViewingImage({ ...doc, url });
-    else setViewingPdf({ ...doc, url });
+    else openDocumentViewer(url, doc.filename);
   };
 
   return (
@@ -180,8 +179,6 @@ export default function InspectionDocumentUpload({
           {viewingImage && <img src={viewingImage.url} alt={viewingImage.filename} className="w-full h-auto rounded-lg" />}
         </DialogContent>
       </Dialog>
-
-      <PdfViewerModal open={!!viewingPdf} onOpenChange={(o) => !o && setViewingPdf(null)} source={viewingPdf?.url} fileName={viewingPdf?.filename} />
     </div>
   );
 }

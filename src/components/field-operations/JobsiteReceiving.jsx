@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { ChevronDown, PackageCheck, Undo2, QrCode, Ban, Truck, AlertTriangle } from 'lucide-react';
+import { ChevronDown, PackageCheck, Undo2, QrCode, Ban, Truck, AlertTriangle, Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +11,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/component
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import { scanValueMatches } from '@/lib/pieceScan';
+import CameraQrScanner, { useIsTouchPrimaryDevice } from '@/components/shared/CameraQrScanner';
 import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 import { logStatusChange } from '@/lib/statusHistory';
 import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
@@ -40,6 +41,8 @@ export default function JobsiteReceiving() {
   const [viewingPieceMark, setViewingPieceMark] = useState(null);
   const [viewingLoad, setViewingLoad] = useState(null);
   const [viewingPieceId, setViewingPieceId] = useState(null);
+  const [cameraScanPhase, setCameraScanPhase] = useState(null);
+  const touchPrimary = useIsTouchPrimaryDevice();
 
   useEffect(() => {
     db.entities.Project.filter({ is_archived: false }, 'name', 200).then(setProjects).catch(() => setProjects([]));
@@ -156,8 +159,8 @@ export default function JobsiteReceiving() {
     toast({ title: `${pm.part_number || pm.piece_mark} check-in undone` });
   };
 
-  const handlePhaseScan = async (phase, rows) => {
-    const value = (scanValues[phase] || '').trim();
+  const handlePhaseScan = async (phase, rows, valueOverride) => {
+    const value = (valueOverride ?? scanValues[phase] ?? '').trim();
     if (!value) return;
     const matchesValue = (pm) =>
       scanValueMatches([pm.piece_mark, pm.part_number, pieceByPieceMarkId.get(pm.id)?.qr_payload_string], value);
@@ -185,6 +188,15 @@ export default function JobsiteReceiving() {
     }
     await markReceived(match);
     setScanValues((f) => ({ ...f, [phase]: '' }));
+  };
+
+  const handleCameraScan = (decodedText) => {
+    const phase = cameraScanPhase;
+    setCameraScanPhase(null);
+    if (!phase) return;
+    const group = phaseGroups.find((g) => g.phase === phase);
+    setScanValues((f) => ({ ...f, [phase]: decodedText }));
+    if (group) handlePhaseScan(phase, group.rows, decodedText);
   };
 
   const rejectedItems = useMemo(() => {
@@ -300,16 +312,28 @@ export default function JobsiteReceiving() {
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="border-t border-border p-4 space-y-3">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                      <QrCode className="w-4 h-4 text-primary flex-shrink-0 hidden md:block" />
-                      <Input
-                        value={scanValues[group.phase] || ''}
-                        onChange={(e) => setScanValues((f) => ({ ...f, [group.phase]: e.target.value }))}
-                        onKeyDown={(e) => e.key === 'Enter' && handlePhaseScan(group.phase, group.rows)}
-                        placeholder="Scan a QR payload or type a piece mark, then press Enter"
-                        className="flex-1"
-                      />
-                      <Button variant="outline" onClick={() => handlePhaseScan(group.phase, group.rows)}>Check In</Button>
+                    <div className="flex flex-col gap-2">
+                      {touchPrimary && (
+                        <Button className="w-full gap-2 steel-gradient text-white border-0" onClick={() => setCameraScanPhase(group.phase)}>
+                          <Camera className="w-4 h-4" />Scan with Camera
+                        </Button>
+                      )}
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                        <QrCode className="w-4 h-4 text-primary flex-shrink-0 hidden md:block" />
+                        <Input
+                          value={scanValues[group.phase] || ''}
+                          onChange={(e) => setScanValues((f) => ({ ...f, [group.phase]: e.target.value }))}
+                          onKeyDown={(e) => e.key === 'Enter' && handlePhaseScan(group.phase, group.rows)}
+                          placeholder="Scan a QR payload or type a piece mark, then press Enter"
+                          className="flex-1"
+                        />
+                        <Button variant="outline" onClick={() => handlePhaseScan(group.phase, group.rows)}>Check In</Button>
+                        {!touchPrimary && (
+                          <Button variant="outline" className="gap-2" onClick={() => setCameraScanPhase(group.phase)}>
+                            <Camera className="w-4 h-4" />Camera
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="space-y-1.5">
@@ -448,6 +472,10 @@ export default function JobsiteReceiving() {
       </Dialog>
 
       <PieceDetailModal open={!!viewingPieceId} onOpenChange={(o) => !o && setViewingPieceId(null)} pieceId={viewingPieceId} />
+
+      {cameraScanPhase && (
+        <CameraQrScanner onScan={handleCameraScan} onCancel={() => setCameraScanPhase(null)} />
+      )}
     </div>
   );
 }

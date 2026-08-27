@@ -10,7 +10,7 @@ import YardScanning from '@/components/shipping/YardScanning';
 import LoadDetailModal from '@/components/shipping/LoadDetailModal';
 import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 import ManifestDetailModal from '@/components/shipping/ManifestDetailModal';
-import PdfViewerModal from '@/components/shared/PdfViewerModal';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
@@ -30,7 +30,6 @@ export default function Shipping() {
   const [viewingLoadId, setViewingLoadId] = useState(null);
   const [viewingPiece, setViewingPiece] = useState(null); // { pieceMarkId } | { pieceId }
   const [viewingManifestId, setViewingManifestId] = useState(null);
-  const [viewingBolLoad, setViewingBolLoad] = useState(null);
 
   // Set when "Resume" is clicked on a Partial Load — tells LoadBuilder which
   // load to focus once the Load Builder tab is active, then gets cleared.
@@ -235,7 +234,7 @@ export default function Shipping() {
                           {load.bol_pdf_data_uri ? (
                             <button
                               title="View / Print BOL"
-                              onClick={(e) => { e.stopPropagation(); setViewingBolLoad(load); }}
+                              onClick={(e) => { e.stopPropagation(); openDocumentViewer(load.bol_pdf_data_uri, `BOL-${load.load_number_id || ''}.pdf`); }}
                               className="text-muted-foreground hover:text-primary inline-flex"
                             >
                               <FileCheck className="w-4 h-4" />
@@ -304,12 +303,6 @@ export default function Shipping() {
         onViewLoad={(loadId) => { setViewingManifestId(null); setViewingLoadId(loadId); }}
       />
 
-      <PdfViewerModal
-        open={!!viewingBolLoad}
-        onOpenChange={(open) => !open && setViewingBolLoad(null)}
-        source={viewingBolLoad?.bol_pdf_data_uri}
-        fileName={`BOL-${viewingBolLoad?.load_number_id || ''}.pdf`}
-      />
     </div>
   );
 }

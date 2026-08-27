@@ -5,6 +5,7 @@ import {
   getCapacityStatus, STATIONS, stationName, HEATMAP_COLOR, normalizeTargetMinutes,
 } from '@/lib/shopOpsMetrics';
 import { matchPieceByScan } from '@/lib/pieceScan';
+import CameraQrScanner, { useIsTouchPrimaryDevice } from '@/components/shared/CameraQrScanner';
 import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
 import { pieceEventLabel } from '@/lib/pieceTimeline';
 import PieceTimeline from '@/components/shared/PieceTimeline';
@@ -14,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
-import { AlertTriangle, Clock, Gauge, CheckCircle2, ScanLine, PauseCircle, PlayCircle, ClipboardCheck } from 'lucide-react';
+import { AlertTriangle, Clock, Gauge, CheckCircle2, ScanLine, PauseCircle, PlayCircle, ClipboardCheck, Camera } from 'lucide-react';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
@@ -58,6 +59,8 @@ export default function ShopFloorCommandCenter() {
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
+  const touchPrimary = useIsTouchPrimaryDevice();
 
   const loadAll = async () => {
     try {
@@ -236,8 +239,8 @@ export default function ShopFloorCommandCenter() {
   // match the station being scanned) and "another station's clock is still
   // running" are both wrong-order conditions that gate on confirmation
   // rather than recording silently.
-  const handleStationScan = async (stationId) => {
-    const value = stationScanValue.trim();
+  const handleStationScan = async (stationId, valueOverride) => {
+    const value = (valueOverride ?? stationScanValue).trim();
     if (!value) return;
     const { piece, ambiguous } = matchPieceByScan(pieces, value);
     if (ambiguous) {
@@ -272,6 +275,12 @@ export default function ShopFloorCommandCenter() {
     await recordScanEvent({ piece, stationId });
     setStationScanValue('');
     setStationTargetMinutesInput('');
+  };
+
+  const handleCameraScan = (decodedText) => {
+    setShowCameraScanner(false);
+    setStationScanValue(decodedText);
+    if (detailStation) handleStationScan(detailStation.stationId, decodedText);
   };
 
   const confirmPendingScan = async () => {
@@ -474,6 +483,11 @@ export default function ShopFloorCommandCenter() {
                 <div className="space-y-2 border-b border-neutral-700 pb-3">
                   <Label className="text-xs text-neutral-400">Scanned By (Employee ID)</Label>
                   <Input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="EMP-101" className="bg-neutral-800 border-neutral-700 text-white" />
+                  {touchPrimary && (
+                    <Button size="lg" className="w-full gap-2 steel-gradient text-white border-0" onClick={() => setShowCameraScanner(true)}>
+                      <Camera className="w-5 h-5" />Scan with Camera
+                    </Button>
+                  )}
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Input
                       value={stationScanValue}
@@ -491,6 +505,11 @@ export default function ShopFloorCommandCenter() {
                       className="bg-neutral-800 border-neutral-700 text-white sm:w-40"
                     />
                     <Button onClick={() => handleStationScan(detailStation.stationId)} className="steel-gradient text-white border-0">Scan</Button>
+                    {!touchPrimary && (
+                      <Button variant="outline" className="border-neutral-600 gap-2" onClick={() => setShowCameraScanner(true)}>
+                        <Camera className="w-4 h-4" />Camera
+                      </Button>
+                    )}
                   </div>
                   <p className="text-[11px] text-neutral-500">Scanning starts this station's clock for a piece; scanning it again here completes it.</p>
                 </div>
@@ -645,6 +664,10 @@ export default function ShopFloorCommandCenter() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {showCameraScanner && (
+        <CameraQrScanner onScan={handleCameraScan} onCancel={() => setShowCameraScanner(false)} />
+      )}
     </div>
   );
 }
