@@ -68,6 +68,7 @@ import FrontEndReview from '@/pages/FrontEndReview';
 import ShopFabrication from '@/pages/ShopFabrication';
 import ShopOperations from '@/pages/ShopOperations';
 import DetailerImports from '@/pages/DetailerImports';
+import MaterialOptimization from '@/pages/MaterialOptimization';
 import ShopFloorCommandCenter from '@/pages/ShopFloorCommandCenter';
 import HumanResources from '@/pages/HumanResources';
 import NewEmployee from '@/pages/NewEmployee';
@@ -172,6 +173,7 @@ const AuthenticatedApp = () => {
           <Route path="/shop-fabrication" element={<ShopFabrication />} />
           <Route path="/shop-operations" element={<ShopOperations />} />
           <Route path="/detailer-imports" element={<DetailerImports />} />
+          <Route path="/material-optimization" element={<MaterialOptimization />} />
           <Route path="/shop-floor-command-center" element={<ShopFloorCommandCenter />} />
           <Route path="/accounting" element={<Accounting />} />
           <Route path="/legal" element={<Legal />} />

@@ -5,13 +5,12 @@
 // (commit normally, just flagged) — see DetailerImportedPiece.jsonc's
 // validation_status description for the exact error/warning split.
 import { normalizeScanValue } from '@/lib/pieceScan';
+import { normalizeMaterialProfile as normalizeProfile } from '@/lib/materialProfileMatch';
 
 const isZeroLength = (value) => {
   const digits = String(value || '').replace(/[^0-9]/g, '');
   return digits.length > 0 && /^0+$/.test(digits);
 };
-
-const normalizeProfile = (value) => normalizeScanValue(value).replace(/\s+/g, '');
 
 // catalogSizeDesignations: steel_catalog.size_designation values for the
 // batch's company. Skipped entirely (no warning) when the catalog is empty —

@@ -1,0 +1,49 @@
+{
+  "name": "MaterialOptimizationRun",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "material_group_key": {
+      "type": "string",
+      "description": "Same key groupPiecesByMaterial (src/lib/materialOptimizer.js) uses — normalized \"material_profile::material_grade\". Shape alone is never the key: different grades of the same shape are not interchangeable stock."
+    },
+    "stock_length_used": {
+      "type": "number",
+      "description": "The single stock length (inches) this run was committed against — chosen from compareStockLengthOptions's results, or passed directly to optimizeCutPlan as the only available length. A run always uses one stock length; optimizeCutPlan can evaluate a mixed-length list, but a committed run reflects one chosen length."
+    },
+    "quantity_of_stock_required": {
+      "type": "number",
+      "description": "Number of physical stock lengths (bars) this plan consumes."
+    },
+    "pieces_assigned": {
+      "type": "array",
+      "description": "One entry per physical piece instance: { piece_id, position_in_stock, cut_order }. position_in_stock is the 1-based index of WHICH stock bar the piece is cut from (bar 2 of quantity_of_stock_required, etc.); cut_order restarts at 1 for each bar and gives the cutting sequence within that bar — see toPiecesAssigned in materialOptimizer.js."
+    },
+    "remnant_length_in": {
+      "type": "number",
+      "description": "Total leftover/drop material across all bars (stock length minus pieces minus kerf, summed) — the reusable-offcut portion of waste_in, not yet linked to the remnant_inventory entity."
+    },
+    "waste_in": {
+      "type": "number",
+      "description": "Total material not part of any finished piece: remnant_length_in plus total kerf consumed. Always >= remnant_length_in."
+    },
+    "utilization_pct": {
+      "type": "number",
+      "description": "total piece material / total stock purchased, as a percentage."
+    },
+    "kerf_allowance_used": {
+      "type": "number",
+      "description": "Saw kerf (inches) charged between cuts for this run — an input to the optimizer, stored here so a past run's math is reproducible without re-reading whatever the kerf setting is today."
+    }
+  },
+  "required": [
+    "project_id",
+    "material_group_key",
+    "stock_length_used"
+  ]
+}

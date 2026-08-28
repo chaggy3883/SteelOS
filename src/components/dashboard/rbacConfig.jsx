@@ -18,6 +18,7 @@ export const ALL_MODULES = [
   { path: '/shop-fabrication', label: 'Shop Fabrication' },
   { path: '/shop-operations', label: 'Shop Operations' },
   { path: '/detailer-imports', label: 'Detailer Imports' },
+  { path: '/material-optimization', label: 'Material Optimization' },
   { path: '/shop-floor-command-center', label: 'Shop Floor Command Center' },
   { path: '/shipping', label: 'Shipping' },
   { path: '/quality', label: 'Quality' },
