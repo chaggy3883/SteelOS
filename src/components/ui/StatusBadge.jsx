@@ -42,6 +42,12 @@ const statusConfig = {
   answered: { label: 'Answered', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
   closed: { label: 'Closed', class: 'bg-gray-500/10 text-gray-600 border-gray-500/20' },
   void: { label: 'Void', class: 'bg-red-500/10 text-red-500 border-red-500/20' },
+  // DetailerImportBatch statuses
+  uploaded: { label: 'Uploaded', class: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
+  parsed: { label: 'Parsed', class: 'bg-purple-500/10 text-purple-500 border-purple-500/20' },
+  validated: { label: 'Validated', class: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20' },
+  committed: { label: 'Committed', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
+  error: { label: 'Error', class: 'bg-red-500/10 text-red-500 border-red-500/20' },
 };
 
 export default function StatusBadge({ status, label, className }) {

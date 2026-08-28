@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderKanban, Brain, Users, ShoppingCart,
   Package, Factory, CheckSquare, Truck, DollarSign, BarChart3,
   Settings, ChevronLeft, ChevronRight, Zap, Building2,
-  FileText, Shield, MessageSquare, Layers, Calculator, ShieldCheck, Wrench, UserCog, Gauge, KeyRound, HardHat, Monitor, Radar
+  FileText, Shield, MessageSquare, Layers, Calculator, ShieldCheck, Wrench, UserCog, Gauge, KeyRound, HardHat, Monitor, Radar, FileStack
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { db } from '@/api/apiClient';
@@ -34,6 +34,7 @@ const navGroups = [
       { icon: Wrench, label: 'Shop Fabrication', path: '/shop-fabrication' },
       { icon: Gauge, label: 'Shop Operations', path: '/shop-operations' },
       { icon: Monitor, label: 'Shop Floor Command Center', path: '/shop-floor-command-center' },
+      { icon: FileStack, label: 'Detailer Imports', path: '/detailer-imports' },
       { icon: Truck, label: 'Shipping', path: '/shipping' },
       { icon: HardHat, label: 'Field Operations', path: '/field-operations' },
     ]

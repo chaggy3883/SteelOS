@@ -1,0 +1,32 @@
+{
+  "name": "DetailerImportBatch",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "detailer_name": {
+      "type": "string"
+    },
+    "uploaded_files": {
+      "type": "array",
+      "description": "One entry per uploaded file: { file_id, file_name, file_type, file_url, parsed, parsed_row_count, parsed_error_count }. file_id keys the raw blob in detailerImportBlobStore.js (IndexedDB, per-browser only). parsed/parsed_row_count/parsed_error_count are set once a .csv or .kss file has been staged into DetailerImportedPiece rows; other file types (PDF, DXF, DSTV, etc.) are intake-only and never gain those fields."
+    },
+    "import_status": {
+      "type": "string",
+      "enum": ["uploaded", "parsed", "validated", "committed", "error"],
+      "default": "uploaded",
+      "description": "uploaded: files intake-only, nothing parsed yet. parsed: at least one file has been staged into DetailerImportedPiece rows. validated/committed: later-stage review and promotion-to-PieceMark states, not yet implemented. error: a parse attempt failed outright (unreadable file / no rows found)."
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "detailer_name"
+  ]
+}

@@ -131,6 +131,10 @@
     "scrap_qty": {
       "type": "number",
       "default": 0
+    },
+    "finished_length": {
+      "type": "string",
+      "description": "Detailer-reported finished piece length, kept as the free-text string it arrived in (e.g. \"32'-4 1/2\\\"\") rather than parsed into decimal feet — same precedent as pieces.dimensions. Populated when a DetailerImportedPiece staging row is promoted onto a PieceMark; not yet written by any other path."
     }
   },
   "required": [

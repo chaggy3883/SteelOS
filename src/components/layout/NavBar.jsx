@@ -13,7 +13,7 @@ import {
   ShoppingCart, Package, Factory, Truck, CheckSquare, Shield, Wrench,
   FileText, MessageSquare, BarChart3, DollarSign, Users, Settings,
   ShieldCheck, ChevronDown, Zap, House, Scale, ClipboardList, PackageCheck,
-  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2, Crosshair, CalendarClock, Monitor, Presentation, PlayCircle, LineChart, Percent
+  Globe, Handshake, UserCog, Gauge, KeyRound, ShieldAlert, HardHat, FileSearch, FileEdit, FileSignature, FileCheck2, Crosshair, CalendarClock, Monitor, Presentation, PlayCircle, LineChart, Percent, FileStack
 } from 'lucide-react';
 
 const navGroups = [
@@ -54,6 +54,7 @@ const navGroups = [
       { icon: Gauge, label: 'Shop Operations', path: '/shop-operations' },
       { icon: Monitor, label: 'Shop Floor Command Center', path: '/shop-floor-command-center' },
       { icon: Gauge, label: 'Shop Efficiency', path: '/shop-efficiency' },
+      { icon: FileStack, label: 'Detailer Imports', path: '/detailer-imports' },
       { icon: HardHat, label: 'Field Operations', path: '/field-operations' },
     ]
   },

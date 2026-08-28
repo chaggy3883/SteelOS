@@ -80,6 +80,7 @@ export const PERMISSION_CATALOG = [
     { key: 'tab:/shop-operations:material-overrides', label: 'Material & Overrides' },
     { key: 'tab:/shop-operations:label-printing', label: 'Label Printing' },
   ] },
+  { key: 'module:/detailer-imports', label: 'Detailer Imports' },
   { key: 'module:/shipping', label: 'Shipping', tabs: [
     { key: 'tab:/shipping:list', label: 'Shipping List' },
     { key: 'tab:/shipping:load-builder', label: 'Load Builder' },

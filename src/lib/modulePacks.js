@@ -104,6 +104,7 @@ const SHOP_FAB_ONLY_MODULES = [
   '/inventory',
   '/shipping',
   '/purchasing/receiving-kiosk',
+  '/detailer-imports',
 ];
 
 // Jobsite/erection-site: fleet, rigging, crane/equipment maintenance. A

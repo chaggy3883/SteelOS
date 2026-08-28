@@ -1,0 +1,69 @@
+{
+  "name": "DetailerImportedPiece",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Copied from the parent DetailerImportBatch at parse time, for direct filtering without joining through batch_id."
+    },
+    "batch_id": {
+      "type": "string",
+      "description": "FK to the DetailerImportBatch this row was staged from."
+    },
+    "file_id": {
+      "type": "string",
+      "description": "FK to the specific entry in DetailerImportBatch.uploaded_files this row came from — lets a single file be re-parsed (its old rows deleted and replaced) without touching other files in the same batch."
+    },
+    "piece_mark": {
+      "type": "string"
+    },
+    "assembly": {
+      "type": "string"
+    },
+    "material_profile": {
+      "type": "string",
+      "description": "Shape/size designation as reported by the detailer (e.g. \"W12x26\"). Free text — not validated against the steel_catalog entity."
+    },
+    "material_grade": {
+      "type": "string"
+    },
+    "finished_length": {
+      "type": "string",
+      "description": "Kept as the raw string the detailer reported (e.g. \"32'-4 1/2\\\"\"), not parsed into decimal feet — same precedent as pieces.dimensions. Maps onto PieceMark.finished_length on promotion."
+    },
+    "quantity": {
+      "type": "number",
+      "default": 1
+    },
+    "weight": {
+      "type": "number",
+      "description": "Per-piece weight in pounds, when the source file provides one. Blank (not zero) when the column/field was absent, since KISS detail lines don't always carry a weight."
+    },
+    "drawing_number": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "string"
+    },
+    "raw_row_data": {
+      "type": "object",
+      "description": "The original row exactly as parsed — CSV: {header: cell value} keyed by the file's own column headers; KSS: {kiss field name: raw value} keyed by the KISS detail-line field template. Kept for traceability back to the source file regardless of how the canonical fields above were interpreted."
+    },
+    "validation_status": {
+      "type": "string",
+      "enum": ["valid", "error"],
+      "default": "valid"
+    },
+    "validation_errors": {
+      "type": "array",
+      "description": "Human-readable reasons validation_status is 'error' (e.g. missing piece mark, non-numeric quantity). Empty when validation_status is 'valid'."
+    }
+  },
+  "required": [
+    "batch_id",
+    "piece_mark"
+  ]
+}

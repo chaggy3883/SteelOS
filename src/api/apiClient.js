@@ -134,6 +134,8 @@ const createLocalApi = () => ({
     ProjectJobCostSummary: createEntityApi('ProjectJobCostSummary'),
     ProjectSequenceArea: createEntityApi('ProjectSequenceArea'),
     ShopDrawing: createEntityApi('ShopDrawing'),
+    DetailerImportBatch: createEntityApi('DetailerImportBatch'),
+    DetailerImportedPiece: createEntityApi('DetailerImportedPiece'),
     change_orders: createEntityApi('change_orders'),
     shop_sequences: createEntityApi('shop_sequences'),
     purchase_orders: createEntityApi('purchase_orders'),

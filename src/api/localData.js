@@ -2945,7 +2945,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'Meeting', 'MeetingNoteLog', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification', 'AuditLog', 'FailedAccessLog', 'TmLaborRate', 'TmLaborEstimateLineItem', 'TmMaterialLineItem', 'TmSubcontractorLineItem', 'TmMaterialUsage', 'BankIntegrationConfig', 'EmployeeBankAccount', 'AchOutgoing', 'AchIncoming', 'candidate_profiles', 'candidate_documents', 'employee_hiring_documents', 'Payment', 'Memo'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'Meeting', 'MeetingNoteLog', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification', 'AuditLog', 'FailedAccessLog', 'TmLaborRate', 'TmLaborEstimateLineItem', 'TmMaterialLineItem', 'TmSubcontractorLineItem', 'TmMaterialUsage', 'BankIntegrationConfig', 'EmployeeBankAccount', 'AchOutgoing', 'AchIncoming', 'candidate_profiles', 'candidate_documents', 'employee_hiring_documents', 'Payment', 'Memo', 'DetailerImportBatch', 'DetailerImportedPiece'];
 
 // A super_admin session NEVER falls back to its own User row's company_id —
 // even a seeded demo account holding both 'admin' and 'super_admin' plus a
@@ -3257,11 +3257,18 @@ export const createEntityApi = (entityName) => {
       return items.slice(0, limit);
     },
 
-    async create(data = {}) {
+    // skipAudit is for one-shot demo/seed inserts only (see
+    // demoDataSeeder.js) — synthetic seed data has no audit value, and
+    // logging it anyway just bloats AuditLog on every fresh seed. It leaves
+    // normalizeRecord/stampTenant (id generation, tenant scoping) untouched;
+    // only the buildAuditLogEntries call is skipped. No real write path
+    // passes this — every caller elsewhere in the app omits it, so real user
+    // actions are audited exactly as before.
+    async create(data = {}, { skipAudit = false } = {}) {
       enforcePaintStationLock(entityName, data);
       const record = normalizeRecord(entityName, stampTenant(entityName, data));
       collection.push(record);
-      persist(buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
+      persist(skipAudit ? [] : buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
       return record;
     },
 
@@ -3318,12 +3325,13 @@ export const createEntityApi = (entityName) => {
       return changed;
     },
 
-    async bulkCreate(items = []) {
+    // skipAudit — see create() above; same one-shot-seed-only contract.
+    async bulkCreate(items = [], { skipAudit = false } = {}) {
       const auditEntries = [];
       const created = items.map((item) => {
         const record = normalizeRecord(entityName, stampTenant(entityName, item));
         collection.push(record);
-        auditEntries.push(...buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
+        if (!skipAudit) auditEntries.push(...buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
         return record;
       });
       persist(auditEntries);
