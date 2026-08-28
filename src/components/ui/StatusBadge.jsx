@@ -48,6 +48,8 @@ const statusConfig = {
   validated: { label: 'Validated', class: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20' },
   committed: { label: 'Committed', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
   error: { label: 'Error', class: 'bg-red-500/10 text-red-500 border-red-500/20' },
+  // DetailerImportedPiece.validation_status
+  valid: { label: 'Valid', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
 };
 
 export default function StatusBadge({ status, label, className }) {

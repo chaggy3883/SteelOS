@@ -4,6 +4,7 @@ import { getEffectiveCompanyId } from '@/lib/tenantContext';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { saveDetailerImportFile, getDetailerImportFileUrl, deleteDetailerImportFile, createDetailerImportFileId } from '@/lib/detailerImportBlobStore';
 import { parseDetailerImportFile, isParsableDetailerFile } from '@/lib/detailerImportParser';
+import BatchReviewModal from '@/components/detailer-imports/BatchReviewModal';
 import { useAuth } from '@/lib/AuthContext';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -11,13 +12,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { FileStack, Upload, Trash2, Eye, FolderOpen, FileScan, ChevronDown, ChevronRight } from 'lucide-react';
+import { FileStack, Upload, Trash2, Eye, FolderOpen, FileScan, ChevronDown, ChevronRight, ClipboardCheck } from 'lucide-react';
 
-// STAGE 1 SHELL + STAGE 2 (CSV/KSS import): the batch/file intake path
-// proves association/storage; parsing (this stage) reads a .csv or .kss
-// file's content and stages it into DetailerImportedPiece rows for review —
-// nothing here writes to PieceMark yet, that promotion step is a later
-// stage.
+// STAGE 1 SHELL + STAGE 2 (CSV/KSS import) + STAGE 3 (validation/commit): the
+// batch/file intake path proves association/storage; parsing reads a .csv or
+// .kss file's content and stages it into DetailerImportedPiece rows;
+// Review & Commit (BatchReviewModal) validates the whole batch and promotes
+// non-error rows onto real PieceMark records.
 export default function DetailerImports() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -33,6 +34,7 @@ export default function DetailerImports() {
   const [parsingFileId, setParsingFileId] = useState(null);
   const [expandedFileId, setExpandedFileId] = useState(null);
   const [stagedRowsByFile, setStagedRowsByFile] = useState({});
+  const [reviewBatch, setReviewBatch] = useState(null);
   const fileObjectUrls = useRef({});
 
   useEffect(() => () => {
@@ -229,7 +231,7 @@ export default function DetailerImports() {
     <div className="p-6 max-w-5xl mx-auto">
       <PageHeader
         title="Detailer Imports"
-        subtitle="Upload detailer-supplied files against a project. This is intake only — parsing and PieceMark creation come in later stages."
+        subtitle="Upload detailer-supplied files against a project, parse CSV/KSS files into staged rows, then review and commit them onto PieceMark records."
       />
 
       <div className="steel-card p-5 space-y-4">
@@ -319,6 +321,17 @@ export default function DetailerImports() {
                     </div>
                     <div className="flex items-center gap-3">
                       <StatusBadge status={batch.import_status} />
+                      {['parsed', 'validated', 'committed'].includes(batch.import_status) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1"
+                          onClick={(event) => { event.stopPropagation(); setReviewBatch(batch); }}
+                        >
+                          <ClipboardCheck className="w-3.5 h-3.5" /> Review &amp; Commit
+                        </Button>
+                      )}
                       <span
                         role="button"
                         tabIndex={0}
@@ -406,13 +419,11 @@ export default function DetailerImports() {
                                           <td className="py-1 pr-3">{row.weight ?? '—'}</td>
                                           <td className="py-1 pr-3">{row.drawing_number || '—'}{row.revision ? ` / ${row.revision}` : ''}</td>
                                           <td className="py-1 pr-3">
-                                            <StatusBadge
-                                              status={row.validation_status}
-                                              label={row.validation_status === 'error' ? 'error' : 'valid'}
-                                              className={row.validation_status === 'error' ? undefined : 'bg-green-500/10 text-green-500 border-green-500/20'}
-                                            />
-                                            {row.validation_status === 'error' && row.validation_errors?.length > 0 && (
-                                              <span className="block text-[11px] text-destructive mt-0.5">{row.validation_errors.join('; ')}</span>
+                                            <StatusBadge status={row.validation_status} />
+                                            {(row.validation_errors?.length > 0 || row.validation_warnings?.length > 0) && (
+                                              <span className="block text-[11px] text-muted-foreground mt-0.5">
+                                                {[...(row.validation_errors || []), ...(row.validation_warnings || [])].join('; ')}
+                                              </span>
                                             )}
                                           </td>
                                         </tr>
@@ -433,6 +444,17 @@ export default function DetailerImports() {
           </div>
         )}
       </div>
+
+      {reviewBatch && (
+        <BatchReviewModal
+          batch={reviewBatch}
+          onClose={() => setReviewBatch(null)}
+          onBatchUpdated={(updatedBatch) => {
+            setBatches((current) => current.map((b) => (b.id === updatedBatch.id ? updatedBatch : b)));
+            setStagedRowsByFile({});
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -123,6 +123,7 @@ export const parseDetailerCsvFile = (text) => {
         raw_row_data,
         validation_status: errors.length ? 'error' : 'valid',
         validation_errors: errors,
+        validation_warnings: [],
       };
     });
 
@@ -179,6 +180,7 @@ export const parseDetailerKssFile = (text) => {
       raw_row_data,
       validation_status: errors.length ? 'error' : 'valid',
       validation_errors: errors,
+      validation_warnings: [],
     });
   }
 

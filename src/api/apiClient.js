@@ -136,6 +136,7 @@ const createLocalApi = () => ({
     ShopDrawing: createEntityApi('ShopDrawing'),
     DetailerImportBatch: createEntityApi('DetailerImportBatch'),
     DetailerImportedPiece: createEntityApi('DetailerImportedPiece'),
+    StockLengthOption: createEntityApi('StockLengthOption'),
     change_orders: createEntityApi('change_orders'),
     shop_sequences: createEntityApi('shop_sequences'),
     purchase_orders: createEntityApi('purchase_orders'),

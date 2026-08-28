@@ -1,0 +1,33 @@
+{
+  "name": "StockLengthOption",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "steel_catalog_item_id": {
+      "type": "string",
+      "description": "FK to steel_catalog's own generated id (not its human-readable item_id field) — the specific shape/size this stock length belongs to."
+    },
+    "stock_length_in": {
+      "type": "number",
+      "description": "Stock bar/plate/shape length as it arrives from the mill/service center, in inches."
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "vendor_id": {
+      "type": "string",
+      "description": "Optional FK to Vendor — the preferred supplier for this stock length, when one is set. Blank means no preferred vendor."
+    },
+    "cost_per_length": {
+      "type": "number",
+      "description": "Optional cost for one full stock length from vendor_id, when known. Blank, not zero, when unknown."
+    }
+  },
+  "required": [
+    "steel_catalog_item_id",
+    "stock_length_in"
+  ]
+}

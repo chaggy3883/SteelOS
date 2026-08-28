@@ -54,12 +54,26 @@
     },
     "validation_status": {
       "type": "string",
-      "enum": ["valid", "error"],
-      "default": "valid"
+      "enum": ["valid", "warning", "error"],
+      "default": "valid",
+      "description": "'error' rows are excluded from commit (missing/duplicate piece mark, non-numeric quantity/weight); 'warning' rows commit normally but are flagged for review (missing material profile/grade/finished length, no matching steel_catalog shape). Set at parse time ('valid'/'error' only) and recomputed batch-wide by validateBatchRows (src/lib/detailerImportValidation.js) when the review screen opens, which is also where 'warning' first appears and where duplicate-within-batch detection happens."
     },
     "validation_errors": {
       "type": "array",
-      "description": "Human-readable reasons validation_status is 'error' (e.g. missing piece mark, non-numeric quantity). Empty when validation_status is 'valid'."
+      "description": "Human-readable reasons validation_status is 'error'. Empty otherwise."
+    },
+    "validation_warnings": {
+      "type": "array",
+      "description": "Human-readable non-blocking review notes (set only by the batch-wide review pass, never at parse time). Empty when validation_status is 'valid' or 'error'."
+    },
+    "committed": {
+      "type": "boolean",
+      "default": false,
+      "description": "True once this row has been promoted onto a PieceMark via the batch commit action. Committing is idempotent/incremental — re-running commit on a batch skips rows already committed."
+    },
+    "piece_mark_id": {
+      "type": "string",
+      "description": "FK to the PieceMark record this row was committed onto (created or matched-and-updated). Blank until committed."
     }
   },
   "required": [

@@ -135,6 +135,14 @@
     "finished_length": {
       "type": "string",
       "description": "Detailer-reported finished piece length, kept as the free-text string it arrived in (e.g. \"32'-4 1/2\\\"\") rather than parsed into decimal feet — same precedent as pieces.dimensions. Populated when a DetailerImportedPiece staging row is promoted onto a PieceMark; not yet written by any other path."
+    },
+    "material_profile": {
+      "type": "string",
+      "description": "Shape/size designation as reported by the detailer (e.g. \"W12x26\"), free text — not validated against steel_catalog on this field itself (that check happens earlier, at DetailerImportedPiece review). Populated on promotion from a DetailerImportedPiece row; not yet written by any other path."
+    },
+    "revision": {
+      "type": "string",
+      "description": "Drawing revision letter/number (e.g. \"A\", \"R1\"). Populated on promotion from a DetailerImportedPiece row; not yet written by any other path."
     }
   },
   "required": [

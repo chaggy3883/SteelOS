@@ -6,8 +6,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, UploadCloud, Plus, Trash2 } from 'lucide-react';
+import { Loader2, UploadCloud, Plus, Trash2, Ruler } from 'lucide-react';
 import { SHAPE_CLASSES } from '@/data/steelShapeSelector';
+import StockLengthOptionsModal from '@/components/settings/StockLengthOptionsModal';
 
 // Round HSS/Pipe is a real product family this importer now accepts, but
 // steelShapeSelector.js's SHAPE_CLASSES (shared with BlueprintTakeoff.jsx
@@ -284,6 +285,7 @@ export default function SteelCatalogPanel() {
   const [newClass, setNewClass] = useState(SHAPE_CLASSES[0].value);
   const [newSizeId, setNewSizeId] = useState('');
   const [savingSize, setSavingSize] = useState(false);
+  const [stockLengthItem, setStockLengthItem] = useState(null);
 
   useEffect(() => { loadCatalog(); }, []);
 
@@ -442,6 +444,9 @@ export default function SteelCatalogPanel() {
                     <span key={row.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs">
                       {row.size_designation}
                       {row.is_custom && <span className="text-primary font-semibold">•custom</span>}
+                      <button onClick={() => setStockLengthItem(row)} className="text-muted-foreground hover:text-primary" title="Manage stock lengths">
+                        <Ruler className="w-3 h-3" />
+                      </button>
                       <button onClick={() => handleDelete(row)} className="text-muted-foreground hover:text-destructive">
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -455,6 +460,10 @@ export default function SteelCatalogPanel() {
           ))}
         </div>
       </div>
+
+      {stockLengthItem && (
+        <StockLengthOptionsModal item={stockLengthItem} onClose={() => setStockLengthItem(null)} />
+      )}
     </div>
   );
 }

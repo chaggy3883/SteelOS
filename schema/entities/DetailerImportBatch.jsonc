@@ -19,7 +19,7 @@
       "type": "string",
       "enum": ["uploaded", "parsed", "validated", "committed", "error"],
       "default": "uploaded",
-      "description": "uploaded: files intake-only, nothing parsed yet. parsed: at least one file has been staged into DetailerImportedPiece rows. validated/committed: later-stage review and promotion-to-PieceMark states, not yet implemented. error: a parse attempt failed outright (unreadable file / no rows found)."
+      "description": "uploaded: files intake-only, nothing parsed yet. parsed: at least one file has been staged into DetailerImportedPiece rows. validated: the review screen has run batch-wide validation (duplicate piece marks, missing fields, catalog-shape matching) at least once. committed: the Commit action has run at least once (non-error rows promoted onto PieceMark) — a batch can still have error rows left over even once committed, since commit skips them rather than blocking the whole batch. error: a parse attempt failed outright (unreadable file / no rows found)."
     },
     "created_by": {
       "type": "string"
