@@ -46,6 +46,10 @@
     "is_fully_received": {
       "type": "boolean",
       "default": false
+    },
+    "material_optimization_run_id": {
+      "type": "string",
+      "description": "Optional back-reference to the MaterialOptimizationRun this line was auto-generated for (src/lib/materialOptimizationCommit.js), when the line was created by committing a cut plan rather than entered manually. Blank for every manually-entered line."
     }
   },
   "required": [

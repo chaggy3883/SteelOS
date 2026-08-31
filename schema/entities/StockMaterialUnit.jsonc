@@ -1,0 +1,40 @@
+{
+  "name": "StockMaterialUnit",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "material_optimization_run_id": {
+      "type": "string",
+      "description": "FK to the MaterialOptimizationRun this stock bar belongs to."
+    },
+    "unit_number": {
+      "type": "string",
+      "description": "Human-readable label, e.g. \"Stock #7\". Numbered 1..quantity_of_stock_required WITHIN its own run (matching that run's pieces_assigned.position_in_stock), not a company-wide running count — two different runs can each have a \"Stock #1\"."
+    },
+    "purchase_order_line_id": {
+      "type": "string",
+      "description": "FK to purchase_order_lines — set to the single line covering this run's whole stock_length_used quantity (every unit in a run shares the same line id), when materialOptimizationCommit.js was able to auto-generate a PO line (a preferred vendor was configured on the matching StockLengthOption). Blank until then, and permanently blank if no vendor was ever configured."
+    },
+    "received_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Set when this specific physical bar is received. Blank until then."
+    },
+    "heat_number": {
+      "type": "string",
+      "description": "Populated at receiving (mill certification / MTR heat number for this specific bar) — not yet wired to a receiving UI as of Stage 7; still null through commit."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["planned", "ordered", "received", "consumed"],
+      "default": "planned",
+      "description": "planned: created at commit, no PO line (no vendor configured yet). ordered: a purchase_order_line_id was assigned at commit time. received/consumed: later lifecycle states, not yet written by any path as of Stage 7."
+    }
+  },
+  "required": [
+    "material_optimization_run_id",
+    "unit_number"
+  ]
+}

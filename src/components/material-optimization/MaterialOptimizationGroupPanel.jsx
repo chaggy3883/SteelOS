@@ -1,19 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { getEffectiveCompanyId } from '@/lib/tenantContext';
-import { optimizeCutPlan, compareStockLengthOptions, toPiecesAssigned, getPieceLengthInches } from '@/lib/materialOptimizer';
+import { optimizeCutPlan, compareStockLengthOptions, getPieceLengthInches } from '@/lib/materialOptimizer';
+import { commitMaterialOptimizationRun } from '@/lib/materialOptimizationCommit';
 import { normalizeMaterialProfile } from '@/lib/materialProfileMatch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Scissors, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Loader2, Scissors, CheckCircle2, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 
 // STAGE 5: one panel per material group (shape + grade). Shows the pieces in
 // the group, the stock-length comparison (compareStockLengthOptions), a live
 // preview of the chosen length's cut plan (optimizeCutPlan) — re-runnable
-// against a different length before anything is written — and the commit
-// action that writes one MaterialOptimizationRun.
+// against a different length before anything is written.
+// STAGE 6/7: commit hands the preview off to materialOptimizationCommit.js,
+// which writes the MaterialOptimizationRun, a StockMaterialUnit per bar, and
+// (when a preferred vendor is configured) a purchase_order_lines row.
 export default function MaterialOptimizationGroupPanel({ group, projectId }) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -25,6 +27,8 @@ export default function MaterialOptimizationGroupPanel({ group, projectId }) {
   const [previewPlan, setPreviewPlan] = useState(null);
   const [committing, setCommitting] = useState(false);
   const [pastRuns, setPastRuns] = useState([]);
+  const [expandedRunId, setExpandedRunId] = useState(null);
+  const [unitsByRun, setUnitsByRun] = useState({});
 
   const piecesById = useMemo(() => new Map(group.pieces.map((p) => [p.id, p])), [group.pieces]);
 
@@ -83,25 +87,32 @@ export default function MaterialOptimizationGroupPanel({ group, projectId }) {
     setCommitting(true);
     try {
       const kerf = parseFloat(kerfInput) || 0;
-      const record = await db.entities.MaterialOptimizationRun.create({
-        company_id: getEffectiveCompanyId(),
-        project_id: projectId,
-        material_group_key: group.group_key,
-        stock_length_used: selectedLength,
-        quantity_of_stock_required: previewPlan.totals.quantity_of_stock_required,
-        pieces_assigned: toPiecesAssigned(previewPlan.bins),
-        remnant_length_in: previewPlan.totals.remnant_length_in,
-        waste_in: previewPlan.totals.waste_in,
-        utilization_pct: previewPlan.totals.utilization_pct,
-        kerf_allowance_used: kerf,
+      const { run, units, purchaseOrderLine } = await commitMaterialOptimizationRun({
+        projectId, group, catalogItem: catalogMatch, plan: previewPlan, selectedLength, kerf,
       });
-      setPastRuns((current) => [record, ...current]);
-      toast({ title: `Committed: ${previewPlan.totals.quantity_of_stock_required} stock length(s), ${previewPlan.totals.utilization_pct}% utilization` });
+      setPastRuns((current) => [run, ...current]);
+      setUnitsByRun((current) => ({ ...current, [run.id]: units }));
+      toast({
+        title: `Committed: ${previewPlan.totals.quantity_of_stock_required} stock length(s), ${previewPlan.totals.utilization_pct}% utilization`,
+        description: purchaseOrderLine ? `Added to PO line — ${units.length} stock unit(s) marked ordered.` : 'No preferred vendor configured for this stock length — units left as planned, no PO generated.',
+      });
     } catch (e) {
       toast({ title: 'Commit failed', variant: 'destructive' });
     } finally {
       setCommitting(false);
     }
+  };
+
+  const toggleRunUnits = async (run) => {
+    if (expandedRunId === run.id) {
+      setExpandedRunId(null);
+      return;
+    }
+    if (!unitsByRun[run.id]) {
+      const units = await db.entities.StockMaterialUnit.filter({ material_optimization_run_id: run.id }, 'unit_number', 500);
+      setUnitsByRun((current) => ({ ...current, [run.id]: units }));
+    }
+    setExpandedRunId(run.id);
   };
 
   const totalQuantity = group.pieces.reduce((sum, p) => sum + (Number(p.quantity) || 1), 0);
@@ -247,6 +258,7 @@ export default function MaterialOptimizationGroupPanel({ group, projectId }) {
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-muted-foreground border-b border-border">
+                <th className="py-1 pr-3"></th>
                 <th className="py-1 pr-3">Date</th>
                 <th className="py-1 pr-3">Stock Length</th>
                 <th className="py-1 pr-3">Stock Required</th>
@@ -255,15 +267,54 @@ export default function MaterialOptimizationGroupPanel({ group, projectId }) {
               </tr>
             </thead>
             <tbody>
-              {pastRuns.map((run) => (
-                <tr key={run.id} className="border-b border-border/50 last:border-0">
-                  <td className="py-1 pr-3">{run.created_date ? new Date(run.created_date).toLocaleString() : '—'}</td>
-                  <td className="py-1 pr-3">{run.stock_length_used}"</td>
-                  <td className="py-1 pr-3">{run.quantity_of_stock_required}</td>
-                  <td className="py-1 pr-3">{run.utilization_pct}%</td>
-                  <td className="py-1 pr-3">{run.waste_in}</td>
-                </tr>
-              ))}
+              {pastRuns.map((run) => {
+                const runExpanded = expandedRunId === run.id;
+                const units = unitsByRun[run.id] || [];
+                return (
+                  <React.Fragment key={run.id}>
+                    <tr className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-muted/30" onClick={() => toggleRunUnits(run)}>
+                      <td className="py-1 pr-3">{runExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}</td>
+                      <td className="py-1 pr-3">{run.created_date ? new Date(run.created_date).toLocaleString() : '—'}</td>
+                      <td className="py-1 pr-3">{run.stock_length_used}"</td>
+                      <td className="py-1 pr-3">{run.quantity_of_stock_required}</td>
+                      <td className="py-1 pr-3">{run.utilization_pct}%</td>
+                      <td className="py-1 pr-3">{run.waste_in}</td>
+                    </tr>
+                    {runExpanded && (
+                      <tr>
+                        <td colSpan={6} className="py-2 pl-6 pr-3 bg-muted/20">
+                          {units.length === 0 ? (
+                            <p className="text-muted-foreground py-1">No stock units found.</p>
+                          ) : (
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="text-left text-muted-foreground border-b border-border">
+                                  <th className="py-1 pr-3">Unit</th>
+                                  <th className="py-1 pr-3">Status</th>
+                                  <th className="py-1 pr-3">Heat Number</th>
+                                  <th className="py-1 pr-3">Received</th>
+                                  <th className="py-1 pr-3">PO Line</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {units.map((unit) => (
+                                  <tr key={unit.id} className="border-b border-border/30 last:border-0">
+                                    <td className="py-1 pr-3">{unit.unit_number}</td>
+                                    <td className="py-1 pr-3 capitalize">{unit.status}</td>
+                                    <td className="py-1 pr-3">{unit.heat_number || '—'}</td>
+                                    <td className="py-1 pr-3">{unit.received_date ? new Date(unit.received_date).toLocaleDateString() : '—'}</td>
+                                    <td className="py-1 pr-3">{unit.purchase_order_line_id ? 'Linked' : '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

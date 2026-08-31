@@ -22,7 +22,7 @@
     },
     "pieces_assigned": {
       "type": "array",
-      "description": "One entry per physical piece instance: { piece_id, position_in_stock, cut_order }. position_in_stock is the 1-based index of WHICH stock bar the piece is cut from (bar 2 of quantity_of_stock_required, etc.); cut_order restarts at 1 for each bar and gives the cutting sequence within that bar — see toPiecesAssigned in materialOptimizer.js."
+      "description": "One entry per physical piece instance: { piece_id, position_in_stock, cut_order, stock_material_unit_id }. position_in_stock is the 1-based index of WHICH stock bar the piece is cut from (bar 2 of quantity_of_stock_required, etc.); cut_order restarts at 1 for each bar and gives the cutting sequence within that bar — see toPiecesAssigned in materialOptimizer.js. stock_material_unit_id (added by materialOptimizationCommit.js right after the StockMaterialUnit rows are created, so toPiecesAssigned itself doesn't know their ids yet) is the same bar's StockMaterialUnit.id — the queryable-both-directions link: from a piece, read this field directly; from a StockMaterialUnit, read its own material_optimization_run_id, fetch this run, and filter pieces_assigned by stock_material_unit_id."
     },
     "remnant_length_in": {
       "type": "number",
