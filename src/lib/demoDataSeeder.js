@@ -1446,8 +1446,13 @@ export async function seedDemoData() {
     { period_start: daysFromNow(-14), period_end: daysFromNow(-1), pay_date: daysFromNow(2), frequency: 'biweekly', status: 'open' },
   ], { skipAudit: true });
 
+  // Job-cost posting linkage (posted_to_job_cost/job_cost_entry_ids) is
+  // resolved up front, into these draft payloads, instead of via a
+  // per-employee update() pass after insert — that lets the one
+  // PayrollRegisterLine.bulkCreate below go in with skipAudit (see its call
+  // site) rather than an audited bulkCreate plus N further audited updates.
   const postedRegisterPayloads = employees.map((emp) => {
-    const { regularMinutes, overtimeMinutes } = computePayrollPeriodMinutes(emp.id, postedPeriod.period_start, postedPeriod.period_end);
+    const { regularMinutes, overtimeMinutes, totalMinutes, projectMinutes } = computePayrollPeriodMinutes(emp.id, postedPeriod.period_start, postedPeriod.period_end);
     const payType = emp.pay_type || 'hourly';
     const exempt = !!emp.is_flsa_exempt;
     const regularHours = Math.round((regularMinutes / 60) * 100) / 100;
@@ -1483,20 +1488,20 @@ export async function seedDemoData() {
       gross_pay_cents: grossPayCents,
       posted_to_job_cost: false,
       job_cost_entry_ids: [],
+      // Draft-only scratch fields, stripped below before the real insert.
+      _totalMinutes: totalMinutes,
+      _projectMinutes: projectMinutes,
     };
   });
-  const postedRegisterLines = await db.entities.PayrollRegisterLine.bulkCreate(postedRegisterPayloads);
 
   const payrollProjectTotals = {};
-  postedRegisterLines.forEach((line) => {
-    const emp = employees.find((e) => e.id === line.employee_id);
-    if (!emp) return;
-    const { totalMinutes, projectMinutes } = computePayrollPeriodMinutes(emp.id, postedPeriod.period_start, postedPeriod.period_end);
+  postedRegisterPayloads.forEach((payload) => {
+    const { _totalMinutes: totalMinutes, _projectMinutes: projectMinutes, gross_pay_cents: grossPayCents } = payload;
     if (totalMinutes <= 0) return;
     Object.entries(projectMinutes).forEach(([projectId, minutes]) => {
       if (!projectId) return;
       const share = minutes / totalMinutes;
-      const projDollars = (line.gross_pay_cents * share) / 100;
+      const projDollars = (grossPayCents * share) / 100;
       if (!payrollProjectTotals[projectId]) payrollProjectTotals[projectId] = { hours: 0, dollars: 0 };
       payrollProjectTotals[projectId].hours += minutes / 60;
       payrollProjectTotals[projectId].dollars += projDollars;
@@ -1516,6 +1521,29 @@ export async function seedDemoData() {
     }))
   );
 
+  const payrollEntryIdByProject = {};
+  Object.keys(payrollProjectTotals).forEach((projectId, i) => { payrollEntryIdByProject[projectId] = payrollJobCostEntries[i].id; });
+
+  postedRegisterPayloads.forEach((payload) => {
+    const relevantEntryIds = Object.keys(payload._projectMinutes)
+      .filter((pid) => pid && payrollEntryIdByProject[pid])
+      .map((pid) => payrollEntryIdByProject[pid]);
+    if (relevantEntryIds.length > 0) {
+      payload.posted_to_job_cost = true;
+      payload.job_cost_entry_ids = relevantEntryIds;
+    }
+    delete payload._totalMinutes;
+    delete payload._projectMinutes;
+  });
+
+  // skipAudit: PayrollRegisterLine here is synthetic seed data, not a real
+  // user action — logging it to AuditLog has zero audit value and just
+  // bloats it on every fresh seed (same rationale as the PayPeriod/
+  // PayrollRun seeds above; see src/api/localData.js's createEntityApi for
+  // the contract). Job-cost posting linkage is already resolved into the
+  // payloads above, so this single bulkCreate is the only write needed.
+  const postedRegisterLines = await db.entities.PayrollRegisterLine.bulkCreate(postedRegisterPayloads, { skipAudit: true });
+
   // Guard against PayrollProcessing.jsx — the sole payroll pipeline now that
   // Payroll.jsx (whose register/job-cost-posting shape this synthetic period
   // otherwise mirrors) has been retired — re-running against this exact
@@ -1534,18 +1562,6 @@ export async function seedDemoData() {
     locked_by: 'Demo Data Seeder',
     locked_at: isoDaysFromNow(-12),
   }, { skipAudit: true });
-
-  const payrollEntryIdByProject = {};
-  Object.keys(payrollProjectTotals).forEach((projectId, i) => { payrollEntryIdByProject[projectId] = payrollJobCostEntries[i].id; });
-
-  await Promise.all(postedRegisterLines.map((line) => {
-    const emp = employees.find((e) => e.id === line.employee_id);
-    if (!emp) return null;
-    const { projectMinutes } = computePayrollPeriodMinutes(emp.id, postedPeriod.period_start, postedPeriod.period_end);
-    const relevantEntryIds = Object.keys(projectMinutes).filter((pid) => pid && payrollEntryIdByProject[pid]).map((pid) => payrollEntryIdByProject[pid]);
-    if (relevantEntryIds.length === 0) return null;
-    return db.entities.PayrollRegisterLine.update(line.id, { posted_to_job_cost: true, job_cost_entry_ids: relevantEntryIds });
-  }));
 
   return {
     skipped: false,
