@@ -79,9 +79,6 @@ export default function BidInternalBreakdownPrintView({ bid }) {
           <img src={companyLogoUrl} alt="Company logo" className="h-12 object-contain" />
         ) : null}
       </div>
-      <p className="text-xs font-semibold text-red-600 mb-6 uppercase tracking-wide">
-        Internal use only — contains markup and margin data. Not for customer distribution.
-      </p>
 
       <div className="grid grid-cols-2 gap-4 mb-6 border border-gray-300 rounded p-4 text-sm">
         <div><span className="text-gray-500">Job Name</span><p className="font-semibold">{bid.job_name}</p></div>
