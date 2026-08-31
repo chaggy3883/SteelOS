@@ -12,11 +12,11 @@ import { FileCheck2, ArrowLeft, ArrowRight, UserPlus } from 'lucide-react';
 
 const STEP_LABELS = ['Personal Info', 'Job Info', 'Documents', 'Review'];
 
-const emptyForm = (positions) => ({
+const emptyForm = (positions, jobTitles) => ({
   full_name: '', dob: '', address_street: '', address_city: '', address_state: '', address_zip: '',
   phone: '', personal_email: '', ssn_last4: '',
   emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '',
-  classification: positions[0] || '', hire_date: new Date().toISOString().slice(0, 10),
+  job_title: jobTitles[0] || '', classification: positions[0] || '', hire_date: new Date().toISOString().slice(0, 10),
   pay_type: 'hourly', pay_rate_cents: '', annual_salary_cents: '',
   department: '', platform_roles: [], supervisor_name: '',
 });
@@ -32,10 +32,10 @@ function FileBadge({ file }) {
   );
 }
 
-export default function AddEmployeeWizard({ positions, allRoles, onEmployeeCreated }) {
+export default function AddEmployeeWizard({ positions, jobTitles, allRoles, onEmployeeCreated }) {
   const { toast } = useToast();
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState(() => emptyForm(positions));
+  const [form, setForm] = useState(() => emptyForm(positions, jobTitles));
   const [docs, setDocs] = useState(emptyDocs());
   const [companyTemplate, setCompanyTemplate] = useState({ label: '', file: null });
   const [creating, setCreating] = useState(false);
@@ -44,7 +44,7 @@ export default function AddEmployeeWizard({ positions, allRoles, onEmployeeCreat
   const setInput = (field) => (e) => set(field)(e.target.value);
 
   const resetWizard = () => {
-    setForm(emptyForm(positions));
+    setForm(emptyForm(positions, jobTitles));
     setDocs(emptyDocs());
     setCompanyTemplate({ label: '', file: null });
     setStep(1);
@@ -163,7 +163,16 @@ export default function AddEmployeeWizard({ positions, allRoles, onEmployeeCreat
       {step === 2 && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Position / Classification</Label>
+            <Label>Job Title</Label>
+            <Select value={form.job_title} onValueChange={set('job_title')}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {jobTitles.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Classification</Label>
             <Select value={form.classification} onValueChange={set('classification')}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -259,7 +268,8 @@ export default function AddEmployeeWizard({ positions, allRoles, onEmployeeCreat
           <div className="pt-3 border-t border-border/50">
             <p className="text-xs font-semibold text-muted-foreground mb-2">Job Info</p>
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <p><span className="text-muted-foreground">Position:</span> {form.classification}</p>
+              <p><span className="text-muted-foreground">Job Title:</span> {form.job_title}</p>
+              <p><span className="text-muted-foreground">Classification:</span> {form.classification}</p>
               <p><span className="text-muted-foreground">Hire Date:</span> {form.hire_date}</p>
               <p><span className="text-muted-foreground">Pay:</span> {payLabel}</p>
               <p><span className="text-muted-foreground">Department:</span> {form.department || '—'}</p>

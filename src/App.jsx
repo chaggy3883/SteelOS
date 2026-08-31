@@ -72,6 +72,7 @@ import MaterialOptimization from '@/pages/MaterialOptimization';
 import ShopFloorCommandCenter from '@/pages/ShopFloorCommandCenter';
 import HumanResources from '@/pages/HumanResources';
 import NewEmployee from '@/pages/NewEmployee';
+import NewCandidate from '@/pages/NewCandidate';
 import AdminEmployees from '@/pages/AdminEmployees';
 import PayrollHours from '@/pages/PayrollHours';
 import PayrollSetup from '@/pages/PayrollSetup';
@@ -181,6 +182,7 @@ const AuthenticatedApp = () => {
           <Route path="/users" element={<Users />} />
           <Route path="/human-resources" element={<HumanResources />} />
           <Route path="/human-resources/new-employee" element={<NewEmployee />} />
+          <Route path="/human-resources/new-candidate" element={<NewCandidate />} />
           {/* Payroll.jsx retired — its pipeline could double-post labor to
               JobCostLedgerEntry against PayrollProcessing.jsx without either
               knowing about the other. Redirect rather than 404 for anyone

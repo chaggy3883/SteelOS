@@ -19,7 +19,6 @@ import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import EmployeeProfileDialog from '@/components/hr/EmployeeProfileDialog';
 import EmergencyContactPanel from '@/components/hr/EmergencyContactPanel';
-import AddEmployeeWizard from '@/components/hr/AddEmployeeWizard';
 import EmployeeFilesPanel from '@/components/hr/EmployeeFilesPanel';
 import CandidateApplicationDialog from '@/components/hr/CandidateApplicationDialog';
 import HiringDocumentsPanel from '@/components/hr/HiringDocumentsPanel';
@@ -31,7 +30,15 @@ import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
 import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse, CalendarPlus, FileText, History } from 'lucide-react';
 
+// Classification is the prevailing-wage/certified-payroll labor
+// classification (certifiedPayrollReport.js) — kept separate from
+// job_title (general HR title, JOB_TITLES below). "Welder" stays here even
+// though it's been folded into "Fabricator" for job_title purposes, since
+// certified payroll still needs the distinct wage classification.
 export const POSITIONS = ['Ironworker', 'Welder', 'Fabricator', 'Painter', 'Shop Manager', 'Inspector', 'Office'];
+// General HR job title, offered on Add Employee and candidate intake (position
+// applied for) — distinct from POSITIONS/classification above.
+export const JOB_TITLES = ['Ironworker', 'Fabricator', 'Laborer', 'Painter', 'Shop Manager', 'Inspector', 'Office', 'Driver', 'Operator', 'Crew Lead'];
 // The status dropdown only ever offers non-terminal transitions — Hired and
 // Rejected are decisions, not a dropdown pick, and must go through the Hire/
 // Reject confirm modals below so employee provisioning and the documents
@@ -64,8 +71,6 @@ const HR_TABS = [
 
 const emptyInterviewForm = () => ({ scheduled_datetime: '', interviewer: '', notes: '' });
 
-const emptyCandidateForm = () => ({ candidate_name: '', email: '', phone: '', position_applied: 'Ironworker' });
-
 export default function HumanResources() {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
@@ -81,10 +86,6 @@ export default function HumanResources() {
   const [certifications, setCertifications] = useState([]);
   const [pendingLeaveBalances, setPendingLeaveBalances] = useState({});
   const [loading, setLoading] = useState(true);
-
-  const [showCandidateForm, setShowCandidateForm] = useState(false);
-  const [candidateForm, setCandidateForm] = useState(emptyCandidateForm());
-  const [savingCandidate, setSavingCandidate] = useState(false);
 
   const [schedulingCandidateId, setSchedulingCandidateId] = useState(null);
   const [interviewForm, setInterviewForm] = useState(emptyInterviewForm());
@@ -211,29 +212,6 @@ export default function HumanResources() {
   // of that too. This only ever widens the Time Off Approvals tab below.
   const canApprovePto = isFullAccess || hasGranularPermission(granularPermissions, GRANULAR_ACTIONS.APPROVE_PTO);
 
-  const handleCreateCandidate = async () => {
-    if (!candidateForm.candidate_name.trim()) {
-      toast({ title: 'Candidate name is required', variant: 'destructive' });
-      return;
-    }
-    setSavingCandidate(true);
-    try {
-      const created = await db.entities.candidate_profiles.create({
-        ...candidateForm,
-        status: 'Applied',
-        applied_date: new Date().toISOString().slice(0, 10),
-      });
-      setCandidates((prev) => [created, ...prev]);
-      setShowCandidateForm(false);
-      setCandidateForm(emptyCandidateForm());
-      toast({ title: 'Candidate added' });
-    } catch (e) {
-      toast({ title: 'Unable to add candidate', variant: 'destructive' });
-    } finally {
-      setSavingCandidate(false);
-    }
-  };
-
   // Only reached for the three non-terminal statuses — Hired/Rejected are no
   // longer options in the dropdown, see CANDIDATE_STATUS_OPTIONS.
   const handleStatusChange = async (candidate, status) => {
@@ -322,10 +300,6 @@ export default function HumanResources() {
     } finally {
       setSavingInterview(false);
     }
-  };
-
-  const handleEmployeeCreated = (employee) => {
-    setEmployees((prev) => [employee, ...prev]);
   };
 
   const toggleCompliance = async (employee, field, value) => {
@@ -484,10 +458,22 @@ export default function HumanResources() {
         title="Human Resources & Personnel"
         subtitle="ATS provisioning, timeclock lockout, and 60-day safety certification radar"
         actions={
-          <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${isFullAccess ? 'bg-green-500/10 text-green-600' : 'bg-yellow-500/10 text-yellow-600'}`}>
-            {isFullAccess ? <ShieldCheck className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            {isFullAccess ? 'Full HR Access' : 'Masked — Public Fields Only'}
-          </span>
+          <div className="flex items-center gap-2">
+            {isFullAccess && isTabVisible('addemployee') && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => window.open('/human-resources/new-employee', '_blank', 'noopener,noreferrer')}
+              >
+                <UserPlus className="w-3.5 h-3.5" />Add Employee
+              </Button>
+            )}
+            <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${isFullAccess ? 'bg-green-500/10 text-green-600' : 'bg-yellow-500/10 text-yellow-600'}`}>
+              {isFullAccess ? <ShieldCheck className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              {isFullAccess ? 'Full HR Access' : 'Masked — Public Fields Only'}
+            </span>
+          </div>
         }
       />
 
@@ -507,13 +493,15 @@ export default function HumanResources() {
           {isFullAccess && isTabVisible('emergency') && <TabsTrigger value="emergency">Emergency Contacts</TabsTrigger>}
           {isTabVisible('safety') && <TabsTrigger value="safety">Safety Radar</TabsTrigger>}
           {isTabVisible('terminal') && <TabsTrigger value="terminal">Timeclock Terminal</TabsTrigger>}
-          {isFullAccess && isTabVisible('addemployee') && <TabsTrigger value="addemployee">Add Employee</TabsTrigger>}
           {isFullAccess && isTabVisible('files') && <TabsTrigger value="files">Employee Files</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="ats" className="space-y-3">
           <div className="flex justify-end">
-            <Button onClick={() => setShowCandidateForm(true)} className="gap-2 steel-gradient text-white border-0">
+            <Button
+              onClick={() => window.open('/human-resources/new-candidate', '_blank', 'noopener,noreferrer')}
+              className="gap-2 steel-gradient text-white border-0"
+            >
               <UserPlus className="w-4 h-4" />Add Candidate
             </Button>
           </div>
@@ -928,52 +916,11 @@ export default function HumanResources() {
         </TabsContent>
 
         {isFullAccess && (
-          <TabsContent value="addemployee">
-            <AddEmployeeWizard positions={POSITIONS} allRoles={allRoles} onEmployeeCreated={handleEmployeeCreated} />
-          </TabsContent>
-        )}
-
-        {isFullAccess && (
           <TabsContent value="files">
             <EmployeeFilesPanel employees={employees} />
           </TabsContent>
         )}
       </Tabs>
-
-      <Dialog open={showCandidateForm} onOpenChange={setShowCandidateForm}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Add Candidate</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Candidate Name</Label>
-              <Input value={candidateForm.candidate_name} onChange={(e) => setCandidateForm((f) => ({ ...f, candidate_name: e.target.value }))} className="mt-1" />
-            </div>
-            <div>
-              <Label>Email</Label>
-              <Input value={candidateForm.email} onChange={(e) => setCandidateForm((f) => ({ ...f, email: e.target.value }))} className="mt-1" />
-            </div>
-            <div>
-              <Label>Phone</Label>
-              <Input value={candidateForm.phone} onChange={(e) => setCandidateForm((f) => ({ ...f, phone: e.target.value }))} className="mt-1" />
-            </div>
-            <div>
-              <Label>Position Applied</Label>
-              <Select value={candidateForm.position_applied} onValueChange={(v) => setCandidateForm((f) => ({ ...f, position_applied: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {POSITIONS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCandidateForm(false)}>Cancel</Button>
-            <Button onClick={handleCreateCandidate} disabled={savingCandidate} className="steel-gradient text-white border-0">
-              {savingCandidate ? 'Saving…' : 'Add Candidate'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {profileEmployee && (
         <EmployeeProfileDialog
