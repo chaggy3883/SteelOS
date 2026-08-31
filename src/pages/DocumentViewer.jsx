@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Printer, Download } from 'lucide-react';
 import BlueprintCanvas from '@/components/estimating/BlueprintCanvas';
 import { downloadFile } from '@/lib/downloadFile';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 // Full-page, new-tab PDF viewer — replaces PdfViewerModal's in-app Dialog.
 // Opened via openDocumentViewer(), which passes the document as URL query
@@ -14,9 +15,7 @@ export default function DocumentViewer() {
   const source = searchParams.get('source');
   const fileName = searchParams.get('name') || 'Document';
 
-  useEffect(() => {
-    document.title = fileName;
-  }, [fileName]);
+  useDocumentTitle(`SteelOS — ${fileName}`);
 
   const handleDownload = () => downloadFile(source, fileName);
 

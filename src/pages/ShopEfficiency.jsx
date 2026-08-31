@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { Loader2, Gauge } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
@@ -15,6 +16,7 @@ const efficiencyColor = (pct) => {
 };
 
 export default function ShopEfficiency() {
+  useDocumentTitle('SteelOS — Shop Efficiency');
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
   const [employees, setEmployees] = useState([]);

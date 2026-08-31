@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { getTerminalId, isTerminalLocked, recordFailedAttempt, recordSuccessfulLogin } from '@/lib/terminalSession';
 import { verifyPin } from '@/lib/hrSecurity';
@@ -63,6 +64,7 @@ const emptyExpenseForm = () => ({
 });
 
 export default function EmployeeCenter() {
+  useDocumentTitle('SteelOS — Employee Center');
   const { toast } = useToast();
   const [terminalId] = useState(() => getTerminalId());
   const [appUserRoles, setAppUserRoles] = useState(['user']);

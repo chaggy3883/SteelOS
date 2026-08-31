@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const emptyForm = () => ({ candidate_name: '', email: '', phone: '', position_applied: JOB_TITLES[0] || '' });
 
@@ -19,6 +20,8 @@ export default function NewCandidate() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
+
+  useDocumentTitle('SteelOS — Add Candidate');
 
   useEffect(() => { init(); }, []);
 

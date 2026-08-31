@@ -8,6 +8,7 @@ import { exportRowsToCsv } from '@/lib/csvExport';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const ALLOWED_ROLES = ['admin', 'super_admin', 'payroll_admin', 'hr_admin'];
 
@@ -24,6 +25,7 @@ const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 // periods processed before itemized tracking shipped have nothing to show
 // here (see PayrollLine's backfill note).
 export default function Retirement401kReport() {
+  useDocumentTitle('SteelOS — 401(k) Contributions');
   const [accessChecked, setAccessChecked] = useState(false);
   const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(true);

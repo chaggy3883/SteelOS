@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { resolveActorRole, dispatchRfiNotification } from '@/lib/salesNotifications';
@@ -92,6 +93,7 @@ You have deep expertise in:
 When reviewing documents, you reason through them EXACTLY as an experienced structural steel professional would.`;
 
 export default function RFIs() {
+  useDocumentTitle('SteelOS — RFIs');
   const { toast } = useToast();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();

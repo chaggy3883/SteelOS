@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { PlayCircle, ShieldAlert } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -29,6 +30,7 @@ if (!PAYROLL_PROCESSING_ALLOWED_ROLES.every((name) => VALID_ROLE_NAMES.has(name)
 // the pre-finalization control checks + Review -> Approve -> Lock workflow
 // live in PayrollRunPanel.jsx's run-detail dialog (see payrollControls.js).
 export default function PayrollProcessing() {
+  useDocumentTitle('SteelOS — Run Payroll');
   const [accessChecked, setAccessChecked] = useState(false);
   const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(true);

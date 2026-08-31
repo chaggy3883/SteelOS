@@ -16,6 +16,7 @@ import { REQUISITION_APPROVAL_ROLES, PURCHASING_ALLOWED_ROLES, INVOICE_APPROVAL_
 import { isAdminUser, getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 // Anyone who can reach this page at all — buys (purchasing_agent), approves
 // requisitions (REQUISITION_APPROVAL_ROLES), or runs the AP 3-way match
@@ -32,6 +33,7 @@ const paymentTerms = ['Net 30', 'Net 60', 'Prox 25'];
 const urgencyLevels = ['Low', 'Medium', 'Critical'];
 
 export default function ProcurementModule() {
+  useDocumentTitle('SteelOS — Procurement Module');
   const { toast } = useToast();
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [requisitions, setRequisitions] = useState([]);

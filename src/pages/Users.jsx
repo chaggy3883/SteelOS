@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Users as UsersIcon, Plus, Search } from 'lucide-react';
@@ -33,6 +34,7 @@ const roleColor = (role) => {
 };
 
 export default function Users() {
+  useDocumentTitle('SteelOS — Users');
   const { toast } = useToast();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);

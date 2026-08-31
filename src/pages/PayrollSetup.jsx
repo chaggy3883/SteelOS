@@ -15,6 +15,7 @@ import DirectDepositPanel from '@/components/payroll/DirectDepositPanel';
 import GLMappingsPanel from '@/components/payroll/GLMappingsPanel';
 import PayPeriodCalendarPanel from '@/components/payroll/PayPeriodCalendarPanel';
 import PayrollRulesPanel from '@/components/payroll/PayrollRulesPanel';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 // Master data only — pay rates, tax withholding, deductions, GL mappings,
 // the pay period calendar, and payroll rules. No weekly processing logic
@@ -22,6 +23,7 @@ import PayrollRulesPanel from '@/components/payroll/PayrollRulesPanel';
 // run/approve/lock, job cost posting) — the sole payroll pipeline since
 // Payroll.jsx's retirement (see App.jsx's /payroll redirect).
 export default function PayrollSetup() {
+  useDocumentTitle('SteelOS — Payroll Setup');
   const [accessChecked, setAccessChecked] = useState(false);
   const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(true);

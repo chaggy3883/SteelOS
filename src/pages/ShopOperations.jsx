@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import {
   buildWeekColumns, buildCapacityMatrix, getStationBottlenecks, getStationDwellVariance, getStalePieces,
@@ -23,6 +24,7 @@ import ModuleLocked from '@/components/shared/ModuleLocked';
 const emptyOverrideForm = () => ({ piece_id: '', override_type: 'Expedite_Part', authorized_by_mgr_id: '' });
 
 export default function ShopOperations() {
+  useDocumentTitle('SteelOS — Shop Operations');
   const { toast } = useToast();
   const [projects, setProjects] = useState([]);
   const [pieces, setPieces] = useState([]);

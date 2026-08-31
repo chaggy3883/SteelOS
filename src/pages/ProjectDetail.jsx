@@ -27,6 +27,7 @@ import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
 import PieceMarkPdfIntake from '@/components/projects/PieceMarkPdfIntake';
 import TmTrackingPanel from '@/components/projects/TmTrackingPanel';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
 const emptyPartForm = () => ({
@@ -104,6 +105,8 @@ export default function ProjectDetail() {
   const [noteAuthors, setNoteAuthors] = useState([]);
   const [viewingNote, setViewingNote] = useState(null);
   const [viewingEmployee, setViewingEmployee] = useState(null);
+
+  useDocumentTitle(project ? `SteelOS — Project: ${project.name}` : 'SteelOS — Project');
 
   useEffect(() => { if (id) loadAll(); }, [id]);
 

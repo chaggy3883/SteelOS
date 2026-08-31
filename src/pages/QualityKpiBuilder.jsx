@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
@@ -139,6 +140,7 @@ function defaultComparisonPeriod(config, index) {
 }
 
 export default function QualityKpiBuilder() {
+  useDocumentTitle('SteelOS — KPI Builder');
   const { toast } = useToast();
   const [currentUser, setCurrentUser] = useState(null);
   const [effectiveCompany, setEffectiveCompany] = useState(null);

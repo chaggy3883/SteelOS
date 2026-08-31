@@ -13,6 +13,7 @@ import ManpowerStaffingSection from '@/components/meeting-mode/sections/Manpower
 import DwellReportSection from '@/components/meeting-mode/sections/DwellReportSection';
 import ProjectBreakdownSection from '@/components/meeting-mode/sections/ProjectBreakdownSection';
 import EstimatingUpdatesSection from '@/components/meeting-mode/sections/EstimatingUpdatesSection';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const MEETING_MODE_ROLES = ['project_manager', 'shop_manager', 'finance_department', 'controller', 'president', 'ceo'];
 
@@ -49,6 +50,8 @@ export default function MeetingModeSession() {
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const [savingUnsaved, setSavingUnsaved] = useState(false);
   const pendingActionRef = useRef(null);
+
+  useDocumentTitle(meeting ? `SteelOS — Meeting: ${meeting.name}` : 'SteelOS — Meeting');
 
   useEffect(() => {
     const hadDark = document.documentElement.classList.contains('dark');

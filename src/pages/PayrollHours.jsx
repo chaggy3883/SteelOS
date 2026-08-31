@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { CalendarClock, ChevronLeft, ChevronRight, ShieldAlert, Clock, Users, TrendingUp, FolderKanban, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,7 @@ function computeWeekMinutesForEmployee(employeeId, allEmployeePunches, weekDays)
 const hoursOf = (minutes) => Math.round((minutes / 60) * 10) / 10;
 
 export default function PayrollHours() {
+  useDocumentTitle('SteelOS — Hours at a Glance');
   const [accessChecked, setAccessChecked] = useState(false);
   const [allowed, setAllowed] = useState(false);
 

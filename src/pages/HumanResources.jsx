@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams, Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, rejectCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel, assignPlatformRoles } from '@/lib/employeesApi';
@@ -72,6 +73,7 @@ const HR_TABS = [
 const emptyInterviewForm = () => ({ scheduled_datetime: '', interviewer: '', notes: '' });
 
 export default function HumanResources() {
+  useDocumentTitle('SteelOS — Human Resources');
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(null);

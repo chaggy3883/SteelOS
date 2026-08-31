@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Lock, Plus } from 'lucide-react';
@@ -14,6 +15,7 @@ const MEETING_MODE_ROLES = ['project_manager', 'shop_manager', 'finance_departme
 const openMeeting = (meetingId) => window.open(`/meeting-mode/${meetingId}`, '_blank', 'noopener,noreferrer');
 
 export default function MeetingMode() {
+  useDocumentTitle('SteelOS — Meeting Mode');
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [allowed, setAllowed] = useState(false);
   const [company, setCompany] = useState(null);

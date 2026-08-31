@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { simulateAiReview } from '@/lib/aiIntelligenceEngine';
 import { extractTextFromPdf } from '@/lib/pdfTextExtractor';
@@ -32,6 +33,7 @@ const COLUMNS = [
 ];
 
 export default function FrontEndReview() {
+  useDocumentTitle('SteelOS — Front-End Spec Review');
   const { toast } = useToast();
   const fileInputRef = useRef(null);
 

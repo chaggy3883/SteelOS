@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import {
   getStationBottlenecks, getStationDwellVariance, getStalePieces, computeEfficiencyPct,
@@ -30,6 +31,7 @@ const SHIFT_END_HOUR = 17;
 const currentShiftLabel = (now) => (now.getHours() < SHIFT_END_HOUR ? '1st Shift' : '2nd Shift');
 
 export default function ShopFloorCommandCenter() {
+  useDocumentTitle('SteelOS — Shop Floor Command Center');
   const { toast } = useToast();
   const [pieces, setPieces] = useState([]);
   const [stationLogs, setStationLogs] = useState([]);

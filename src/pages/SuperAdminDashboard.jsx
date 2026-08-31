@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { isSuperAdmin, getImpersonatingCompanyId, startImpersonation, stopImpersonation } from '@/lib/tenantContext';
@@ -68,6 +69,7 @@ const sessionHours = (row) => {
 };
 
 export default function SuperAdminDashboard() {
+  useDocumentTitle('SteelOS — Super Admin');
   const { toast } = useToast();
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);

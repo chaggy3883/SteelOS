@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { Webhook } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
@@ -8,6 +9,7 @@ import MetricsGrid from '@/components/system-integrations/MetricsGrid';
 import TokenVaultManager from '@/components/system-integrations/TokenVaultManager';
 
 export default function SystemIntegrations() {
+  useDocumentTitle('SteelOS — System Integrations');
   const [logs, setLogs] = useState([]);
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);

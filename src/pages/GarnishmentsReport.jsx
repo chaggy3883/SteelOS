@@ -9,6 +9,7 @@ import { exportRowsToCsv } from '@/lib/csvExport';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 // Same audience as the itemized pay stub drill-down this report is built
 // on top of (PayrollLineDeduction) — HR/payroll_admin/admin, matching the
@@ -34,6 +35,7 @@ const isGarnishmentType = (t) => {
 // created after itemized tracking shipped; pay periods processed before that
 // have no itemized rows to show here (see PayrollLine's backfill note).
 export default function GarnishmentsReport() {
+  useDocumentTitle('SteelOS — Garnishments');
   const [accessChecked, setAccessChecked] = useState(false);
   const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(true);

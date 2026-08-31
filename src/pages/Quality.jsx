@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { CheckSquare, AlertTriangle, XCircle, FileText, Brain, CheckCircle2, Plus, Search, Clock, ClipboardList } from 'lucide-react';
@@ -82,6 +83,7 @@ const emptyRecordForm = (track) => {
 };
 
 export default function Quality() {
+  useDocumentTitle('SteelOS — Quality');
   const { toast } = useToast();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('findings');

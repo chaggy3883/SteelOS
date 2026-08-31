@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { Truck, Package, CheckCircle2, FileCheck, PauseCircle, PlayCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,7 @@ import ModuleLocked from '@/components/shared/ModuleLocked';
 const SHIPPING_LIST_STATUSES = ['Loaded', 'Inspected', 'In_Transit', 'Delivered', 'Field_Issue'];
 
 export default function Shipping() {
+  useDocumentTitle('SteelOS — Shipping');
   const [activeTab, setActiveTab] = useState('list');
 
   // Drill-down targets, shared across the Shipping List tab and the

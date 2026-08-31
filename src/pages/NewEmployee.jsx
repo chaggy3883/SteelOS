@@ -7,11 +7,14 @@ import { POSITIONS, JOB_TITLES } from '@/pages/HumanResources';
 import { ArrowLeft, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import AddEmployeeWizard from '@/components/hr/AddEmployeeWizard';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 export default function NewEmployee() {
   const [roles, setRoles] = useState(['user']);
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [allRoles, setAllRoles] = useState([]);
+
+  useDocumentTitle('SteelOS — Add Employee');
 
   useEffect(() => { init(); }, []);
 

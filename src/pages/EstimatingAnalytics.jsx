@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Factory, Target, Percent, Clock3, Download } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
@@ -30,6 +31,7 @@ function TruncatedYAxisTick({ x, y, payload, maxChars }) {
 }
 
 export default function EstimatingAnalytics() {
+  useDocumentTitle('SteelOS — Historical Analytics');
   const [variances, setVariances] = useState([]);
   const [bids, setBids] = useState([]);
   const [costOverruns, setCostOverruns] = useState([]);

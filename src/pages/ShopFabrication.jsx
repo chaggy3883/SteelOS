@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -86,6 +87,7 @@ const findStockUnitIdForPieceMark = async (projectId, pieceMarkId) => {
 };
 
 export default function ShopFabrication() {
+  useDocumentTitle('SteelOS — Shop Fabrication');
   const { toast } = useToast();
   const [pieces, setPieces] = useState([]);
   const [stationLogs, setStationLogs] = useState([]);

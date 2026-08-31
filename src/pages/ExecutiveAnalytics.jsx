@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
@@ -75,6 +76,7 @@ function SectionHeader({ icon: Icon, title, subtitle, onExport, detailPath, deta
 }
 
 export default function ExecutiveAnalytics() {
+  useDocumentTitle('SteelOS — Executive Analytics');
   const { toast } = useToast();
   const { user } = useAuth();
   const navigate = useNavigate();

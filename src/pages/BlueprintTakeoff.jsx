@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { db } from '@/api/apiClient';
@@ -165,6 +166,7 @@ const DEMO_ROWS = [
 ];
 
 export default function BlueprintTakeoff() {
+  useDocumentTitle('SteelOS — IRONSIGHT');
   const { user } = useOutletContext() || {};
   const { id: bidId } = useParams();
   const navigate = useNavigate();

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { Link, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Truck, ShieldAlert, ArrowUpFromLine, Wrench, Link2, Gauge, PackageCheck, ClipboardCheck, ClipboardList } from 'lucide-react';
@@ -21,6 +22,7 @@ const FLEET_WRITE_ROLES = ['admin', 'super_admin', 'Maintenance_Manager'];
 const PO_MISMATCH_OVERRIDE_ROLES = ['controller', 'finance_department', 'admin', 'super_admin'];
 
 export default function FieldOperations() {
+  useDocumentTitle('SteelOS — Field Operations');
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('fleet');

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
@@ -77,6 +78,7 @@ const statusExplanation = (piece) => {
 };
 
 export default function Production() {
+  useDocumentTitle('SteelOS — Production');
   const navigate = useNavigate();
   const tableRef = useRef(null);
   const [pieces, setPieces] = useState([]);

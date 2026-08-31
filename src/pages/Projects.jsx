@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
@@ -16,6 +17,7 @@ import {
 const STATUS_FILTERS = ['all', 'estimating', 'awarded', 'engineering', 'fabrication', 'erection', 'complete'];
 
 export default function Projects() {
+  useDocumentTitle('SteelOS — Projects');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const customerFilterId = searchParams.get('customer');

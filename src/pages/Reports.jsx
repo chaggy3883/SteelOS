@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { BarChart3, TrendingUp, DollarSign, Package, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import ModuleLocked from '@/components/shared/ModuleLocked';
 const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308'];
 
 export default function Reports() {
+  useDocumentTitle('SteelOS — Reports');
   const [projects, setProjects] = useState([]);
   const [pieces, setPieces] = useState([]);
   const [loading, setLoading] = useState(true);

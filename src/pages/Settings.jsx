@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useOutletContext } from 'react-router-dom';
 import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet, Sparkles, ListChecks } from 'lucide-react';
 import TemplateVaultPanel from '@/components/settings/TemplateVaultPanel';
@@ -52,6 +53,7 @@ const AI_RULES = [
 ];
 
 export default function Settings() {
+  useDocumentTitle('SteelOS — Settings');
   const { toast } = useToast();
   const { user } = useOutletContext() || {};
   const [aiRules, setAiRules] = useState(AI_RULES);

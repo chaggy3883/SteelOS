@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Settings2, Calculator, TrendingUp, CheckCircle2, XCircle, Archive, ListChecks, Eye, EyeOff, Pencil, X, Download } from 'lucide-react';
@@ -32,6 +33,7 @@ const WIDGETS = [
 ];
 
 export default function Estimating() {
+  useDocumentTitle('SteelOS — Estimating');
   const { toast } = useToast();
   const { user } = useAuth();
   const navigate = useNavigate();

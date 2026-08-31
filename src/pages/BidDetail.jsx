@@ -34,6 +34,7 @@ import BidPricingHoldModal from '@/components/estimating/BidPricingHoldModal';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const LOSS_REASONS = [
   { value: 'price', label: 'Price — Too High' },
@@ -87,6 +88,8 @@ export default function BidDetail() {
   const certFileInputRef = useRef(null);
   const takeoffRef = useRef(null);
   const materialRef = useRef(null);
+
+  useDocumentTitle(bid ? `SteelOS — Bid: ${bid.job_name || bid.bid_number}` : 'SteelOS — Bid');
 
   useEffect(() => { loadBid(); }, [id]);
   useEffect(() => { loadEmployees(); }, []);

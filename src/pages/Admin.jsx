@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat, Presentation } from 'lucide-react';
@@ -59,6 +60,7 @@ const NAV_LINKS = [
 ];
 
 export default function Admin() {
+  useDocumentTitle('SteelOS — Admin Panel');
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const requestedTab = searchParams.get('tab') || 'users';

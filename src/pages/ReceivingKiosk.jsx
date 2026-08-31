@@ -10,10 +10,12 @@ import { useToast } from '@/components/ui/use-toast';
 import { Truck, PackageCheck, Search, Eye } from 'lucide-react';
 import PurchaseOrderDetailModal, { PO_STATUS_STYLES, DEFAULT_PO_STATUS_STYLE } from '@/components/purchasing/PurchaseOrderDetailModal';
 import MtrReader from '@/components/receiving/MtrReader';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const CONDITIONS = ['Good', 'Damaged', 'Short Ship'];
 
 export default function ReceivingKiosk() {
+  useDocumentTitle('SteelOS — Receiving Kiosk');
   const { toast } = useToast();
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [allPoLines, setAllPoLines] = useState([]);

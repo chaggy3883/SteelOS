@@ -22,6 +22,7 @@ import { generateWH347Pdf } from '@/lib/certifiedPayrollReportPdf';
 import { resolveEmployerTaxRules } from '@/lib/payrollEngine';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 // Same payroll-adjacent audience already granted the /certified-payroll
 // module in rbacConfig.jsx — this page previously relied entirely on the nav
@@ -87,6 +88,7 @@ const emptyForm = () => ({
 });
 
 export default function CertifiedPayroll() {
+  useDocumentTitle('SteelOS — Certified Payroll');
   const { toast } = useToast();
   const { user } = useAuth();
   const [accessChecked, setAccessChecked] = useState(false);

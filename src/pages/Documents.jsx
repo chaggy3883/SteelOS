@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Search, Upload, FolderOpen, Eye } from 'lucide-react';
@@ -17,6 +18,7 @@ const DOC_TYPE_ICONS = {
 };
 
 export default function Documents() {
+  useDocumentTitle('SteelOS — Documents');
   const [searchParams] = useSearchParams();
   // A Global Search hit lands here with ?doc=<id> — filters/type get reset
   // so the highlighted row can't be hidden by a stale filter, and the row

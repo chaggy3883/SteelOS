@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
@@ -24,6 +25,7 @@ const emptyForm = () => ({ title: '', status: 'Draft', tonnage: '', hours: '', d
 // entity) so both views stay in sync on one authoritative record set, and
 // runs the exact same contract-value rollup via changeOrderMetrics.js.
 export default function ChangeOrders() {
+  useDocumentTitle('SteelOS — Change Orders');
   const { toast } = useToast();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();

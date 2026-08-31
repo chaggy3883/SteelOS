@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Loader2, Building2, Phone, Mail, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
@@ -31,6 +32,7 @@ const TYPE_COLORS = {
 };
 
 export default function CrmDirectories() {
+  useDocumentTitle('SteelOS — Relationship Manager');
   const [searchParams] = useSearchParams();
   const [filter, setFilter] = useState(searchParams.get('vendor') ? 'vendors' : 'customers');
   const [customers, setCustomers] = useState([]);

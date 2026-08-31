@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { ShieldCheck, AlertTriangle, HardHat, FileWarning, CheckCircle2, ClipboardList } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
@@ -17,6 +18,7 @@ const SAFETY_ITEMS = [
 ];
 
 export default function Safety() {
+  useDocumentTitle('SteelOS — Safety');
   const [findings, setFindings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [moduleAllowed, setModuleAllowed] = useState(false);

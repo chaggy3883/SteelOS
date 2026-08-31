@@ -14,6 +14,7 @@ import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 // A Document counts as an in-app-viewable PDF when it has a file to open and
 // either its MIME type or file name says so — covers both real uploads
@@ -30,6 +31,7 @@ const emptyContractForm = () => ({ project_id: '', gc_name: '', contract_value: 
 const emptyNoticeEdits = {};
 
 export default function Legal() {
+  useDocumentTitle('SteelOS — Legal & Contracts');
   const { toast } = useToast();
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);

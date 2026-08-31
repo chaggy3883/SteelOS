@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import {
   Brain, Upload, FileText, AlertTriangle, CheckCircle2,
@@ -138,6 +139,7 @@ const FindingCard = ({ finding, onUpdate }) => {
 };
 
 export default function Intelligence() {
+  useDocumentTitle('SteelOS — Intelligence');
   const { toast } = useToast();
   const fileRef = useRef();
   const [projects, setProjects] = useState([]);

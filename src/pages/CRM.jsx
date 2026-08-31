@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Building2, Plus, Search, Phone, Mail, Pencil, Trash2, UserPlus, X, FileText, FolderKanban } from 'lucide-react';
@@ -39,6 +40,7 @@ const deriveRelationshipType = (isCustomer, isVendor) => {
 };
 
 export default function CRM() {
+  useDocumentTitle('SteelOS — CRM');
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

@@ -42,6 +42,7 @@ import BalanceDrilldownModal from '@/components/accounting/BalanceDrilldownModal
 import { computeCustomerBalances, computeVendorBalances } from '@/lib/balancesReport';
 import { computeArAging, computeApAging, AGING_BUCKETS, AGING_BUCKET_LABELS } from '@/lib/agingReport';
 import { generateCustomerStatementPdf } from '@/lib/customerStatementPdf';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
 const LEDGER_COST_CLASSES = ['MAT', 'SUB', 'EQP', 'LAB'];
@@ -120,6 +121,7 @@ function emptyLedgerForm() {
 }
 
 export default function Accounting() {
+  useDocumentTitle('SteelOS — Accounting');
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

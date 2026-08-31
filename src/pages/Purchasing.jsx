@@ -18,6 +18,7 @@ import { isAdminUser, getEffectiveCompany, isSuperAdmin, isImpersonating } from 
 import { PURCHASING_ALLOWED_ROLES } from '@/components/dashboard/widgetContent';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const AUTO_APPROVE_THRESHOLD = 5000;
 
@@ -28,6 +29,7 @@ const emptyReviewLine = () => ({ description: '', quantity: '', unit_of_measure:
 const lineTotal = (line) => (Number(line.quantity) || 0) * (Number(line.unit_cost) || 0);
 
 export default function Purchasing() {
+  useDocumentTitle('SteelOS — Purchasing');
   const { toast } = useToast();
   const [accessChecked, setAccessChecked] = useState(false);
   const [allowed, setAllowed] = useState(false);

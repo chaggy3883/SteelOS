@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
@@ -66,6 +67,7 @@ const emptyWaiverForm = () => ({
 });
 
 export default function Subcontracts() {
+  useDocumentTitle('SteelOS — Subcontracts');
   const { toast } = useToast();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();

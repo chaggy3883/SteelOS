@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany, isAdminUser } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
@@ -37,6 +38,7 @@ const canImpersonateSalesman = (roles) => {
 };
 
 export default function SalesDashboard() {
+  useDocumentTitle('SteelOS — My Sales Dashboard');
   const [currentUser, setCurrentUser] = useState(null);
   const [company, setCompany] = useState(null);
   const [checkingAccess, setCheckingAccess] = useState(true);

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompanyId } from '@/lib/tenantContext';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
@@ -20,6 +21,7 @@ import { FileStack, Upload, Trash2, Eye, FolderOpen, FileScan, ChevronDown, Chev
 // Review & Commit (BatchReviewModal) validates the whole batch and promotes
 // non-error rows onto real PieceMark records.
 export default function DetailerImports() {
+  useDocumentTitle('SteelOS — Detailer Imports');
   const { user } = useAuth();
   const { toast } = useToast();
   const [projects, setProjects] = useState([]);
