@@ -186,6 +186,27 @@ export async function getUserPermissions(roleNames) {
   return { modules: Array.from(modules), widgets: Array.from(widgets) };
 }
 
+// Union of every matching CUSTOM role's granular_permissions across all of
+// the user's role names (see permissionCatalog.js). Builtin roles never
+// contribute anything here — their access is fully expressed by
+// allowed_modules/allowed_widgets — so this only surfaces something for a
+// role backed by a CustomRole record that has granular_permissions set.
+export async function getUserGranularPermissions(roleNames) {
+  const names = Array.isArray(roleNames) ? roleNames : [roleNames];
+  const permissions = new Set();
+
+  for (const roleName of names) {
+    const normalizedRole = normalizeRoleName(roleName);
+    if (BUILTIN_ROLES.some(r => r.name === normalizedRole)) continue;
+    try {
+      const custom = await db.entities.CustomRole.filter({ role_name: normalizedRole }, '-created_date', 1);
+      (custom[0]?.granular_permissions || []).forEach(p => permissions.add(p));
+    } catch (e) {}
+  }
+
+  return Array.from(permissions);
+}
+
 export async function getAllRoles() {
   const builtin = BUILTIN_ROLES.map(r => ({ value: r.name, label: r.label, color: 'bg-blue-500/10 text-blue-500' }));
   try {

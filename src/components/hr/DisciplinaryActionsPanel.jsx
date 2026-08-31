@@ -11,13 +11,13 @@ import DisciplinaryActionDialog, { ACTION_LEVELS, STATUS_LABELS, STATUS_COLORS }
 // Distinct from EmployeeFilesPanel.jsx's generic incident file upload — this
 // is the structured fill -> print -> file-signed-copy workflow. Gated to HR
 // roles + admin (defense-in-depth; the caller already hides the tab itself).
-export default function DisciplinaryActionsPanel({ employee, employees = [], roles = [] }) {
+export default function DisciplinaryActionsPanel({ employee, employees = [], roles = [], granularPermissions }) {
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [viewingRecord, setViewingRecord] = useState(null);
 
-  const allowed = canManageDisciplinaryActions(roles);
+  const allowed = canManageDisciplinaryActions(roles, granularPermissions);
 
   useEffect(() => { if (allowed) loadActions(); else setLoading(false); }, [employee?.id, allowed]);
 

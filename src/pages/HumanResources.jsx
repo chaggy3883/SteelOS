@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { listEmployeesForRole, hasFullEmployeeAccess, hireCandidate, rejectCandidate, reevaluateTimeclockLock, syncFormulaPin, terminationReasonLabel, assignPlatformRoles } from '@/lib/employeesApi';
-import { getAllRoles } from '@/components/dashboard/rbacConfig';
+import { getAllRoles, getUserGranularPermissions } from '@/components/dashboard/rbacConfig';
 import { verifyPin } from '@/lib/hrSecurity';
 import { getExpiringCertifications } from '@/lib/certAlerts';
 import { getComplianceAlerts } from '@/lib/i9Compliance';
@@ -25,7 +25,7 @@ import CandidateApplicationDialog from '@/components/hr/CandidateApplicationDial
 import HiringDocumentsPanel from '@/components/hr/HiringDocumentsPanel';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import RoleMultiSelect from '@/components/admin/RoleMultiSelect';
-import { isCapabilityAllowed } from '@/lib/permissionCatalog';
+import { isCapabilityAllowed, GRANULAR_ACTIONS, hasGranularPermission } from '@/lib/permissionCatalog';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
@@ -71,6 +71,7 @@ export default function HumanResources() {
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(null);
   const [roles, setRoles] = useState(['user']);
+  const [granularPermissions, setGranularPermissions] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [permissionOverrides, setPermissionOverrides] = useState([]);
   const [moduleAllowed, setModuleAllowed] = useState(false);
@@ -172,6 +173,7 @@ export default function HumanResources() {
       setCurrentUser(me);
     } catch (e) {}
     setRoles(currentRoles);
+    getUserGranularPermissions(currentRoles).then(setGranularPermissions).catch(() => setGranularPermissions([]));
     // No backend scheduler exists in this app — anniversary PTO renewals are
     // checked here, on HR page load, instead of a cron job. Idempotent: see
     // src/lib/ptoEngine.js's policy_year_end comparison. Awaited before
@@ -203,6 +205,11 @@ export default function HumanResources() {
   };
 
   const isFullAccess = hasFullEmployeeAccess(roles);
+  // Deliberately separate from isFullAccess: that flag also masks/unmasks
+  // SSN, pay rate, and several other tabs across this whole page — reusing
+  // it for a "custom role can approve PTO" grant would silently unlock all
+  // of that too. This only ever widens the Time Off Approvals tab below.
+  const canApprovePto = isFullAccess || hasGranularPermission(granularPermissions, GRANULAR_ACTIONS.APPROVE_PTO);
 
   const handleCreateCandidate = async () => {
     if (!candidateForm.candidate_name.trim()) {
@@ -489,7 +496,7 @@ export default function HumanResources() {
           {isTabVisible('ats') && <TabsTrigger value="ats">Candidates (ATS)</TabsTrigger>}
           {isTabVisible('archive') && <TabsTrigger value="archive">Candidate Archive</TabsTrigger>}
           {isTabVisible('employees') && <TabsTrigger value="employees">Employees</TabsTrigger>}
-          {isFullAccess && isTabVisible('timeoff') && (
+          {canApprovePto && isTabVisible('timeoff') && (
             <TabsTrigger value="timeoff" className="gap-1.5">
               Time Off Approvals
               {pendingLeave.length > 0 && (
@@ -760,7 +767,7 @@ export default function HumanResources() {
           )}
         </TabsContent>
 
-        {isFullAccess && (
+        {canApprovePto && (
           <TabsContent value="timeoff" className="space-y-3">
             <div className="steel-card p-4">
               <h4 className="font-semibold text-sm mb-1 flex items-center gap-2"><CalendarClock className="w-4 h-4 text-primary" />Pending Time-Off Requests</h4>
@@ -973,6 +980,7 @@ export default function HumanResources() {
           employee={profileEmployee}
           employees={employees}
           roles={roles}
+          granularPermissions={granularPermissions}
           open={showProfileDialog}
           onOpenChange={setShowProfileDialog}
           onEmployeeUpdated={handleProfileUpdated}

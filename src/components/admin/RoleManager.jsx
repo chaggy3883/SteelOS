@@ -11,9 +11,11 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { Plus, Edit2, Trash2, Loader2, Shield, Lock, Eye } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { BUILTIN_ROLES, ALL_MODULES, WIDGET_LIBRARY } from '@/components/dashboard/rbacConfig';
+import { getGranularPermissionGroups, granularPermissionLabel } from '@/lib/permissionCatalog';
 
 const moduleLabel = (path) => ALL_MODULES.find(m => m.path === path)?.label || path;
 const widgetName = (id) => WIDGET_LIBRARY.find(w => w.id === id)?.name || id;
+const GRANULAR_PERMISSION_GROUPS = getGranularPermissionGroups();
 
 function AccessSummary({ list, allLabel, unit }) {
   if ((list || []).includes('*')) {
@@ -36,7 +38,7 @@ function AccessDetail({ list, allLabel, items, nameOf }) {
   );
 }
 
-const EMPTY_FORM = { role_name: '', label: '', description: '', allowed_modules: [], allowed_widgets: [] };
+const EMPTY_FORM = { role_name: '', label: '', description: '', allowed_modules: [], allowed_widgets: [], granular_permissions: [] };
 
 export default function RoleManager() {
   const { toast } = useToast();
@@ -91,7 +93,7 @@ export default function RoleManager() {
   const handleEdit = (role) => {
     setViewingCustom(null);
     setEditing(role);
-    setForm({ role_name: role.role_name, label: role.label, description: role.description || '', allowed_modules: role.allowed_modules || [], allowed_widgets: role.allowed_widgets || [] });
+    setForm({ role_name: role.role_name, label: role.label, description: role.description || '', allowed_modules: role.allowed_modules || [], allowed_widgets: role.allowed_widgets || [], granular_permissions: role.granular_permissions || [] });
     setShowForm(true);
   };
 
@@ -120,6 +122,10 @@ export default function RoleManager() {
 
   const toggleWidget = (id) => {
     setForm(f => ({ ...f, allowed_widgets: f.allowed_widgets.includes(id) ? f.allowed_widgets.filter(w => w !== id) : [...f.allowed_widgets, id] }));
+  };
+
+  const toggleGranularPermission = (key) => {
+    setForm(f => ({ ...f, granular_permissions: f.granular_permissions.includes(key) ? f.granular_permissions.filter(p => p !== key) : [...f.granular_permissions, key] }));
   };
 
   return (
@@ -266,6 +272,18 @@ export default function RoleManager() {
                   <Label className="mb-2 block">Allowed Widgets</Label>
                   <AccessDetail list={viewingCustom.allowed_widgets} allLabel="All Widgets" nameOf={widgetName} />
                 </div>
+                <div>
+                  <Label className="mb-2 block">Granular Permissions</Label>
+                  {(viewingCustom.granular_permissions || []).length === 0 ? (
+                    <span className="text-xs text-muted-foreground">None — no fine-grained actions beyond its module access</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {viewingCustom.granular_permissions.map((key) => (
+                        <span key={key} className="text-xs px-2 py-1 rounded bg-muted text-foreground">{granularPermissionLabel(key)}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-2 pt-2 border-t border-border">
                   <Switch checked={viewingCustom.is_active !== false} onCheckedChange={() => handleToggleActive(viewingCustom)} />
                   <span className="text-xs text-muted-foreground">{viewingCustom.is_active === false ? 'Inactive — cannot be assigned to new users' : 'Active'}</span>
@@ -332,6 +350,27 @@ export default function RoleManager() {
                       </label>
                     );
                   })}
+                </div>
+              </div>
+              <div>
+                <Label className="mb-2 block">Granular Permissions <span className="font-normal text-muted-foreground">(fine-grained actions within an already-accessible module)</span></Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Module Access above still decides whether this role can reach a page at all — this narrows what it can specifically do once there (e.g. approve PTO but not terminate employees). Only a subset of these are enforced today; the rest record intent for a future pass.
+                </p>
+                <div className="border border-border rounded-lg max-h-64 overflow-y-auto divide-y divide-border">
+                  {GRANULAR_PERMISSION_GROUPS.map(group => (
+                    <div key={group.category} className="p-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">{group.category}</p>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-1">
+                        {group.items.map(item => (
+                          <label key={item.key} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 p-1.5 rounded">
+                            <Checkbox checked={form.granular_permissions.includes(item.key)} onCheckedChange={() => toggleGranularPermission(item.key)} />
+                            <span className="text-xs">{item.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

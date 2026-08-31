@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { hasFullEmployeeAccess, TERMINATION_REASONS, terminationReasonLabel } from '@/lib/employeesApi';
+import { GRANULAR_ACTIONS, hasGranularPermission } from '@/lib/permissionCatalog';
 import { computeTerminationPtoSettlementPreview, computeUnpaidWagesPreview, processTerminationSettlement, listPtoTransactionsForEmployee } from '@/lib/ptoEngine';
 import { logStatusChange } from '@/lib/statusHistory';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
@@ -21,9 +22,9 @@ const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 // HR's termination checklist — the offboarding checklist further down is
 // informational only (not enforced); everything above it (PTO settlement,
 // unpaid wages, access revocation) IS enforced, at confirm time.
-export default function TerminationPanel({ employee, roles = [], onUpdated }) {
+export default function TerminationPanel({ employee, roles = [], granularPermissions, onUpdated }) {
   const { toast } = useToast();
-  const canTerminate = hasFullEmployeeAccess(roles);
+  const canTerminate = hasFullEmployeeAccess(roles) || hasGranularPermission(granularPermissions, GRANULAR_ACTIONS.TERMINATE_EMPLOYEE);
   const [currentUser, setCurrentUser] = useState(null);
   const [terminationDate, setTerminationDate] = useState(todayDateOnly());
   const [reason, setReason] = useState('');

@@ -23,6 +23,13 @@
         "type": "string"
       }
     },
+    "granular_permissions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Fine-grained action/tab permission keys from permissionCatalog.js's GRANULAR_PERMISSION_CATALOG (e.g. 'tab:/human-resources:timeoff', 'action:hr.employee.terminate') — an ADDITIONAL layer on top of allowed_modules, not a replacement. allowed_modules/allowed_widgets still gate whether this role can reach a page at all; granular_permissions narrows what it can specifically DO once there (e.g. approve PTO but not terminate employees). Only a subset of these keys have live enforcement so far — see canManageDisciplinaryActions (disciplinaryAccess.js), TerminationPanel.jsx, and HumanResources.jsx's PTO approval tab."
+    },
     "is_system": {
       "type": "boolean",
       "default": false

@@ -14,15 +14,21 @@ import TerminationPanel from '@/components/hr/TerminationPanel';
 import EquipmentPanel from '@/components/hr/EquipmentPanel';
 import { canManageDisciplinaryActions } from '@/lib/disciplinaryAccess';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
+import { GRANULAR_ACTIONS, hasGranularPermission } from '@/lib/permissionCatalog';
 
-export default function EmployeeProfileDialog({ employee, employees = [], roles, open, onOpenChange, onEmployeeUpdated }) {
+export default function EmployeeProfileDialog({ employee, employees = [], roles, granularPermissions, open, onOpenChange, onEmployeeUpdated }) {
   const [current, setCurrent] = useState(employee);
   const [currentUserName, setCurrentUserName] = useState('');
-  const showDisciplinary = canManageDisciplinaryActions(roles);
+  const showDisciplinary = canManageDisciplinaryActions(roles, granularPermissions);
   const showTermination = hasFullEmployeeAccess(roles);
   // Equipment issue/return history is HR/admin-only, same as Compliance and
   // Termination below — employees never see their own issued_assets records.
   const showEquipment = hasFullEmployeeAccess(roles);
+  // Deliberately separate from showTermination: that flag also gates the
+  // Compliance and PTO Policy tabs below, which aren't part of this pass's
+  // granular-permission scope — widening showTermination itself would hand a
+  // custom "can terminate" role those two unrelated tabs as a side effect.
+  const canTerminate = showTermination || hasGranularPermission(granularPermissions, GRANULAR_ACTIONS.TERMINATE_EMPLOYEE);
 
   useEffect(() => { setCurrent(employee); }, [employee?.id]);
   useEffect(() => {
@@ -55,7 +61,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             <TabsTrigger value="pto">PTO</TabsTrigger>
             {showTermination && <TabsTrigger value="pto-policy">PTO Policy</TabsTrigger>}
             {showDisciplinary && <TabsTrigger value="disciplinary">Disciplinary</TabsTrigger>}
-            {showTermination && <TabsTrigger value="termination">Termination</TabsTrigger>}
+            {canTerminate && <TabsTrigger value="termination">Termination</TabsTrigger>}
           </TabsList>
           <TabsContent value="access">
             <SystemAccessPortal employee={current} roles={roles} onUpdated={handleUpdated} />
@@ -90,12 +96,12 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           )}
           {showDisciplinary && (
             <TabsContent value="disciplinary">
-              <DisciplinaryActionsPanel employee={current} employees={employees} roles={roles} />
+              <DisciplinaryActionsPanel employee={current} employees={employees} roles={roles} granularPermissions={granularPermissions} />
             </TabsContent>
           )}
-          {showTermination && (
+          {canTerminate && (
             <TabsContent value="termination">
-              <TerminationPanel employee={current} roles={roles} onUpdated={handleUpdated} />
+              <TerminationPanel employee={current} roles={roles} granularPermissions={granularPermissions} onUpdated={handleUpdated} />
             </TabsContent>
           )}
         </Tabs>
