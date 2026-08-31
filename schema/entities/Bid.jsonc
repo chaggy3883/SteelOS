@@ -105,6 +105,19 @@
       "type": "number",
       "description": "T&M-only markup %, applied to each of the labor/material/subcontractor subtotals on the T&M estimate. Pre-filled from Company.default_tm_markup_percentage but editable per bid. Carried onto Project.tm_markup_percentage when won."
     },
+    "is_prevailing_wage": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set on the Base Information section at bid time. Carried onto Project.is_prevailing_wage when the bid is won — see createProjectFromWonBid in BidDetail.jsx."
+    },
+    "wage_determination_number": {
+      "type": "string",
+      "description": "Carried onto Project.wage_determination_number when won."
+    },
+    "prevailing_wage_jurisdiction": {
+      "type": "string",
+      "description": "Carried onto Project.prevailing_wage_jurisdiction when won."
+    },
     "estimated_tons": {
       "type": "number",
       "default": 0

@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
   ArrowLeft, Brain, MessageSquare, Package,
-  DollarSign, Edit, Plus,
+  DollarSign, Plus,
   AlertTriangle, Layers, Gavel, FileSignature, ArrowRight, NotebookPen, ListChecks
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import StatusBadge from '@/components/ui/StatusBadge';
 import StatsCard from '@/components/ui/StatsCard';
 import FileExplorer from '@/components/documents/FileExplorer';
@@ -70,9 +70,6 @@ export default function ProjectDetail() {
   const [subcontracts, setSubcontracts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [markingAwarded, setMarkingAwarded] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({});
-  const [savingEdit, setSavingEdit] = useState(false);
 
   const [showPartForm, setShowPartForm] = useState(false);
   const [partForm, setPartForm] = useState(emptyPartForm());
@@ -90,6 +87,15 @@ export default function ProjectDetail() {
   const [bulkAssigning, setBulkAssigning] = useState(false);
   const [viewingPhasePiece, setViewingPhasePiece] = useState(null);
 
+  // Sequence/Area assignment — ProjectSequenceArea is the same entity
+  // ProjectManagement.jsx uses for ShopDrawing grouping; here it groups
+  // PieceMark.sequence_area_id instead, independent of the free-text
+  // phase/sequence fields the Phasing tab above uses.
+  const [sequenceAreas, setSequenceAreas] = useState([]);
+  const [selectedSeqPieceIds, setSelectedSeqPieceIds] = useState(new Set());
+  const [seqBulkTarget, setSeqBulkTarget] = useState('');
+  const [seqBulkAssigning, setSeqBulkAssigning] = useState(false);
+
   // Meeting Notes tab — notes captured live in Meeting Mode's Project
   // Review type, surfaced here after the meeting.
   const [meetingNotes, setMeetingNotes] = useState([]);
@@ -104,7 +110,7 @@ export default function ProjectDetail() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [proj, finds, rfiList, pieceList, subcontractList, shopPieceList, noteList, employeeList, certList, userList] = await Promise.all([
+      const [proj, finds, rfiList, pieceList, subcontractList, shopPieceList, noteList, employeeList, certList, userList, sequenceAreaList] = await Promise.all([
         db.entities.Project.get(id),
         db.entities.AIFinding.filter({ project_id: id }, '-created_date', 50),
         db.entities.RFI.filter({ project_id: id }, '-created_date', 20),
@@ -115,6 +121,7 @@ export default function ProjectDetail() {
         db.entities.employees.filter({ is_active: true }, 'full_name', 500),
         db.entities.employee_certifications.list('-created_date', 2000),
         db.entities.User.list('-created_date', 200),
+        db.entities.ProjectSequenceArea.filter({ project_id: id }, 'sort_order', 200),
       ]);
       setProject(proj);
       setFindings(finds);
@@ -126,6 +133,7 @@ export default function ProjectDetail() {
       setNoteEmployees(employeeList);
       setNoteCertifications(certList);
       setNoteAuthors(userList);
+      setSequenceAreas(sequenceAreaList);
     } catch (e) {
       console.error(e);
     } finally {
@@ -171,29 +179,6 @@ export default function ProjectDetail() {
       toast({ title: 'Unable to mark project awarded', variant: 'destructive' });
     } finally {
       setMarkingAwarded(false);
-    }
-  };
-
-  const openEdit = () => {
-    setEditForm({
-      is_prevailing_wage: project.is_prevailing_wage || false,
-      wage_determination_number: project.wage_determination_number || '',
-      prevailing_wage_jurisdiction: project.prevailing_wage_jurisdiction || '',
-    });
-    setEditOpen(true);
-  };
-
-  const handleSaveEdit = async () => {
-    setSavingEdit(true);
-    try {
-      const updated = await db.entities.Project.update(id, editForm);
-      setProject(updated);
-      setEditOpen(false);
-      toast({ title: 'Project updated' });
-    } catch (e) {
-      toast({ title: 'Unable to save changes', variant: 'destructive' });
-    } finally {
-      setSavingEdit(false);
     }
   };
 
@@ -339,6 +324,49 @@ export default function ProjectDetail() {
     }
   };
 
+  const toggleSelectSeqPiece = (pieceId) => {
+    setSelectedSeqPieceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pieceId)) next.delete(pieceId); else next.add(pieceId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllInSeqGroup = (rows, checked) => {
+    setSelectedSeqPieceIds((prev) => {
+      const next = new Set(prev);
+      rows.forEach((r) => { if (checked) next.add(r.id); else next.delete(r.id); });
+      return next;
+    });
+  };
+
+  const handlePieceSequenceAreaChange = async (piece, sequenceAreaId) => {
+    try {
+      const updated = await db.entities.PieceMark.update(piece.id, { sequence_area_id: sequenceAreaId });
+      setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    } catch (e) {
+      toast({ title: 'Unable to save change', variant: 'destructive' });
+    }
+  };
+
+  const handleBulkAssignSequenceArea = async () => {
+    if (selectedSeqPieceIds.size === 0 || !seqBulkTarget) return;
+    setSeqBulkAssigning(true);
+    try {
+      const ids = Array.from(selectedSeqPieceIds);
+      const targetAreaId = seqBulkTarget === 'unassigned' ? null : seqBulkTarget;
+      await db.entities.PieceMark.updateMany({ id: { $in: ids } }, { sequence_area_id: targetAreaId });
+      setPieces((prev) => prev.map((p) => (ids.includes(p.id) ? { ...p, sequence_area_id: targetAreaId } : p)));
+      setSelectedSeqPieceIds(new Set());
+      setSeqBulkTarget('');
+      toast({ title: `${ids.length} piece${ids.length === 1 ? '' : 's'} assigned` });
+    } catch (e) {
+      toast({ title: 'Unable to bulk-assign sequence/area', variant: 'destructive' });
+    } finally {
+      setSeqBulkAssigning(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -391,6 +419,18 @@ export default function ProjectDetail() {
     const status = shopStatusByPieceMarkId.get(pm.id) ?? shopStatusByPieceMarkString.get(pm.piece_mark);
     return status === 'On_Site';
   };
+
+  const sequenceAreasById = new Map(sequenceAreas.map((a) => [a.id, a]));
+  const seqGroupMap = new Map();
+  pieces.forEach((p) => {
+    const key = p.sequence_area_id && sequenceAreasById.has(p.sequence_area_id) ? p.sequence_area_id : 'unassigned';
+    if (!seqGroupMap.has(key)) seqGroupMap.set(key, []);
+    seqGroupMap.get(key).push(p);
+  });
+  const seqGroupEntries = [
+    ...sequenceAreas.map((a) => [a.id, seqGroupMap.get(a.id) || []]),
+    ['unassigned', seqGroupMap.get('unassigned') || []],
+  ];
 
   const piecePhaseKey = (p) => (p.phase || '').trim() || 'Unassigned';
   const phaseMap = new Map();
@@ -457,9 +497,6 @@ export default function ProjectDetail() {
               <Gavel className="w-4 h-4" /> {markingAwarded ? 'Marking…' : 'Mark Awarded'}
             </Button>
           )}
-          <Button className="steel-gradient text-white border-0 gap-2" onClick={openEdit}>
-            <Edit className="w-4 h-4" /> Edit
-          </Button>
         </div>
       </div>
 
@@ -762,6 +799,76 @@ export default function ProjectDetail() {
             )}
           </div>
 
+          {pieces.length > 0 && (
+            <div className="steel-card p-5 mt-4">
+              <h3 className="font-semibold">Sequence / Area Assignment</h3>
+              <p className="text-sm text-muted-foreground mb-4">Assign pieces to a project sequence/area, individually or in bulk. Unassigned pieces are grouped separately, not hidden.</p>
+
+              {sequenceAreas.length === 0 ? (
+                <div className="text-center py-8">
+                  <Layers className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">No sequences/areas defined for this project yet.</p>
+                  <Link to={`/projects/${id}/management`} className="text-sm text-primary hover:underline mt-1 inline-block">Add sequences/areas in Lifecycle</Link>
+                </div>
+              ) : (
+                <>
+                  {selectedSeqPieceIds.size > 0 && (
+                    <div className="steel-card p-3 mb-4 flex items-center gap-3 flex-wrap border-primary/40 bg-primary/5">
+                      <span className="text-sm font-medium">{selectedSeqPieceIds.size} selected</span>
+                      <Select value={seqBulkTarget} onValueChange={setSeqBulkTarget}>
+                        <SelectTrigger className="h-8 w-48"><SelectValue placeholder="Assign to…" /></SelectTrigger>
+                        <SelectContent>
+                          {sequenceAreas.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button size="sm" onClick={handleBulkAssignSequenceArea} disabled={!seqBulkTarget || seqBulkAssigning}>
+                        {seqBulkAssigning ? 'Assigning…' : 'Assign'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setSelectedSeqPieceIds(new Set())}>Clear</Button>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {seqGroupEntries.map(([groupKey, rows]) => {
+                      const allSelected = rows.length > 0 && rows.every((r) => selectedSeqPieceIds.has(r.id));
+                      const groupName = groupKey === 'unassigned' ? 'Unassigned' : sequenceAreasById.get(groupKey)?.name;
+                      return (
+                        <div key={groupKey} className="rounded-lg border border-border overflow-hidden">
+                          <div className="p-3 border-b border-border flex items-center gap-2 bg-muted/20">
+                            <Checkbox checked={allSelected} onCheckedChange={(c) => toggleSelectAllInSeqGroup(rows, c)} disabled={rows.length === 0} />
+                            <span className="font-medium text-sm">{groupName}</span>
+                            <span className="text-xs text-muted-foreground">{rows.length} piece{rows.length === 1 ? '' : 's'}</span>
+                          </div>
+                          {rows.length === 0 ? (
+                            <p className="text-sm text-muted-foreground px-3 py-3">No pieces assigned.</p>
+                          ) : (
+                            <div className="divide-y divide-border/50">
+                              {rows.map((p) => (
+                                <div key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                                  <Checkbox checked={selectedSeqPieceIds.has(p.id)} onCheckedChange={() => toggleSelectSeqPiece(p.id)} />
+                                  <span className="font-mono font-medium flex-1 min-w-0 truncate">{p.piece_mark}</span>
+                                  <span className="text-xs text-muted-foreground w-24 text-right flex-shrink-0">{p.weight_lbs ? `${p.weight_lbs.toLocaleString()} lbs` : '—'}</span>
+                                  <Select value={p.sequence_area_id || 'unassigned'} onValueChange={(v) => handlePieceSequenceAreaChange(p, v === 'unassigned' ? null : v)}>
+                                    <SelectTrigger className="h-7 w-40 text-xs flex-shrink-0"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      {sequenceAreas.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="steel-card p-5 mt-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold">Parts &amp; Hardware</h3>
@@ -1041,39 +1148,6 @@ export default function ProjectDetail() {
           </TabsContent>
         )}
       </Tabs>
-
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Edit Project — Prevailing Wage</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between rounded-lg border border-border p-3">
-              <div>
-                <p className="text-sm font-medium">Prevailing Wage Project</p>
-                <p className="text-xs text-muted-foreground">Requires certified payroll (WH-347) from erection subcontractors</p>
-              </div>
-              <Switch checked={editForm.is_prevailing_wage} onCheckedChange={(c) => setEditForm((f) => ({ ...f, is_prevailing_wage: c }))} />
-            </div>
-            {editForm.is_prevailing_wage && (
-              <>
-                <div>
-                  <Label>Wage Determination Number</Label>
-                  <Input value={editForm.wage_determination_number} onChange={(e) => setEditForm((f) => ({ ...f, wage_determination_number: e.target.value }))} className="mt-1" placeholder="e.g. OH-2024-001" />
-                </div>
-                <div>
-                  <Label>Jurisdiction</Label>
-                  <Input value={editForm.prevailing_wage_jurisdiction} onChange={(e) => setEditForm((f) => ({ ...f, prevailing_wage_jurisdiction: e.target.value }))} className="mt-1" placeholder="e.g. Ohio" />
-                </div>
-              </>
-            )}
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-              <Button onClick={handleSaveEdit} disabled={savingEdit} className="steel-gradient text-white border-0">
-                {savingEdit ? 'Saving…' : 'Save'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={!!viewingPart} onOpenChange={(o) => !o && setViewingPart(null)}>
         <DialogContent className="max-w-lg">

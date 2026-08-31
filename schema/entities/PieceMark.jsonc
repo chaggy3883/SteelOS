@@ -38,6 +38,10 @@
     "sequence": {
       "type": "string"
     },
+    "sequence_area_id": {
+      "type": "string",
+      "description": "Links to ProjectSequenceArea. Nullable — pieces with no assignment show under \"Unassigned\" rather than being hidden. Independent of the free-text phase/sequence fields above."
+    },
     "status": {
       "type": "string",
       "enum": [

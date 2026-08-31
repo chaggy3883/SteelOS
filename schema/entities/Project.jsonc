@@ -215,13 +215,16 @@
     },
     "is_prevailing_wage": {
       "type": "boolean",
-      "default": false
+      "default": false,
+      "description": "Carried from Bid.is_prevailing_wage when this project is created from a won bid (createProjectFromWonBid in BidDetail.jsx) — not directly editable on the project."
     },
     "wage_determination_number": {
-      "type": "string"
+      "type": "string",
+      "description": "Carried from Bid.wage_determination_number when won."
     },
     "prevailing_wage_jurisdiction": {
-      "type": "string"
+      "type": "string",
+      "description": "Carried from Bid.prevailing_wage_jurisdiction when won."
     }
   },
   "required": [

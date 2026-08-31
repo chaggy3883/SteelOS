@@ -73,7 +73,7 @@ export default function BidDetail() {
   const [showDnbModal, setShowDnbModal] = useState(false);
   const [lossForm, setLossForm] = useState({ reason: '', notes: '', competitor: '' });
   const [savingLoss, setSavingLoss] = useState(false);
-  const [baseInfo, setBaseInfo] = useState({ street: '', city: '', state: '', zip: '', tax_enabled: false, tax_rate: 0, joist_deck_tax_rate: HANCOCK_COUNTY_TAX_RATE, tax_exempt: false, tax_exempt_reason: '', local_server_path: '' });
+  const [baseInfo, setBaseInfo] = useState({ street: '', city: '', state: '', zip: '', tax_enabled: false, tax_rate: 0, joist_deck_tax_rate: HANCOCK_COUNTY_TAX_RATE, tax_exempt: false, tax_exempt_reason: '', local_server_path: '', is_prevailing_wage: false, wage_determination_number: '', prevailing_wage_jurisdiction: '' });
   const [effectiveTaxInfo, setEffectiveTaxInfo] = useState({ rate: 0, source: 'manual_entry', effective_date: null, tax_zone_id: null });
   const [taxRateText, setTaxRateText] = useState('');
   const [joistDeckTaxRateText, setJoistDeckTaxRateText] = useState(formatTaxRatePercent(HANCOCK_COUNTY_TAX_RATE));
@@ -110,6 +110,9 @@ export default function BidDetail() {
         tax_exempt: bid.tax_exempt ?? false,
         tax_exempt_reason: bid.tax_exempt_reason || '',
         local_server_path: bid.local_server_path || '',
+        is_prevailing_wage: bid.is_prevailing_wage || false,
+        wage_determination_number: bid.wage_determination_number || '',
+        prevailing_wage_jurisdiction: bid.prevailing_wage_jurisdiction || '',
       });
       setTaxRateText(formatTaxRatePercent(bid.tax_rate));
       setJoistDeckTaxRateText(formatTaxRatePercent(bid.joist_deck_tax_rate ?? HANCOCK_COUNTY_TAX_RATE));
@@ -250,6 +253,9 @@ export default function BidDetail() {
       project_type: 'commercial',
       pricing_type: wonBid.pricing_type || 'fixed_price',
       tm_markup_percentage: wonBid.tm_markup_percentage ?? undefined,
+      is_prevailing_wage: wonBid.is_prevailing_wage || false,
+      wage_determination_number: wonBid.wage_determination_number || '',
+      prevailing_wage_jurisdiction: wonBid.prevailing_wage_jurisdiction || '',
       status: 'awarded',
       contract_value: wonBid.bid_quoted_price || wonBid.bid_total_cost || null,
       // Mirrors contract_value at creation (no change orders exist yet) —
@@ -369,6 +375,9 @@ export default function BidDetail() {
         job_city: baseInfo.city,
         job_state: baseInfo.state,
         local_server_path: baseInfo.local_server_path,
+        is_prevailing_wage: baseInfo.is_prevailing_wage,
+        wage_determination_number: baseInfo.wage_determination_number,
+        prevailing_wage_jurisdiction: baseInfo.prevailing_wage_jurisdiction,
       });
       toast({ title: 'Bid information saved' });
       setBaseInfoDirty(false);
@@ -581,6 +590,25 @@ export default function BidDetail() {
               <option value="time_and_material">Time &amp; Material</option>
             </select>
           </div>
+          <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-border p-3">
+            <div>
+              <p className="text-sm font-medium">Prevailing Wage Project</p>
+              <p className="text-xs text-muted-foreground">Requires certified payroll (WH-347) from erection subcontractors — carried onto the project when this bid is won</p>
+            </div>
+            <Switch checked={baseInfo.is_prevailing_wage} onCheckedChange={(checked) => updateBaseInfo('is_prevailing_wage', checked)} />
+          </div>
+          {baseInfo.is_prevailing_wage && (
+            <>
+              <div>
+                <Label>Wage Determination Number</Label>
+                <Input value={baseInfo.wage_determination_number} onChange={(e) => updateBaseInfo('wage_determination_number', e.target.value)} className="mt-1" placeholder="e.g. OH-2024-001" />
+              </div>
+              <div>
+                <Label>Jurisdiction</Label>
+                <Input value={baseInfo.prevailing_wage_jurisdiction} onChange={(e) => updateBaseInfo('prevailing_wage_jurisdiction', e.target.value)} className="mt-1" placeholder="e.g. Ohio" />
+              </div>
+            </>
+          )}
           <div>
             <Label>Street</Label>
             <Input value={baseInfo.street} onChange={(e) => updateBaseInfo('street', e.target.value)} className="mt-1" placeholder="123 Main St" />
