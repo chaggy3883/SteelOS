@@ -59,6 +59,11 @@
       "type": "number",
       "default": 0
     },
+    "markup_percentage": {
+      "type": "number",
+      "default": 0,
+      "description": "This line's own profit markup %. Quoted Price = total_cost * (1 + markup_percentage/100). Pre-filled from Bid.markup_percentage when the line is first created, then independently editable — see TakeoffEngine.jsx."
+    },
     "tons": {
       "type": "number",
       "default": 0

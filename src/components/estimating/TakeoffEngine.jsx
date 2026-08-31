@@ -120,6 +120,10 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const [exclusions, setExclusions] = useState(bid?.exclusions || '');
   const [drawingsUsed, setDrawingsUsed] = useState(bid?.drawings_used || '');
   const [addendums, setAddendums] = useState(bid?.addendums || '');
+  // bid.markup_percentage is no longer the bid-wide markup itself — each
+  // line item owns its own markup % now. This only pre-fills that per-line
+  // field for a new/never-saved line (see loadLines); it has no effect on
+  // totals directly.
   const [markupPct, setMarkupPct] = useState(bid?.markup_percentage ?? 0);
   const [structuralGeometryType, setStructuralGeometryType] = useState(bid?.structural_geometry_type || 'beam_column');
 
@@ -253,17 +257,24 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     setLoading(true);
     try {
       const existing = await db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 100);
+      // Bid.markup_percentage is the DEFAULT that pre-fills a line's own
+      // markup_percentage — for a brand-new line, and also for any line saved
+      // before per-line markup existed (found.markup_percentage is
+      // undefined there), so opening an older bid doesn't silently zero out
+      // the markup it was actually quoted at.
+      const defaultMarkupPct = parseFloat(bid?.markup_percentage) || 0;
       const map = {};
       COST_CATEGORIES.forEach(cat => {
         const found = existing.find(e => e.cost_category === cat.key);
         map[cat.key] = found
-          ? { ...found, coverage_rate: found.coverage_rate ?? 300 }
-          : { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, is_auto_filled: false, source: 'manual', id: null };
+          ? { ...found, coverage_rate: found.coverage_rate ?? 300, markup_percentage: found.markup_percentage ?? defaultMarkupPct }
+          : { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, markup_percentage: defaultMarkupPct, is_auto_filled: false, source: 'manual', id: null };
       });
       setLines(map);
     } catch (e) {
+      const defaultMarkupPct = parseFloat(bid?.markup_percentage) || 0;
       const empty = {};
-      COST_CATEGORIES.forEach(cat => { empty[cat.key] = { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, is_auto_filled: false, source: 'manual', id: null }; });
+      COST_CATEGORIES.forEach(cat => { empty[cat.key] = { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, markup_percentage: defaultMarkupPct, is_auto_filled: false, source: 'manual', id: null }; });
       setLines(empty);
     } finally { setLoading(false); setDirty(false); }
   };
@@ -277,6 +288,14 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         ? ((updated.quantity || 0) / (updated.coverage_rate || 300)) * (updated.unit_cost || 0)
         : (updated.quantity || 0) * (updated.unit_cost || 0);
       return { ...prev, [key]: updated };
+    });
+    setDirty(true);
+  };
+
+  const updateLineMarkup = (key, value) => {
+    setLines(prev => {
+      const line = prev[key] || { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300 };
+      return { ...prev, [key]: { ...line, markup_percentage: value } };
     });
     setDirty(true);
   };
@@ -307,13 +326,21 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const updateStructuralGeometryType = (value) => { setStructuralGeometryType(value); setDirty(true); };
 
   const subtotal = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0), 0);
-  // Profit markup is applied to the line-item subtotal BEFORE tax — tax is
-  // charged on the marked-up (sell) price, not on raw cost, matching how this
-  // business actually prices a job. At the default 0%, every figure below is
-  // identical to the pre-markup calculation (markupMultiplier === 1).
-  const markupMultiplier = 1 + ((parseFloat(markupPct) || 0) / 100);
-  const markupAmount = subtotal * (markupMultiplier - 1);
-  const subtotalWithMarkup = subtotal * markupMultiplier;
+  // Each line item now carries its own markup % (set in the Cost Breakdown
+  // table below) — Quoted Price = Line Total * lineMarkupMultiplier. Every
+  // downstream figure (tax, bond, grand total) is the SUM of each line's own
+  // quoted price, not one bid-wide multiplier. Tax is still charged on the
+  // marked-up (sell) price, not raw cost, matching how this business actually
+  // prices a job.
+  const lineMarkupMultiplier = (line) => 1 + ((parseFloat(line?.markup_percentage) || 0) / 100);
+  const subtotalWithMarkup = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0) * lineMarkupMultiplier(l), 0);
+  const markupAmount = subtotalWithMarkup - subtotal;
+  // The bottom-of-worksheet summary shows the dollar-weighted average markup
+  // (markupAmount / subtotal), not a plain arithmetic mean of the per-line
+  // percentages — most of the 28 categories are unused (0 cost) on any given
+  // bid, and a plain mean across all of them would be dragged toward zero
+  // regardless of what markup is actually being charged on real dollars.
+  const averageMarkupPct = subtotal > 0 ? (markupAmount / subtotal) * 100 : 0;
   const overrideTotal = ['insurance', 'bond', 'procore_pay', 'textura'].reduce((s, k) => s + (parseFloat(overrides[k]) || 0), 0);
   const grandTotal = subtotalWithMarkup + overrideTotal;
   const calculatedTaxRate = taxInfo.rate;
@@ -322,14 +349,14 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   // true) rather than a hardcoded category-key list — steel_erection,
   // outsourced_misc_material_erection, and joist_deck are the only categories
   // flagged is_taxable: false today, matching the exact set this replaces.
-  // Each line's cost is scaled by markupMultiplier before tax, same as the
-  // subtotal above.
+  // Each line's cost is scaled by its own markup multiplier before tax, same
+  // as the subtotal above.
   const structuralTaxAmount = Object.entries(lines).reduce((sum, [categoryKey, line]) => {
     const cat = COST_CATEGORIES.find((c) => c.key === categoryKey);
     if (cat?.is_taxable === false) return sum;
-    return sum + Number(line?.total_cost || 0) * markupMultiplier * calculatedTaxRate;
+    return sum + Number(line?.total_cost || 0) * lineMarkupMultiplier(line) * calculatedTaxRate;
   }, 0);
-  const joistDeckTaxAmount = joistDeckTaxable && !bid?.tax_exempt ? Number(lines['joist_deck']?.total_cost || 0) * markupMultiplier * joistDeckTaxRate : 0;
+  const joistDeckTaxAmount = joistDeckTaxable && !bid?.tax_exempt ? Number(lines['joist_deck']?.total_cost || 0) * lineMarkupMultiplier(lines['joist_deck']) * joistDeckTaxRate : 0;
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
   const bondAmount = (() => {
     const contractValue = Math.max(0, subtotalWithMarkup + overrideTotal);
@@ -395,6 +422,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
           quantity: line.quantity || 0,
           unit_cost: line.unit_cost || 0,
           total_cost: line.total_cost || 0,
+          markup_percentage: parseFloat(line.markup_percentage) || 0,
           coverage_rate: cat.inputMode === 'coverage' ? (line.coverage_rate || 300) : undefined,
           is_auto_filled: line.is_auto_filled || false,
           is_overridden: line.is_overridden || false,
@@ -508,87 +536,119 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
 
       {/* Cost Breakdown Form */}
       <div className="steel-card p-5">
-        <h4 className="font-semibold mb-4">Cost Breakdown — Line Items</h4>
+        <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+          <h4 className="font-semibold">Cost Breakdown — Line Items</h4>
+          <div>
+            <Label className="text-xs whitespace-nowrap">Default Markup % <span className="font-normal text-muted-foreground">(pre-fills new lines only)</span></Label>
+            <div className="relative w-24 mt-1">
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={markupPct}
+                onChange={(e) => updateMarkupPct(e.target.value === '' ? '' : parseFloat(e.target.value) || 0)}
+                className="h-8 text-sm pr-5"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">%</span>
+            </div>
+          </div>
+        </div>
         <div className="space-y-2">
+          <div className="hidden sm:flex items-center gap-2 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="w-40 flex-shrink-0">Category</div>
+            <div className="flex-1 min-w-[220px]">Quantity / Rate</div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="w-20 sm:w-24 text-right">Line Total</div>
+              <div className="w-14 text-center">Markup %</div>
+              <div className="w-20 sm:w-24 text-right">Quoted Price</div>
+              <div className="w-[74px]" />
+            </div>
+          </div>
           {visibleCategories.map(cat => {
-            const line = lines[cat.key] || { quantity: 0, unit_cost: 0, total_cost: 0 };
+            const line = lines[cat.key] || { quantity: 0, unit_cost: 0, total_cost: 0, markup_percentage: 0 };
+            const quotedPrice = (line.total_cost || 0) * lineMarkupMultiplier(line);
             return (
               <div key={cat.key} className={cn(
-                'grid grid-cols-12 gap-2 items-center py-1.5 px-2 rounded-lg transition-colors',
+                'flex flex-wrap items-center gap-2 py-1.5 px-2 rounded-lg transition-colors',
                 line.is_overridden && 'bg-yellow-500/10 ring-1 ring-yellow-500/30',
                 line.is_auto_filled && !line.is_overridden && 'bg-blue-500/5'
               )}>
-                <div className="col-span-12 sm:col-span-4 flex items-center gap-2">
+                <div className="w-full sm:w-40 flex-shrink-0 flex items-center gap-2">
                   <span className="text-sm font-medium">{cat.label}</span>
                   {line.is_auto_filled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 font-medium">AUTO</span>}
                   {line.is_overridden && <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-600 font-medium">OVERRIDE</span>}
                 </div>
-                {cat.inputMode === 'coverage' ? (
-                  <>
-                    <div className="col-span-4 sm:col-span-2 flex items-center gap-1">
-                      <Input type="number" value={line.quantity || ''} placeholder="0"
-                        onChange={e => updateLine(cat.key, 'quantity', parseFloat(e.target.value) || 0)}
-                        className="h-8 text-sm" />
-                      <span className="text-xs text-muted-foreground w-12">{cat.qtyLabel}</span>
-                    </div>
-                    <div className="col-span-4 sm:col-span-2 flex items-center gap-1">
-                      <span className="text-xs text-muted-foreground">$</span>
-                      <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
-                        onChange={e => updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0)}
-                        className="h-8 text-sm" />
-                      <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden lg:inline">{cat.rateLabel}</span>
-                    </div>
-                    <div className="col-span-4 sm:col-span-2 flex items-center gap-1">
-                      {editingCoverageKey === cat.key ? (
-                        <Input type="number" autoFocus value={line.coverage_rate ?? 300} placeholder="300"
-                          onChange={e => updateLine(cat.key, 'coverage_rate', parseFloat(e.target.value) || 300)}
-                          onBlur={() => setEditingCoverageKey(null)}
+                <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[220px]">
+                  {cat.inputMode === 'coverage' ? (
+                    <>
+                      <div className="w-full sm:w-28 flex items-center gap-1">
+                        <Input type="number" value={line.quantity || ''} placeholder="0"
+                          onChange={e => updateLine(cat.key, 'quantity', parseFloat(e.target.value) || 0)}
                           className="h-8 text-sm" />
-                      ) : (
-                        <>
-                          <span className="text-xs font-mono whitespace-nowrap">{line.coverage_rate ?? 300} sqft/gal</span>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => setEditingCoverageKey(cat.key)}>
-                            <Pencil className="w-3 h-3" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </>
-                ) : cat.inputMode === 'flat' ? (
-                  <div className="col-span-8 sm:col-span-5 flex items-center gap-1">
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">{cat.priceLabel}</span>
-                    <span className="text-xs text-muted-foreground">$</span>
-                    <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
-                      onChange={e => updateFlatPrice(cat.key, parseFloat(e.target.value) || 0)}
-                      className="h-8 text-sm" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="col-span-4 sm:col-span-2 flex items-center gap-1">
-                      <Input type="number" value={line.quantity || ''} placeholder="0"
-                        onChange={e => updateLine(cat.key, 'quantity', parseFloat(e.target.value) || 0)}
-                        className="h-8 text-sm" />
-                      <span className="text-xs text-muted-foreground w-12">{cat.qtyLabel || cat.unit}</span>
-                    </div>
-                    <div className="col-span-4 sm:col-span-3 flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground w-12">{cat.qtyLabel}</span>
+                      </div>
+                      <div className="w-full sm:w-32 flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground">$</span>
+                        <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
+                          onChange={e => updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0)}
+                          className="h-8 text-sm" />
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden lg:inline">{cat.rateLabel}</span>
+                      </div>
+                      <div className="w-full sm:w-32 flex items-center gap-1">
+                        {editingCoverageKey === cat.key ? (
+                          <Input type="number" autoFocus value={line.coverage_rate ?? 300} placeholder="300"
+                            onChange={e => updateLine(cat.key, 'coverage_rate', parseFloat(e.target.value) || 300)}
+                            onBlur={() => setEditingCoverageKey(null)}
+                            className="h-8 text-sm" />
+                        ) : (
+                          <>
+                            <span className="text-xs font-mono whitespace-nowrap">{line.coverage_rate ?? 300} sqft/gal</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => setEditingCoverageKey(cat.key)}>
+                              <Pencil className="w-3 h-3" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  ) : cat.inputMode === 'flat' ? (
+                    <div className="w-full sm:w-64 flex items-center gap-1">
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">{cat.priceLabel}</span>
                       <span className="text-xs text-muted-foreground">$</span>
                       <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
-                        onChange={e => updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0)}
+                        onChange={e => updateFlatPrice(cat.key, parseFloat(e.target.value) || 0)}
                         className="h-8 text-sm" />
-                      {cat.rateLabel && <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden lg:inline">{cat.rateLabel}</span>}
                     </div>
-                  </>
-                )}
-                {/* Explicit col-start (rather than relying on auto-flow) so this
-                    cell always lands in the row's rightmost slot — the coverage
-                    branch above (Primer/Paint's 3 inputs) fills more columns than
-                    the other branches, and without a pinned start it overflows
-                    into a fresh row anchored at column 1 instead of the right
-                    edge, throwing off "$ total" alignment for that row only. */}
-                <div className="col-start-9 col-span-4 sm:col-start-10 sm:col-span-3 text-right font-mono text-sm font-bold">
-                  ${(line.total_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  ) : (
+                    <>
+                      <div className="w-full sm:w-28 flex items-center gap-1">
+                        <Input type="number" value={line.quantity || ''} placeholder="0"
+                          onChange={e => updateLine(cat.key, 'quantity', parseFloat(e.target.value) || 0)}
+                          className="h-8 text-sm" />
+                        <span className="text-xs text-muted-foreground w-12">{cat.qtyLabel || cat.unit}</span>
+                      </div>
+                      <div className="w-full sm:w-36 flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground">$</span>
+                        <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
+                          onChange={e => updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0)}
+                          className="h-8 text-sm" />
+                        {cat.rateLabel && <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden lg:inline">{cat.rateLabel}</span>}
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div className="col-span-12 sm:col-span-1 flex justify-end">
+                <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+                  <div className="w-20 sm:w-24 text-right font-mono text-sm font-bold">
+                    ${(line.total_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </div>
+                  <div className="relative w-14 flex-shrink-0">
+                    <Input type="number" min="0" step="0.01" value={line.markup_percentage ?? 0}
+                      onChange={e => updateLineMarkup(cat.key, e.target.value === '' ? '' : parseFloat(e.target.value) || 0)}
+                      className="h-8 text-sm pr-4" />
+                    <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground pointer-events-none">%</span>
+                  </div>
+                  <div className="w-20 sm:w-24 text-right font-mono text-sm font-bold text-primary">
+                    ${quotedPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </div>
                   <Button variant="outline" size="sm" onClick={() => openDocuments(cat.key)}>
                     <Upload className="w-3.5 h-3.5 mr-1" />Docs
                   </Button>
@@ -769,17 +829,11 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
           <div className="flex justify-between items-center text-sm">
             <span className="flex items-center gap-2">
               Profit Markup
-              <span className="relative inline-block">
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={markupPct}
-                  onChange={(e) => updateMarkupPct(e.target.value === '' ? '' : parseFloat(e.target.value) || 0)}
-                  className="h-7 w-20 text-xs pr-5"
-                />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">%</span>
-              </span>
+              {/* Read-only — the dollar-weighted average of each line item's
+                  own Markup % in the table above, not a separately settable
+                  value. Edit markup per line up there; "Default Markup %"
+                  only pre-fills new lines. */}
+              <span className="text-xs font-mono text-muted-foreground">(avg {averageMarkupPct.toLocaleString(undefined, { maximumFractionDigits: 2 })}%)</span>
             </span>
             <span className="font-mono">${markupAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>

@@ -85,7 +85,7 @@
     "markup_percentage": {
       "type": "number",
       "default": 0,
-      "description": "Profit markup applied to the Worksheet's line-item subtotal before tax — separate from tax_rate. Set on the BID Worksheet (TakeoffEngine.jsx); rolled into bid_total_cost as subtotal * (1 + markup_percentage/100), taxed on top of the marked-up amount."
+      "description": "DEFAULT markup % only — pre-fills TakeoffLine.markup_percentage when a line item is first created on the BID Worksheet (TakeoffEngine.jsx). Each line item owns its own markup from that point on; bid_total_cost is rolled up from the sum of each line's own quoted price (total_cost * (1 + its markup_percentage/100)), not from this field directly. The Worksheet displays the resulting dollar-weighted average markup as a read-only summary."
     },
     "drawings_used": {
       "type": "string",
