@@ -13,6 +13,7 @@
       "enum": [
         "Hard_Hat",
         "Safety_Glasses",
+        "Prescription_Safety_Glasses",
         "Harness",
         "Gloves",
         "Steel_Toe_Boots",

@@ -4,6 +4,7 @@ import { getEffectiveCompany } from '@/lib/tenantContext';
 export const ASSET_TYPES = [
   { value: 'Hard_Hat', label: 'Hard Hat' },
   { value: 'Safety_Glasses', label: 'Safety Glasses' },
+  { value: 'Prescription_Safety_Glasses', label: 'Prescription Safety Glasses' },
   { value: 'Harness', label: 'Harness' },
   { value: 'Gloves', label: 'Gloves' },
   { value: 'Steel_Toe_Boots', label: 'Steel Toe Boots' },
