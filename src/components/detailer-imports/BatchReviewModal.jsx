@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { validateBatchRows } from '@/lib/detailerImportValidation';
-import { commitBatch } from '@/lib/detailerImportCommit';
+import { commitBatch, detectRevisions } from '@/lib/detailerImportCommit';
+import RevisionCompareModal from '@/components/detailer-imports/RevisionCompareModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -19,8 +20,12 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [committing, setCommitting] = useState(false);
+  const [checkingRevisions, setCheckingRevisions] = useState(false);
+  const [pendingRevisions, setPendingRevisions] = useState(null); // [{row, pieceMark, changes}] | null
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { runValidation(); }, [batch.id]);
+  useEffect(() => { db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null)); }, []);
 
   const runValidation = async () => {
     setLoading(true);
@@ -59,19 +64,48 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
     }
   };
 
+  // Stage 11: detect changed-existing-piece rows before touching anything.
+  // No revisions found -> commit exactly as before (unaffected fast path).
+  // Revisions found -> open RevisionCompareModal and wait for an explicit
+  // per-piece choice; nothing commits until that modal's own action fires.
   const handleCommit = async () => {
+    setCheckingRevisions(true);
+    try {
+      const revisions = await detectRevisions(batch, rows);
+      if (revisions.length === 0) {
+        await runCommit(new Set());
+      } else {
+        setPendingRevisions(revisions);
+      }
+    } catch (error) {
+      console.error(error);
+      toast({ title: 'Unable to check for revisions', variant: 'destructive' });
+    } finally {
+      setCheckingRevisions(false);
+    }
+  };
+
+  const runCommit = async (confirmedRowIds) => {
     setCommitting(true);
     try {
-      const result = await commitBatch(batch, rows);
+      const skipRowIds = pendingRevisions
+        ? new Set(pendingRevisions.map((r) => r.row.id).filter((id) => !confirmedRowIds.has(id)))
+        : new Set();
+      const changedBy = currentUser?.full_name || currentUser?.email || 'Unknown';
+      const result = await commitBatch(batch, rows, { skipRowIds, changedBy });
       setRows((current) => current.map((row) => (
-        row.committed || row.validation_status === 'error'
+        row.committed || row.validation_status === 'error' || skipRowIds.has(row.id)
           ? row
           : { ...row, committed: true }
       )));
       onBatchUpdated(result.batch);
+      setPendingRevisions(null);
       toast({
         title: `Committed batch: ${result.created} created, ${result.updated} updated`,
-        description: result.skipped > 0 ? `${result.skipped} row${result.skipped === 1 ? '' : 's'} skipped due to errors.` : undefined,
+        description: [
+          result.skipped > 0 ? `${result.skipped} row${result.skipped === 1 ? '' : 's'} skipped due to errors.` : null,
+          result.revisionsSkipped > 0 ? `${result.revisionsSkipped} revision${result.revisionsSkipped === 1 ? '' : 's'} left unconfirmed — not applied.` : null,
+        ].filter(Boolean).join(' ') || undefined,
       });
     } catch (error) {
       console.error(error);
@@ -88,6 +122,7 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
   const committableCount = rows.filter((r) => !r.committed && r.validation_status !== 'error').length;
 
   return (
+    <>
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
@@ -156,14 +191,23 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
           <Button variant="outline" onClick={onClose}>Close</Button>
           <Button
             onClick={handleCommit}
-            disabled={loading || committing || committableCount === 0}
+            disabled={loading || committing || checkingRevisions || committableCount === 0}
             className="steel-gradient text-white border-0"
           >
-            {committing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+            {committing || checkingRevisions ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             Commit Batch {committableCount > 0 ? `(${committableCount})` : ''}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <RevisionCompareModal
+      open={!!pendingRevisions}
+      revisions={pendingRevisions || []}
+      committing={committing}
+      onCancel={() => setPendingRevisions(null)}
+      onConfirm={(confirmedRowIds) => runCommit(confirmedRowIds)}
+    />
+    </>
   );
 }

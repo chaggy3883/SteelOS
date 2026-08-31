@@ -23,7 +23,7 @@ export function getPieceLengthInches(piece) {
   return feet == null ? null : feet * 12;
 }
 
-const materialGroupKey = (piece) => `${normalizeScanValue(piece.material_profile)}::${normalizeScanValue(piece.material_grade)}`;
+export const materialGroupKey = (piece) => `${normalizeScanValue(piece.material_profile)}::${normalizeScanValue(piece.material_grade)}`;
 
 // Groups by shape + grade TOGETHER, never shape alone — a W12x26 in A992 and
 // a W12x26 in A572-50 are not interchangeable stock, even though they'd
@@ -160,6 +160,83 @@ export function compareStockLengthOptions(piecesInGroup, stockLengthChoices, ker
       };
     })
     .sort((a, b) => a.waste_in - b.waste_in);
+}
+
+// Stage 10: which logged remnants are candidate stock for this group — same
+// shape+grade key as groupPiecesByMaterial, never shape alone. Only
+// 'available' remnants are offered; a group with no material_grade set on
+// its remnant matches nothing, same as the piece side (materialGroupKey
+// needs both sides present to agree).
+export function findMatchingRemnants(remnants, group) {
+  const targetKey = materialGroupKey({ material_profile: group.material_profile, material_grade: group.material_grade });
+  return (remnants || []).filter((r) => (
+    r.status !== 'consumed'
+    && materialGroupKey({ material_profile: r.material_shape, material_grade: r.material_grade }) === targetKey
+  ));
+}
+
+// Stage 10: use up existing remnants before recommending new stock — same
+// first-fit-decreasing approach as optimizeCutPlan (units longest-first,
+// each placed in an already-claimed remnant with room before claiming a new
+// one), except "opening a new bin" here means claiming an unused remnant of
+// sufficient length rather than choosing a length to buy. Smallest-first
+// remnant ordering biases toward best-fit, so a long remnant isn't burned on
+// a piece a short one would have covered. Returns remainingPieces — the
+// group's piece list with each piece's quantity reduced by however many
+// instances a remnant claimed — for the caller to feed into the normal
+// optimizeCutPlan/compareStockLengthOptions new-stock flow unchanged; a
+// remnant-consumed instance never reaches that pass.
+export function packPiecesIntoRemnants(piecesInGroup, availableRemnants, kerfAllowanceIn = 0) {
+  const remnants = [...(availableRemnants || [])]
+    .filter((r) => Number(r.length_in) > 0)
+    .sort((a, b) => a.length_in - b.length_in);
+  const { units, unpackablePieces } = expandUnits(piecesInGroup);
+  const sortedUnits = [...units].sort((a, b) => b.length_in - a.length_in);
+
+  const bins = [];
+  const usedRemnantIds = new Set();
+  const consumedCountByPieceId = new Map();
+
+  sortedUnits.forEach((unit) => {
+    const kerf = kerfAllowanceIn || 0;
+    const targetBin = bins.find((bin) => (bin.stock_length_in - bin.used_in) >= unit.length_in + (bin.cuts.length > 0 ? kerf : 0));
+
+    let placedIn = null;
+    if (targetBin) {
+      const kerfCharged = targetBin.cuts.length > 0 ? kerf : 0;
+      targetBin.used_in += unit.length_in + kerfCharged;
+      targetBin.cuts.push({ piece_id: unit.piece_id, length_in: unit.length_in, cut_order: targetBin.cuts.length + 1 });
+      placedIn = targetBin;
+    } else {
+      const remnant = remnants.find((r) => !usedRemnantIds.has(r.id) && r.length_in >= unit.length_in);
+      if (remnant) {
+        usedRemnantIds.add(remnant.id);
+        const bin = {
+          remnant_id: remnant.id,
+          heat_number: remnant.heat_number_string || '',
+          stock_length_in: remnant.length_in,
+          used_in: unit.length_in,
+          cuts: [{ piece_id: unit.piece_id, length_in: unit.length_in, cut_order: 1 }],
+        };
+        bins.push(bin);
+        placedIn = bin;
+      }
+    }
+
+    if (placedIn) {
+      consumedCountByPieceId.set(unit.piece_id, (consumedCountByPieceId.get(unit.piece_id) || 0) + 1);
+    }
+  });
+
+  const remainingPieces = piecesInGroup
+    .map((piece) => {
+      const consumed = consumedCountByPieceId.get(piece.id) || 0;
+      const remainingQty = Math.max(0, (Number(piece.quantity) || 1) - consumed);
+      return remainingQty > 0 ? { ...piece, quantity: remainingQty } : null;
+    })
+    .filter(Boolean);
+
+  return { bins, unpackablePieces, remainingPieces, totals: computeTotals(bins, kerfAllowanceIn) };
 }
 
 // Flattens optimizeCutPlan's bins into the MaterialOptimizationRun.pieces_assigned

@@ -10,7 +10,15 @@
     },
     "material_group_key": {
       "type": "string",
-      "description": "Same key groupPiecesByMaterial (src/lib/materialOptimizer.js) uses — normalized \"material_profile::material_grade\". Shape alone is never the key: different grades of the same shape are not interchangeable stock."
+      "description": "Same key groupPiecesByMaterial (src/lib/materialOptimizer.js) uses — normalized (lowercased) \"material_profile::material_grade\". Shape alone is never the key: different grades of the same shape are not interchangeable stock."
+    },
+    "material_profile": {
+      "type": "string",
+      "description": "Stage 10: the group's shape/size designation in its original casing (e.g. \"W12x26\") — material_group_key is lowercase-normalized for matching, so this is the display-quality source used when logging a remnant_inventory record from this run's stock units."
+    },
+    "material_grade": {
+      "type": "string",
+      "description": "Stage 10: the group's grade in its original casing (e.g. \"A572-50\") — same rationale as material_profile."
     },
     "stock_length_used": {
       "type": "number",
@@ -22,7 +30,7 @@
     },
     "pieces_assigned": {
       "type": "array",
-      "description": "One entry per physical piece instance: { piece_id, position_in_stock, cut_order, stock_material_unit_id }. position_in_stock is the 1-based index of WHICH stock bar the piece is cut from (bar 2 of quantity_of_stock_required, etc.); cut_order restarts at 1 for each bar and gives the cutting sequence within that bar — see toPiecesAssigned in materialOptimizer.js. stock_material_unit_id (added by materialOptimizationCommit.js right after the StockMaterialUnit rows are created, so toPiecesAssigned itself doesn't know their ids yet) is the same bar's StockMaterialUnit.id — the queryable-both-directions link: from a piece, read this field directly; from a StockMaterialUnit, read its own material_optimization_run_id, fetch this run, and filter pieces_assigned by stock_material_unit_id."
+      "description": "One entry per physical piece instance: { piece_id, position_in_stock, cut_order, stock_material_unit_id, remnant_inventory_id }. position_in_stock is the 1-based index of WHICH stock bar the piece is cut from (bar 2 of quantity_of_stock_required, etc.); cut_order restarts at 1 for each bar and gives the cutting sequence within that bar — see toPiecesAssigned in materialOptimizer.js. stock_material_unit_id (added by materialOptimizationCommit.js right after the StockMaterialUnit rows are created, so toPiecesAssigned itself doesn't know their ids yet) is the same bar's StockMaterialUnit.id — the queryable-both-directions link: from a piece, read this field directly; from a StockMaterialUnit, read its own material_optimization_run_id, fetch this run, and filter pieces_assigned by stock_material_unit_id. Stage 10: an entry cut from an existing remnant instead of newly-purchased stock carries remnant_inventory_id (FK to remnant_inventory) with stock_material_unit_id/position_in_stock left null — the two are mutually exclusive per entry; no StockMaterialUnit is created for remnant-sourced material since the remnant record already represents that physical piece of steel."
     },
     "remnant_length_in": {
       "type": "number",

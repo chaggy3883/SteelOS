@@ -15,8 +15,15 @@
 // file useless, so a normalized piece_mark match against an existing PieceMark
 // in the same project is treated as an update target instead of a rejected
 // duplicate.
+//
+// Stage 11: that update-target case is exactly a REVISION — a detailer
+// re-exporting the same project can silently change a piece's dimensions,
+// material, or quantity. detectRevisions surfaces those diffs up front so
+// BatchReviewModal.jsx/RevisionCompareModal.jsx can require an explicit
+// per-piece confirmation before commitBatch is allowed to touch them.
 import { db } from '@/api/apiClient';
 import { normalizeScanValue } from '@/lib/pieceScan';
+import { logStatusChange } from '@/lib/statusHistory';
 
 const PIECE_MARK_TEXT_FIELDS = ['assembly', 'material_grade', 'material_profile', 'finished_length', 'revision', 'drawing_number'];
 
@@ -30,23 +37,81 @@ const buildPieceMarkFields = (row) => {
   return fields;
 };
 
+// Fields Stage 11 treats as a meaningful revision worth stopping for —
+// "old vs new dimensions/material/quantity" per the prompt. Cosmetic fields
+// (assembly, drawing_number, revision letter) are still updated by commit as
+// before, just without gating on confirmation, since they were never part of
+// the ask and gating on them too would make every routine re-export trigger
+// the compare view.
+export const REVISION_TRACKED_FIELDS = [
+  { key: 'finished_length', label: 'Dimensions (Finished Length)' },
+  { key: 'material_profile', label: 'Material Profile' },
+  { key: 'material_grade', label: 'Material Grade' },
+  { key: 'quantity', label: 'Quantity' },
+];
+
+const valuesDiffer = (a, b) => {
+  const na = a == null ? '' : String(a).trim();
+  const nb = b == null ? '' : String(b).trim();
+  return na !== nb;
+};
+
+// Finds every staged row that matches an EXISTING PieceMark (same normalized
+// piece_mark in this project — the same lookup commitBatch itself uses) AND
+// differs from it on at least one tracked field. Rows with no existing match
+// (brand new pieces) never appear here — only a genuinely changed existing
+// piece needs the explicit confirmation this drives.
+export const detectRevisions = async (batch, stagedRows) => {
+  const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
+  const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
+
+  const revisions = [];
+  stagedRows.forEach((row) => {
+    if (row.committed || row.validation_status === 'error') return;
+    const existing = existingByMark.get(normalizeScanValue(row.piece_mark));
+    if (!existing) return;
+
+    const changes = REVISION_TRACKED_FIELDS
+      .filter(({ key }) => row[key] != null && row[key] !== '' && valuesDiffer(existing[key], row[key]))
+      .map(({ key, label }) => ({ field: key, label, oldValue: existing[key] ?? null, newValue: row[key] }));
+
+    if (changes.length > 0) revisions.push({ row, pieceMark: existing, changes });
+  });
+  return revisions;
+};
+
 // Commits every row in stagedRows that isn't already committed and isn't
 // validation_status 'error' (those are skipped — left for the source file to
 // be fixed and re-parsed). Safe to call repeatedly on the same batch: already
 // committed rows are skipped, so a second commit only picks up newly-fixed
 // or newly-parsed rows.
-export const commitBatch = async (batch, stagedRows) => {
+//
+// options.skipRowIds (Stage 11): DetailerImportedPiece ids identified by
+// detectRevisions as changed but NOT confirmed by the user — left uncommitted
+// entirely (same as an error row) rather than silently applied, so a later
+// commit can revisit them once/if confirmed. options.changedBy feeds the
+// StatusHistoryEntry logged for every tracked field that actually changes on
+// an existing PieceMark (new PieceMark creates aren't "changes" and don't log
+// one) — the automatic per-field AuditLog entry from PieceMark.update() still
+// fires regardless, unconditionally, same as everywhere else in this app.
+export const commitBatch = async (batch, stagedRows, options = {}) => {
+  const { skipRowIds = new Set(), changedBy = 'Detailer Import' } = options;
   const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
   const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
 
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  let revisionsSkipped = 0;
 
   for (const row of stagedRows) {
     if (row.committed) continue;
     if (row.validation_status === 'error') {
       skipped += 1;
+      continue;
+    }
+    if (skipRowIds.has(row.id)) {
+      revisionsSkipped += 1;
       continue;
     }
 
@@ -55,8 +120,20 @@ export const commitBatch = async (batch, stagedRows) => {
     let pieceMark = existingByMark.get(key);
 
     if (pieceMark) {
+      const previous = pieceMark;
       pieceMark = await db.entities.PieceMark.update(pieceMark.id, fields);
       updated += 1;
+
+      const changedFields = Object.entries(fields).filter(([field, value]) => valuesDiffer(previous[field], value));
+      await Promise.all(changedFields.map(([field, value]) => logStatusChange({
+        entityType: 'PieceMark',
+        entityId: pieceMark.id,
+        fieldName: field,
+        fromValue: previous[field] ?? null,
+        toValue: value,
+        changedBy,
+        note: `Revised via detailer import batch — ${batch.detailer_name || batch.id}`,
+      })));
     } else {
       pieceMark = await db.entities.PieceMark.create({ project_id: batch.project_id, piece_mark: row.piece_mark, ...fields });
       existingByMark.set(key, pieceMark);
@@ -68,5 +145,5 @@ export const commitBatch = async (batch, stagedRows) => {
 
   const updatedBatch = await db.entities.DetailerImportBatch.update(batch.id, { import_status: 'committed' });
 
-  return { created, updated, skipped, batch: updatedBatch };
+  return { created, updated, skipped, revisionsSkipped, batch: updatedBatch };
 };

@@ -23,6 +23,32 @@
     },
     "inventory_zone_id": {
       "type": "string"
+    },
+    "material_grade": {
+      "type": "string",
+      "description": "Stage 10: needed alongside material_shape to match a remnant against a Material Optimization group's shape+grade key (src/lib/materialOptimizer.js's materialGroupKey) — a remnant is only usable stock for pieces of the same grade. Blank on older/manually-logged rows predating this field; those never match against a group since the key comparison requires both sides."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["available", "consumed"],
+      "default": "available",
+      "description": "Stage 10: 'consumed' once a later Material Optimization run has cut one or more pieces from this remnant — kept as a record rather than deleted, same posture as StockMaterialUnit.status. Only 'available' remnants are offered when a new run checks for usable existing stock."
+    },
+    "source_material_optimization_run_id": {
+      "type": "string",
+      "description": "Stage 10: FK to the MaterialOptimizationRun this remnant was logged from, when created via the \"Log Remnant\" action on a committed StockMaterialUnit rather than entered manually."
+    },
+    "source_stock_material_unit_id": {
+      "type": "string",
+      "description": "Stage 10: FK to the specific StockMaterialUnit (physical bar) this remnant was cut from, when known — see StockMaterialUnit.remnant_logged."
+    },
+    "consumed_by_material_optimization_run_id": {
+      "type": "string",
+      "description": "Stage 10: FK to the later MaterialOptimizationRun that consumed this remnant, once status is 'consumed'."
+    },
+    "consumed_date": {
+      "type": "string",
+      "format": "date-time"
     }
   },
   "required": [

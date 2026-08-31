@@ -1818,11 +1818,13 @@ const buildSeedData = () => {
       {
         id: 'remnant-1',
         material_shape: 'W12x26',
+        material_grade: 'A572-50',
         dimensions: '4ft-2in remainder',
         length_in: 50,
         heat_number_string: 'HT-88213',
         source_project_id: 'project-harbor',
         inventory_zone_id: '',
+        status: 'available',
         created_date: now,
         updated_date: now
       }

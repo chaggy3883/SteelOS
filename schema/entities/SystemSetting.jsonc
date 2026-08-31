@@ -69,6 +69,11 @@
       "default": 25,
       "description": "Separate from station_bottleneck_threshold (a raw WIP count) — this is a percentage variance threshold for the dwell-time signal in getStationDwellVariance, so the two units are never mixed under one setting."
     },
+    "remnant_minimum_useful_length_in": {
+      "type": "number",
+      "default": 24,
+      "description": "Stage 10: minimum leftover length (inches) worth logging as a remnant_inventory record after a Material Optimization run commits — below this, drop is treated as scrap rather than reusable stock. Read under setting_group 'production'; edited inline on MaterialOptimizationGroupPanel.jsx (no dedicated Production settings admin screen exists yet, same as this group's other thresholds)."
+    },
     "last_updated_by": {
       "type": "string"
     },

@@ -24,13 +24,23 @@
     },
     "heat_number": {
       "type": "string",
-      "description": "Populated at receiving (mill certification / MTR heat number for this specific bar) — not yet wired to a receiving UI as of Stage 7; still null through commit."
+      "description": "Mill certification / MTR heat number for this specific bar — null through commit, since Stage 6-7 never wired a receiving UI. Stage 10 adds the first write path: an editable field on StockMaterialUnitDetailModal.jsx, which also fires src/lib/heatPropagation.js to push this value onto every PieceMark cut from this bar (see MaterialOptimizationRun.pieces_assigned)."
     },
     "status": {
       "type": "string",
       "enum": ["planned", "ordered", "received", "consumed"],
       "default": "planned",
-      "description": "planned: created at commit, no PO line (no vendor configured yet). ordered: a purchase_order_line_id was assigned at commit time. received/consumed: later lifecycle states, not yet written by any path as of Stage 7."
+      "description": "planned: created at commit, no PO line (no vendor configured yet). ordered: a purchase_order_line_id was assigned at commit time. received/consumed: later lifecycle states — 'received' is set alongside heat_number by StockMaterialUnitDetailModal.jsx's Stage 10 edit action; 'consumed' is not yet written by any path."
+    },
+    "remnant_length_in": {
+      "type": "number",
+      "default": 0,
+      "description": "Stage 10: this specific bar's own leftover length (inches) after its assigned cuts — computed at commit time from the same plan.bins data pieces_assigned came from. Distinct from MaterialOptimizationRun.remnant_length_in, which is the run-wide total across every bar in the run."
+    },
+    "remnant_logged": {
+      "type": "boolean",
+      "default": false,
+      "description": "Stage 10: true once a remnant_inventory record has been created from this bar's leftover (see remnant_inventory.source_stock_material_unit_id) — prevents logging the same leftover twice. Logging requires heat_number to already be set, since a remnant carries its source bar's heat forward."
     }
   },
   "required": [

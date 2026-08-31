@@ -12,6 +12,22 @@
 import { db } from '@/api/apiClient';
 import { getEffectiveCompanyId } from '@/lib/tenantContext';
 import { toPiecesAssigned } from '@/lib/materialOptimizer';
+import { propagateHeatNumberToPieces } from '@/lib/heatPropagation';
+
+// Stage 10: remnant bins (src/lib/materialOptimizer.js's packPiecesIntoRemnants)
+// into pieces_assigned entries — remnant_inventory_id fills the role
+// stock_material_unit_id plays for new stock; position_in_stock is left null
+// since there's no StockMaterialUnit numbering to match (see
+// MaterialOptimizationRun.pieces_assigned).
+const toRemnantPiecesAssigned = (remnantBins) => {
+  const assigned = [];
+  (remnantBins || []).forEach((bin) => {
+    bin.cuts.forEach((cut) => {
+      assigned.push({ piece_id: cut.piece_id, position_in_stock: null, cut_order: cut.cut_order, stock_material_unit_id: null, remnant_inventory_id: bin.remnant_id });
+    });
+  });
+  return assigned;
+};
 
 async function findOrCreateOpenPurchaseOrder(projectId, vendor) {
   const existing = await db.entities.purchase_orders.filter({ vendor_id: vendor.id, project_id: projectId, status: 'Open' }, '-created_date', 1);
@@ -66,17 +82,26 @@ async function createPurchaseOrderLine({ projectId, group, run, vendor, unitCost
 
 // catalogItem: the steel_catalog row already matched by the caller (or null
 // if none) — this function doesn't re-derive the match, it only looks up
-// that item's StockLengthOption for the chosen selectedLength.
-export async function commitMaterialOptimizationRun({ projectId, group, catalogItem, plan, selectedLength, kerf }) {
+// that item's StockLengthOption for the chosen selectedLength. remnantPlan
+// (Stage 10, optional): packPiecesIntoRemnants's result for whatever this
+// group's own available remnants covered before `plan` was even built —
+// plan.totals here already reflects only the new-stock pieces that remained
+// after remnant packing (see MaterialOptimizationGroupPanel.jsx), so
+// quantity_of_stock_required/waste_in/utilization_pct stay accurate to
+// "material actually purchased," not inflated by remnant-covered pieces.
+export async function commitMaterialOptimizationRun({ projectId, group, catalogItem, plan, selectedLength, kerf, remnantPlan }) {
   const companyId = getEffectiveCompanyId();
+  const remnantEntries = toRemnantPiecesAssigned(remnantPlan?.bins);
 
   const run = await db.entities.MaterialOptimizationRun.create({
     company_id: companyId,
     project_id: projectId,
     material_group_key: group.group_key,
+    material_profile: group.material_profile || '',
+    material_grade: group.material_grade || '',
     stock_length_used: selectedLength,
     quantity_of_stock_required: plan.totals.quantity_of_stock_required,
-    pieces_assigned: toPiecesAssigned(plan.bins),
+    pieces_assigned: [...remnantEntries, ...toPiecesAssigned(plan.bins)],
     remnant_length_in: plan.totals.remnant_length_in,
     waste_in: plan.totals.waste_in,
     utilization_pct: plan.totals.utilization_pct,
@@ -107,16 +132,37 @@ export async function commitMaterialOptimizationRun({ projectId, group, catalogI
     received_date: null,
     heat_number: null,
     status: purchaseOrderLine ? 'ordered' : 'planned',
+    remnant_length_in: Math.max(0, Math.round((bin.stock_length_in - bin.used_in) * 100) / 100),
   })));
 
   // Queryable both directions: a piece walks pieces_assigned ->
   // stock_material_unit_id; a unit walks material_optimization_run_id back
-  // to this run and filters pieces_assigned by its own id.
+  // to this run and filters pieces_assigned by its own id. Remnant entries
+  // (position_in_stock null) fall through to stock_material_unit_id: null,
+  // same as they already were — their link is remnant_inventory_id instead.
   const piecesAssignedWithUnits = run.pieces_assigned.map((entry) => ({
     ...entry,
     stock_material_unit_id: units[entry.position_in_stock - 1]?.id || null,
   }));
   const updatedRun = await db.entities.MaterialOptimizationRun.update(run.id, { pieces_assigned: piecesAssignedWithUnits });
 
-  return { run: updatedRun, units, purchaseOrderLine };
+  // Stage 10: mark every consumed remnant and immediately propagate its
+  // already-known heat number onto the piece(s) cut from it — unlike a
+  // freshly purchased StockMaterialUnit (heat unknown until received), a
+  // remnant's heat is already on file from when it was logged.
+  if (remnantPlan?.bins?.length) {
+    await Promise.all(remnantPlan.bins.map(async (bin) => {
+      await db.entities.remnant_inventory.update(bin.remnant_id, {
+        status: 'consumed',
+        consumed_by_material_optimization_run_id: run.id,
+        consumed_date: new Date().toISOString(),
+      });
+      if (bin.heat_number) {
+        const pieceMarkIds = bin.cuts.map((cut) => cut.piece_id);
+        await propagateHeatNumberToPieces(pieceMarkIds, bin.heat_number, { source: { label: `remnant ${bin.remnant_id}` } });
+      }
+    }));
+  }
+
+  return { run: updatedRun, units, purchaseOrderLine, remnantsConsumed: remnantPlan?.bins?.length || 0 };
 }
