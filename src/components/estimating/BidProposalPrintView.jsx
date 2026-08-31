@@ -3,19 +3,32 @@ import { db } from '@/api/apiClient';
 import { computeBidTaxBreakdown } from '@/lib/financialAnalytics';
 import { getTaxDisplayLabel } from '@/lib/taxRate';
 import { getActiveTemplate, isColumnVisible } from '@/lib/reportTemplates';
+import { rasterizePdfPages, detectDocumentKind } from '@/lib/proposalTermsPdfMerge';
 
 const ERECTION_CATEGORIES = ['steel_erection', 'outsourced_misc_material_erection', 'erection_labor_hours', 'crane_rental', 'mobilization', 'field_rigging'];
 
 export default function BidProposalPrintView({ bid }) {
   const [lines, setLines] = useState([]);
-  const [companyLogoUrl, setCompanyLogoUrl] = useState(null);
+  const [company, setCompany] = useState(null);
   const [template, setTemplate] = useState(null);
   const [taxLabel, setTaxLabel] = useState('Sales Tax');
+  // Appended legal/terms pages — each entry is { id, name, kind: 'pdf'|'image'|'other', images?, url? }.
+  // 'pdf' entries carry pre-rasterized page images (see proposalTermsPdfMerge.js);
+  // there is no backend in this app to merge PDF bytes server-side, so this
+  // is what actually makes "append these pages to the proposal" real.
+  const [termsPages, setTermsPages] = useState([]);
 
   useEffect(() => {
     if (!bid?.id) return;
     db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200).then(setLines).catch(() => setLines([]));
-    db.entities.Company.list('-created_date', 1).then((rows) => setCompanyLogoUrl(rows[0]?.logo_url || null)).catch(() => {});
+    // Must resolve the SELLING company that owns this bid, not "whichever
+    // company row happens to be most recently created" — the latter breaks
+    // as soon as more than one tenant exists.
+    if (bid.company_id) {
+      db.entities.Company.get(bid.company_id).then(setCompany).catch(() => setCompany(null));
+    } else {
+      setCompany(null);
+    }
     // Fails open: no active template means every line shows, same as before
     // this feature existed.
     getActiveTemplate('proposal').then(setTemplate).catch(() => setTemplate(null));
@@ -24,7 +37,34 @@ export default function BidProposalPrintView({ bid }) {
     // a job that isn't actually in that jurisdiction, and never relabels a
     // historical bid just because a jurisdiction rate changed since.
     getTaxDisplayLabel(bid).then(setTaxLabel).catch(() => setTaxLabel('Sales Tax'));
-  }, [bid?.id, bid?.tax_exempt, bid?.tax_exempt_reason, bid?.tax_rate_source, bid?.tax_zone_id]);
+  }, [bid?.id, bid?.company_id, bid?.tax_exempt, bid?.tax_exempt_reason, bid?.tax_rate_source, bid?.tax_zone_id]);
+
+  useEffect(() => {
+    if (!bid?.company_id) { setTermsPages([]); return; }
+    let cancelled = false;
+    (async () => {
+      let docs = [];
+      try {
+        docs = await db.entities.CompanyProposalTerms.filter({ company_id: bid.company_id, is_active: true }, 'sort_order', 100);
+      } catch {
+        docs = [];
+      }
+      const rendered = await Promise.all(docs.map(async (doc) => {
+        try {
+          const kind = await detectDocumentKind(doc.file_url);
+          if (kind === 'pdf') {
+            const images = await rasterizePdfPages(doc.file_url);
+            return { id: doc.id, name: doc.document_name, kind, images };
+          }
+          return { id: doc.id, name: doc.document_name, kind, url: doc.file_url };
+        } catch {
+          return null;
+        }
+      }));
+      if (!cancelled) setTermsPages(rendered.filter(Boolean));
+    })();
+    return () => { cancelled = true; };
+  }, [bid?.company_id]);
 
   const sum = (keys) => lines.filter((l) => keys.includes(l.cost_category)).reduce((s, l) => s + (l.total_cost || 0), 0);
 
@@ -47,6 +87,9 @@ export default function BidProposalPrintView({ bid }) {
   // them. This is a plug (grandTotal minus everything else shown) rather than
   // a recomputation, so the printed numbers always foot exactly to Bid Total.
   const adminAllocation = Math.max(0, grandTotal - fabricationTotal - detailingTotal - engineeringTotal - erectionTotal - taxAmount);
+  // Price before any tax — shown regardless of taxable/exempt status. When
+  // exempt, taxAmount is already 0, so this equals grandTotal.
+  const fobPrice = grandTotal - taxAmount;
 
   const fmt = (n) => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -55,15 +98,11 @@ export default function BidProposalPrintView({ bid }) {
   return (
     <div className="proposal-print-sheet bg-white text-black p-10 max-w-[8.5in] mx-auto">
       <div className="flex items-center justify-between border-b-2 border-black pb-4 mb-6">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl font-bold tracking-tight">SteelOS</span>
-          <span className="text-2xl font-light text-gray-400">|</span>
-          <span className="text-sm text-gray-600">Structural Steel Proposal</span>
-        </div>
-        {companyLogoUrl ? (
-          <img src={companyLogoUrl} alt="Company logo" className="h-12 object-contain" />
+        <span className="text-sm text-gray-600">Structural Steel Proposal</span>
+        {company?.logo_url ? (
+          <img src={company.logo_url} alt={company?.name ? `${company.name} logo` : 'Company logo'} className="h-12 object-contain" />
         ) : (
-          <span className="text-xs text-gray-400">No corporate logo on file</span>
+          <span className="text-lg font-semibold">{company?.name || ''}</span>
         )}
       </div>
 
@@ -92,15 +131,14 @@ export default function BidProposalPrintView({ bid }) {
           {isColumnVisible(template, 'show_admin_allocation') && (
             <tr className="border-b border-gray-200"><td className="py-2">Overhead &amp; Administrative Allocation</td><td className="py-2 text-right font-mono">{fmt(adminAllocation)}</td></tr>
           )}
-          {isColumnVisible(template, 'show_tax_breakdown') && (
+          <tr className="border-b border-gray-200"><td className="py-2 font-semibold">FOB Price (Excl. Tax)</td><td className="py-2 text-right font-mono font-semibold">{fmt(fobPrice)}</td></tr>
+          {isColumnVisible(template, 'show_tax_breakdown') && !bid.tax_exempt && (
             <>
               <tr className="border-b border-gray-200">
-                <td className="py-2">{bid.tax_exempt ? taxLabel : `${taxLabel} (${(taxRate * 100).toFixed(2)}%)`}</td>
+                <td className="py-2">{`${taxLabel} (${(taxRate * 100).toFixed(2)}%)`}</td>
                 <td className="py-2 text-right font-mono">{fmt(structuralTaxAmount)}</td>
               </tr>
-              {!bid.tax_exempt && (
-                <tr className="border-b border-gray-200"><td className="py-2">Joist &amp; Deck Tax ({(joistDeckTaxRate * 100).toFixed(2)}%)</td><td className="py-2 text-right font-mono">{fmt(joistDeckTaxAmount)}</td></tr>
-              )}
+              <tr className="border-b border-gray-200"><td className="py-2">Joist &amp; Deck Tax ({(joistDeckTaxRate * 100).toFixed(2)}%)</td><td className="py-2 text-right font-mono">{fmt(joistDeckTaxAmount)}</td></tr>
             </>
           )}
           <tr className="border-t-2 border-black"><td className="py-3 font-bold text-base">Bid Total</td><td className="py-3 text-right font-mono font-bold text-base">{fmt(grandTotal)}</td></tr>
@@ -117,6 +155,51 @@ export default function BidProposalPrintView({ bid }) {
           <p className="whitespace-pre-wrap text-xs">{bid.exclusions || 'None specified.'}</p>
         </div>
       </div>
+
+      <div className="grid grid-cols-2 gap-10 mt-10 pt-6 border-t border-gray-300 text-sm">
+        <div>
+          <p className="font-semibold mb-8">{company?.name || 'Company'} (Seller)</p>
+          <div className="border-b border-black h-8 mb-1" />
+          <p className="text-xs text-gray-500 mb-4">Signature</p>
+          <div className="border-b border-black h-8 mb-1" />
+          <p className="text-xs text-gray-500 mb-4">Print Name</p>
+          <div className="border-b border-black h-8 mb-1" />
+          <p className="text-xs text-gray-500 mb-4">Title</p>
+          <div className="border-b border-black h-8 mb-1" />
+          <p className="text-xs text-gray-500">Date</p>
+        </div>
+        <div>
+          <p className="font-semibold mb-8">{bid.customer_name || 'Customer'} (Buyer)</p>
+          <div className="border-b border-black h-8 mb-1" />
+          <p className="text-xs text-gray-500 mb-4">Signature</p>
+          <div className="border-b border-black h-8 mb-1" />
+          <p className="text-xs text-gray-500 mb-4">Print Name</p>
+          <div className="border-b border-black h-8 mb-1" />
+          <p className="text-xs text-gray-500 mb-4">Title</p>
+          <div className="border-b border-black h-8 mb-1" />
+          <p className="text-xs text-gray-500">Date</p>
+        </div>
+      </div>
+
+      {termsPages.map((doc) => (
+        <React.Fragment key={doc.id}>
+          {doc.kind === 'pdf' && doc.images.map((src, i) => (
+            <div key={i} className="break-before-page pt-10">
+              <img src={src} alt={`${doc.name} — page ${i + 1}`} className="w-full" />
+            </div>
+          ))}
+          {doc.kind === 'image' && (
+            <div className="break-before-page pt-10">
+              <img src={doc.url} alt={doc.name} className="w-full" />
+            </div>
+          )}
+          {doc.kind === 'other' && (
+            <div className="break-before-page pt-10">
+              <iframe src={doc.url} title={doc.name} className="w-full h-[10in] border-0" />
+            </div>
+          )}
+        </React.Fragment>
+      ))}
     </div>
   );
 }

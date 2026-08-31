@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useOutletContext } from 'react-router-dom';
-import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet, Sparkles, ListChecks } from 'lucide-react';
+import { Building2, Brain, Bell, Layers, Tablet, Loader2, FileSpreadsheet, Sparkles, ListChecks, FileText } from 'lucide-react';
 import TemplateVaultPanel from '@/components/settings/TemplateVaultPanel';
+import ProposalTermsPanel from '@/components/settings/ProposalTermsPanel';
 import AiPlatformConfigPanel from '@/components/settings/AiPlatformConfigPanel';
 import DemoDataPanel from '@/components/settings/DemoDataPanel';
 import PlatformDetectionPanel from '@/components/settings/PlatformDetectionPanel';
@@ -214,6 +215,7 @@ export default function Settings() {
           <TabsTrigger value="notifications"><Bell className="w-4 h-4 mr-1.5" /> Notifications</TabsTrigger>
           <TabsTrigger value="integrations"><Layers className="w-4 h-4 mr-1.5" /> Integrations</TabsTrigger>
           <TabsTrigger value="templates"><FileSpreadsheet className="w-4 h-4 mr-1.5" /> Templates</TabsTrigger>
+          <TabsTrigger value="proposal-terms"><FileText className="w-4 h-4 mr-1.5" /> Proposal Terms</TabsTrigger>
           <TabsTrigger value="review-checklist"><ListChecks className="w-4 h-4 mr-1.5" /> Review Checklist</TabsTrigger>
           <TabsTrigger value="devices"><Tablet className="w-4 h-4 mr-1.5" /> Devices</TabsTrigger>
           <TabsTrigger value="demo-data"><Sparkles className="w-4 h-4 mr-1.5" /> Demo Data</TabsTrigger>
@@ -420,6 +422,11 @@ export default function Settings() {
         {/* Templates */}
         <TabsContent value="templates">
           <TemplateVaultPanel />
+        </TabsContent>
+
+        {/* Proposal Terms */}
+        <TabsContent value="proposal-terms">
+          <ProposalTermsPanel />
         </TabsContent>
 
         {/* Review Checklist */}
