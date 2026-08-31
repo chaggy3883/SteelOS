@@ -524,9 +524,9 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             <div className="w-40 flex-shrink-0">Category</div>
             <div className="flex-1 min-w-[220px]">Quantity / Rate</div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              <div className="w-20 sm:w-24 text-right">Line Total</div>
-              <div className="w-14 text-center">Markup %</div>
-              <div className="w-20 sm:w-24 text-right">Quoted Price</div>
+              <div className="min-w-20 sm:min-w-24 w-auto text-right">Line Total</div>
+              <div className="min-w-[56px] w-auto text-center">Markup %</div>
+              <div className="min-w-20 sm:min-w-24 w-auto text-right">Quoted Price</div>
               <div className="w-[74px]" />
             </div>
           </div>
@@ -553,7 +553,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
                           className="h-8 text-sm" />
                         <span className="text-xs text-muted-foreground w-12">{cat.qtyLabel}</span>
                       </div>
-                      <div className="w-full sm:w-32 flex items-center gap-1">
+                      <div className="min-w-[9rem] sm:min-w-40 w-auto flex items-center gap-1">
                         <span className="text-xs text-muted-foreground">$</span>
                         <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
                           onChange={e => updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0)}
@@ -592,7 +592,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
                           className="h-8 text-sm" />
                         <span className="text-xs text-muted-foreground w-12">{cat.qtyLabel || cat.unit}</span>
                       </div>
-                      <div className="w-full sm:w-36 flex items-center gap-1">
+                      <div className="min-w-[9rem] sm:min-w-40 w-auto flex items-center gap-1">
                         <span className="text-xs text-muted-foreground">$</span>
                         <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
                           onChange={e => updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0)}
@@ -603,16 +603,16 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
-                  <div className="w-20 sm:w-24 text-right font-mono text-sm font-bold">
+                  <div className="min-w-20 sm:min-w-24 w-auto text-right font-mono text-sm font-bold">
                     ${(line.total_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
-                  <div className="relative w-14 flex-shrink-0">
+                  <div className="relative min-w-[56px] w-auto">
                     <Input type="number" min="0" step="0.01" value={line.markup_percentage ?? 0}
                       onChange={e => updateLineMarkup(cat.key, e.target.value === '' ? '' : parseFloat(e.target.value) || 0)}
-                      className="h-8 text-sm pr-4" />
+                      className="h-8 text-sm pr-4 min-w-[56px]" />
                     <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground pointer-events-none">%</span>
                   </div>
-                  <div className="w-20 sm:w-24 text-right font-mono text-sm font-bold text-primary">
+                  <div className="min-w-20 sm:min-w-24 w-auto text-right font-mono text-sm font-bold text-primary">
                     ${quotedPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                   <Button variant="outline" size="sm" onClick={() => openDocuments(cat.key)}>
