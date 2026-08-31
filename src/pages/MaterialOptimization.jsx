@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { groupPiecesByMaterial } from '@/lib/materialOptimizer';
 import MaterialOptimizationGroupPanel from '@/components/material-optimization/MaterialOptimizationGroupPanel';
+import MaterialOptimizationReportPanel from '@/components/material-optimization/MaterialOptimizationReportPanel';
 import PageHeader from '@/components/ui/PageHeader';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { Layers } from 'lucide-react';
 
@@ -11,6 +13,11 @@ import { Layers } from 'lucide-react';
 // (groupPiecesByMaterial — never shape alone, different grades aren't
 // interchangeable stock), then drill into a group to compare stock lengths
 // and build/commit a cut plan (MaterialOptimizationGroupPanel).
+// STAGE 12: a "Report" tab alongside the group browser — a read-only rollup
+// over already-committed runs for the selected project
+// (MaterialOptimizationReportPanel), never a second planning surface.
+// Clicking a material row there switches back to Groups and expands that
+// exact group, matching the standing drill-down rule.
 export default function MaterialOptimization() {
   const { toast } = useToast();
   const [projects, setProjects] = useState([]);
@@ -19,6 +26,7 @@ export default function MaterialOptimization() {
   const [loading, setLoading] = useState(true);
   const [loadingPieces, setLoadingPieces] = useState(false);
   const [expandedGroupKey, setExpandedGroupKey] = useState(null);
+  const [activeTab, setActiveTab] = useState('groups');
 
   useEffect(() => { loadProjects(); }, []);
   useEffect(() => { if (selectedProjectId) loadPieces(selectedProjectId); }, [selectedProjectId]);
@@ -78,38 +86,58 @@ export default function MaterialOptimization() {
         <p className="text-sm text-muted-foreground">Select a project to see its material groups.</p>
       ) : loadingPieces ? (
         <p className="text-sm text-muted-foreground">Loading pieces…</p>
-      ) : groups.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No pieces on this project yet.</p>
       ) : (
-        <div className="steel-card overflow-hidden divide-y divide-border">
-          {groups.map((group) => {
-            const expanded = expandedGroupKey === group.group_key;
-            const totalQuantity = group.pieces.reduce((sum, p) => sum + (Number(p.quantity) || 1), 0);
-            return (
-              <div key={group.group_key}>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setExpandedGroupKey(expanded ? null : group.group_key)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') setExpandedGroupKey(expanded ? null : group.group_key); }}
-                  className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40"
-                >
-                  <div className="flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-primary" />
-                    <div>
-                      <p className="text-sm font-medium">{group.material_profile || '(no profile)'} — {group.material_grade || '(no grade)'}</p>
-                      <p className="text-xs text-muted-foreground">{group.pieces.length} piece mark(s), {totalQuantity} total unit(s)</p>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="mb-4">
+            <TabsTrigger value="groups">Groups</TabsTrigger>
+            <TabsTrigger value="report">Report</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="groups">
+            {groups.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No pieces on this project yet.</p>
+            ) : (
+              <div className="steel-card overflow-hidden divide-y divide-border">
+                {groups.map((group) => {
+                  const expanded = expandedGroupKey === group.group_key;
+                  const totalQuantity = group.pieces.reduce((sum, p) => sum + (Number(p.quantity) || 1), 0);
+                  return (
+                    <div key={group.group_key}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setExpandedGroupKey(expanded ? null : group.group_key)}
+                        onKeyDown={(event) => { if (event.key === 'Enter') setExpandedGroupKey(expanded ? null : group.group_key); }}
+                        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-primary" />
+                          <div>
+                            <p className="text-sm font-medium">{group.material_profile || '(no profile)'} — {group.material_grade || '(no grade)'}</p>
+                            <p className="text-xs text-muted-foreground">{group.pieces.length} piece mark(s), {totalQuantity} total unit(s)</p>
+                          </div>
+                        </div>
+                        <span>{expanded ? '▾' : '▸'}</span>
+                      </div>
+                      {expanded && (
+                        <MaterialOptimizationGroupPanel group={group} projectId={selectedProjectId} />
+                      )}
                     </div>
-                  </div>
-                  <span>{expanded ? '▾' : '▸'}</span>
-                </div>
-                {expanded && (
-                  <MaterialOptimizationGroupPanel group={group} projectId={selectedProjectId} />
-                )}
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="report">
+            <MaterialOptimizationReportPanel
+              projectId={selectedProjectId}
+              projectName={projects.find((p) => p.id === selectedProjectId)?.name}
+              pieces={pieces}
+              onViewGroup={(groupKey) => { setExpandedGroupKey(groupKey); setActiveTab('groups'); }}
+            />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
