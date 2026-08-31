@@ -72,21 +72,6 @@ export const COST_CATEGORIES = [
   { key: 'additional_cost_leed_govt', label: "Additional Cost: LEED / Gov't Job", unit: 'lot', override: true },
 ];
 
-// Mirrors the Bid.structural_geometry_type enum already declared in the
-// schema — this dropdown is what actually populates it (previously nothing
-// did, so EstimatingAnalytics.jsx's "Bid Volume by Geometry Type" chart
-// always bucketed every bid under "other").
-const GEOMETRY_TYPES = [
-  { value: 'beam_column', label: 'Beam & Column' },
-  { value: 'truss', label: 'Truss' },
-  { value: 'frame', label: 'Frame' },
-  { value: 'misc_metals', label: 'Misc. Metals' },
-  { value: 'stairs_rails', label: 'Stairs & Rails' },
-  { value: 'deck_joist', label: 'Deck & Joist' },
-  { value: 'bridge', label: 'Bridge' },
-  { value: 'other', label: 'Other' },
-];
-
 const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const { toast } = useToast();
   const [lines, setLines] = useState({});
@@ -125,7 +110,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   // field for a new/never-saved line (see loadLines); it has no effect on
   // totals directly.
   const [markupPct, setMarkupPct] = useState(bid?.markup_percentage ?? 0);
-  const [structuralGeometryType, setStructuralGeometryType] = useState(bid?.structural_geometry_type || 'beam_column');
 
   const [company, setCompany] = useState(null);
   const [costCodeOptions, setCostCodeOptions] = useState([]);
@@ -236,7 +220,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     setDrawingsUsed(bid?.drawings_used || '');
     setAddendums(bid?.addendums || '');
     setMarkupPct(bid?.markup_percentage ?? 0);
-    setStructuralGeometryType(bid?.structural_geometry_type || 'beam_column');
   }, [bid?.id]);
 
   useEffect(() => {
@@ -323,7 +306,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const updateBondEnabled = (checked) => { setBondEnabled(checked); setDirty(true); };
   const updateJoistDeckTaxable = (checked) => { setJoistDeckTaxable(checked); setDirty(true); };
   const updateMarkupPct = (value) => { setMarkupPct(value); setDirty(true); };
-  const updateStructuralGeometryType = (value) => { setStructuralGeometryType(value); setDirty(true); };
 
   const subtotal = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0), 0);
   // Each line item now carries its own markup % (set in the Cost Breakdown
@@ -442,7 +424,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         drawings_used: drawingsUsed,
         addendums,
         markup_percentage: parseFloat(markupPct) || 0,
-        structural_geometry_type: structuralGeometryType,
         insurance_override: parseFloat(overrides.insurance) || null,
         insurance_enabled: insuranceEnabled,
         insurance_general_liability: parseFloat(insuranceInputs.general_liability) || null,
@@ -518,21 +499,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
           </span>
         </div>
       )}
-
-      {/* Bid Classification */}
-      <div className="steel-card p-5">
-        <h4 className="font-semibold mb-1">Bid Classification</h4>
-        <p className="text-xs text-muted-foreground mb-3">Feeds the "Bid Volume by Geometry Type" chart on Historic Cost Analytics.</p>
-        <div className="max-w-xs">
-          <Label className="text-xs">Structural Geometry Type</Label>
-          <Select value={structuralGeometryType} onValueChange={updateStructuralGeometryType}>
-            <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {GEOMETRY_TYPES.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
 
       {/* Cost Breakdown Form */}
       <div className="steel-card p-5">

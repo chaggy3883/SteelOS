@@ -191,20 +191,6 @@
     "scope_summary": {
       "type": "string"
     },
-    "structural_geometry_type": {
-      "type": "string",
-      "enum": [
-        "beam_column",
-        "truss",
-        "frame",
-        "misc_metals",
-        "stairs_rails",
-        "deck_joist",
-        "bridge",
-        "other"
-      ],
-      "default": "beam_column"
-    },
     "loss_reason": {
       "type": "string",
       "enum": [

@@ -1,25 +1,7 @@
-// Shared with EstimatingAnalytics.jsx (per-GC/estimator/geometry win-loss
-// post-mortem) and ExecutiveAnalytics.jsx (company-wide rollup), so the
-// geometry-type win-rate/volume breakdown is computed identically in both
-// places instead of two inline copies drifting apart.
-
-// Only decided bids (won/lost) count toward a win rate — active/DNB bids
-// have no outcome yet, matching computeWinLossStats' definition of "decided".
-export function computeGeometryBreakdown(bids) {
-  const decided = (bids || []).filter((b) => b.status === 'won' || b.status === 'lost');
-  const geoStats = {};
-  decided.forEach((b) => {
-    const geo = b.structural_geometry_type || 'other';
-    if (!geoStats[geo]) geoStats[geo] = { won: 0, total: 0 };
-    geoStats[geo].total++;
-    if (b.status === 'won') geoStats[geo].won++;
-  });
-  return Object.entries(geoStats).map(([geo, s]) => ({
-    name: geo.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-    value: s.total,
-    winRate: Math.round((s.won / s.total) * 100),
-  }));
-}
+// Shared with EstimatingAnalytics.jsx (per-GC/estimator win-loss
+// post-mortem) and ExecutiveAnalytics.jsx (company-wide rollup), so bid
+// volume/average size is computed identically in both places instead of two
+// inline copies drifting apart.
 
 // Company-wide bid volume + average bid size — trivial aggregation over
 // whatever bid set the caller passes in (e.g. all bids for an executive

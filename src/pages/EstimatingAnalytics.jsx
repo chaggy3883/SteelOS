@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
-import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Factory, Target, Percent, Clock3, Download } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Target, Percent, Clock3, Download } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { flagCostCodeOverruns } from '@/lib/jobCostAnalysis';
 import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
-import { computeGeometryBreakdown } from '@/lib/estimatingAnalytics';
 
-const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308', '#14b8a6'];
 const STATIONS = ['saw', 'drill', 'fab', 'weld', 'paint'];
 
 function computeLabelWidth(items, { max = 150, min = 70, charWidth = 6.5, pad = 16 } = {}) {
@@ -100,9 +98,6 @@ export default function EstimatingAnalytics() {
     total: s.total,
   })).filter(d => d.total >= 1).sort((a, b) => b.winRate - a.winRate);
   const estimatorLabel = computeLabelWidth(winRateByEstimator);
-
-  // Win rate by geometry type
-  const winRateByGeo = computeGeometryBreakdown(bids);
 
   // Win rate by margin bracket
   const marginBrackets = [
@@ -279,23 +274,6 @@ export default function EstimatingAnalytics() {
                 <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} formatter={v => `${v}%`} />
                 <Bar dataKey="winRate" name="Win Rate" fill="#1d7ed8" radius={[0, 4, 4, 0]} />
               </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        {/* Win Rate by Geometry Type */}
-        <div className="steel-card p-5">
-          <h3 className="font-semibold mb-4 flex items-center gap-2"><Factory className="w-4 h-4 text-purple-500" />Bid Volume by Geometry Type</h3>
-          {winRateByGeo.length === 0 ? (
-            <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">No decided bids yet.</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie data={winRateByGeo} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, winRate }) => `${name}: ${winRate}%`} labelLine={false}>
-                  {winRateByGeo.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} />
-              </PieChart>
             </ResponsiveContainer>
           )}
         </div>

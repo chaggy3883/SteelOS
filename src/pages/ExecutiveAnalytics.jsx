@@ -10,7 +10,7 @@ import { calculateWIPSchedule } from '@/lib/wipCalculations';
 import { computeArAging, computeApAging, AGING_BUCKETS, AGING_BUCKET_LABELS } from '@/lib/agingReport';
 import { loadAllPayments } from '@/lib/paymentEngine';
 import { loadAllMemos } from '@/lib/memoEngine';
-import { computeGeometryBreakdown, computeBidVolumeStats } from '@/lib/estimatingAnalytics';
+import { computeBidVolumeStats } from '@/lib/estimatingAnalytics';
 import { buildWeekColumns, buildCapacityMatrix, getStationBottlenecks, getStationDwellVariance } from '@/lib/shopOpsMetrics';
 import { bucketPipeline } from '@/lib/salesDashboardData';
 import { getSalesmanCommissionSummary } from '@/lib/commissionEngine';
@@ -257,10 +257,9 @@ export default function ExecutiveAnalytics() {
   const arPastDuePct = arTotalOutstanding > 0 ? ((arTotalOutstanding - arAgingTotals.current) / arTotalOutstanding) * 100 : 0;
 
   // Estimating rollup — win rate reuses computeWinLossStats above; bid
-  // volume/avg size and the geometry breakdown reuse estimatingAnalytics.js,
-  // the same shared module EstimatingAnalytics.jsx's post-mortem charts use.
+  // volume/avg size reuses estimatingAnalytics.js, the same shared module
+  // EstimatingAnalytics.jsx's post-mortem charts use.
   const bidVolumeStats = useMemo(() => computeBidVolumeStats(bids), [bids]);
-  const geometryBreakdown = useMemo(() => computeGeometryBreakdown(bids), [bids]);
 
   // Shop capacity/utilization — reuses buildWeekColumns/buildCapacityMatrix
   // (same functions ShopOperations.jsx's Bottleneck Radar tab uses), scoped
@@ -522,15 +521,15 @@ export default function ExecutiveAnalytics() {
         </div>
       </div>
 
-      {/* 6. Estimating — Bid Volume, Avg Size, Geometry Breakdown */}
+      {/* 6. Estimating — Bid Volume, Avg Size */}
       <div className="steel-card p-5" ref={estimatingRef}>
         <SectionHeader
           icon={Factory} title="Estimating Performance"
-          subtitle="Win rate, bid volume, average bid size, and geometry-type mix — reuses computeWinLossStats and estimatingAnalytics.js, the same functions behind Historical Analytics."
+          subtitle="Win rate, bid volume, and average bid size — reuses computeWinLossStats and estimatingAnalytics.js, the same functions behind Historical Analytics."
           onExport={() => exportNodeToPdf(estimatingRef.current, 'estimating-performance.pdf')}
           detailPath="/estimating/analytics" navigate={navigate}
         />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4 mb-4">
           <div className="steel-card p-4">
             <p className="text-xs text-muted-foreground uppercase tracking-wide">Win Rate</p>
             <p className="text-2xl font-bold text-primary">{winLoss.winRatePct === null ? '—' : `${winLoss.winRatePct}%`}</p>
@@ -543,34 +542,7 @@ export default function ExecutiveAnalytics() {
             <p className="text-xs text-muted-foreground uppercase tracking-wide">Avg Bid Size</p>
             <p className="text-2xl font-bold">{fmtMoney(bidVolumeStats.avgBidSize)}</p>
           </div>
-          <div className="steel-card p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Geometry Types Bid</p>
-            <p className="text-2xl font-bold">{geometryBreakdown.length}</p>
-          </div>
         </div>
-        {geometryBreakdown.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Win Rate by Geometry Type</p>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-muted-foreground uppercase tracking-wide">
-                  <th className="text-left py-1.5">Geometry</th>
-                  <th className="text-right py-1.5">Bids</th>
-                  <th className="text-right py-1.5">Win Rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {geometryBreakdown.map((g) => (
-                  <tr key={g.name} className="border-b border-border/50">
-                    <td className="py-1.5">{g.name}</td>
-                    <td className="py-1.5 text-right font-mono">{g.value}</td>
-                    <td className="py-1.5 text-right font-mono">{g.winRate}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
 
       {/* 7. Shop Production — Capacity & Dwell Time */}
