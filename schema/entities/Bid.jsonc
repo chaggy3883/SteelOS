@@ -154,7 +154,7 @@
     "tax_exempt": {
       "type": "boolean",
       "default": false,
-      "description": "Minimum-viable exemption flag (government project, resale certificate, etc.) — see tax_exempt_reason. When true, computeEffectiveTaxRate always returns 0 regardless of jurisdiction/Ohio-fallback/manual tax_rate. Not a full exemption-certificate tracking system (no expiration/renewal) — see tax_exempt_certificate_uri for the existing document-upload path this is independent of."
+      "description": "Derived, not independently editable — always set to !tax_enabled on save (see handleBaseInfoSave in BidDetail.jsx). When true, computeEffectiveTaxRate always returns 0 regardless of jurisdiction/Ohio-fallback/manual tax_rate. Kept as its own field for backward compatibility/reporting since existing code reads it directly (financialAnalytics.js, TakeoffEngine.jsx, print views)."
     },
     "tax_exempt_reason": {
       "type": "string",

@@ -73,7 +73,7 @@ export default function BidDetail() {
   const [showDnbModal, setShowDnbModal] = useState(false);
   const [lossForm, setLossForm] = useState({ reason: '', notes: '', competitor: '' });
   const [savingLoss, setSavingLoss] = useState(false);
-  const [baseInfo, setBaseInfo] = useState({ street: '', city: '', state: '', zip: '', tax_enabled: false, tax_rate: 0, joist_deck_tax_rate: HANCOCK_COUNTY_TAX_RATE, tax_exempt: false, tax_exempt_reason: '', local_server_path: '', is_prevailing_wage: false, wage_determination_number: '', prevailing_wage_jurisdiction: '' });
+  const [baseInfo, setBaseInfo] = useState({ street: '', city: '', state: '', zip: '', tax_enabled: false, tax_rate: 0, joist_deck_tax_rate: HANCOCK_COUNTY_TAX_RATE, tax_exempt_reason: '', local_server_path: '', is_prevailing_wage: false, wage_determination_number: '', prevailing_wage_jurisdiction: '' });
   const [effectiveTaxInfo, setEffectiveTaxInfo] = useState({ rate: 0, source: 'manual_entry', effective_date: null, tax_zone_id: null });
   const [taxRateText, setTaxRateText] = useState('');
   const [joistDeckTaxRateText, setJoistDeckTaxRateText] = useState(formatTaxRatePercent(HANCOCK_COUNTY_TAX_RATE));
@@ -107,7 +107,6 @@ export default function BidDetail() {
         tax_enabled: bid.tax_enabled ?? false,
         tax_rate: bid.tax_rate ?? 0,
         joist_deck_tax_rate: bid.joist_deck_tax_rate ?? HANCOCK_COUNTY_TAX_RATE,
-        tax_exempt: bid.tax_exempt ?? false,
         tax_exempt_reason: bid.tax_exempt_reason || '',
         local_server_path: bid.local_server_path || '',
         is_prevailing_wage: bid.is_prevailing_wage || false,
@@ -126,9 +125,9 @@ export default function BidDetail() {
   // handleBaseInfoSave's explicit Save actually writes/snapshots it.
   useEffect(() => {
     let cancelled = false;
-    computeEffectiveTaxRate(buildTaxRateInput(baseInfo)).then((info) => { if (!cancelled) setEffectiveTaxInfo(info); });
+    computeEffectiveTaxRate(buildTaxRateInput({ ...baseInfo, tax_exempt: !baseInfo.tax_enabled })).then((info) => { if (!cancelled) setEffectiveTaxInfo(info); });
     return () => { cancelled = true; };
-  }, [baseInfo.zip, baseInfo.street, baseInfo.state, baseInfo.tax_enabled, baseInfo.tax_rate, baseInfo.tax_exempt]);
+  }, [baseInfo.zip, baseInfo.street, baseInfo.state, baseInfo.tax_enabled, baseInfo.tax_rate]);
 
   const updateBaseInfo = (field, value) => {
     setBaseInfo((prev) => ({ ...prev, [field]: value }));
@@ -357,7 +356,7 @@ export default function BidDetail() {
         state: baseInfo.state,
         tax_enabled: baseInfo.tax_enabled,
         tax_rate: baseInfo.tax_rate || bid?.tax_rate,
-        tax_exempt: baseInfo.tax_exempt,
+        tax_exempt: !baseInfo.tax_enabled,
       }));
       await db.entities.Bid.update(id, {
         street: baseInfo.street,
@@ -369,7 +368,7 @@ export default function BidDetail() {
         tax_rate_source: computedTaxInfo.source,
         tax_rate_effective_date: computedTaxInfo.effective_date,
         tax_zone_id: computedTaxInfo.tax_zone_id,
-        tax_exempt: baseInfo.tax_exempt,
+        tax_exempt: !baseInfo.tax_enabled,
         tax_exempt_reason: baseInfo.tax_exempt_reason,
         joist_deck_tax_rate: Number(baseInfo.joist_deck_tax_rate ?? HANCOCK_COUNTY_TAX_RATE),
         job_city: baseInfo.city,
@@ -554,7 +553,7 @@ export default function BidDetail() {
           { label: 'Bid Total', value: bid.bid_total_cost ? `$${bid.bid_total_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—' },
           { label: 'Est. Tons', value: bid.estimated_tons?.toLocaleString() || '—' },
           { label: 'Est. Man-Hrs', value: bid.estimated_man_hours?.toLocaleString() || '—' },
-          { label: 'Tax Rate', value: baseInfo.tax_exempt ? 'Exempt' : `${(effectiveTaxInfo.rate * 100).toFixed(2)}%` },
+          { label: 'Tax Rate', value: !baseInfo.tax_enabled ? 'Exempt' : `${(effectiveTaxInfo.rate * 100).toFixed(2)}%` },
           { label: 'Due Date', value: bid.bid_due_date || '—' },
         ].map(({ label, value }) => (
           <div key={label} className="steel-card p-3">
@@ -624,7 +623,7 @@ export default function BidDetail() {
           <div>
             <Label>ZIP</Label>
             <Input value={baseInfo.zip} onChange={(e) => updateBaseInfo('zip', e.target.value)} className="mt-1" placeholder="45840" />
-            {!baseInfo.tax_exempt && (
+            {baseInfo.tax_enabled && (
               <p className="text-xs text-muted-foreground mt-1">
                 Effective tax rate for this address: {(effectiveTaxInfo.rate * 100).toFixed(2)}%
                 {' '}({effectiveTaxInfo.source === 'jurisdiction_table' ? 'jurisdiction table match'
@@ -640,20 +639,13 @@ export default function BidDetail() {
             </div>
             <Switch checked={baseInfo.tax_enabled} onCheckedChange={(checked) => updateBaseInfo('tax_enabled', checked)} />
           </div>
-          <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-border p-3">
-            <div>
-              <p className="text-sm font-medium">Tax Exempt</p>
-              <p className="text-xs text-muted-foreground">Overrides every other tax path to $0 — government project, resale certificate, etc.</p>
-            </div>
-            <Switch checked={baseInfo.tax_exempt} onCheckedChange={(checked) => updateBaseInfo('tax_exempt', checked)} />
-          </div>
-          {baseInfo.tax_exempt && (
+          {!baseInfo.tax_enabled && (
             <div className="md:col-span-2">
               <Label>Tax Exempt Reason</Label>
               <Input value={baseInfo.tax_exempt_reason} onChange={(e) => updateBaseInfo('tax_exempt_reason', e.target.value)} className="mt-1" placeholder='e.g. "Government project" or "Resale certificate #1234"' />
             </div>
           )}
-          {baseInfo.tax_enabled && !baseInfo.tax_exempt && (
+          {baseInfo.tax_enabled && (
             <div className="md:col-span-2">
               <Label>Tax Rate (%)</Label>
               <div className="relative mt-1">
@@ -694,14 +686,16 @@ export default function BidDetail() {
               <input ref={certFileInputRef} type="file" accept="application/pdf" className="hidden" onChange={handleCertFileSelected} />
             </div>
           )}
-          <div className="md:col-span-2">
-            <Label>Joist and Deck Tax Rate (%)</Label>
-            <div className="relative mt-1">
-              <Input type="text" inputMode="decimal" pattern="^\d{1,2}\.\d{2}$" value={joistDeckTaxRateText} onChange={handleJoistDeckTaxRateTextChange} onBlur={handleJoistDeckTaxRateTextBlur} placeholder="6.75" className="pr-7" />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+          {baseInfo.tax_enabled && (
+            <div className="md:col-span-2">
+              <Label>Joist and Deck Tax Rate (%)</Label>
+              <div className="relative mt-1">
+                <Input type="text" inputMode="decimal" pattern="^\d{1,2}\.\d{2}$" value={joistDeckTaxRateText} onChange={handleJoistDeckTaxRateTextChange} onBlur={handleJoistDeckTaxRateTextBlur} placeholder="6.75" className="pr-7" />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Independent tax rate applied only to Joist &amp; Deck line items, routed by physical job site location. Enter as a percentage (e.g. 7.75 for 7.75%).</p>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Independent tax rate applied only to Joist &amp; Deck line items, routed by physical job site location. Enter as a percentage (e.g. 7.75 for 7.75%).</p>
-          </div>
+          )}
           <div className="md:col-span-2">
             <Label>Local Server Network Path</Label>
             <div className="flex items-center gap-2 mt-1">
