@@ -17,7 +17,7 @@ import { logStatusChange } from '@/lib/statusHistory';
 import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
 import { useAuth } from '@/lib/AuthContext';
 
-const ITEM_TYPES = ['Piece_Mark', 'Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
+const ITEM_TYPES = ['Piece_Mark', 'Loose_Part', 'Bolt', 'Embed', 'Misc_Metal', 'Lintel'];
 
 // Per-piece jobsite check-in, additive to (never a replacement for) the
 // master-manifest scan in YardScanning.jsx. That flow flips every piece on

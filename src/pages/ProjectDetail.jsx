@@ -29,7 +29,7 @@ import PieceMarkPdfIntake from '@/components/projects/PieceMarkPdfIntake';
 import TmTrackingPanel from '@/components/projects/TmTrackingPanel';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
-const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal'];
+const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal', 'Lintel'];
 const emptyPartForm = () => ({
   item_type: 'Loose_Part', part_number: '', description: '', quantity: '1', phase: '', sequence: '',
   bolt_size: '', bolt_grade: '', stock_material_description: '', parts_per_stock: '', stock_qty_required: '',
@@ -459,6 +459,79 @@ export default function ProjectDetail() {
     };
   };
 
+  // Shared manual piece-add form — rendered from both the Pieces tab's
+  // "Add Pieces" button and the Phasing tab's "Add Part / Hardware" button,
+  // so there is a single creation flow instead of two divergent ones.
+  const addPartFormPanel = showPartForm && (
+    <div className="rounded-lg border border-border p-4 mb-4 space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div>
+          <Label className="text-xs">Item Type</Label>
+          <Select value={partForm.item_type} onValueChange={(v) => setPartForm((f) => ({ ...f, item_type: v }))}>
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {PART_ITEM_TYPES.map((t) => <SelectItem key={t} value={t}>{t.replace(/_/g, ' ')}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Part Number</Label>
+          <Input value={partForm.part_number} onChange={(e) => setPartForm((f) => ({ ...f, part_number: e.target.value }))} className="mt-1" />
+        </div>
+        <div>
+          <Label className="text-xs">Description</Label>
+          <Input value={partForm.description} onChange={(e) => setPartForm((f) => ({ ...f, description: e.target.value }))} className="mt-1" />
+        </div>
+        <div>
+          <Label className="text-xs">Quantity</Label>
+          <Input type="number" value={partForm.quantity} onChange={(e) => handleQuantityChange(e.target.value)} className="mt-1" />
+        </div>
+        <div>
+          <Label className="text-xs">Phase</Label>
+          <Input value={partForm.phase} onChange={(e) => setPartForm((f) => ({ ...f, phase: e.target.value }))} className="mt-1" />
+        </div>
+        <div>
+          <Label className="text-xs">Sequence</Label>
+          <Input value={partForm.sequence} onChange={(e) => setPartForm((f) => ({ ...f, sequence: e.target.value }))} className="mt-1" />
+        </div>
+
+        {partForm.item_type === 'Bolt' ? (
+          <>
+            <div>
+              <Label className="text-xs">Bolt Size</Label>
+              <Input value={partForm.bolt_size} onChange={(e) => setPartForm((f) => ({ ...f, bolt_size: e.target.value }))} className="mt-1" placeholder='3/4 x 2-1/2' />
+            </div>
+            <div>
+              <Label className="text-xs">Bolt Grade</Label>
+              <Input value={partForm.bolt_grade} onChange={(e) => setPartForm((f) => ({ ...f, bolt_grade: e.target.value }))} className="mt-1" placeholder="A325" />
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <Label className="text-xs">Stock Material Description</Label>
+              <Input value={partForm.stock_material_description} onChange={(e) => setPartForm((f) => ({ ...f, stock_material_description: e.target.value }))} className="mt-1" placeholder={`L4x4x1/4 x 20'-0"`} />
+            </div>
+            <div>
+              <Label className="text-xs">Parts per Stock Length</Label>
+              <Input type="number" value={partForm.parts_per_stock} onChange={(e) => handlePartsPerStockChange(e.target.value)} className="mt-1" />
+            </div>
+            <div>
+              <Label className="text-xs">Stock Qty Required{!stockQtyTouched && Number(partForm.parts_per_stock) > 0 ? ' (auto)' : ''}</Label>
+              <Input type="number" value={partForm.stock_qty_required} onChange={(e) => handleStockQtyOverride(e.target.value)} className="mt-1" />
+            </div>
+          </>
+        )}
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={() => setShowPartForm(false)}>Cancel</Button>
+        <Button onClick={handleSavePart} disabled={savingPart} className="steel-gradient text-white border-0">
+          {savingPart ? 'Saving…' : 'Add'}
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="p-6 animate-fade-in">
       {/* Back + Header */}
@@ -786,8 +859,9 @@ export default function ProjectDetail() {
           <div className="steel-card p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold">Piece Marks</h3>
-              <Button size="sm"><Package className="w-4 h-4 mr-2" /> Add Pieces</Button>
+              <Button size="sm" onClick={openAddPart}><Package className="w-4 h-4 mr-2" /> Add Pieces</Button>
             </div>
+            {addPartFormPanel}
             {pieces.length === 0 ? (
               <div className="text-center py-12">
                 <Package className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
@@ -880,75 +954,7 @@ export default function ProjectDetail() {
               </Button>
             </div>
 
-            {showPartForm && (
-              <div className="rounded-lg border border-border p-4 mb-4 space-y-3">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  <div>
-                    <Label className="text-xs">Item Type</Label>
-                    <Select value={partForm.item_type} onValueChange={(v) => setPartForm((f) => ({ ...f, item_type: v }))}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {PART_ITEM_TYPES.map((t) => <SelectItem key={t} value={t}>{t.replace(/_/g, ' ')}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs">Part Number</Label>
-                    <Input value={partForm.part_number} onChange={(e) => setPartForm((f) => ({ ...f, part_number: e.target.value }))} className="mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Description</Label>
-                    <Input value={partForm.description} onChange={(e) => setPartForm((f) => ({ ...f, description: e.target.value }))} className="mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Quantity</Label>
-                    <Input type="number" value={partForm.quantity} onChange={(e) => handleQuantityChange(e.target.value)} className="mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Phase</Label>
-                    <Input value={partForm.phase} onChange={(e) => setPartForm((f) => ({ ...f, phase: e.target.value }))} className="mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Sequence</Label>
-                    <Input value={partForm.sequence} onChange={(e) => setPartForm((f) => ({ ...f, sequence: e.target.value }))} className="mt-1" />
-                  </div>
-
-                  {partForm.item_type === 'Bolt' ? (
-                    <>
-                      <div>
-                        <Label className="text-xs">Bolt Size</Label>
-                        <Input value={partForm.bolt_size} onChange={(e) => setPartForm((f) => ({ ...f, bolt_size: e.target.value }))} className="mt-1" placeholder='3/4 x 2-1/2' />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Bolt Grade</Label>
-                        <Input value={partForm.bolt_grade} onChange={(e) => setPartForm((f) => ({ ...f, bolt_grade: e.target.value }))} className="mt-1" placeholder="A325" />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <Label className="text-xs">Stock Material Description</Label>
-                        <Input value={partForm.stock_material_description} onChange={(e) => setPartForm((f) => ({ ...f, stock_material_description: e.target.value }))} className="mt-1" placeholder={`L4x4x1/4 x 20'-0"`} />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Parts per Stock Length</Label>
-                        <Input type="number" value={partForm.parts_per_stock} onChange={(e) => handlePartsPerStockChange(e.target.value)} className="mt-1" />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Stock Qty Required{!stockQtyTouched && Number(partForm.parts_per_stock) > 0 ? ' (auto)' : ''}</Label>
-                        <Input type="number" value={partForm.stock_qty_required} onChange={(e) => handleStockQtyOverride(e.target.value)} className="mt-1" />
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setShowPartForm(false)}>Cancel</Button>
-                  <Button onClick={handleSavePart} disabled={savingPart} className="steel-gradient text-white border-0">
-                    {savingPart ? 'Saving…' : 'Add'}
-                  </Button>
-                </div>
-              </div>
-            )}
+            {addPartFormPanel}
 
             {parts.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">No parts or hardware added yet.</p>

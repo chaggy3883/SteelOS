@@ -100,7 +100,7 @@
     },
     "item_type": {
       "type": "string",
-      "enum": ["Piece_Mark", "Loose_Part", "Bolt", "Embed", "Misc_Metal"],
+      "enum": ["Piece_Mark", "Loose_Part", "Bolt", "Embed", "Misc_Metal", "Lintel"],
       "default": "Piece_Mark"
     },
     "part_number": {
