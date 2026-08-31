@@ -754,7 +754,11 @@ export default function ProjectDetail() {
                 <p className="text-sm text-muted-foreground">No pieces yet — import from Tekla or add manually</p>
               </div>
             ) : (
-              <PieceMarkPdfIntake pieces={pieces} phasingMode={phasingMode} />
+              <PieceMarkPdfIntake
+                pieces={pieces}
+                phasingMode={phasingMode}
+                onPieceUpdated={(updated) => setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))}
+              />
             )}
           </div>
 

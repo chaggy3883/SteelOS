@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { UploadCloud, FileText, Eye, Download, Trash2, Loader2, Paperclip, FolderOpen, AlertTriangle } from 'lucide-react';
+import { db } from '@/api/apiClient';
+import { UploadCloud, FileText, Eye, Download, Trash2, Loader2, Paperclip, FolderOpen, AlertTriangle, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import { downloadFile } from '@/lib/downloadFile';
@@ -10,6 +11,7 @@ import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { scanValueMatches } from '@/lib/pieceScan';
 import { createDocumentId, pieceDocumentsKey, getDocumentRecords, saveDocumentRecords } from '@/lib/pieceMarkDocumentStore';
+import { saveCncFile, getCncFileUrl, deleteCncFile } from '@/lib/cncFileStore';
 
 const isPdf = (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
 
@@ -37,7 +39,7 @@ const matchFilenameToPiece = (pieces, filename) => {
 // falls back to manual assignment for anything unmatched. Where a file lands
 // is always driven by which piece it matched (its own phase/area), never by
 // which zone physically received the drop.
-export default function PieceMarkPdfIntake({ pieces, phasingMode }) {
+export default function PieceMarkPdfIntake({ pieces, phasingMode, onPieceUpdated }) {
   const { toast } = useToast();
   const [dragging, setDragging] = useState(false);
   const [processing, setProcessing] = useState(null); // { current, total } | null
@@ -47,6 +49,10 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode }) {
   const [viewingDocs, setViewingDocs] = useState([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [objectUrls, setObjectUrls] = useState({});
+  const [cncDialogFor, setCncDialogFor] = useState(null); // PieceMark | null
+  const [cncUrl, setCncUrl] = useState(null);
+  const [cncLoading, setCncLoading] = useState(false);
+  const [cncSaving, setCncSaving] = useState(false);
 
   const groups = React.useMemo(() => {
     const map = new Map();
@@ -158,6 +164,64 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode }) {
     setViewingDocs([]);
   };
 
+  // Stage 9: one CNC cut/program file per piece mark — a separate, unrelated
+  // domain from the drawing PDFs above (per-piece machine handoff file vs.
+  // detailer drawings), so it gets its own store (cncFileStore.js) and its
+  // own single-file dialog rather than reusing the multi-doc drawings flow.
+  const openCncDialog = async (piece) => {
+    setCncDialogFor(piece);
+    setCncUrl(null);
+    if (!piece.cnc_file_url) return;
+    setCncLoading(true);
+    try {
+      const url = await getCncFileUrl(piece.id);
+      setCncUrl(url);
+    } finally {
+      setCncLoading(false);
+    }
+  };
+
+  const closeCncDialog = () => {
+    if (cncUrl) URL.revokeObjectURL(cncUrl);
+    setCncUrl(null);
+    setCncDialogFor(null);
+  };
+
+  const handleCncFileSelect = async (file) => {
+    if (!file || !cncDialogFor) return;
+    setCncSaving(true);
+    try {
+      await saveCncFile(cncDialogFor.id, file);
+      const updated = await db.entities.PieceMark.update(cncDialogFor.id, { cnc_file_url: file.name });
+      onPieceUpdated?.(updated);
+      setCncDialogFor(updated);
+      const url = await getCncFileUrl(updated.id);
+      setCncUrl(url);
+      toast({ title: `CNC file attached to ${updated.piece_mark}` });
+    } catch (e) {
+      toast({ title: 'Unable to attach CNC file', variant: 'destructive' });
+    } finally {
+      setCncSaving(false);
+    }
+  };
+
+  const handleRemoveCncFile = async () => {
+    if (!cncDialogFor) return;
+    setCncSaving(true);
+    try {
+      await deleteCncFile(cncDialogFor.id);
+      const updated = await db.entities.PieceMark.update(cncDialogFor.id, { cnc_file_url: null });
+      onPieceUpdated?.(updated);
+      if (cncUrl) URL.revokeObjectURL(cncUrl);
+      setCncUrl(null);
+      setCncDialogFor(updated);
+    } catch (e) {
+      toast({ title: 'Unable to remove CNC file', variant: 'destructive' });
+    } finally {
+      setCncSaving(false);
+    }
+  };
+
   const dropZoneProps = {
     onDragOver: (e) => { e.preventDefault(); setDragging(true); },
     onDragLeave: () => setDragging(false),
@@ -251,6 +315,7 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode }) {
                     <th className="text-right py-2 px-3">Weight</th>
                     <th className="text-left py-2 px-3">Status</th>
                     <th className="text-right py-2 px-3">Drawings</th>
+                    <th className="text-right py-2 px-3">CNC File</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -264,6 +329,16 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode }) {
                       <td className="py-2 px-3 text-right">
                         <button type="button" title="View attached drawings" className="text-muted-foreground hover:text-primary inline-flex" onClick={() => openDocsFor(p)}>
                           <Paperclip className="w-4 h-4" />
+                        </button>
+                      </td>
+                      <td className="py-2 px-3 text-right">
+                        <button
+                          type="button"
+                          title={p.cnc_file_url ? `CNC file: ${p.cnc_file_url}` : 'Attach CNC file'}
+                          className={cn('inline-flex', p.cnc_file_url ? 'text-primary hover:text-primary/80' : 'text-muted-foreground hover:text-primary')}
+                          onClick={() => openCncDialog(p)}
+                        >
+                          <Cpu className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>
@@ -303,6 +378,52 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode }) {
               ))}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!cncDialogFor} onOpenChange={(o) => !o && closeCncDialog()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>{cncDialogFor?.piece_mark} — CNC File</DialogTitle></DialogHeader>
+          {cncLoading ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+          ) : cncDialogFor?.cnc_file_url ? (
+            <div className="flex items-center gap-2 rounded-lg border border-border p-2 text-xs">
+              <div className="w-9 h-9 rounded bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Cpu className="w-4 h-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{cncDialogFor.cnc_file_url}</p>
+                <p className="text-muted-foreground">Attached — hand this off to CNC software manually; no machine communication happens here.</p>
+              </div>
+              <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="Download" disabled={!cncUrl} onClick={() => downloadFile(cncUrl, cncDialogFor.cnc_file_url)}>
+                <Download className="w-4 h-4" />
+              </button>
+              <button type="button" className="text-muted-foreground hover:text-destructive flex-shrink-0" title="Remove" disabled={cncSaving} onClick={handleRemoveCncFile}>
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">No CNC file attached to this piece yet. Attach one so shop floor scanning can hand it off for the operator to load into CNC software manually.</p>
+              <label
+                htmlFor="piece-mark-cnc-file-input"
+                className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-6 text-center cursor-pointer hover:bg-muted/50 transition-colors"
+              >
+                <UploadCloud className="w-6 h-6 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">{cncSaving ? 'Attaching…' : 'Click to select a CNC file'}</span>
+              </label>
+              <input
+                id="piece-mark-cnc-file-input"
+                type="file"
+                className="hidden"
+                disabled={cncSaving}
+                onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) handleCncFileSelect(file); }}
+              />
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={closeCncDialog}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

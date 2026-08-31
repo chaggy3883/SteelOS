@@ -143,6 +143,10 @@
     "revision": {
       "type": "string",
       "description": "Drawing revision letter/number (e.g. \"A\", \"R1\"). Populated on promotion from a DetailerImportedPiece row; not yet written by any other path."
+    },
+    "cnc_file_url": {
+      "type": "string",
+      "description": "Filename of an attached CNC cut/program file (e.g. \".nc\", \".dxf\", \".tap\"), if any — nullable/blank means no file attached. The actual blob lives in IndexedDB via src/lib/cncFileStore.js, keyed by this PieceMark's id; this field is only the presence flag + display name, not a resolvable URL (no backend to serve one from). Explicitly a file handoff for the operator to load into CNC software manually — no machine communication or G-code generation happens in this app. Attached via PieceMarkPdfIntake.jsx; shown as \"Open CNC File\" on ShopFabrication.jsx's Active Piece panel."
     }
   },
   "required": [

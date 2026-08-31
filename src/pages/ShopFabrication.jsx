@@ -19,9 +19,13 @@ import PieceTimeline from '@/components/shared/PieceTimeline';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { getCncFileUrl } from '@/lib/cncFileStore';
+import { downloadFile } from '@/lib/downloadFile';
+import StockMaterialUnitDetailModal from '@/components/shared/StockMaterialUnitDetailModal';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
   CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer, Camera,
+  Layers, Cpu,
 } from 'lucide-react';
 
 const STATIONS = [
@@ -65,6 +69,22 @@ const isPastShiftEnd = (log) => {
   return new Date(log.start_time).toDateString() !== new Date().toDateString();
 };
 
+// Stage 8: resolves which physical stock bar (StockMaterialUnit) a PieceMark
+// was cut from, if a Material Optimization run has been committed for it.
+// pieces_assigned only exists within a project's own runs — scoping the
+// MaterialOptimizationRun.filter by project_id keeps this from scanning
+// every run in the company. See MaterialOptimizationRun.pieces_assigned for
+// the "queryable both directions" link this walks.
+const findStockUnitIdForPieceMark = async (projectId, pieceMarkId) => {
+  if (!projectId || !pieceMarkId) return null;
+  const runs = await db.entities.MaterialOptimizationRun.filter({ project_id: projectId }, '-created_date', 200).catch(() => []);
+  for (const run of runs) {
+    const entry = (run.pieces_assigned || []).find((e) => e.piece_id === pieceMarkId && e.stock_material_unit_id);
+    if (entry) return entry.stock_material_unit_id;
+  }
+  return null;
+};
+
 export default function ShopFabrication() {
   const { toast } = useToast();
   const [pieces, setPieces] = useState([]);
@@ -84,6 +104,9 @@ export default function ShopFabrication() {
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [showCameraScanner, setShowCameraScanner] = useState(false);
+  const [selectedPieceMark, setSelectedPieceMark] = useState(null);
+  const [stockUnitId, setStockUnitId] = useState(null);
+  const [viewingStockUnitId, setViewingStockUnitId] = useState(null);
   const touchPrimary = useIsTouchPrimaryDevice();
 
   useEffect(() => { loadData(); }, []);
@@ -175,6 +198,53 @@ export default function ShopFabrication() {
   // Matrix — a single shared function (shopOpsMetrics.js) keeps this in sync
   // with the Scheduler Matrix UI rather than reimplementing the sort here.
   const sortedPieces = useMemo(() => sortPiecesByPriority(pieces, schedules, overrides), [pieces, schedules, overrides]);
+  const pieceMarkDetailRows = useMemo(() => {
+    if (!selectedPieceMark) return [];
+    return [
+      ['Material Profile', selectedPieceMark.material_profile],
+      ['Material Grade', selectedPieceMark.material_grade],
+      ['Heat Number', selectedPieceMark.heat_number],
+    ].filter(([, v]) => v);
+  }, [selectedPieceMark]);
+
+  // Stage 8: bridge the shop-floor `pieces` record over to its office-side
+  // PieceMark (piece_mark_id first, falling back to a project_id+piece_mark
+  // match — same fallback PieceDetailModal.jsx uses) so the Active Piece
+  // panel can additionally show material profile/grade, heat number, and the
+  // stock unit/CNC file it's linked to. Additive only — none of the existing
+  // scan/station/QA logic above reads selectedPieceMark.
+  useEffect(() => {
+    if (!selectedPiece) { setSelectedPieceMark(null); setStockUnitId(null); return; }
+    let cancelled = false;
+    (async () => {
+      let pieceMarkRecord = selectedPiece.piece_mark_id
+        ? await db.entities.PieceMark.get(selectedPiece.piece_mark_id).catch(() => null)
+        : null;
+      if (!pieceMarkRecord && selectedPiece.project_id && selectedPiece.piece_mark) {
+        const matches = await db.entities.PieceMark.filter({ project_id: selectedPiece.project_id, piece_mark: selectedPiece.piece_mark }, '-created_date', 1).catch(() => []);
+        pieceMarkRecord = matches[0] || null;
+      }
+      if (cancelled) return;
+      setSelectedPieceMark(pieceMarkRecord);
+      const unitId = pieceMarkRecord ? await findStockUnitIdForPieceMark(pieceMarkRecord.project_id, pieceMarkRecord.id) : null;
+      if (!cancelled) setStockUnitId(unitId);
+    })();
+    return () => { cancelled = true; };
+  }, [selectedPiece?.id, selectedPiece?.piece_mark_id, selectedPiece?.project_id, selectedPiece?.piece_mark]);
+
+  const handleOpenCncFile = async () => {
+    if (!selectedPieceMark?.cnc_file_url) return;
+    try {
+      const url = await getCncFileUrl(selectedPieceMark.id);
+      if (!url) {
+        toast({ title: 'CNC file not found in local storage', variant: 'destructive' });
+        return;
+      }
+      downloadFile(url, selectedPieceMark.cnc_file_url);
+    } catch (e) {
+      toast({ title: 'Unable to open CNC file', variant: 'destructive' });
+    }
+  };
 
   // Which QA stage is next for a piece: 1_Layout until it's Approved, then 2_Weld.
   const pendingStage = (piece) => {
@@ -481,6 +551,27 @@ export default function ShopFabrication() {
                 <div><span className="text-muted-foreground">Weight</span><p className="font-medium">{selectedPiece.weight} lb</p></div>
                 <div><span className="text-muted-foreground">Workflow Status</span><p className="font-medium">{workflowStatusLabel(selectedPiece.workflow_status)}</p></div>
               </div>
+              {pieceMarkDetailRows.length > 0 && (
+                <div className="grid gap-2 text-sm md:grid-cols-2 border-t border-border pt-3">
+                  {pieceMarkDetailRows.map(([label, value]) => (
+                    <div key={label}><span className="text-muted-foreground">{label}</span><p className="font-medium">{value}</p></div>
+                  ))}
+                </div>
+              )}
+              {(stockUnitId || selectedPieceMark?.cnc_file_url) && (
+                <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+                  {stockUnitId && (
+                    <Button variant="outline" className="gap-2" onClick={() => setViewingStockUnitId(stockUnitId)}>
+                      <Layers className="w-4 h-4" />Cut From Stock Unit
+                    </Button>
+                  )}
+                  {selectedPieceMark?.cnc_file_url && (
+                    <Button variant="outline" className="gap-2" onClick={handleOpenCncFile}>
+                      <Cpu className="w-4 h-4" />Open CNC File
+                    </Button>
+                  )}
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="gap-2" onClick={() => setShowBlueprint(true)}><ScanLine className="w-4 h-4" />View Blueprint</Button>
                 <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || !!activeLog} onClick={() => startWork()}><PlayCircle className="w-4 h-4" />Start Work</Button>
@@ -645,6 +736,12 @@ export default function ShopFabrication() {
       {showCameraScanner && (
         <CameraQrScanner onScan={handleCameraScan} onCancel={() => setShowCameraScanner(false)} />
       )}
+
+      <StockMaterialUnitDetailModal
+        open={!!viewingStockUnitId}
+        onOpenChange={(o) => !o && setViewingStockUnitId(null)}
+        unitId={viewingStockUnitId}
+      />
     </div>
   );
 }
