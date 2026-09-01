@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
@@ -10,14 +11,15 @@ const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 // every credit memo — write-offs show inline in the payment list, labeled
 // distinctly, exactly as they appear in the app's own payment history.
 export function generateCustomerStatementPdf({ customer, company, invoiceRows, payments, memos }) {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ format: PDF_PAGE_FORMAT });
   const pageWidth = doc.internal.pageSize.getWidth();
-  const marginX = 14;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = PDF_MARGIN_MM;
   const today = new Date().toISOString().slice(0, 10);
   const rightColX = pageWidth - marginX - 22;
 
   const ensureRoom = (y, needed = 8) => {
-    if (y + needed > 280) { doc.addPage(); return 20; }
+    if (y + needed > pageHeight - marginX) { doc.addPage(); return 20; }
     return y;
   };
 

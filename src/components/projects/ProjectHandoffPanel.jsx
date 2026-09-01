@@ -69,10 +69,10 @@ const ProjectHandoffPanel = forwardRef(function ProjectHandoffPanel({ project, o
           <TabsTrigger value="scope">Scope Review</TabsTrigger>
         </TabsList>
         <TabsContent value="turnover">
-          <TurnoverReviewPanel ref={turnoverRef} project={project} onExportPdf={() => onExportPdf('turnover')} />
+          <TurnoverReviewPanel ref={turnoverRef} project={project} onExportPdf={() => onExportPdf('turnover', turnoverRef.current?.getPrintData?.())} />
         </TabsContent>
         <TabsContent value="scope">
-          <ScopeReviewPanel ref={scopeRef} project={project} onExportPdf={() => onExportPdf('scope')} />
+          <ScopeReviewPanel ref={scopeRef} project={project} onExportPdf={() => onExportPdf('scope', scopeRef.current?.getPrintData?.())} />
         </TabsContent>
       </Tabs>
 

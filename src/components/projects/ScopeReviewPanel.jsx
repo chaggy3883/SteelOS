@@ -153,8 +153,28 @@ const ScopeReviewPanel = forwardRef(function ScopeReviewPanel({ project, onExpor
     setQuestions((prev) => [...prev, { ...newLocalRow(identity), sort_order: prev.length }]);
   };
 
+  // Same precaution as TurnoverReviewPanel.jsx's assertPlainValue — every
+  // field handler here funnels through updateQuestion/updateGeneralNotes, so
+  // this one guard covers all of them. No leak has surfaced in this panel,
+  // but this closes off the same class of bug (a raw event/DOM node landing
+  // in state and only failing much later, cryptically, inside
+  // db.entities...create/update's JSON.stringify).
+  const assertPlainValue = (field, value) => {
+    try {
+      JSON.stringify(value);
+      return true;
+    } catch (e) {
+      console.error(`ScopeReviewPanel: refusing to store a non-serializable value into "${field}" (likely a raw event/DOM node/component instance from an onChange handler, not a plain value).`, value);
+      return false;
+    }
+  };
   const updateQuestion = (localKey, field, value) => {
+    if (!assertPlainValue(field, value)) return;
     setQuestions((prev) => prev.map((q) => (q._localKey === localKey ? { ...q, [field]: value } : q)));
+  };
+  const updateGeneralNotes = (value) => {
+    if (!assertPlainValue('generalNotes', value)) return;
+    setGeneralNotes(value);
   };
 
   const saveRow = async (localKey) => {
@@ -314,7 +334,10 @@ const ScopeReviewPanel = forwardRef(function ScopeReviewPanel({ project, onExpor
     return allOk;
   };
 
-  useImperativeHandle(ref, () => ({ isDirty, save: saveAllDirty }));
+  // getPrintData exposes this panel's current in-memory state for
+  // ScopeReviewPrintView — see that file for why this replaced an earlier
+  // self-fetch-on-mount approach that went stale.
+  useImperativeHandle(ref, () => ({ isDirty, save: saveAllDirty, getPrintData: () => ({ questions, generalNotes }) }));
 
   const unansweredCount = questions.filter((q) => !String(q.answer_text || '').trim()).length;
   const hasStaleData = staleInfo.changedKeys.size > 0 || staleInfo.deletedKeys.size > 0 || staleInfo.newCount > 0;
@@ -410,7 +433,7 @@ const ScopeReviewPanel = forwardRef(function ScopeReviewPanel({ project, onExpor
             <Button size="sm" onClick={saveGeneralNotes} disabled={savingNotes}>{savingNotes ? 'Saving…' : 'Save'}</Button>
           )}
         </div>
-        <Textarea value={generalNotes} onChange={(e) => setGeneralNotes(e.target.value)} placeholder="Anything not tied to a specific question above." className="mt-1 min-h-[96px]" />
+        <Textarea value={generalNotes} onChange={(e) => updateGeneralNotes(e.target.value)} placeholder="Anything not tied to a specific question above." className="mt-1 min-h-[96px]" />
       </div>
 
       <ConflictResolutionModal

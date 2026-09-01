@@ -1,27 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { SIMPLE_CHECKLIST_ITEMS, FREE_TEXT_FIELDS, blankTurnoverRecord } from '@/components/projects/turnoverReviewShared';
+import { SIMPLE_CHECKLIST_ITEMS, FREE_TEXT_FIELDS } from '@/components/projects/turnoverReviewShared';
 
 // Internal operational/logistics handoff document — deliberately carries no
 // pricing/cost data from the Bid Worksheet (see TakeoffEngine.jsx), matching
-// TurnoverReviewPanel.jsx's own scope. Fetches its own copy of the saved
-// record (same convention as BidInternalBreakdownPrintView.jsx) rather than
-// trusting the panel's live in-memory state — export a save first to have it
-// show up here.
-export default function TurnoverReviewPrintView({ project }) {
+// TurnoverReviewPanel.jsx's own scope.
+//
+// `record` is passed in from the panel's own live state (see
+// TurnoverReviewPanel.jsx's getPrintData(), wired through
+// ProjectHandoffPanel.jsx and ProjectDetail.jsx) rather than fetched here —
+// an earlier version of this component self-fetched by project_id on mount,
+// but since it's mounted once and never re-fetches, that snapshot went stale
+// the moment the user saved a change after this component's initial mount,
+// silently exporting an empty/outdated PDF. Reading the panel's actual state
+// at export time is what's actually current.
+export default function TurnoverReviewPrintView({ project, record }) {
   const [companyLogoUrl, setCompanyLogoUrl] = useState(null);
-  const [record, setRecord] = useState(null);
 
   useEffect(() => {
     db.entities.Company.list('-created_date', 1).then((rows) => setCompanyLogoUrl(rows[0]?.logo_url || null)).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (!project?.id) return;
-    db.entities.TurnoverMeetingRecord.filter({ project_id: project.id }, '-created_date', 1)
-      .then((rows) => setRecord(rows[0] ? { ...blankTurnoverRecord(), ...rows[0] } : blankTurnoverRecord()))
-      .catch(() => setRecord(blankTurnoverRecord()));
-  }, [project?.id]);
 
   if (!project || !record) return null;
   const items = record.checklist_items || {};

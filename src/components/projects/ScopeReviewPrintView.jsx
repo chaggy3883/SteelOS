@@ -1,30 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import { db } from '@/api/apiClient';
+import React from 'react';
 
 // Scope Review has no "completed" status — it's an always-open running list —
 // so unlike TurnoverReviewPrintView's completed_by, the signature line here
-// is "Prepared By", stamped with whoever is signed in at export time. Fetches
-// its own copy of the saved questions/notes (same convention as
-// BidInternalBreakdownPrintView.jsx) — export a save first to have it show
-// up here.
-export default function ScopeReviewPrintView({ project, preparedBy }) {
-  const [questions, setQuestions] = useState([]);
-  const [generalNotes, setGeneralNotes] = useState('');
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (!project?.id) return;
-    Promise.all([
-      db.entities.ScopeReviewQuestion.filter({ project_id: project.id }, 'sort_order', 500),
-      db.entities.Project.get(project.id),
-    ]).then(([rows, freshProject]) => {
-      setQuestions(rows);
-      setGeneralNotes(freshProject?.scope_review_general_notes || '');
-      setLoaded(true);
-    }).catch(() => setLoaded(true));
-  }, [project?.id]);
-
-  if (!project || !loaded) return null;
+// is "Prepared By", stamped with whoever is signed in at export time.
+//
+// `questions`/`generalNotes` are passed in from the panel's own live state
+// (see ScopeReviewPanel.jsx's getPrintData(), wired through
+// ProjectHandoffPanel.jsx and ProjectDetail.jsx) rather than fetched here —
+// an earlier version of this component self-fetched by project_id on mount,
+// but since it's mounted once and never re-fetches, that snapshot went stale
+// (usually empty) the moment the user added/saved a question after this
+// component's initial mount, silently exporting a PDF with no data. Reading
+// the panel's actual state at export time is what's actually current.
+export default function ScopeReviewPrintView({ project, preparedBy, questions, generalNotes }) {
+  if (!project) return null;
 
   return (
     <div className="scope-review-print-sheet bg-white text-black p-10 max-w-[8.5in] mx-auto text-sm">

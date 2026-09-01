@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { PDF_MARGIN_MM } from '@/lib/pdfLayout';
 
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
@@ -7,6 +8,12 @@ const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 // shaping) — same manual jsPDF layout + Blob-anchor download idiom as
 // delayNoticePdf.js/bolPdf.js (no autotable dependency is installed in this
 // project). Landscape, since a per-employee row carries a lot of columns.
+//
+// Deliberately stays on jsPDF's default A4 page (not PDF_PAGE_FORMAT/Letter)
+// — the 11-column layout below is tuned to use every millimeter of A4
+// landscape's extra width (297mm vs Letter's 279.4mm); switching to Letter
+// would push the rightmost column (net_wages) off the page. Margin still
+// follows the app-wide standard.
 //
 // Day-by-day hours are rendered as a compact "worked" list under each
 // employee's summary row rather than a fixed calendar grid — a true
@@ -17,7 +24,7 @@ export function generateWH347Pdf({ project, period, run, company, rows }) {
   const doc = new jsPDF({ orientation: 'landscape' });
   const today = new Date().toISOString().slice(0, 10);
   const pageWidth = doc.internal.pageSize.getWidth();
-  const marginX = 12;
+  const marginX = PDF_MARGIN_MM;
 
   doc.setFontSize(15);
   doc.text('STATEMENT OF COMPLIANCE — CERTIFIED PAYROLL (WH-347 FORMAT)', marginX, 15);

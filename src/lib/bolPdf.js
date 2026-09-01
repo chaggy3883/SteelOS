@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 
 // Generates a single-page Bill of Lading PDF for a load at Call Inspection
 // time. Mirrors delayNoticePdf.js's plain-text jsPDF layout (no autotable
@@ -13,7 +14,7 @@ import { jsPDF } from 'jspdf';
 
 const PAGE_WIDTH = 215.9; // Letter, mm
 const PAGE_HEIGHT = 279.4;
-const MARGIN = 12;
+const MARGIN = PDF_MARGIN_MM; // app-wide standard — see src/lib/pdfLayout.js
 const CONTENT_RIGHT = PAGE_WIDTH - MARGIN;
 const MAX_LOGO_WIDTH = 26;
 const MAX_LOGO_HEIGHT = 15;
@@ -50,7 +51,7 @@ function imageToDataUrl(img) {
 const addressLines = (addr) => [addr?.address, [addr?.city, addr?.state, addr?.zip].filter(Boolean).join(', ')].filter(Boolean);
 
 export async function generateBolPdf({ company, load, project, carrierLabel, trailerNumber, items }) {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: PDF_PAGE_FORMAT });
   const today = new Date().toISOString().slice(0, 10);
 
   // Letterhead — company logo (if configured) + name/address/phone on the

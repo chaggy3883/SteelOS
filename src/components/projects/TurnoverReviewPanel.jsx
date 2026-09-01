@@ -204,8 +204,34 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
     toast({ title: 'Refreshed' });
   };
 
-  const update = (field, value) => setRecord((prev) => ({ ...prev, [field]: value }));
-  const updateChecklist = (key, value) => setRecord((prev) => ({ ...prev, checklist_items: { ...prev.checklist_items, [key]: value } }));
+  // Every field handler in this panel funnels through update()/updateChecklist
+  // rather than calling setRecord directly, so this one guard covers all of
+  // them: if a handler ever passes a raw event, DOM node, or component
+  // instance instead of a plain value (the classic mistake with a Select/
+  // Checkbox onChange), record would pick up something JSON.stringify can't
+  // serialize, and the failure wouldn't surface until save() calls
+  // db.entities...create/update far downstream — a "Converting circular
+  // structure to JSON" error with a stack trace pointing into localData.js,
+  // giving no indication of which field or handler was actually at fault.
+  // Catching it right here, at the moment of the state update, rejects the
+  // bad value immediately with a message naming the exact field.
+  const assertPlainValue = (field, value) => {
+    try {
+      JSON.stringify(value);
+      return true;
+    } catch (e) {
+      console.error(`TurnoverReviewPanel: refusing to store a non-serializable value into "${field}" (likely a raw event/DOM node/component instance from an onChange handler, not a plain value).`, value);
+      return false;
+    }
+  };
+  const update = (field, value) => {
+    if (!assertPlainValue(field, value)) return;
+    setRecord((prev) => ({ ...prev, [field]: value }));
+  };
+  const updateChecklist = (key, value) => {
+    if (!assertPlainValue(`checklist_items.${key}`, value)) return;
+    setRecord((prev) => ({ ...prev, checklist_items: { ...prev.checklist_items, [key]: value } }));
+  };
 
   // Accepts an explicit record to save (used by markCompleted, which needs to
   // save the just-computed completed state immediately rather than racing
@@ -287,7 +313,10 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
     await save(updated);
   };
 
-  useImperativeHandle(ref, () => ({ isDirty, save }));
+  // getPrintData exposes this panel's current in-memory state for
+  // TurnoverReviewPrintView — see that file for why this replaced an earlier
+  // self-fetch-on-mount approach that went stale.
+  useImperativeHandle(ref, () => ({ isDirty, save, getPrintData: () => ({ record }) }));
 
   const vendorsByName = new Map(vendors.map((v) => [String(v.name || '').trim().toLowerCase(), v]));
   const readOnly = record.status === 'completed';

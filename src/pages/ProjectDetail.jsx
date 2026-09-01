@@ -118,6 +118,12 @@ export default function ProjectDetail() {
   // so leaving this page entirely (Back button, tab close, browser back)
   // is guarded the same way BidDetail.jsx guards its own estimate tabs.
   const [handoffPrintTarget, setHandoffPrintTarget] = useState(null);
+  // Captured at the moment Export PDF is clicked (see ProjectHandoffPanel.jsx
+  // forwarding each panel's getPrintData()) — the print views render from
+  // this snapshot rather than fetching their own, so the export always
+  // reflects what's actually on screen, not a stale mount-time fetch.
+  const [turnoverPrintData, setTurnoverPrintData] = useState(null);
+  const [scopePrintData, setScopePrintData] = useState(null);
   const handoffRef = useRef(null);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [savingLeave, setSavingLeave] = useState(false);
@@ -133,7 +139,9 @@ export default function ProjectDetail() {
 
   const isHandoffDirty = useCallback(() => !!handoffRef.current?.isDirty?.(), []);
 
-  const exportHandoffPdf = (target) => {
+  const exportHandoffPdf = (target, printData) => {
+    if (target === 'turnover') setTurnoverPrintData(printData?.record || null);
+    if (target === 'scope') setScopePrintData(printData || null);
     setHandoffPrintTarget(target);
     // Let the print:block class swap apply to the DOM before invoking the
     // browser's print dialog — window.print() reads the DOM synchronously.
@@ -1347,10 +1355,10 @@ export default function ProjectDetail() {
     </div>
 
     <div className={cn('hidden', handoffPrintTarget === 'turnover' && 'print:block')}>
-      <TurnoverReviewPrintView project={project} />
+      <TurnoverReviewPrintView project={project} record={turnoverPrintData} />
     </div>
     <div className={cn('hidden', handoffPrintTarget === 'scope' && 'print:block')}>
-      <ScopeReviewPrintView project={project} preparedBy={user?.full_name || user?.email || ''} />
+      <ScopeReviewPrintView project={project} preparedBy={user?.full_name || user?.email || ''} questions={scopePrintData?.questions} generalNotes={scopePrintData?.generalNotes} />
     </div>
     </>
   );
