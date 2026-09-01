@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
 import { UploadCloud, FileText, Eye, Download, Trash2, Loader2, Paperclip, FolderOpen, AlertTriangle, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -227,6 +227,24 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode, onPieceUpdated
     onDragLeave: () => setDragging(false),
     onDrop: (e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); },
   };
+
+  // Backstop: the coded drop zones above are correctly guarded, but they're
+  // small islands inside card padding, header chrome, and gaps between
+  // stacked phase groups — none of which prevent dragover/drop. A drop
+  // landing just outside a zone's exact boundary would otherwise fall
+  // through to the browser's native "open file" behavior (replacing the
+  // whole tab). This only ever preventDefaults — it never calls handleFiles
+  // itself — so legitimate drops inside a real drop zone still get processed
+  // exactly once by that zone's own onDrop.
+  useEffect(() => {
+    const preventDefault = (e) => e.preventDefault();
+    window.addEventListener('dragover', preventDefault);
+    window.addEventListener('drop', preventDefault);
+    return () => {
+      window.removeEventListener('dragover', preventDefault);
+      window.removeEventListener('drop', preventDefault);
+    };
+  }, []);
 
   const phaseNoun = phasingMode === 'area' ? 'area' : 'phase/sequence';
 
