@@ -1,0 +1,94 @@
+{
+  "name": "TurnoverMeetingRecord",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "completed"],
+      "default": "draft",
+      "description": "Once 'completed', TurnoverReviewPanel.jsx renders the form read-only — this is operational/logistics handoff reference material, not a living document. No pricing/cost data from the Bid Worksheet appears here."
+    },
+    "checklist_items": {
+      "type": "object",
+      "default": {},
+      "description": "Simple yes/no answers, keyed by item (booleans): specs_plans_received, addendums_received, plans_specs_sent_to_vendors, vendor_quotes_saved, estimator_notes_attached, scope_of_work_attached, engineering_required, joist_deck_required, tc_bolt_required, fire_proofing_required, beams_with_camber, detailing_required, galvanizing_required. detailing_required/galvanizing_required gate the conditional detailing_company/galvanizing_tons fields below."
+    },
+    "detailing_company": {
+      "type": "string",
+      "description": "Only meaningful when checklist_items.detailing_required is true. Free-text; TurnoverReviewPanel links it to the matching Vendor record when one exists by name."
+    },
+    "galvanizing_tons": {
+      "type": "number",
+      "description": "Only meaningful when checklist_items.galvanizing_required is true."
+    },
+    "pricing_basis": {
+      "type": "string",
+      "enum": ["erected", "fob"],
+      "description": "Whether the steel is priced erected or FOB. 'erected' requires erector_name below."
+    },
+    "erector_name": {
+      "type": "string",
+      "description": "Only meaningful when pricing_basis is 'erected'. Free-text; TurnoverReviewPanel links it to the matching Vendor record when one exists by name."
+    },
+    "sub_quotes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "company": { "type": "string" },
+          "type": { "type": "string" }
+        }
+      },
+      "default": [],
+      "description": "Repeatable list of every sub quote received for the job — company + quote type (e.g. erection, hauling, misc.)."
+    },
+    "special_materials": {
+      "type": "string",
+      "description": "Special/unusual materials required."
+    },
+    "special_shipping_instructions": {
+      "type": "string"
+    },
+    "surface_prep_instructions": {
+      "type": "string",
+      "description": "Surface preparation / primer / finish paint instructions."
+    },
+    "lintels_notes": {
+      "type": "string"
+    },
+    "embeds_notes": {
+      "type": "string"
+    },
+    "sequencing_notes": {
+      "type": "string"
+    },
+    "required_attendees": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Pre-populated from Company.turnover_meeting_standard_attendees when this record is first created for a project; editable per project from there on."
+    },
+    "actual_attendees": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "completed_by": {
+      "type": "string",
+      "description": "user.full_name || user.email, captured when status is set to 'completed'."
+    },
+    "completed_date": {
+      "type": "string",
+      "description": "ISO date stamped when status flips to 'completed'."
+    }
+  },
+  "required": [
+    "project_id"
+  ]
+}

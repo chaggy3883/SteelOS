@@ -225,6 +225,10 @@
     "prevailing_wage_jurisdiction": {
       "type": "string",
       "description": "Carried from Bid.prevailing_wage_jurisdiction when won."
+    },
+    "scope_review_general_notes": {
+      "type": "string",
+      "description": "Freeform notes on the Scope Review tab (Project Handoff) not tied to any specific ScopeReviewQuestion row. Edited alongside the question list in ScopeReviewPanel.jsx."
     }
   },
   "required": [

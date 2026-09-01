@@ -37,39 +37,54 @@ const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 // lost; they're just not rendered in the takeoff form for that company.
 const FABRICATION_ONLY_CATEGORIES = ['structural_material', 'structural_fabrication', 'shop_priming'];
 
+// cost_code follows the company's real Division 05 / 17 numbering scheme
+// (from the reference estimate audit); null means the category has no
+// assigned code there and is a SteelOS-specific addition — left open rather
+// than inventing a number. default_markup_pct pre-fills a brand-new line's
+// markup_percentage (see loadLines) — categories not in the reference
+// estimate default to 10% and are flagged below as needing confirmation.
 export const COST_CATEGORIES = [
-  { key: 'detailing', label: 'Detailing', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price' },
-  { key: 'engineering', label: 'Engineering', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price' },
-  { key: 'bim', label: 'BIM', unit: 'ea', qtyLabel: 'Qty', rateLabel: 'Rate/Each' },
-  { key: 'structural_material', label: 'Structural Material', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount' },
-  { key: 'bolts_fasteners', label: 'Bolts / Fasteners', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount' },
-  { key: 'outsourced_fabrication', label: 'Outsourced Fabrication', unit: 'lot' },
-  { key: 'structural_fabrication', label: 'Structural Fabrication', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Shop Rate/Hr' },
-  { key: 'galvanizing', label: 'Galvanizing', unit: 'tons' },
-  { key: 'galvanizing_delivery', label: 'Galvanizing Delivery', unit: 'ea', qtyLabel: 'Qty', rateLabel: 'Rate/Each' },
-  { key: 'steel_rolling', label: 'Steel Rolling', unit: 'tons' },
-  { key: 'joist_deck', label: 'Joist & Deck', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', is_taxable: false },
-  { key: 'anchor_bolts', label: 'Anchor Bolts', unit: 'ea' },
-  { key: 'shop_priming', label: 'Shop Priming', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Shop Rate/Hr' },
-  { key: 'primer_paint', label: 'Primer (Paint)', unit: 'gal', inputMode: 'coverage', qtyLabel: 'Sq. Ft.', rateLabel: 'Price/Gallon' },
-  { key: 'grating', label: 'Grating', unit: 'sqft' },
-  { key: 'outsourced_paint', label: 'Outsourced Paint', unit: 'tons' },
-  { key: 'outsourced_shot_blasting', label: 'Outsourced Shot Blasting', unit: 'tons' },
-  { key: 'jobsite_freight', label: 'Jobsite Freight (Material Delivery)', unit: 'load' },
-  { key: 'misc_fab_structural', label: 'Misc. Fab - Structural Shaping', unit: 'hrs', qtyLabel: 'Fab Hours', rateLabel: 'Fab Hourly Rate' },
-  { key: 'misc_fab_processing', label: 'Misc. Fab - Processing', unit: 'hrs', qtyLabel: 'Processing Hours', rateLabel: 'Processing Rate' },
-  { key: 'misc_material', label: 'Misc. Material', unit: 'ea' },
-  { key: 'steel_erection', label: 'Steel Erection', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', is_taxable: false },
-  { key: 'outsourced_misc_material_erection', label: 'Outsourced Misc. Material & Erection', unit: 'lot', is_taxable: false },
-  { key: 'erection_labor_hours', label: 'Erection Labor Hours', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Field Rate/Hr' },
-  { key: 'crane_rental', label: 'Crane Rental', unit: 'lot', inputMode: 'flat', priceLabel: 'Quote Amount' },
-  { key: 'mobilization', label: 'Mobilization', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price' },
-  { key: 'field_rigging', label: 'Field Rigging', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Rate/Hr' },
-  { key: 'subcontractor_other', label: 'Subcontractor Other', unit: 'lot' },
-  { key: 'allowances', label: 'Allowance(s)', unit: 'lot' },
-  { key: 'hss_contingency', label: 'HSS Contingency', unit: 'lot' },
-  { key: 'additional_cost_insurance', label: 'Additional Cost: Insurance', unit: 'lot', override: true },
-  { key: 'additional_cost_leed_govt', label: "Additional Cost: LEED / Gov't Job", unit: 'lot', override: true },
+  { key: 'detailing', label: 'Detailing', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price', cost_code: '05-010', default_markup_pct: 35 },
+  { key: 'engineering', label: 'Engineering', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price', cost_code: '05-011', default_markup_pct: 35 },
+  { key: 'bim', label: 'BIM', unit: 'ea', qtyLabel: 'Qty', rateLabel: 'Rate/Each', cost_code: '05-012', default_markup_pct: 10 },
+  { key: 'structural_material', label: 'Structural Material', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: '05-105', default_markup_pct: 10 },
+  { key: 'bolts_fasteners', label: 'Bolts / Fasteners', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: '05-106', default_markup_pct: 10 },
+  { key: 'outsourced_fabrication', label: 'Outsourced Fabrication', unit: 'lot', cost_code: '05-110', default_markup_pct: 10 },
+  { key: 'structural_fabrication', label: 'Structural Fabrication', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Shop Rate/Hr', cost_code: '05-121', default_markup_pct: 10 },
+  { key: 'galvanizing', label: 'Galvanizing', unit: 'tons', cost_code: '05-122', default_markup_pct: 10 },
+  // Not in the reference estimate — no assigned code; default markup unconfirmed.
+  { key: 'galvanizing_delivery', label: 'Galvanizing Delivery', unit: 'ea', qtyLabel: 'Qty', rateLabel: 'Rate/Each', cost_code: null, default_markup_pct: 10 },
+  // Distinct from misc_fab_processing (scoped under Misc. Fabrication below) — a discrete steel-processing step between galvanizing and rolling.
+  { key: 'processing_steel', label: 'Processing Steel', unit: 'tons', cost_code: '05-123', default_markup_pct: 10 },
+  { key: 'steel_rolling', label: 'Steel Rolling', unit: 'tons', cost_code: '05-124', default_markup_pct: 10 },
+  { key: 'joist_deck', label: 'Joist & Deck', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', is_taxable: false, cost_code: '05-210', default_markup_pct: 36 },
+  { key: 'anchor_bolts', label: 'Anchor Bolts', unit: 'ea', cost_code: '05-301', default_markup_pct: 10 },
+  // Split from the reference's single 05-302 line for finer input granularity — both halves share the code.
+  { key: 'shop_priming', label: 'Shop Priming', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Shop Rate/Hr', cost_code: '05-302', default_markup_pct: 35 },
+  { key: 'primer_paint', label: 'Primer (Paint)', unit: 'gal', inputMode: 'coverage', qtyLabel: 'Sq. Ft.', rateLabel: 'Price/Gallon', cost_code: '05-302', default_markup_pct: 35 },
+  { key: 'grating', label: 'Grating', unit: 'sqft', cost_code: '05-303', default_markup_pct: 10 },
+  { key: 'outsourced_paint', label: 'Outsourced Paint', unit: 'tons', cost_code: '05-305', default_markup_pct: 10 },
+  { key: 'outsourced_shot_blasting', label: 'Outsourced Shot Blasting', unit: 'tons', cost_code: '05-306', default_markup_pct: 10 },
+  // Load/unload labor step, distinct from the delivery/freight cost below.
+  { key: 'load_unload_material', label: 'Load/Unload Material', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Rate/Hr', cost_code: '05-400', default_markup_pct: 10 },
+  { key: 'jobsite_freight', label: 'Jobsite Freight (Material Delivery)', unit: 'load', cost_code: '05-401', default_markup_pct: 30 },
+  // Split from the reference's single 05-500 line for finer input granularity — both halves share the code.
+  { key: 'misc_fab_structural', label: 'Misc. Fab - Structural Shaping', unit: 'hrs', qtyLabel: 'Fab Hours', rateLabel: 'Fab Hourly Rate', cost_code: '05-500', default_markup_pct: 35 },
+  { key: 'misc_fab_processing', label: 'Misc. Fab - Processing', unit: 'hrs', qtyLabel: 'Processing Hours', rateLabel: 'Processing Rate', cost_code: '05-500', default_markup_pct: 35 },
+  { key: 'misc_material', label: 'Misc. Material', unit: 'ea', cost_code: '05-510', default_markup_pct: 35 },
+  { key: 'steel_erection', label: 'Steel Erection', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', is_taxable: false, cost_code: '05-600', default_markup_pct: 10 },
+  { key: 'outsourced_misc_material_erection', label: 'Outsourced Misc. Material & Erection', unit: 'lot', is_taxable: false, cost_code: '05-601', default_markup_pct: 10 },
+  // Not in the reference estimate — no assigned code; default markup unconfirmed.
+  { key: 'erection_labor_hours', label: 'Erection Labor Hours', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Field Rate/Hr', cost_code: null, default_markup_pct: 10 },
+  { key: 'crane_rental', label: 'Crane Rental', unit: 'lot', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: null, default_markup_pct: 10 },
+  { key: 'mobilization', label: 'Mobilization', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price', cost_code: null, default_markup_pct: 10 },
+  { key: 'field_rigging', label: 'Field Rigging', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Rate/Hr', cost_code: null, default_markup_pct: 10 },
+  { key: 'subcontractor_other', label: 'Subcontractor Other', unit: 'lot', cost_code: '05-602', default_markup_pct: 10 },
+  { key: 'allowances', label: 'Allowance(s)', unit: 'lot', cost_code: '05-999', default_markup_pct: 0 },
+  { key: 'hss_contingency', label: 'HSS Contingency', unit: 'lot', cost_code: null, default_markup_pct: 10 },
+  // Not in the audit's mapping/null lists either — treated the same as the other non-reference additions above pending user confirmation.
+  { key: 'additional_cost_insurance', label: 'Additional Cost: Insurance', unit: 'lot', override: true, cost_code: null, default_markup_pct: 10 },
+  { key: 'additional_cost_leed_govt', label: "Additional Cost: LEED / Gov't Job", unit: 'lot', override: true, cost_code: null, default_markup_pct: 10 },
 ];
 
 const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
@@ -240,24 +255,29 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     setLoading(true);
     try {
       const existing = await db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 100);
-      // Bid.markup_percentage is the DEFAULT that pre-fills a line's own
-      // markup_percentage — for a brand-new line, and also for any line saved
-      // before per-line markup existed (found.markup_percentage is
-      // undefined there), so opening an older bid doesn't silently zero out
-      // the markup it was actually quoted at.
-      const defaultMarkupPct = parseFloat(bid?.markup_percentage) || 0;
+      // Each category's own default_markup_pct is the DEFAULT that pre-fills
+      // a brand-new line's markup_percentage; Bid.markup_percentage is only
+      // the fallback for the rare category missing one. This also covers any
+      // line saved before per-line markup existed (found.markup_percentage
+      // is undefined there), so opening an older bid doesn't silently zero
+      // out the markup it was actually quoted at.
+      const bidMarkupPct = parseFloat(bid?.markup_percentage) || 0;
       const map = {};
       COST_CATEGORIES.forEach(cat => {
         const found = existing.find(e => e.cost_category === cat.key);
+        const categoryDefaultMarkupPct = cat.default_markup_pct ?? bidMarkupPct;
         map[cat.key] = found
-          ? { ...found, coverage_rate: found.coverage_rate ?? 300, markup_percentage: found.markup_percentage ?? defaultMarkupPct }
-          : { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, markup_percentage: defaultMarkupPct, is_auto_filled: false, source: 'manual', id: null };
+          ? { ...found, coverage_rate: found.coverage_rate ?? 300, markup_percentage: found.markup_percentage ?? categoryDefaultMarkupPct }
+          : { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, markup_percentage: categoryDefaultMarkupPct, is_auto_filled: false, source: 'manual', id: null };
       });
       setLines(map);
     } catch (e) {
-      const defaultMarkupPct = parseFloat(bid?.markup_percentage) || 0;
+      const bidMarkupPct = parseFloat(bid?.markup_percentage) || 0;
       const empty = {};
-      COST_CATEGORIES.forEach(cat => { empty[cat.key] = { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, markup_percentage: defaultMarkupPct, is_auto_filled: false, source: 'manual', id: null }; });
+      COST_CATEGORIES.forEach(cat => {
+        const categoryDefaultMarkupPct = cat.default_markup_pct ?? bidMarkupPct;
+        empty[cat.key] = { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, markup_percentage: categoryDefaultMarkupPct, is_auto_filled: false, source: 'manual', id: null };
+      });
       setLines(empty);
     } finally { setLoading(false); setDirty(false); }
   };
@@ -719,11 +739,14 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
-            { key: 'insurance', label: 'Insurance ($)' },
-            { key: 'bond', label: 'Performance / Payment Bonds ($)' },
-            { key: 'procore_pay', label: 'Procore Pay ($)' },
-            { key: 'textura', label: 'Textura ($)' },
-            { key: 'leed_level', label: 'LEED Level', isText: true },
+            // cost_code metadata only (see COST_CATEGORIES audit) — these stay
+            // bid-level override fields, not COST_CATEGORIES line items;
+            // the code is exposed here for reporting/export lookups only.
+            { key: 'insurance', label: 'Insurance ($)', cost_code: '17-994' },
+            { key: 'bond', label: 'Performance / Payment Bonds ($)', cost_code: '17-996' },
+            { key: 'procore_pay', label: 'Procore Pay ($)', cost_code: '01-970' },
+            { key: 'textura', label: 'Textura ($)', cost_code: '01-970' },
+            { key: 'leed_level', label: 'LEED Level', isText: true, cost_code: null },
           ].map(field => (
             <div key={field.key} className={cn(
               'p-2 rounded-lg',

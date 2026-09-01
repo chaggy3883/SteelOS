@@ -37,6 +37,8 @@ const createLocalApi = () => ({
     ProjectMeetingNote: createEntityApi('ProjectMeetingNote'),
     Meeting: createEntityApi('Meeting'),
     MeetingNoteLog: createEntityApi('MeetingNoteLog'),
+    TurnoverMeetingRecord: createEntityApi('TurnoverMeetingRecord'),
+    ScopeReviewQuestion: createEntityApi('ScopeReviewQuestion'),
     form_layouts: createEntityApi('form_layouts'),
     report_templates: createEntityApi('report_templates'),
     Bid: createEntityApi('Bid'),

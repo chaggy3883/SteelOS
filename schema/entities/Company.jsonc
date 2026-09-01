@@ -125,6 +125,14 @@
       },
       "default": ["Badge", "Keys", "Laptop", "Phone"],
       "description": "Standard equipment kit auto-issued as issued_assets rows to every new employee on hire — see provisionDefaultIssuedAssets in src/lib/issuedAssetsApi.js. Empty/missing falls back to the same four-item default (DEFAULT_KIT_FALLBACK). Editable from Admin > Company Settings."
+    },
+    "turnover_meeting_standard_attendees": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Company-wide standard list of required attendee names/roles for the Turnover / Contract Review meeting (Project Handoff tab). Pre-populates TurnoverMeetingRecord.required_attendees when a project's record is first created; editable per project from there without affecting this company-wide list. Editable from Admin > Turnover Meeting."
     }
   },
   "required": [

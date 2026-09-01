@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
@@ -6,6 +6,7 @@ import {
   DollarSign, Plus,
   AlertTriangle, Layers, Gavel, FileSignature, ArrowRight, NotebookPen, ListChecks
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -27,6 +28,10 @@ import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
 import PieceMarkPdfIntake from '@/components/projects/PieceMarkPdfIntake';
 import TmTrackingPanel from '@/components/projects/TmTrackingPanel';
+import ProjectHandoffPanel from '@/components/projects/ProjectHandoffPanel';
+import TurnoverReviewPrintView from '@/components/projects/TurnoverReviewPrintView';
+import ScopeReviewPrintView from '@/components/projects/ScopeReviewPrintView';
+import UnsavedChangesModal from '@/components/meeting-mode/UnsavedChangesModal';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal', 'Lintel'];
@@ -106,7 +111,92 @@ export default function ProjectDetail() {
   const [viewingNote, setViewingNote] = useState(null);
   const [viewingEmployee, setViewingEmployee] = useState(null);
 
+  // Project Handoff tab — Turnover/Contract Review + Scope Review. Only one
+  // print-only view is ever mounted with `print:block` at a time, same
+  // technique as BidDetail.jsx's own printTarget. handoffRef exposes the
+  // currently-active sub-panel's isDirty/save (see ProjectHandoffPanel.jsx)
+  // so leaving this page entirely (Back button, tab close, browser back)
+  // is guarded the same way BidDetail.jsx guards its own estimate tabs.
+  const [handoffPrintTarget, setHandoffPrintTarget] = useState(null);
+  const handoffRef = useRef(null);
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [savingLeave, setSavingLeave] = useState(false);
+  const pendingLeaveActionRef = useRef(null);
+
   useDocumentTitle(project ? `SteelOS — Project: ${project.name}` : 'SteelOS — Project');
+
+  useEffect(() => {
+    const reset = () => setHandoffPrintTarget(null);
+    window.addEventListener('afterprint', reset);
+    return () => window.removeEventListener('afterprint', reset);
+  }, []);
+
+  const isHandoffDirty = useCallback(() => !!handoffRef.current?.isDirty?.(), []);
+
+  const exportHandoffPdf = (target) => {
+    setHandoffPrintTarget(target);
+    // Let the print:block class swap apply to the DOM before invoking the
+    // browser's print dialog — window.print() reads the DOM synchronously.
+    requestAnimationFrame(() => window.print());
+  };
+
+  // Every explicit exit from this page routes through here so unsaved
+  // Turnover/Scope Review edits always block until Save/Discard is chosen —
+  // same technique MeetingModeSession.jsx uses for its own exit paths.
+  const attemptLeave = useCallback((action) => {
+    if (isHandoffDirty()) {
+      pendingLeaveActionRef.current = action;
+      setShowLeaveModal(true);
+    } else {
+      action();
+    }
+  }, [isHandoffDirty]);
+
+  const handleLeaveModalSave = async () => {
+    setSavingLeave(true);
+    try {
+      const ok = await handoffRef.current?.save?.();
+      if (ok) {
+        setShowLeaveModal(false);
+        pendingLeaveActionRef.current?.();
+        pendingLeaveActionRef.current = null;
+      }
+    } finally {
+      setSavingLeave(false);
+    }
+  };
+
+  const handleLeaveModalDiscard = () => {
+    setShowLeaveModal(false);
+    pendingLeaveActionRef.current?.();
+    pendingLeaveActionRef.current = null;
+  };
+
+  // Tab close / refresh.
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isHandoffDirty()) { e.preventDefault(); e.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isHandoffDirty]);
+
+  // Browser back/forward — can't be blocked (the URL has already changed by
+  // the time this fires), so this is a best-effort prompt-then-undo, same
+  // accepted limitation as BidDetail.jsx's own popstate handler.
+  useEffect(() => {
+    const handlePopState = async () => {
+      if (!isHandoffDirty()) return;
+      const shouldSave = window.confirm('You have unsaved changes on Project Handoff. Do you want to save before leaving?');
+      if (shouldSave) {
+        await handoffRef.current?.save?.();
+      } else {
+        navigate(1);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isHandoffDirty, navigate]);
 
   useEffect(() => { if (id) loadAll(); }, [id]);
 
@@ -533,14 +623,13 @@ export default function ProjectDetail() {
   );
 
   return (
-    <div className="p-6 animate-fade-in">
+    <>
+    <div className="p-6 animate-fade-in print:hidden">
       {/* Back + Header */}
       <div className="flex items-start gap-4 mb-6">
-        <Link to="/projects">
-          <Button variant="ghost" size="icon" className="rounded-lg mt-1">
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-        </Link>
+        <Button variant="ghost" size="icon" className="rounded-lg mt-1" onClick={() => attemptLeave(() => navigate('/projects'))}>
+          <ArrowLeft className="w-4 h-4" />
+        </Button>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm text-muted-foreground font-mono">{project.project_number}</span>
@@ -608,6 +697,7 @@ export default function ProjectDetail() {
           <TabsTrigger value="phasing">
             Phasing {phaseEntries.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{phaseEntries.length}</span>}
           </TabsTrigger>
+          <TabsTrigger value="handoff">Project Handoff</TabsTrigger>
           {project.pricing_type === 'time_and_material' && (
             <TabsTrigger value="tm-tracking">T&M Tracking</TabsTrigger>
           )}
@@ -1156,6 +1246,10 @@ export default function ProjectDetail() {
             <TmTrackingPanel project={project} />
           </TabsContent>
         )}
+
+        <TabsContent value="handoff">
+          <ProjectHandoffPanel ref={handoffRef} project={project} onExportPdf={exportHandoffPdf} />
+        </TabsContent>
       </Tabs>
 
       <Dialog open={!!viewingPart} onOpenChange={(o) => !o && setViewingPart(null)}>
@@ -1248,6 +1342,16 @@ export default function ProjectDetail() {
         fieldName="status"
         title={`${project.project_number} — Status History`}
       />
+
+      <UnsavedChangesModal open={showLeaveModal} onSave={handleLeaveModalSave} onDiscard={handleLeaveModalDiscard} saving={savingLeave} />
     </div>
+
+    <div className={cn('hidden', handoffPrintTarget === 'turnover' && 'print:block')}>
+      <TurnoverReviewPrintView project={project} />
+    </div>
+    <div className={cn('hidden', handoffPrintTarget === 'scope' && 'print:block')}>
+      <ScopeReviewPrintView project={project} preparedBy={user?.full_name || user?.email || ''} />
+    </div>
+    </>
   );
 }
