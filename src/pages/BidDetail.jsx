@@ -147,7 +147,9 @@ export default function BidDetail() {
   const confirmInternalBreakdownExport = () => {
     setPrintTarget('breakdown');
     setShowBreakdownConfirm(false);
-    requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+    // Dialog's exit animation is 200ms (see dialog.jsx duration-200) — must wait
+    // for it to fully complete before capturing the page, not just a paint frame.
+    setTimeout(() => window.print(), 250);
   };
 
   const handleTaxRateTextChange = (e) => {
