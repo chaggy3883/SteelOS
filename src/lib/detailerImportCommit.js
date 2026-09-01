@@ -24,6 +24,7 @@
 import { db } from '@/api/apiClient';
 import { normalizeScanValue } from '@/lib/pieceScan';
 import { logStatusChange } from '@/lib/statusHistory';
+import { generatePiecePayload } from '@/lib/qrSerialization';
 
 const PIECE_MARK_TEXT_FIELDS = ['assembly', 'material_grade', 'material_profile', 'finished_length', 'revision', 'drawing_number'];
 
@@ -98,6 +99,11 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
   const { skipRowIds = new Set(), changedBy = 'Detailer Import' } = options;
   const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
   const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
+  // generatePiecePayload's projectLabel prefers project_number over a raw id
+  // (see qrSerialization.js) — fall back to project_id if the project can't
+  // be loaded so a QR code is still generated rather than blocking commit.
+  const project = await db.entities.Project.get(batch.project_id).catch(() => null);
+  const projectLabel = project?.project_number || batch.project_id;
 
   let created = 0;
   let updated = 0;
@@ -135,7 +141,14 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
         note: `Revised via detailer import batch — ${batch.detailer_name || batch.id}`,
       })));
     } else {
-      pieceMark = await db.entities.PieceMark.create({ project_id: batch.project_id, piece_mark: row.piece_mark, ...fields });
+      pieceMark = await db.entities.PieceMark.create({
+        project_id: batch.project_id,
+        piece_mark: row.piece_mark,
+        // Globally unique independent of piece_mark (which repeats across
+        // projects by design) — see generatePiecePayload in qrSerialization.js.
+        qr_payload_string: generatePiecePayload(projectLabel, row.piece_mark),
+        ...fields,
+      });
       existingByMark.set(key, pieceMark);
       created += 1;
     }

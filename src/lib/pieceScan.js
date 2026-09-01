@@ -13,9 +13,13 @@ export const scanValueMatches = (candidates, scanValue) => {
   return candidates.some((c) => c != null && String(c).toLowerCase() === norm);
 };
 
-// Resolves a scanned code directly to a `pieces` row via its own
+// Resolves a scanned code directly against a record array's own
 // qr_payload_string/piece_mark columns — an explicit match against the
-// target record's own fields, not a cross-entity string join.
+// target record's own fields, not a cross-entity string join. Field-shape
+// driven, not entity-specific: works identically against `pieces` rows (the
+// shop-floor scan surfaces' usual array) or `PieceMark` rows, since both
+// entities carry the same qr_payload_string/piece_mark/project_id shape —
+// see PieceMark.jsonc's qr_payload_string description.
 //
 // piece_mark is only unique WITHIN a project — the same detailer part number
 // legitimately repeats across jobs — so a piece_mark-only match must be

@@ -75,6 +75,10 @@
     "barcode": {
       "type": "string"
     },
+    "qr_payload_string": {
+      "type": "string",
+      "description": "Globally unique scan target, independent of piece_mark — piece_mark repeats across projects by design (e.g. two projects can both have a \"3B3\"), so the QR code encodes this instead. Generated via generatePiecePayload(projectLabel, piece_mark) in qrSerialization.js at PieceMark.create() time (src/lib/detailerImportCommit.js); matched first, unscoped, by matchPieceByScan (src/lib/pieceScan.js) before it falls back to a project-scoped piece_mark match. Same field/role as pieces.qr_payload_string on the sibling shop-floor entity — matchPieceByScan works against either."
+    },
     "drawing_number": {
       "type": "string"
     },

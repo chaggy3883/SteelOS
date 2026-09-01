@@ -5,6 +5,8 @@ import { getEffectiveCompanyId } from '@/lib/tenantContext';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { saveDetailerImportFile, getDetailerImportFileUrl, deleteDetailerImportFile, createDetailerImportFileId } from '@/lib/detailerImportBlobStore';
 import { parseDetailerImportFile, isParsableDetailerFile } from '@/lib/detailerImportParser';
+import { saveCncFile } from '@/lib/cncFileStore';
+import { scanValueMatches } from '@/lib/pieceScan';
 import BatchReviewModal from '@/components/detailer-imports/BatchReviewModal';
 import { useAuth } from '@/lib/AuthContext';
 import PageHeader from '@/components/ui/PageHeader';
@@ -12,14 +14,33 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { FileStack, Upload, Trash2, Eye, FolderOpen, FileScan, ChevronDown, ChevronRight, ClipboardCheck } from 'lucide-react';
+import { FileStack, Upload, Trash2, Eye, FolderOpen, FileScan, ChevronDown, ChevronRight, ClipboardCheck, AlertTriangle, Cpu } from 'lucide-react';
+
+// CNC fabrication files (NC1, DXF) are shop-floor hand-off files, not
+// row-data to parse — see PARSABLE_EXTENSIONS in detailerImportParser.js for
+// the data-file side. They're matched to a PieceMark by filename using the
+// exact same convention/algorithm as PieceMarkPdfIntake.jsx's drawing PDF
+// intake (matchFilenameToPiece there, scanValueMatches here) — a file named
+// after its piece mark (e.g. "3B3.nc1") auto-attaches; anything that doesn't
+// match any piece mark in the batch's project falls into the same
+// unmatched-holding-area-for-manual-assignment pattern that flow uses.
+const CNC_EXTENSIONS = ['nc1', 'dxf'];
+const isCncFile = (fileName) => CNC_EXTENSIONS.includes(String(fileName || '').split('.').pop().toLowerCase());
+const matchCncFilenameToPieceMark = (pieceMarks, filename) => {
+  const stem = String(filename || '').replace(/\.(nc1|dxf)$/i, '');
+  return pieceMarks.find((p) => scanValueMatches([p.piece_mark], stem)) || null;
+};
 
 // STAGE 1 SHELL + STAGE 2 (CSV/KSS import) + STAGE 3 (validation/commit): the
 // batch/file intake path proves association/storage; parsing reads a .csv or
 // .kss file's content and stages it into DetailerImportedPiece rows;
 // Review & Commit (BatchReviewModal) validates the whole batch and promotes
-// non-error rows onto real PieceMark records.
+// non-error rows onto real PieceMark records. NC1/DXF CNC files ride along
+// in the same upload/blob-store path but skip parsing entirely — they're
+// auto-matched to a PieceMark by filename and written straight to
+// PieceMark.cnc_file_url instead (see isCncFile/matchAndAttachCncFiles).
 export default function DetailerImports() {
   useDocumentTitle('SteelOS — Detailer Imports');
   const { user } = useAuth();
@@ -37,6 +58,9 @@ export default function DetailerImports() {
   const [expandedFileId, setExpandedFileId] = useState(null);
   const [stagedRowsByFile, setStagedRowsByFile] = useState({});
   const [reviewBatch, setReviewBatch] = useState(null);
+  const [unmatchedCncFiles, setUnmatchedCncFiles] = useState([]); // { id, file, file_name, project_id, assignTo }
+  const [busyCncFileIds, setBusyCncFileIds] = useState(new Set());
+  const [cncPieceMarksByProject, setCncPieceMarksByProject] = useState({});
   const fileObjectUrls = useRef({});
 
   useEffect(() => () => {
@@ -103,11 +127,83 @@ export default function DetailerImports() {
       setBatches((current) => [record, ...current]);
       setExpandedBatchId(record.id);
       toast({ title: `Batch created with ${uploaded_files.length} file${uploaded_files.length === 1 ? '' : 's'}` });
+
+      const cncPairs = files
+        .map((file, i) => ({ file, entry: uploaded_files[i] }))
+        .filter(({ entry }) => isCncFile(entry.file_name));
+      if (cncPairs.length > 0) {
+        await matchAndAttachCncFiles(record, cncPairs);
+      }
     } catch (error) {
       console.error(error);
       toast({ title: 'Unable to upload files', variant: 'destructive' });
     } finally {
       setUploading(false);
+    }
+  };
+
+  // Loads this batch's project's PieceMark rows once, matches each CNC file
+  // to one by filename (matchCncFilenameToPieceMark — same algorithm as
+  // PieceMarkPdfIntake.jsx's drawing PDF intake), and on a match writes the
+  // file straight to PieceMark.cnc_file_url + cncFileStore.js, exactly like
+  // the existing single-file manual CNC attach dialog in that same
+  // component does. Anything that doesn't match falls into
+  // unmatchedCncFiles for manual assignment below.
+  const matchAndAttachCncFiles = async (batch, cncPairs) => {
+    const pieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 2000).catch(() => []);
+    setCncPieceMarksByProject((current) => ({ ...current, [batch.project_id]: pieceMarks }));
+
+    const stillUnmatched = [];
+    let matchedCount = 0;
+    for (const { file, entry } of cncPairs) {
+      const matched = matchCncFilenameToPieceMark(pieceMarks, entry.file_name);
+      if (matched) {
+        try {
+          await saveCncFile(matched.id, file);
+          await db.entities.PieceMark.update(matched.id, { cnc_file_url: entry.file_name });
+          matchedCount += 1;
+          continue;
+        } catch (error) {
+          console.error(error);
+        }
+      }
+      stillUnmatched.push({ id: entry.file_id, file, file_name: entry.file_name, project_id: batch.project_id, assignTo: '' });
+    }
+
+    if (matchedCount > 0) {
+      toast({ title: `${matchedCount} CNC file${matchedCount === 1 ? '' : 's'} matched to piece marks` });
+    }
+    if (stillUnmatched.length > 0) {
+      setUnmatchedCncFiles((current) => [...current, ...stillUnmatched]);
+      toast({
+        title: `${stillUnmatched.length} CNC file${stillUnmatched.length === 1 ? '' : 's'} need manual assignment`,
+        description: 'No piece mark matched the filename — pick one below.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const setUnmatchedCncAssignment = (id, pieceMarkId) => {
+    setUnmatchedCncFiles((prev) => prev.map((f) => (f.id === id ? { ...f, assignTo: pieceMarkId } : f)));
+  };
+
+  const removeUnmatchedCnc = (id) => setUnmatchedCncFiles((prev) => prev.filter((f) => f.id !== id));
+
+  const confirmUnmatchedCncAssignment = async (item) => {
+    const pieceMarks = cncPieceMarksByProject[item.project_id] || [];
+    const piece = pieceMarks.find((p) => p.id === item.assignTo);
+    if (!piece) return;
+    setBusyCncFileIds((prev) => new Set(prev).add(item.id));
+    try {
+      await saveCncFile(piece.id, item.file);
+      await db.entities.PieceMark.update(piece.id, { cnc_file_url: item.file_name });
+      setUnmatchedCncFiles((prev) => prev.filter((f) => f.id !== item.id));
+      toast({ title: `${item.file_name} attached to ${piece.piece_mark}` });
+    } catch (error) {
+      console.error(error);
+      toast({ title: 'Unable to attach CNC file', variant: 'destructive' });
+    } finally {
+      setBusyCncFileIds((prev) => { const next = new Set(prev); next.delete(item.id); return next; });
     }
   };
 
@@ -278,8 +374,41 @@ export default function DetailerImports() {
             {uploading ? 'Uploading…' : 'Browse files'}
             <input type="file" multiple className="hidden" onChange={(event) => handleFiles(event.target.files)} disabled={uploading} />
           </label>
-          <p className="text-xs text-muted-foreground">Any file type — CSV, KSS, PDF, DSTV, DXF, etc. CSV and KSS files can be parsed into staged rows below.</p>
+          <p className="text-xs text-muted-foreground">Any file type — CSV, KSS, PDF, NC1, DXF, etc. CSV/KSS/BOM text files parse into staged rows below; NC1/DXF files auto-match to a piece mark by filename.</p>
         </div>
+
+        {unmatchedCncFiles.length > 0 && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
+              <AlertTriangle className="w-4 h-4" />Unmatched CNC files — {unmatchedCncFiles.length} need manual assignment
+            </div>
+            <div className="space-y-1.5">
+              {unmatchedCncFiles.map((f) => {
+                const pieceMarks = cncPieceMarksByProject[f.project_id] || [];
+                return (
+                  <div key={f.id} className="flex items-center gap-2 rounded-lg border border-border bg-background p-2 text-xs">
+                    <div className="w-9 h-9 rounded bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                      <Cpu className="w-4 h-4 text-red-500" />
+                    </div>
+                    <p className="flex-1 min-w-0 font-medium truncate">{f.file_name}</p>
+                    <Select value={f.assignTo} onValueChange={(v) => setUnmatchedCncAssignment(f.id, v)}>
+                      <SelectTrigger className="h-7 w-44 text-xs flex-shrink-0"><SelectValue placeholder="Assign to piece mark…" /></SelectTrigger>
+                      <SelectContent>
+                        {pieceMarks.map((p) => <SelectItem key={p.id} value={p.id}>{p.piece_mark}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" className="h-7 flex-shrink-0" disabled={!f.assignTo || busyCncFileIds.has(f.id)} onClick={() => confirmUnmatchedCncAssignment(f)}>
+                      {busyCncFileIds.has(f.id) ? 'Attaching…' : 'Attach'}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 flex-shrink-0" onClick={() => removeUnmatchedCnc(f.id)}>
+                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="steel-card p-5 space-y-4 mt-6">
