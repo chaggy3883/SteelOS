@@ -33,6 +33,8 @@ import TurnoverReviewPrintView from '@/components/projects/TurnoverReviewPrintVi
 import ScopeReviewPrintView from '@/components/projects/ScopeReviewPrintView';
 import UnsavedChangesModal from '@/components/meeting-mode/UnsavedChangesModal';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { pieceDocumentsKey, getDocumentRecords } from '@/lib/pieceMarkDocumentStore';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal', 'Lintel'];
 const emptyPartForm = () => ({
@@ -439,6 +441,21 @@ export default function ProjectDetail() {
       rows.forEach((r) => { if (checked) next.add(r.id); else next.delete(r.id); });
       return next;
     });
+  };
+
+  const handleOpenPieceFile = async (e, piece) => {
+    e.stopPropagation();
+    try {
+      const docs = await getDocumentRecords(pieceDocumentsKey(piece.id));
+      const doc = docs[docs.length - 1];
+      if (!doc?.blob) {
+        toast({ title: 'No file attached to this piece', variant: 'destructive' });
+        return;
+      }
+      openDocumentViewer(URL.createObjectURL(doc.blob), doc.filename);
+    } catch (err) {
+      toast({ title: 'Unable to open file', variant: 'destructive' });
+    }
   };
 
   const handlePieceSequenceAreaChange = async (piece, sequenceAreaId) => {
@@ -1022,7 +1039,13 @@ export default function ProjectDetail() {
                               {rows.map((p) => (
                                 <div key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                                   <Checkbox checked={selectedSeqPieceIds.has(p.id)} onCheckedChange={() => toggleSelectSeqPiece(p.id)} />
-                                  <span className="font-mono font-medium flex-1 min-w-0 truncate">{p.piece_mark}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleOpenPieceFile(e, p)}
+                                    className="font-mono font-medium flex-1 min-w-0 truncate text-left text-primary hover:underline"
+                                  >
+                                    {p.piece_mark}
+                                  </button>
                                   <span className="text-xs text-muted-foreground w-24 text-right flex-shrink-0">{p.weight_lbs ? `${p.weight_lbs.toLocaleString()} lbs` : '—'}</span>
                                   <Select value={p.sequence_area_id || 'unassigned'} onValueChange={(v) => handlePieceSequenceAreaChange(p, v === 'unassigned' ? null : v)}>
                                     <SelectTrigger className="h-7 w-40 text-xs flex-shrink-0"><SelectValue /></SelectTrigger>
