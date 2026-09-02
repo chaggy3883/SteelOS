@@ -68,7 +68,7 @@ export default function BidInternalBreakdownPrintView({ bid }) {
   const grandTotal = Number(bid?.bid_total_cost || 0);
 
   return (
-    <div className="internal-breakdown-print-sheet bg-white text-black p-10 max-w-[8.5in] mx-auto">
+    <div className="internal-breakdown-print-sheet bg-white text-black p-10 print:p-0 max-w-[8.5in] mx-auto">
       <div className="flex items-center justify-between border-b-2 border-red-600 pb-4 mb-2">
         <div className="flex items-center gap-3">
           <span className="text-2xl font-bold tracking-tight">SteelOS</span>

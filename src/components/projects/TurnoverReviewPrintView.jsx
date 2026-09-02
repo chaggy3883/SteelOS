@@ -26,7 +26,7 @@ export default function TurnoverReviewPrintView({ project, record }) {
   const yesNo = (v) => (v ? 'Yes' : 'No');
 
   return (
-    <div className="turnover-review-print-sheet bg-white text-black p-10 max-w-[8.5in] mx-auto text-sm">
+    <div className="turnover-review-print-sheet bg-white text-black p-10 print:p-0 max-w-[8.5in] mx-auto text-sm">
       <div className="flex items-center justify-between border-b-2 border-red-600 pb-4 mb-4">
         <div className="flex items-center gap-3">
           <span className="text-2xl font-bold tracking-tight">SteelOS</span>
@@ -110,7 +110,7 @@ export default function TurnoverReviewPrintView({ project, record }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-10 mt-10 pt-6 border-t border-gray-300">
+      <div className="grid grid-cols-2 gap-10 mt-10 pt-6 border-t border-gray-300" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div>
           <p className="font-semibold mb-8">Completed By</p>
           <div className="border-b border-black h-8 mb-1" />

@@ -96,7 +96,7 @@ export default function BidProposalPrintView({ bid }) {
   if (!bid) return null;
 
   return (
-    <div className="proposal-print-sheet bg-white text-black p-10 max-w-[8.5in] mx-auto">
+    <div className="proposal-print-sheet bg-white text-black p-10 print:p-0 max-w-[8.5in] mx-auto">
       <div className="flex items-center justify-between border-b-2 border-black pb-4 mb-6">
         <span className="text-sm text-gray-600">Structural Steel Proposal</span>
         {company?.logo_url ? (
@@ -156,7 +156,7 @@ export default function BidProposalPrintView({ bid }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-10 mt-10 pt-6 border-t border-gray-300 text-sm">
+      <div className="grid grid-cols-2 gap-10 mt-10 pt-6 border-t border-gray-300 text-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div>
           <p className="font-semibold mb-8">{company?.name || 'Company'} (Seller)</p>
           <div className="border-b border-black h-8 mb-1" />

@@ -16,7 +16,7 @@ export default function ScopeReviewPrintView({ project, preparedBy, questions, g
   if (!project) return null;
 
   return (
-    <div className="scope-review-print-sheet bg-white text-black p-10 max-w-[8.5in] mx-auto text-sm">
+    <div className="scope-review-print-sheet bg-white text-black p-10 print:p-0 max-w-[8.5in] mx-auto text-sm">
       <div className="flex items-center justify-between border-b-2 border-red-600 pb-4 mb-4">
         <div className="flex items-center gap-3">
           <span className="text-2xl font-bold tracking-tight">SteelOS</span>
@@ -52,7 +52,7 @@ export default function ScopeReviewPrintView({ project, preparedBy, questions, g
       <h4 className="font-semibold border-b border-gray-300 pb-1 mb-1">General Notes</h4>
       <p className="whitespace-pre-wrap text-xs mb-10">{generalNotes || 'None.'}</p>
 
-      <div className="grid grid-cols-2 gap-10 mt-10 pt-6 border-t border-gray-300">
+      <div className="grid grid-cols-2 gap-10 mt-10 pt-6 border-t border-gray-300" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div>
           <p className="font-semibold mb-8">Prepared By</p>
           <div className="border-b border-black h-8 mb-1" />
