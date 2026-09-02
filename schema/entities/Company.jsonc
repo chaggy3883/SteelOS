@@ -133,6 +133,10 @@
       },
       "default": [],
       "description": "Company-wide standard list of required attendee names/roles for the Turnover / Contract Review meeting (Project Handoff tab). Pre-populates TurnoverMeetingRecord.required_attendees when a project's record is first created; editable per project from there without affecting this company-wide list. Editable from Admin > Turnover Meeting."
+    },
+    "clarifications_text": {
+      "type": "string",
+      "description": "Short, plain-text \"Clarifications\" blurb rendered on every customer-facing proposal PDF between Inclusions/Exclusions and the signature block — see bidProposalPdfLayout.js's drawClarifications(). Distinct from CompanyProposalTerms (the large, multi-page uploaded legal terms document appended after the signature block). Empty/missing omits the section entirely rather than showing an empty header. Editable from Settings > Proposal Terms."
     }
   },
   "required": [

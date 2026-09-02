@@ -103,23 +103,21 @@ function drawJobInfoBox(doc, startY, bid) {
   return startY + boxH + 0.3;
 }
 
-function drawCostTable(doc, startY, data) {
-  const { visibleColumns, amounts, taxLabel } = data;
-  let y = startY;
-  const lineItems = [];
-  if (visibleColumns.fabrication) lineItems.push(['Structural Steel Fabrication', amounts.fabricationTotal, {}]);
-  if (visibleColumns.detailing) lineItems.push(['Detailing', amounts.detailingTotal, {}]);
-  if (visibleColumns.engineering) lineItems.push(['Engineering', amounts.engineeringTotal, {}]);
-  if (visibleColumns.erection) lineItems.push(['Steel Erection', amounts.erectionTotal, {}]);
-  if (visibleColumns.adminAllocation) lineItems.push(['Overhead & Administrative Allocation', amounts.adminAllocation, {}]);
-  lineItems.push(['FOB Price (Excl. Tax)', amounts.fobPrice, { bold: true }]);
-  if (visibleColumns.taxBreakdown && !amounts.taxExempt) {
-    lineItems.push([`${taxLabel} (${(amounts.taxRate * 100).toFixed(2)}%)`, amounts.structuralTaxAmount, {}]);
-    lineItems.push([`Joist & Deck Tax (${(amounts.joistDeckTaxRate * 100).toFixed(2)}%)`, amounts.joistDeckTaxAmount, {}]);
-  }
-  lineItems.push(['Bid Total', amounts.grandTotal, { bold: true, big: true, topRule: true }]);
+const TAX_DISCLAIMER = 'Unless a sales tax exemption certificate is received, the current sales tax rate on the date of the invoice will be added.';
 
-  lineItems.forEach(([label, value, opts]) => {
+// Customer-facing proposal shows the bottom-line price only — FOB, one
+// combined tax line (structural + joist & deck folded together, since the
+// customer never sees the internal category split those two rates are each
+// applied to), and the final total. It deliberately does NOT itemize
+// fabrication/detailing/engineering/erection/admin-allocation the way the
+// internal-only Full Breakdown export does (see bidInternalBreakdownPdf.js,
+// which is untouched by this) — matching the company's actual historical
+// proposal format.
+function drawCostTable(doc, startY, data) {
+  const { amounts, taxLabel } = data;
+  let y = startY;
+
+  const drawRow = (label, value, opts = {}) => {
     y = ensureSpace(doc, y, 0.32);
     if (opts.topRule) {
       doc.setDrawColor(0);
@@ -136,9 +134,58 @@ function drawCostTable(doc, startY, data) {
       doc.line(MARGIN, y + 0.09, CONTENT_RIGHT, y + 0.09);
     }
     y += 0.28;
-  });
+  };
+
+  drawRow('FOB Price (Excl. Tax)', amounts.fobPrice, { bold: true });
+
+  if (!amounts.taxExempt) {
+    const combinedTax = amounts.structuralTaxAmount + amounts.joistDeckTaxAmount;
+    drawRow(taxLabel, combinedTax, {});
+
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(120);
+    const disclaimerLines = doc.splitTextToSize(TAX_DISCLAIMER, CONTENT_RIGHT - MARGIN);
+    y = ensureSpace(doc, y, disclaimerLines.length * 0.12 + 0.12);
+    doc.text(disclaimerLines, MARGIN, y);
+    y += disclaimerLines.length * 0.12 + 0.15;
+    doc.setTextColor(0);
+
+    drawRow('Total Price (Incl. Tax)', amounts.grandTotal, { bold: true, big: true, topRule: true });
+  }
+
   doc.setFont(undefined, 'normal');
   return y + 0.15;
+}
+
+// Company-configurable, short plain-text blurb — distinct from
+// CompanyProposalTerms (the large, multi-page uploaded legal document
+// appended after the signature block). Omitted entirely, not shown as an
+// empty header, when the company hasn't entered any text.
+function drawClarifications(doc, startY, company) {
+  const text = (company?.clarifications_text || '').trim();
+  if (!text) return startY;
+
+  let y = startY;
+  doc.setFontSize(8.5);
+  const lines = doc.splitTextToSize(text, CONTENT_RIGHT - MARGIN);
+  const neededHeight = 0.25 + lines.length * 0.14;
+  y = ensureSpace(doc, y, neededHeight);
+
+  doc.setFont(undefined, 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(0);
+  doc.text('Clarifications', MARGIN, y);
+  doc.setDrawColor(200);
+  doc.setLineWidth(0.008);
+  doc.line(MARGIN, y + 0.05, CONTENT_RIGHT, y + 0.05);
+
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(8.5);
+  let ly = y + 0.22;
+  lines.forEach((l) => { doc.text(l, MARGIN, ly); ly += 0.14; });
+
+  return ly + 0.2;
 }
 
 function drawInclusionsExclusions(doc, startY, bid) {
@@ -260,6 +307,7 @@ export function drawBidProposalPdf(data) {
   y = drawJobInfoBox(doc, y, data.bid);
   y = drawCostTable(doc, y, data);
   y = drawInclusionsExclusions(doc, y, data.bid);
+  y = drawClarifications(doc, y, data.company);
   y = drawSignatureBlock(doc, y, `${data.companyName || 'Company'} (Seller)`, `${data.bid.customer_name || 'Customer'} (Buyer)`);
   drawAppendedTermsPages(doc, data.termsPages);
   return doc;

@@ -1,7 +1,6 @@
 import { db } from '@/api/apiClient';
 import { computeBidTaxBreakdown } from '@/lib/financialAnalytics';
 import { getTaxDisplayLabel } from '@/lib/taxRate';
-import { getActiveTemplate, isColumnVisible } from '@/lib/reportTemplates';
 import { rasterizePdfPages, detectDocumentKind } from '@/lib/proposalTermsPdfMerge';
 import { loadImageAsDataUrl, dataUrlImageSize } from '@/lib/pdfImage';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
@@ -17,29 +16,23 @@ export { drawBidProposalPdf };
 // over the page CSS). A margin baked into the drawn PDF itself, with no
 // print dialog in the flow at all, has no such override path. See
 // bidProposalPdfLayout.js for the actual page-drawing logic.
-const ERECTION_CATEGORIES = ['steel_erection', 'outsourced_misc_material_erection', 'erection_labor_hours', 'crane_rental', 'mobilization', 'field_rigging'];
-
+//
+// Shows only the bottom-line price (FOB, one combined tax line, total) —
+// NOT a category-by-category cost breakdown. That breakdown is internal-only
+// (see bidInternalBreakdownPdf.js), so this only needs each bid's tax
+// numbers, not its per-category cost totals.
 export async function generateBidProposalPdf(bid) {
   const lines = await db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200).catch(() => []);
   // Must resolve the SELLING company that owns this bid, not "whichever
   // company row happens to be most recently created" — see
   // BidProposalPrintView.jsx's original comment (git history) for why.
   const company = bid.company_id ? await db.entities.Company.get(bid.company_id).catch(() => null) : null;
-  const template = await getActiveTemplate('proposal').catch(() => null);
   const taxLabel = await getTaxDisplayLabel(bid).catch(() => 'Sales Tax');
   const logo = await loadImageAsDataUrl(company?.logo_url);
 
-  const sum = (keys) => lines.filter((l) => keys.includes(l.cost_category)).reduce((s, l) => s + (l.total_cost || 0), 0);
-  const detailingTotal = sum(['detailing']);
-  const engineeringTotal = sum(['engineering']);
-  const erectionTotal = sum(ERECTION_CATEGORIES);
-  const subtotal = lines.reduce((s, l) => s + (l.total_cost || 0), 0);
-  const fabricationTotal = Math.max(0, subtotal - detailingTotal - engineeringTotal - erectionTotal);
-
-  const { taxRate, joistDeckTaxRate, structuralTaxAmount, joistDeckTaxAmount } = computeBidTaxBreakdown(bid, lines);
+  const { structuralTaxAmount, joistDeckTaxAmount } = computeBidTaxBreakdown(bid, lines);
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
   const grandTotal = Number(bid?.bid_total_cost || 0);
-  const adminAllocation = Math.max(0, grandTotal - fabricationTotal - detailingTotal - engineeringTotal - erectionTotal - taxAmount);
   const fobPrice = grandTotal - taxAmount;
 
   let termsDocs = [];
@@ -71,19 +64,11 @@ export async function generateBidProposalPdf(bid) {
   const data = {
     bid,
     companyName: company?.name || '',
+    company,
     logo,
     taxLabel,
-    visibleColumns: {
-      fabrication: isColumnVisible(template, 'show_fabrication'),
-      detailing: isColumnVisible(template, 'show_detailing'),
-      engineering: isColumnVisible(template, 'show_engineering'),
-      erection: isColumnVisible(template, 'show_erection'),
-      adminAllocation: isColumnVisible(template, 'show_admin_allocation'),
-      taxBreakdown: isColumnVisible(template, 'show_tax_breakdown'),
-    },
     amounts: {
-      fabricationTotal, detailingTotal, engineeringTotal, erectionTotal, adminAllocation, fobPrice,
-      taxRate, structuralTaxAmount, joistDeckTaxRate, joistDeckTaxAmount, grandTotal,
+      fobPrice, structuralTaxAmount, joistDeckTaxAmount, grandTotal,
       taxExempt: !!bid.tax_exempt,
     },
     termsPages,

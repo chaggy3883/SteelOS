@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Upload, FileText, Trash2, Loader2, Eye, ArrowUp, ArrowDown } from 'lucide-react';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { Upload, FileText, Trash2, Loader2, Eye, ArrowUp, ArrowDown, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 
@@ -20,7 +22,18 @@ export default function ProposalTermsPanel() {
   const [pendingName, setPendingName] = useState('');
   const [reorderingId, setReorderingId] = useState(null);
 
-  useEffect(() => { loadDocs(); }, []);
+  // Clarifications text is a short, plain free-text blurb rendered directly
+  // on the proposal's pricing page (see bidProposalPdfLayout.js's
+  // drawClarifications) — distinct from the uploaded terms documents below,
+  // which are large, multi-page legal pages appended after the signature
+  // block. Kept in this same panel only because they're both "text that
+  // shows up on the proposal PDF" and an admin editing one will likely want
+  // the other nearby, not because they're the same feature.
+  const [company, setCompany] = useState(null);
+  const [clarificationsText, setClarificationsText] = useState('');
+  const [savingClarifications, setSavingClarifications] = useState(false);
+
+  useEffect(() => { loadDocs(); loadCompany(); }, []);
 
   const loadDocs = async () => {
     setLoading(true);
@@ -29,6 +42,28 @@ export default function ProposalTermsPanel() {
       setDocs(rows);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
+  };
+
+  const loadCompany = async () => {
+    try {
+      const row = await getEffectiveCompany();
+      setCompany(row);
+      setClarificationsText(row?.clarifications_text || '');
+    } catch (e) { console.error(e); }
+  };
+
+  const handleSaveClarifications = async () => {
+    if (!company) return;
+    setSavingClarifications(true);
+    try {
+      const updated = await db.entities.Company.update(company.id, { clarifications_text: clarificationsText.trim() });
+      setCompany(updated);
+      toast({ title: 'Clarifications saved' });
+    } catch (e) {
+      toast({ title: 'Unable to save clarifications', variant: 'destructive' });
+    } finally {
+      setSavingClarifications(false);
+    }
   };
 
   const handleFileChange = async (e) => {
@@ -84,6 +119,25 @@ export default function ProposalTermsPanel() {
 
   return (
     <div className="space-y-4">
+      <div className="steel-card p-6 space-y-3">
+        <h3 className="font-semibold">Clarifications</h3>
+        <p className="text-sm text-muted-foreground">
+          Short, plain-text notes shown directly on the proposal's pricing page (between Inclusions/Exclusions and the
+          signature block) — not the multi-page legal terms document below, which is appended after the signature
+          block instead. Leave blank to omit this section from the proposal entirely.
+        </p>
+        <Textarea
+          value={clarificationsText}
+          onChange={(e) => setClarificationsText(e.target.value)}
+          rows={4}
+          placeholder="e.g. Pricing valid for 30 days. Field measurements to be verified prior to fabrication."
+        />
+        <Button size="sm" onClick={handleSaveClarifications} disabled={savingClarifications || !company}>
+          {savingClarifications ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+          Save Clarifications
+        </Button>
+      </div>
+
       <div className="steel-card p-6 space-y-3">
         <h3 className="font-semibold">Upload Proposal Terms Document</h3>
         <p className="text-sm text-muted-foreground">
