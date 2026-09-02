@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useImperativeHandle, forwardRef } from 'react';
-import { Plus, X, Loader2, Printer, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Plus, X, Loader2, Download, RefreshCw, AlertTriangle } from 'lucide-react';
 import { db } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { useToast } from '@/components/ui/use-toast';
@@ -335,8 +335,8 @@ const ScopeReviewPanel = forwardRef(function ScopeReviewPanel({ project, onExpor
   };
 
   // getPrintData exposes this panel's current in-memory state for
-  // ScopeReviewPrintView — see that file for why this replaced an earlier
-  // self-fetch-on-mount approach that went stale.
+  // scopeReviewPdf.js's generateScopeReviewPdf(), so the export always
+  // reflects what's actually on screen rather than a stale fetch-on-open.
   useImperativeHandle(ref, () => ({ isDirty, save: saveAllDirty, getPrintData: () => ({ questions, generalNotes }) }));
 
   const unansweredCount = questions.filter((q) => !String(q.answer_text || '').trim()).length;
@@ -362,7 +362,7 @@ const ScopeReviewPanel = forwardRef(function ScopeReviewPanel({ project, onExpor
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={refresh} title="Refresh"><RefreshCw className="w-4 h-4" /></Button>
-          <Button variant="outline" onClick={onExportPdf}><Printer className="w-4 h-4 mr-1" />Export PDF</Button>
+          <Button variant="outline" onClick={onExportPdf}><Download className="w-4 h-4 mr-1" />Export PDF</Button>
           <Button onClick={addQuestion}><Plus className="w-4 h-4 mr-1" />Add Question</Button>
         </div>
       </div>

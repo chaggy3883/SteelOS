@@ -6,7 +6,6 @@ import {
   DollarSign, Plus,
   AlertTriangle, Layers, Gavel, FileSignature, ArrowRight, NotebookPen, ListChecks
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -29,8 +28,8 @@ import { useAuth } from '@/lib/AuthContext';
 import PieceMarkPdfIntake from '@/components/projects/PieceMarkPdfIntake';
 import TmTrackingPanel from '@/components/projects/TmTrackingPanel';
 import ProjectHandoffPanel from '@/components/projects/ProjectHandoffPanel';
-import TurnoverReviewPrintView from '@/components/projects/TurnoverReviewPrintView';
-import ScopeReviewPrintView from '@/components/projects/ScopeReviewPrintView';
+import { generateTurnoverReviewPdf } from '@/lib/turnoverReviewPdf';
+import { generateScopeReviewPdf } from '@/lib/scopeReviewPdf';
 import UnsavedChangesModal from '@/components/meeting-mode/UnsavedChangesModal';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
@@ -113,19 +112,11 @@ export default function ProjectDetail() {
   const [viewingNote, setViewingNote] = useState(null);
   const [viewingEmployee, setViewingEmployee] = useState(null);
 
-  // Project Handoff tab — Turnover/Contract Review + Scope Review. Only one
-  // print-only view is ever mounted with `print:block` at a time, same
-  // technique as BidDetail.jsx's own printTarget. handoffRef exposes the
-  // currently-active sub-panel's isDirty/save (see ProjectHandoffPanel.jsx)
-  // so leaving this page entirely (Back button, tab close, browser back)
-  // is guarded the same way BidDetail.jsx guards its own estimate tabs.
-  const [handoffPrintTarget, setHandoffPrintTarget] = useState(null);
-  // Captured at the moment Export PDF is clicked (see ProjectHandoffPanel.jsx
-  // forwarding each panel's getPrintData()) — the print views render from
-  // this snapshot rather than fetching their own, so the export always
-  // reflects what's actually on screen, not a stale mount-time fetch.
-  const [turnoverPrintData, setTurnoverPrintData] = useState(null);
-  const [scopePrintData, setScopePrintData] = useState(null);
+  // Project Handoff tab — Turnover/Contract Review + Scope Review. handoffRef
+  // exposes the currently-active sub-panel's isDirty/save (see
+  // ProjectHandoffPanel.jsx) so leaving this page entirely (Back button, tab
+  // close, browser back) is guarded the same way BidDetail.jsx guards its
+  // own estimate tabs.
   const handoffRef = useRef(null);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [savingLeave, setSavingLeave] = useState(false);
@@ -133,21 +124,23 @@ export default function ProjectDetail() {
 
   useDocumentTitle(project ? `SteelOS — Project: ${project.name}` : 'SteelOS — Project');
 
-  useEffect(() => {
-    const reset = () => setHandoffPrintTarget(null);
-    window.addEventListener('afterprint', reset);
-    return () => window.removeEventListener('afterprint', reset);
-  }, []);
-
   const isHandoffDirty = useCallback(() => !!handoffRef.current?.isDirty?.(), []);
 
-  const exportHandoffPdf = (target, printData) => {
-    if (target === 'turnover') setTurnoverPrintData(printData?.record || null);
-    if (target === 'scope') setScopePrintData(printData || null);
-    setHandoffPrintTarget(target);
-    // Let the print:block class swap apply to the DOM before invoking the
-    // browser's print dialog — window.print() reads the DOM synchronously.
-    requestAnimationFrame(() => window.print());
+  const exportHandoffPdf = async (target, printData) => {
+    try {
+      if (target === 'turnover') {
+        await generateTurnoverReviewPdf({ project, record: printData?.record });
+      } else if (target === 'scope') {
+        await generateScopeReviewPdf({
+          project,
+          preparedBy: user?.full_name || user?.email || '',
+          questions: printData?.questions,
+          generalNotes: printData?.generalNotes,
+        });
+      }
+    } catch (e) {
+      toast({ title: 'Unable to generate PDF', description: e?.message || 'Please retry.', variant: 'destructive' });
+    }
   };
 
   // Every explicit exit from this page routes through here so unsaved
@@ -648,8 +641,7 @@ export default function ProjectDetail() {
   );
 
   return (
-    <>
-    <div className="p-6 animate-fade-in print:hidden">
+    <div className="p-6 animate-fade-in">
       {/* Back + Header */}
       <div className="flex items-start gap-4 mb-6">
         <Button variant="ghost" size="icon" className="rounded-lg mt-1" onClick={() => attemptLeave(() => navigate('/projects'))}>
@@ -1376,13 +1368,5 @@ export default function ProjectDetail() {
 
       <UnsavedChangesModal open={showLeaveModal} onSave={handleLeaveModalSave} onDiscard={handleLeaveModalDiscard} saving={savingLeave} />
     </div>
-
-    <div className={cn('hidden', handoffPrintTarget === 'turnover' && 'print:block')}>
-      <TurnoverReviewPrintView project={project} record={turnoverPrintData} />
-    </div>
-    <div className={cn('hidden', handoffPrintTarget === 'scope' && 'print:block')}>
-      <ScopeReviewPrintView project={project} preparedBy={user?.full_name || user?.email || ''} questions={scopePrintData?.questions} generalNotes={scopePrintData?.generalNotes} />
-    </div>
-    </>
   );
 }

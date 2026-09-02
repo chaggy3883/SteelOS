@@ -10,7 +10,7 @@ import { openDocumentViewer } from '@/lib/openDocumentViewer';
 // Company-supplied legal/boilerplate pages (standard terms & conditions,
 // warranty language, payment terms, ...) that get appended, in sort_order,
 // as extra pages after every proposal PDF's main pricing content — see
-// BidProposalPrintView.jsx, the only reader of these rows.
+// bidProposalPdf.js, the only reader of these rows.
 export default function ProposalTermsPanel() {
   const { toast } = useToast();
   const fileInputRef = useRef(null);

@@ -9,7 +9,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Save, Loader2, History } from 'lucide-react';
 
 const DOCUMENT_TYPES = [
-  { key: 'proposal', label: 'Bid Proposal PDF', consumer: 'BidProposalPrintView.jsx' },
+  { key: 'proposal', label: 'Bid Proposal PDF', consumer: 'bidProposalPdf.js' },
   { key: 'manifest', label: 'Shipping Manifest', consumer: null },
   { key: 'invoice', label: 'Invoice', consumer: null },
 ];

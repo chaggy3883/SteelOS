@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useImperativeHandle, forwardRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, X, Loader2, CheckCircle2, Printer, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Plus, X, Loader2, CheckCircle2, Download, RefreshCw, AlertTriangle } from 'lucide-react';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { useAuth } from '@/lib/AuthContext';
@@ -314,8 +314,8 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
   };
 
   // getPrintData exposes this panel's current in-memory state for
-  // TurnoverReviewPrintView — see that file for why this replaced an earlier
-  // self-fetch-on-mount approach that went stale.
+  // turnoverReviewPdf.js's generateTurnoverReviewPdf(), so the export always
+  // reflects what's actually on screen rather than a stale fetch-on-open.
   useImperativeHandle(ref, () => ({ isDirty, save, getPrintData: () => ({ record }) }));
 
   const vendorsByName = new Map(vendors.map((v) => [String(v.name || '').trim().toLowerCase(), v]));
@@ -339,7 +339,7 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
         </div>
         <div className="flex gap-2">
           {!readOnly && <Button variant="outline" size="icon" onClick={refresh} title="Refresh"><RefreshCw className="w-4 h-4" /></Button>}
-          <Button variant="outline" onClick={onExportPdf}><Printer className="w-4 h-4 mr-1" />Export PDF</Button>
+          <Button variant="outline" onClick={onExportPdf}><Download className="w-4 h-4 mr-1" />Export PDF</Button>
           {!readOnly && (
             <Button variant="outline" onClick={markCompleted} disabled={saving}>
               <CheckCircle2 className="w-4 h-4 mr-1" />Mark Completed

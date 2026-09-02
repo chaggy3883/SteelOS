@@ -3,7 +3,7 @@ import { getJoistDeckTaxRate } from '@/lib/taxRate';
 
 const ERECTION_CATEGORIES = ['steel_erection', 'outsourced_misc_material_erection', 'erection_labor_hours', 'crane_rental', 'mobilization', 'field_rigging'];
 
-// Shared with BidProposalPrintView.jsx so the structural-vs-Joist & Deck tax
+// Shared with bidProposalPdf.js so the structural-vs-Joist & Deck tax
 // split is computed identically everywhere it's shown, instead of drifting
 // across separate copies of the same math. Reads bid.tax_rate directly
 // (the value already snapshotted at calculation time by TakeoffEngine.jsx's

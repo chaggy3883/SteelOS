@@ -1,5 +1,5 @@
-// Shared between TurnoverReviewPanel.jsx (edit) and TurnoverReviewPrintView.jsx
-// (print) so the two never drift out of sync on which fields exist.
+// Shared between TurnoverReviewPanel.jsx (edit) and turnoverReviewPdf.js
+// (PDF export) so the two never drift out of sync on which fields exist.
 
 // Simple yes/no items from the reference Turnover / Contract Review form.
 // No conditional detail attached to any of these (contrast

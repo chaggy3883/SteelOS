@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Printer, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat, Send, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Download, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat, Send, ShieldAlert } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
-import { cn } from '@/lib/utils';
-import BidProposalPrintView from '@/components/estimating/BidProposalPrintView';
-import BidInternalBreakdownPrintView from '@/components/estimating/BidInternalBreakdownPrintView';
+import { generateBidProposalPdf } from '@/lib/bidProposalPdf';
+import { generateBidInternalBreakdownPdf } from '@/lib/bidInternalBreakdownPdf';
 import InternalBreakdownExportDialog from '@/components/estimating/InternalBreakdownExportDialog';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { Button } from '@/components/ui/button';
@@ -58,12 +57,8 @@ export default function BidDetail() {
   const [bidHoldDays, setBidHoldDays] = useState(() => getBidHoldDays(null));
   const [showPricingHold, setShowPricingHold] = useState(false);
   const [showStatusHistory, setShowStatusHistory] = useState(false);
-  // Only one print-only view is ever mounted with `print:block` at a time —
-  // toggling this before calling window.print() decides which one the
-  // browser's print dialog actually sees. Always reset to 'proposal' once
-  // printing finishes (the 'afterprint' listener below) so a later customer
-  // export never accidentally prints the internal breakdown.
-  const [printTarget, setPrintTarget] = useState('proposal');
+  const [exportingProposal, setExportingProposal] = useState(false);
+  const [exportingBreakdown, setExportingBreakdown] = useState(false);
   const [showBreakdownConfirm, setShowBreakdownConfirm] = useState(false);
   // location.state carries the tab hint for an in-app navigate(); a bid
   // opened via window.open() (see Estimating.jsx's openBid) is a fresh
@@ -93,11 +88,6 @@ export default function BidDetail() {
 
   useEffect(() => { loadBid(); }, [id]);
   useEffect(() => { loadEmployees(); }, []);
-  useEffect(() => {
-    const resetPrintTarget = () => setPrintTarget('proposal');
-    window.addEventListener('afterprint', resetPrintTarget);
-    return () => window.removeEventListener('afterprint', resetPrintTarget);
-  }, []);
   useEffect(() => { getEffectiveCompany().then(c => setBidHoldDays(getBidHoldDays(c))).catch(() => {}); }, []);
 
   useEffect(() => {
@@ -137,19 +127,27 @@ export default function BidDetail() {
     setBaseInfoDirty(true);
   };
 
-  const exportProposalPdf = () => {
-    setPrintTarget('proposal');
-    // Let the print:block class swap apply to the DOM before invoking the
-    // browser's print dialog — window.print() reads the DOM synchronously.
-    requestAnimationFrame(() => window.print());
+  const exportProposalPdf = async () => {
+    setExportingProposal(true);
+    try {
+      await generateBidProposalPdf(bid);
+    } catch (e) {
+      toast({ title: 'Unable to generate proposal PDF', description: e?.message || 'Please retry.', variant: 'destructive' });
+    } finally {
+      setExportingProposal(false);
+    }
   };
 
-  const confirmInternalBreakdownExport = () => {
-    setPrintTarget('breakdown');
+  const confirmInternalBreakdownExport = async () => {
     setShowBreakdownConfirm(false);
-    // Dialog's exit animation is 200ms (see dialog.jsx duration-200) — must wait
-    // for it to fully complete before capturing the page, not just a paint frame.
-    setTimeout(() => window.print(), 250);
+    setExportingBreakdown(true);
+    try {
+      await generateBidInternalBreakdownPdf(bid);
+    } catch (e) {
+      toast({ title: 'Unable to generate internal breakdown PDF', description: e?.message || 'Please retry.', variant: 'destructive' });
+    } finally {
+      setExportingBreakdown(false);
+    }
   };
 
   const handleTaxRateTextChange = (e) => {
@@ -482,7 +480,7 @@ export default function BidDetail() {
 
   return (
     <>
-    <div className="p-6 pb-24 animate-fade-in print:hidden">
+    <div className="p-6 pb-24 animate-fade-in">
       <Button variant="ghost" size="sm" onClick={handleBackClick} className="mb-4">
         <ArrowLeft className="w-4 h-4 mr-1" />Back to Estimating
       </Button>
@@ -499,11 +497,11 @@ export default function BidDetail() {
             <Button size="sm" onClick={handleSaveEstimate} disabled={savingEstimate} className="steel-gradient text-white border-0">
               {savingEstimate ? 'Saving…' : 'Save Estimate'}
             </Button>
-            <Button size="sm" variant="outline" onClick={exportProposalPdf}>
-              <Printer className="w-3.5 h-3.5 mr-1" />Export Proposal PDF
+            <Button size="sm" variant="outline" onClick={exportProposalPdf} disabled={exportingProposal}>
+              <Download className="w-3.5 h-3.5 mr-1" />{exportingProposal ? 'Generating…' : 'Export Proposal PDF'}
             </Button>
-            <Button size="sm" variant="outline" className="text-red-600 border-red-500/30 hover:bg-red-500/10" onClick={() => setShowBreakdownConfirm(true)}>
-              <ShieldAlert className="w-3.5 h-3.5 mr-1" />Full Breakdown (Internal)
+            <Button size="sm" variant="outline" className="text-red-600 border-red-500/30 hover:bg-red-500/10" onClick={() => setShowBreakdownConfirm(true)} disabled={exportingBreakdown}>
+              <ShieldAlert className="w-3.5 h-3.5 mr-1" />{exportingBreakdown ? 'Generating…' : 'Full Breakdown (Internal)'}
             </Button>
             <Button size="sm" variant="outline" onClick={() => navigate(`/estimating/blueprint-takeoff/${bid.id}`)}>
               <ScanLine className="w-3.5 h-3.5 mr-1" />Blueprint Takeoff
@@ -833,13 +831,6 @@ export default function BidDetail() {
           {savingEstimate ? 'Saving…' : 'Save Estimate'}
         </Button>
       </div>
-    </div>
-
-    <div className={cn('hidden', printTarget === 'proposal' && 'print:block')}>
-      <BidProposalPrintView bid={bid} />
-    </div>
-    <div className={cn('hidden', printTarget === 'breakdown' && 'print:block')}>
-      <BidInternalBreakdownPrintView bid={bid} />
     </div>
 
     <InternalBreakdownExportDialog

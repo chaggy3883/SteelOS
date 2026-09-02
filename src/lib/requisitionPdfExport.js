@@ -1,9 +1,8 @@
 // Local, dependency-free "export to PDF": writes a clean unpriced HTML sheet
 // into a new browser tab and calls print() on it, so the browser's own
-// print dialog (Save as PDF) produces the file — the same mechanism
-// BidProposalPrintView/BidDetail.jsx already relies on for proposal PDFs,
-// just self-contained here since this grid isn't a top-level print target
-// on its own page tree.
+// print dialog (Save as PDF) produces the file — a plain browser-print
+// export, unlike bidProposalPdf.js's direct jsPDF generation, since this
+// grid isn't a top-level print target on its own page tree.
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));

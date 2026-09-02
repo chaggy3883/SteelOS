@@ -23,3 +23,12 @@
 export const PDF_MARGIN_MM = 12;
 export const PDF_MARGIN_PT = 34; // 12mm ≈ 34pt (1mm ≈ 2.8346pt)
 export const PDF_PAGE_FORMAT = 'letter';
+
+// 3. Customer/internal document PDFs that used to be browser-print views
+// (bidProposalPdf.js, bidInternalBreakdownPdf.js, turnoverReviewPdf.js,
+// scopeReviewPdf.js) — these generate the PDF file directly with jsPDF
+// instantiated in 'in' units, rather than going through window.print(), so
+// the margin is baked into the drawn page and can never be overridden by a
+// browser print dialog's own margin setting (the failure mode that
+// motivated the switch away from window.print() for these four).
+export const PDF_MARGIN_IN = 0.31;
