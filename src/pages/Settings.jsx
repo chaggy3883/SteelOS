@@ -24,6 +24,7 @@ import { DEFAULT_BID_PRICING_HOLD_DAYS } from '@/lib/bidPricingHold';
 const emptyCompanyForm = () => ({
   name: '', company_type: 'structural_steel_fabricator', address: '', city: '', state: '', zip: '',
   aisc_certification: '', phone: '', email: '', website: '',
+  aisc_certified: false, aisc_badge_url: '', proposal_validity_days: 7, terms_last_updated_date: '',
   bid_pricing_hold_days: DEFAULT_BID_PRICING_HOLD_DAYS,
 });
 
@@ -134,6 +135,10 @@ export default function Settings() {
         phone: row?.phone || '',
         email: row?.email || '',
         website: row?.website || '',
+        aisc_certified: row?.aisc_certified ?? false,
+        aisc_badge_url: row?.aisc_badge_url || '',
+        proposal_validity_days: row?.proposal_validity_days || 7,
+        terms_last_updated_date: row?.terms_last_updated_date || '',
         bid_pricing_hold_days: row?.bid_pricing_hold_days || DEFAULT_BID_PRICING_HOLD_DAYS,
       });
     } finally {
@@ -192,10 +197,15 @@ export default function Settings() {
     setSaving(true);
     try {
       const holdDays = Number(companyForm.bid_pricing_hold_days);
-      const payload = { ...companyForm, bid_pricing_hold_days: Number.isFinite(holdDays) && holdDays > 0 ? holdDays : DEFAULT_BID_PRICING_HOLD_DAYS };
+      const validityDays = Number(companyForm.proposal_validity_days);
+      const payload = {
+        ...companyForm,
+        bid_pricing_hold_days: Number.isFinite(holdDays) && holdDays > 0 ? holdDays : DEFAULT_BID_PRICING_HOLD_DAYS,
+        proposal_validity_days: Number.isFinite(validityDays) && validityDays > 0 ? validityDays : 7,
+      };
       const updated = await db.entities.Company.update(company.id, payload);
       setCompany(updated);
-      setCompanyForm(f => ({ ...f, bid_pricing_hold_days: payload.bid_pricing_hold_days }));
+      setCompanyForm(f => ({ ...f, bid_pricing_hold_days: payload.bid_pricing_hold_days, proposal_validity_days: payload.proposal_validity_days }));
       toast({ title: 'Settings saved!' });
     } catch (e) {
       toast({ title: 'Unable to save settings', variant: 'destructive' });
@@ -251,6 +261,19 @@ export default function Settings() {
                   <Label>AISC Certification Number</Label>
                   <Input value={companyForm.aisc_certification} onChange={e => updateCompanyField('aisc_certification', e.target.value)} placeholder="e.g. FA-1234" className="mt-1" />
                 </div>
+                <div className="flex items-center justify-between rounded-lg border border-input px-3 py-2 mt-1 sm:mt-6">
+                  <div>
+                    <Label className="text-sm">AISC Certified Fabricator</Label>
+                    <p className="text-xs text-muted-foreground">Shows the AISC badge on proposal PDFs</p>
+                  </div>
+                  <Switch checked={companyForm.aisc_certified} onCheckedChange={v => updateCompanyField('aisc_certified', v)} />
+                </div>
+                {companyForm.aisc_certified && (
+                  <div className="sm:col-span-2">
+                    <Label>AISC Badge Image URL</Label>
+                    <Input value={companyForm.aisc_badge_url} onChange={e => updateCompanyField('aisc_badge_url', e.target.value)} placeholder="/uploads/aisc-badge.png" className="mt-1" />
+                  </div>
+                )}
                 <div>
                   <Label>Phone</Label>
                   <Input value={companyForm.phone} onChange={e => updateCompanyField('phone', e.target.value)} placeholder="(555) 000-0000" className="mt-1" />
@@ -304,6 +327,31 @@ export default function Settings() {
                   />
                   <p className="text-xs text-muted-foreground mt-1">
                     How many days after a bid is marked "Bid Submitted" it's flagged as needing follow-up with no Won/Lost/Did Not Bid decision logged. Defaults to {DEFAULT_BID_PRICING_HOLD_DAYS}.
+                  </p>
+                </div>
+                <div>
+                  <Label>Proposal Validity Period (days)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={companyForm.proposal_validity_days}
+                    onChange={e => updateCompanyField('proposal_validity_days', e.target.value === '' ? '' : Number(e.target.value))}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    How many days a customer-facing proposal PDF remains valid — sets its "Proposal Expires" date. Defaults to 7.
+                  </p>
+                </div>
+                <div>
+                  <Label>Terms Last Updated</Label>
+                  <Input
+                    type="date"
+                    value={companyForm.terms_last_updated_date}
+                    onChange={e => updateCompanyField('terms_last_updated_date', e.target.value)}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Shown in the "Last Updated" line of every proposal PDF page footer.
                   </p>
                 </div>
               </div>

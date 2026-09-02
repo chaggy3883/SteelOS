@@ -5,6 +5,7 @@ import { SHAPE_CLASSES } from '@/data/steelShapeSelector';
 import { SERVICE_SCHEDULE_SEEDS } from '@/lib/serviceScheduleSeedData';
 import { LEGACY_RIGGING_CATEGORY_MAP } from '@/lib/riggingAssetTypes';
 import MATERIAL_CATALOG_SEED from '@/data/materialCatalogSeed.json';
+import { HANCOCK_PROPOSAL_TERMS_TEXT } from '@/lib/hancockProposalTermsContent';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
 const AUTH_STORAGE_KEY = 'steelos_auth_state';
@@ -287,9 +288,19 @@ const buildSeedData = () => {
         name: 'Hancock Steel',
         company_code: 'hancock',
         company_type: 'structural_steel_fabricator',
+        address: '813 E Bigelow Avenue',
         city: 'Findlay',
         state: 'OH',
+        zip: '45840',
+        phone: '419-424-1217',
         logo_url: '',
+        // Real Hancock certification/proposal defaults, from the reference
+        // proposal template — not every company using SteelOS is AISC
+        // certified, so aisc_certified gates the badge in the PDF header.
+        aisc_certified: true,
+        aisc_badge_url: '',
+        proposal_validity_days: 7,
+        terms_last_updated_date: '2025-03-12',
         // Enterprise Connect — Hancock's seed data spans both shop fabrication
         // and field erection (fleet, rigging, jobsite receiving), so it needs
         // every module pack bundles. See src/lib/modulePacks.js.
@@ -352,6 +363,23 @@ const buildSeedData = () => {
         subscription_plan: 'SteelOS_ShopFab',
         subscription_status: 'Active',
         brand_color_hex: '#059669',
+        is_active: true,
+        created_date: now,
+        updated_date: now
+      }
+    ],
+    // Hancock's real "Standard Terms & Conditions of Sale" (12 articles),
+    // seeded as native structured text (see hancockProposalTermsContent.js)
+    // rather than left as an empty placeholder waiting for an admin to
+    // upload a file — this is the tenant's actual legal content on day one.
+    CompanyProposalTerms: [
+      {
+        id: 'terms-hancock-standard',
+        company_id: 'company-hancock',
+        document_name: 'Standard Terms & Conditions of Sale',
+        file_url: '',
+        body_text: HANCOCK_PROPOSAL_TERMS_TEXT,
+        sort_order: 1,
         is_active: true,
         created_date: now,
         updated_date: now

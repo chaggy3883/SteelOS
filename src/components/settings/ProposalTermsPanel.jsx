@@ -32,6 +32,11 @@ export default function ProposalTermsPanel() {
   const [company, setCompany] = useState(null);
   const [clarificationsText, setClarificationsText] = useState('');
   const [savingClarifications, setSavingClarifications] = useState(false);
+  // Additional Notes is its own distinct section on the proposal PDF,
+  // rendered immediately after Clarifications — a separate company field
+  // with the same save/omit-when-blank behavior, not the same textarea.
+  const [additionalNotesText, setAdditionalNotesText] = useState('');
+  const [savingAdditionalNotes, setSavingAdditionalNotes] = useState(false);
 
   useEffect(() => { loadDocs(); loadCompany(); }, []);
 
@@ -49,6 +54,7 @@ export default function ProposalTermsPanel() {
       const row = await getEffectiveCompany();
       setCompany(row);
       setClarificationsText(row?.clarifications_text || '');
+      setAdditionalNotesText(row?.additional_notes_text || '');
     } catch (e) { console.error(e); }
   };
 
@@ -63,6 +69,20 @@ export default function ProposalTermsPanel() {
       toast({ title: 'Unable to save clarifications', variant: 'destructive' });
     } finally {
       setSavingClarifications(false);
+    }
+  };
+
+  const handleSaveAdditionalNotes = async () => {
+    if (!company) return;
+    setSavingAdditionalNotes(true);
+    try {
+      const updated = await db.entities.Company.update(company.id, { additional_notes_text: additionalNotesText.trim() });
+      setCompany(updated);
+      toast({ title: 'Additional Notes saved' });
+    } catch (e) {
+      toast({ title: 'Unable to save additional notes', variant: 'destructive' });
+    } finally {
+      setSavingAdditionalNotes(false);
     }
   };
 
@@ -135,6 +155,24 @@ export default function ProposalTermsPanel() {
         <Button size="sm" onClick={handleSaveClarifications} disabled={savingClarifications || !company}>
           {savingClarifications ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
           Save Clarifications
+        </Button>
+      </div>
+
+      <div className="steel-card p-6 space-y-3">
+        <h3 className="font-semibold">Additional Notes</h3>
+        <p className="text-sm text-muted-foreground">
+          Short, plain-text notes shown as their own section on the proposal's pricing page, immediately after
+          Clarifications — a separate section, not appended to it. Leave blank to omit this section entirely.
+        </p>
+        <Textarea
+          value={additionalNotesText}
+          onChange={(e) => setAdditionalNotesText(e.target.value)}
+          rows={4}
+          placeholder="e.g. With tariffs in place, review clauses 6.2 and 7.5 in the following terms and conditions."
+        />
+        <Button size="sm" onClick={handleSaveAdditionalNotes} disabled={savingAdditionalNotes || !company}>
+          {savingAdditionalNotes ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+          Save Additional Notes
         </Button>
       </div>
 

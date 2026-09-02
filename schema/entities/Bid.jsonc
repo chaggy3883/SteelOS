@@ -95,6 +95,44 @@
       "type": "string",
       "description": "Free-text list of addenda/bulletins incorporated into this bid. Entered on the BID Worksheet."
     },
+    "attention_name": {
+      "type": "string",
+      "description": "Customer-side contact name shown as \"Attention:\" on the proposal PDF's top info block. Entered on the BID Worksheet."
+    },
+    "specification_sections": {
+      "type": "string",
+      "description": "Free-text list of spec sections this bid was priced against, shown on the proposal PDF's top info block. Entered on the BID Worksheet."
+    },
+    "supplied_cut_sheet": {
+      "type": "string",
+      "description": "Free-text note (or file reference) identifying any cut sheet supplied for this bid, shown on the proposal PDF's top info block. Entered on the BID Worksheet."
+    },
+    "pricing_basis": {
+      "type": "string",
+      "enum": ["fob", "erected"],
+      "default": "fob",
+      "description": "Which pricing-basis label the proposal PDF shows above the total price — 'fob' renders \"F.O.B. Jobsite (Supply Only - Not Erected)\", 'erected' renders \"Fabricated, Delivered, and Installed\". Entered on the BID Worksheet. Distinct from TurnoverMeetingRecord.pricing_basis, which records the same fact at project handoff rather than at bid time."
+    },
+    "alternates_text": {
+      "type": "string",
+      "description": "Free-text list of priced alternates for this bid, shown on the proposal PDF's Alternates / Allowances section. Omits the whole section when both this and allowances_text are blank. Entered on the BID Worksheet."
+    },
+    "allowances_text": {
+      "type": "string",
+      "description": "Free-text list of allowances carried in this bid, shown on the proposal PDF's Alternates / Allowances section. Omits the whole section when both this and alternates_text are blank. Entered on the BID Worksheet."
+    },
+    "metal_deck_squares": {
+      "type": "number",
+      "description": "Metal deck quantity in squares, shown on the proposal PDF's Material Quantity Summary. No takeoff tool computes this (Joist & Deck is priced as a single flat-quote cost category with no quantity breakdown) — entered manually on the BID Worksheet."
+    },
+    "steel_joist_pieces": {
+      "type": "number",
+      "description": "Steel joist piece count, shown on the proposal PDF's Material Quantity Summary. No takeoff tool computes this (Joist & Deck is priced as a single flat-quote cost category with no quantity breakdown) — entered manually on the BID Worksheet."
+    },
+    "steel_joist_tons": {
+      "type": "number",
+      "description": "Steel joist tonnage, shown on the proposal PDF's Material Quantity Summary. No takeoff tool computes this (Joist & Deck is priced as a single flat-quote cost category with no quantity breakdown) — entered manually on the BID Worksheet."
+    },
     "pricing_type": {
       "type": "string",
       "enum": ["fixed_price", "time_and_material"],

@@ -29,6 +29,7 @@ export async function generateBidProposalPdf(bid) {
   const company = bid.company_id ? await db.entities.Company.get(bid.company_id).catch(() => null) : null;
   const taxLabel = await getTaxDisplayLabel(bid).catch(() => 'Sales Tax');
   const logo = await loadImageAsDataUrl(company?.logo_url);
+  const aiscBadge = company?.aisc_certified ? await loadImageAsDataUrl(company?.aisc_badge_url) : null;
 
   const { structuralTaxAmount, joistDeckTaxAmount } = computeBidTaxBreakdown(bid, lines);
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
@@ -44,6 +45,13 @@ export async function generateBidProposalPdf(bid) {
     }
   }
   const termsPages = (await Promise.all(termsDocs.map(async (termsDoc) => {
+    // Native structured text (see hancockProposalTermsContent.js) is
+    // rendered directly as PDF text, not rasterized from a file — skip the
+    // fetch/detect path entirely, since a text-only row has no file_url to
+    // fetch (detectDocumentKind would just fail and drop the row).
+    if (termsDoc.body_text && termsDoc.body_text.trim()) {
+      return { id: termsDoc.id, name: termsDoc.document_name, kind: 'text', bodyText: termsDoc.body_text };
+    }
     try {
       const kind = await detectDocumentKind(termsDoc.file_url);
       if (kind === 'pdf') {
@@ -66,6 +74,7 @@ export async function generateBidProposalPdf(bid) {
     companyName: company?.name || '',
     company,
     logo,
+    aiscBadge,
     taxLabel,
     amounts: {
       fobPrice, structuralTaxAmount, joistDeckTaxAmount, grandTotal,

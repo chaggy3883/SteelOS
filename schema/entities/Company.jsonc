@@ -137,6 +137,29 @@
     "clarifications_text": {
       "type": "string",
       "description": "Short, plain-text \"Clarifications\" blurb rendered on every customer-facing proposal PDF between Inclusions/Exclusions and the signature block — see bidProposalPdfLayout.js's drawClarifications(). Distinct from CompanyProposalTerms (the large, multi-page uploaded legal terms document appended after the signature block). Empty/missing omits the section entirely rather than showing an empty header. Editable from Settings > Proposal Terms."
+    },
+    "additional_notes_text": {
+      "type": "string",
+      "description": "Short, plain-text \"Additional Notes\" blurb rendered on the proposal PDF as its own section immediately after Clarifications — distinct field, distinct heading, same empty-omits-the-section convention as clarifications_text. Editable from Settings > Proposal Terms."
+    },
+    "aisc_certified": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this company is an AISC Certified Fabricator. Gates rendering of the AISC badge in the proposal PDF header — not every company using SteelOS holds this certification. Editable from Settings > Company."
+    },
+    "aisc_badge_url": {
+      "type": "string",
+      "description": "Image URL for the AISC Certified Fabricator badge graphic shown in the proposal PDF header, next to the company logo. Only rendered when aisc_certified is true and this is set. Editable from Settings > Company."
+    },
+    "proposal_validity_days": {
+      "type": "number",
+      "default": 7,
+      "description": "How many days after generation a customer-facing proposal PDF remains valid — drives the \"Proposal Expires\" date shown next to the generation date on the proposal, computed at render time (see bidProposalPdfLayout.js). Matches the \"Time Limit of Proposal\" language in Article 1.2.3 of the standard terms. Editable from Settings > Company."
+    },
+    "terms_last_updated_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date shown in the per-page proposal PDF footer (\"Last Updated [date]\"), alongside the buyer-initials line — tracks when this company's CompanyProposalTerms content was last revised. Editable from Settings > Company."
     }
   },
   "required": [

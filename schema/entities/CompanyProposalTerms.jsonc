@@ -9,7 +9,12 @@
       "type": "string"
     },
     "file_url": {
-      "type": "string"
+      "type": "string",
+      "description": "Uploaded document to rasterize and append page-for-page. Mutually exclusive with body_text in practice — a row is either an uploaded file or native structured text, not both."
+    },
+    "body_text": {
+      "type": "string",
+      "description": "Native structured legal text (see hancockProposalTermsContent.js for the format: 'ARTICLE ' lines are top-level headings, 'N.N '/'N.N.N ' lines are numbered clauses) rendered directly as PDF text via drawProposalTermsBody() instead of an uploaded/rasterized file — lets a company's real terms content ship as this row's actual data rather than a placeholder waiting to be uploaded. When both body_text and file_url are set, body_text takes precedence."
     },
     "sort_order": {
       "type": "number",

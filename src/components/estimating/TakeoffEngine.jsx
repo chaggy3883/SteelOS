@@ -120,6 +120,15 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const [exclusions, setExclusions] = useState(bid?.exclusions || '');
   const [drawingsUsed, setDrawingsUsed] = useState(bid?.drawings_used || '');
   const [addendums, setAddendums] = useState(bid?.addendums || '');
+  const [attentionName, setAttentionName] = useState(bid?.attention_name || '');
+  const [specificationSections, setSpecificationSections] = useState(bid?.specification_sections || '');
+  const [suppliedCutSheet, setSuppliedCutSheet] = useState(bid?.supplied_cut_sheet || '');
+  const [pricingBasis, setPricingBasis] = useState(bid?.pricing_basis || 'fob');
+  const [alternatesText, setAlternatesText] = useState(bid?.alternates_text || '');
+  const [allowancesText, setAllowancesText] = useState(bid?.allowances_text || '');
+  const [metalDeckSquares, setMetalDeckSquares] = useState(bid?.metal_deck_squares ?? '');
+  const [steelJoistPieces, setSteelJoistPieces] = useState(bid?.steel_joist_pieces ?? '');
+  const [steelJoistTons, setSteelJoistTons] = useState(bid?.steel_joist_tons ?? '');
   // bid.markup_percentage is no longer the bid-wide markup itself — each
   // line item owns its own markup % now. This only pre-fills that per-line
   // field for a new/never-saved line (see loadLines); it has no effect on
@@ -234,6 +243,15 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     setExclusions(bid?.exclusions || '');
     setDrawingsUsed(bid?.drawings_used || '');
     setAddendums(bid?.addendums || '');
+    setAttentionName(bid?.attention_name || '');
+    setSpecificationSections(bid?.specification_sections || '');
+    setSuppliedCutSheet(bid?.supplied_cut_sheet || '');
+    setPricingBasis(bid?.pricing_basis || 'fob');
+    setAlternatesText(bid?.alternates_text || '');
+    setAllowancesText(bid?.allowances_text || '');
+    setMetalDeckSquares(bid?.metal_deck_squares ?? '');
+    setSteelJoistPieces(bid?.steel_joist_pieces ?? '');
+    setSteelJoistTons(bid?.steel_joist_tons ?? '');
     setMarkupPct(bid?.markup_percentage ?? 0);
   }, [bid?.id]);
 
@@ -443,6 +461,15 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         exclusions,
         drawings_used: drawingsUsed,
         addendums,
+        attention_name: attentionName,
+        specification_sections: specificationSections,
+        supplied_cut_sheet: suppliedCutSheet,
+        pricing_basis: pricingBasis,
+        alternates_text: alternatesText,
+        allowances_text: allowancesText,
+        metal_deck_squares: metalDeckSquares === '' ? null : parseFloat(metalDeckSquares),
+        steel_joist_pieces: steelJoistPieces === '' ? null : parseFloat(steelJoistPieces),
+        steel_joist_tons: steelJoistTons === '' ? null : parseFloat(steelJoistTons),
         markup_percentage: parseFloat(markupPct) || 0,
         insurance_override: parseFloat(overrides.insurance) || null,
         insurance_enabled: insuranceEnabled,
@@ -899,6 +926,82 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             className="mt-2 min-h-[120px]"
             id="addendums"
           />
+        </div>
+      </div>
+
+      {/* Proposal Header Fields — feed the customer-facing proposal PDF's top info block */}
+      <div className="steel-card p-5 space-y-4">
+        <h4 className="font-semibold text-sm">Proposal Header Fields</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <Label className="text-xs">Attention (Contact Name)</Label>
+            <Input value={attentionName} onChange={e => { setAttentionName(e.target.value); setDirty(true); }} className="mt-1" placeholder="Customer contact name" />
+          </div>
+          <div>
+            <Label className="text-xs">Specification Sections</Label>
+            <Input value={specificationSections} onChange={e => { setSpecificationSections(e.target.value); setDirty(true); }} className="mt-1" placeholder="e.g. Division 05" />
+          </div>
+          <div>
+            <Label className="text-xs">Supplied Cut Sheet</Label>
+            <Input value={suppliedCutSheet} onChange={e => { setSuppliedCutSheet(e.target.value); setDirty(true); }} className="mt-1" placeholder="Cut sheet reference/file name" />
+          </div>
+          <div>
+            <Label className="text-xs">Pricing Basis</Label>
+            <Select value={pricingBasis} onValueChange={v => { setPricingBasis(v); setDirty(true); }}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fob">F.O.B. Jobsite (Supply Only - Not Erected)</SelectItem>
+                <SelectItem value="erected">Fabricated, Delivered, and Installed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="steel-card p-5">
+          <Label className="font-semibold">Alternates</Label>
+          <Textarea
+            value={alternatesText}
+            onChange={e => { setAlternatesText(e.target.value); setDirty(true); }}
+            placeholder="List any priced alternates for this bid… leave blank to omit this section"
+            className="mt-2 min-h-[100px]"
+            id="alternates_text"
+          />
+        </div>
+        <div className="steel-card p-5">
+          <Label className="font-semibold">Allowances</Label>
+          <Textarea
+            value={allowancesText}
+            onChange={e => { setAllowancesText(e.target.value); setDirty(true); }}
+            placeholder="List any allowances carried in this bid… leave blank to omit this section"
+            className="mt-2 min-h-[100px]"
+            id="allowances_text"
+          />
+        </div>
+      </div>
+
+      <div className="steel-card p-5 space-y-4">
+        <div>
+          <h4 className="font-semibold text-sm">Material Quantity Summary</h4>
+          <p className="text-xs text-muted-foreground mt-1">
+            Structural Steel tons come from the linked takeoff ({(bid?.total_weight_tons ?? bid?.estimated_tons ?? 0).toLocaleString()} tons). Metal Deck and Steel Joist
+            aren't computed by any takeoff tool — Joist &amp; Deck is priced as a single flat-quote line with no quantity breakdown — so enter them manually below.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <Label className="text-xs">Metal Deck (Squares)</Label>
+            <Input type="number" min="0" value={metalDeckSquares} onChange={e => { setMetalDeckSquares(e.target.value); setDirty(true); }} className="mt-1" placeholder="0" />
+          </div>
+          <div>
+            <Label className="text-xs">Steel Joist (Pieces)</Label>
+            <Input type="number" min="0" value={steelJoistPieces} onChange={e => { setSteelJoistPieces(e.target.value); setDirty(true); }} className="mt-1" placeholder="0" />
+          </div>
+          <div>
+            <Label className="text-xs">Steel Joist (Tons)</Label>
+            <Input type="number" min="0" step="0.01" value={steelJoistTons} onChange={e => { setSteelJoistTons(e.target.value); setDirty(true); }} className="mt-1" placeholder="0" />
+          </div>
         </div>
       </div>
 
