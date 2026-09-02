@@ -368,10 +368,15 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
-    // Hancock's real "Standard Terms & Conditions of Sale" (12 articles),
-    // seeded as native structured text (see hancockProposalTermsContent.js)
-    // rather than left as an empty placeholder waiting for an admin to
-    // upload a file — this is the tenant's actual legal content on day one.
+    // Hancock's (company-hancock's) OWN real "Standard Terms & Conditions of
+    // Sale" (12 articles), seeded as native structured text (see
+    // hancockProposalTermsContent.js) directly onto Hancock's specific
+    // company_id below rather than left as an empty placeholder waiting for
+    // an admin to upload a file. This row is Hancock's actual, proprietary
+    // legal content — it must never be treated as shared/default content for
+    // any other company_id. Every other tenant (including any newly created
+    // one) has zero rows here and starts from ProposalTermsPanel.jsx's empty
+    // state, prompting that company's own admin to upload their own terms.
     CompanyProposalTerms: [
       {
         id: 'terms-hancock-standard',

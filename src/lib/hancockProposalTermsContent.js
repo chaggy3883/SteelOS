@@ -1,8 +1,13 @@
 // Hancock Structural Steel, LLC's real "Standard Terms & Conditions of Sale"
 // (12 articles), transcribed verbatim from the company's reference proposal
-// template PDF so it can be seeded as this tenant's default
-// CompanyProposalTerms row (see demoDataSeeder.js / localData.js) instead of
-// shipping with an empty placeholder waiting to be uploaded.
+// template PDF so it can be seeded as company-hancock's OWN
+// CompanyProposalTerms row in localData.js's buildSeedData() — that row is
+// hard-scoped to company_id: 'company-hancock' and must never be used as a
+// fallback/default for any other tenant. A newly created company gets no
+// CompanyProposalTerms row at all and starts from ProposalTermsPanel.jsx's
+// empty state ("No terms documents uploaded yet."), prompting its own admin
+// to upload their own terms — this content is Hancock's real, proprietary
+// legal text, not sample/placeholder copy for other companies to inherit.
 //
 // Format read by drawProposalTermsBody() in bidProposalPdfLayout.js:
 //   - A line starting with "ARTICLE " is a top-level article heading.
