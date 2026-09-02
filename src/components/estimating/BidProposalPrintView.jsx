@@ -156,30 +156,34 @@ export default function BidProposalPrintView({ bid }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-10 mt-10 pt-6 border-t border-gray-300 text-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-        <div>
-          <p className="font-semibold mb-8">{company?.name || 'Company'} (Seller)</p>
-          <div className="border-b border-black h-8 mb-1" />
-          <p className="text-xs text-gray-500 mb-4">Signature</p>
-          <div className="border-b border-black h-8 mb-1" />
-          <p className="text-xs text-gray-500 mb-4">Print Name</p>
-          <div className="border-b border-black h-8 mb-1" />
-          <p className="text-xs text-gray-500 mb-4">Title</p>
-          <div className="border-b border-black h-8 mb-1" />
-          <p className="text-xs text-gray-500">Date</p>
-        </div>
-        <div>
-          <p className="font-semibold mb-8">{bid.customer_name || 'Customer'} (Buyer)</p>
-          <div className="border-b border-black h-8 mb-1" />
-          <p className="text-xs text-gray-500 mb-4">Signature</p>
-          <div className="border-b border-black h-8 mb-1" />
-          <p className="text-xs text-gray-500 mb-4">Print Name</p>
-          <div className="border-b border-black h-8 mb-1" />
-          <p className="text-xs text-gray-500 mb-4">Title</p>
-          <div className="border-b border-black h-8 mb-1" />
-          <p className="text-xs text-gray-500">Date</p>
-        </div>
-      </div>
+      <table className="w-full mt-10 pt-6 border-t border-gray-300 text-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+        <tbody>
+          <tr>
+            <td className="w-1/2 align-top pr-5">
+              <p className="font-semibold mb-8">{company?.name || 'Company'} (Seller)</p>
+              <div className="border-b border-black h-8 mb-1" />
+              <p className="text-xs text-gray-500 mb-4">Signature</p>
+              <div className="border-b border-black h-8 mb-1" />
+              <p className="text-xs text-gray-500 mb-4">Print Name</p>
+              <div className="border-b border-black h-8 mb-1" />
+              <p className="text-xs text-gray-500 mb-4">Title</p>
+              <div className="border-b border-black h-8 mb-1" />
+              <p className="text-xs text-gray-500">Date</p>
+            </td>
+            <td className="w-1/2 align-top pl-5">
+              <p className="font-semibold mb-8">{bid.customer_name || 'Customer'} (Buyer)</p>
+              <div className="border-b border-black h-8 mb-1" />
+              <p className="text-xs text-gray-500 mb-4">Signature</p>
+              <div className="border-b border-black h-8 mb-1" />
+              <p className="text-xs text-gray-500 mb-4">Print Name</p>
+              <div className="border-b border-black h-8 mb-1" />
+              <p className="text-xs text-gray-500 mb-4">Title</p>
+              <div className="border-b border-black h-8 mb-1" />
+              <p className="text-xs text-gray-500">Date</p>
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
       {termsPages.map((doc) => (
         <React.Fragment key={doc.id}>
