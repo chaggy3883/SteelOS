@@ -13,7 +13,7 @@
     },
     "uploaded_files": {
       "type": "array",
-      "description": "One entry per uploaded file: { file_id, file_name, file_type, file_url, parsed, parsed_row_count, parsed_error_count }. file_id keys the raw blob in detailerImportBlobStore.js (IndexedDB, per-browser only). parsed/parsed_row_count/parsed_error_count are set once a .csv or .kss file has been staged into DetailerImportedPiece rows; other file types (PDF, DXF, DSTV, etc.) are intake-only and never gain those fields."
+      "description": "One entry per uploaded file: { file_id, file_name, file_type, file_url, uploaded_at, parsed, parsed_row_count, parsed_error_count }. file_id keys the raw blob in detailerImportBlobStore.js (IndexedDB, per-browser only). uploaded_at is an ISO timestamp set when the file is added, shown in BatchReviewModal.jsx's Attached Drawings section. parsed/parsed_row_count/parsed_error_count are set once a .csv or .kss file has been staged into DetailerImportedPiece rows; other file types (PDF, DXF, DSTV, etc.) are intake-only and never gain those fields — see isParsableDetailerFile/isCncFile/isDrawingFile in detailerImportParser.js for how a non-data file is further classified as a CNC hand-off file vs. a drawing."
     },
     "import_status": {
       "type": "string",

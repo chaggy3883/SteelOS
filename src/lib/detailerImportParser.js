@@ -377,6 +377,22 @@ export const isParsableDetailerFile = (fileName) => {
   return Object.prototype.hasOwnProperty.call(PARSABLE_EXTENSIONS, ext);
 };
 
+// CNC fabrication files (NC1, DXF) are also non-parsable data-wise, but they
+// already get their own dedicated intake path (auto-matched to a PieceMark
+// by filename at upload time, with their own unmatched-assignment UI — see
+// DetailerImports.jsx's matchAndAttachCncFiles) — shared here so that path
+// and isDrawingFile below classify files identically instead of drifting.
+const CNC_EXTENSIONS = ['nc1', 'dxf'];
+export const isCncFile = (fileName) => CNC_EXTENSIONS.includes(String(fileName || '').split('.').pop().toLowerCase());
+
+// Everything else non-parsable (PDFs, and any other file type a detailer
+// export happens to include) is a "drawing" for review purposes — surfaced
+// in BatchReviewModal.jsx's Attached Drawings section instead of vanishing,
+// and matched to a PieceMark by filename at commit time (detailerImportCommit.js)
+// the same way PieceMarkPdfIntake.jsx matches drawings dropped directly onto
+// the Pieces section.
+export const isDrawingFile = (fileName) => !isParsableDetailerFile(fileName) && !isCncFile(fileName);
+
 export const parseDetailerImportFile = (fileName, text) => {
   if (looksLikeTeklaBomFile(text)) return parseDetailerTeklaBomFile(text);
   const ext = String(fileName || '').split('.').pop().toLowerCase();

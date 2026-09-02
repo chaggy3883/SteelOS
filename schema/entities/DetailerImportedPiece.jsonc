@@ -74,6 +74,10 @@
     "piece_mark_id": {
       "type": "string",
       "description": "FK to the PieceMark record this row was committed onto (created or matched-and-updated). Blank until committed."
+    },
+    "sequence_area_id": {
+      "type": "string",
+      "description": "Links to ProjectSequenceArea, assignable during Review & Commit (BatchReviewModal.jsx) before the row is promoted onto a real PieceMark. Nullable — left unassigned means \"Unassigned\", same convention as PieceMark.sequence_area_id. Carried onto the committed PieceMark's own sequence_area_id by detailerImportCommit.js only when set here, so leaving it blank on a row that matches an EXISTING PieceMark never clobbers that piece's current assignment."
     }
   },
   "required": [

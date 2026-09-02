@@ -58,7 +58,11 @@ export const saveDetailerImportFile = async (fileId, file) => {
   });
 };
 
-export const getDetailerImportFileUrl = async (fileId) => {
+// Raw stored Blob, unwrapped — used where a caller needs the actual bytes
+// (e.g. detailerImportCommit.js re-attaching a drawing to a PieceMark via
+// pieceFileIntake.js's attachFileToPiece, which stores the blob itself)
+// rather than a short-lived object URL for on-screen preview.
+export const getDetailerImportFileBlob = async (fileId) => {
   if (!fileId) return null;
 
   const db = await openDatabase();
@@ -72,24 +76,20 @@ export const getDetailerImportFileUrl = async (fileId) => {
     const store = transaction.objectStore(STORE_NAME);
     const request = store.get(fileId);
 
-    request.onsuccess = () => {
-      const result = request.result;
-      if (!result) {
-        finish(() => resolve(null));
-        return;
-      }
-
-      try {
-        const objectUrl = URL.createObjectURL(result);
-        finish(() => resolve(objectUrl));
-      } catch (error) {
-        finish(() => reject(new Error(`Failed to create object URL for detailer import file ${fileId}: ${error?.message || 'unknown error'}`)));
-      }
-    };
-
+    request.onsuccess = () => finish(() => resolve(request.result || null));
     request.onerror = () => finish(() => reject(new Error(`Failed to load detailer import file ${fileId}: ${request.error?.message || 'unknown error'}`)));
     transaction.onerror = () => finish(() => reject(new Error(`Failed to load detailer import file ${fileId}: ${transaction.error?.message || 'unknown error'}`)));
   });
+};
+
+export const getDetailerImportFileUrl = async (fileId) => {
+  const result = await getDetailerImportFileBlob(fileId);
+  if (!result) return null;
+  try {
+    return URL.createObjectURL(result);
+  } catch (error) {
+    throw new Error(`Failed to create object URL for detailer import file ${fileId}: ${error?.message || 'unknown error'}`);
+  }
 };
 
 export const deleteDetailerImportFile = async (fileId) => {

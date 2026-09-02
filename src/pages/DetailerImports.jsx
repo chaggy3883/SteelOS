@@ -4,7 +4,7 @@ import { db } from '@/api/apiClient';
 import { getEffectiveCompanyId } from '@/lib/tenantContext';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { saveDetailerImportFile, getDetailerImportFileUrl, deleteDetailerImportFile, createDetailerImportFileId } from '@/lib/detailerImportBlobStore';
-import { parseDetailerImportFile, isParsableDetailerFile } from '@/lib/detailerImportParser';
+import { parseDetailerImportFile, isParsableDetailerFile, isCncFile } from '@/lib/detailerImportParser';
 import { saveCncFile } from '@/lib/cncFileStore';
 import { scanValueMatches } from '@/lib/pieceScan';
 import BatchReviewModal from '@/components/detailer-imports/BatchReviewModal';
@@ -19,15 +19,14 @@ import { useToast } from '@/components/ui/use-toast';
 import { FileStack, Upload, Trash2, Eye, FolderOpen, FileScan, ChevronDown, ChevronRight, ClipboardCheck, AlertTriangle, Cpu } from 'lucide-react';
 
 // CNC fabrication files (NC1, DXF) are shop-floor hand-off files, not
-// row-data to parse — see PARSABLE_EXTENSIONS in detailerImportParser.js for
-// the data-file side. They're matched to a PieceMark by filename using the
-// exact same convention/algorithm as PieceMarkPdfIntake.jsx's drawing PDF
-// intake (matchFilenameToPiece there, scanValueMatches here) — a file named
-// after its piece mark (e.g. "3B3.nc1") auto-attaches; anything that doesn't
+// row-data to parse — see isCncFile in detailerImportParser.js for the
+// shared classification. They're matched to a PieceMark by filename using
+// the exact same convention/algorithm as PieceMarkPdfIntake.jsx's drawing
+// PDF intake (matchFilenameToPiece in pieceFileIntake.js, which this
+// mirrors for the .nc1/.dxf extensions specifically) — a file named after
+// its piece mark (e.g. "3B3.nc1") auto-attaches; anything that doesn't
 // match any piece mark in the batch's project falls into the same
 // unmatched-holding-area-for-manual-assignment pattern that flow uses.
-const CNC_EXTENSIONS = ['nc1', 'dxf'];
-const isCncFile = (fileName) => CNC_EXTENSIONS.includes(String(fileName || '').split('.').pop().toLowerCase());
 const matchCncFilenameToPieceMark = (pieceMarks, filename) => {
   const stem = String(filename || '').replace(/\.(nc1|dxf)$/i, '');
   return pieceMarks.find((p) => scanValueMatches([p.piece_mark], stem)) || null;
@@ -112,7 +111,7 @@ export default function DetailerImports() {
       for (const file of files) {
         const file_id = createDetailerImportFileId();
         await saveDetailerImportFile(file_id, file);
-        uploaded_files.push({ file_id, file_name: file.name, file_type: file.type || 'application/octet-stream', file_url: '' });
+        uploaded_files.push({ file_id, file_name: file.name, file_type: file.type || 'application/octet-stream', file_url: '', uploaded_at: new Date().toISOString() });
       }
 
       const record = await db.entities.DetailerImportBatch.create({

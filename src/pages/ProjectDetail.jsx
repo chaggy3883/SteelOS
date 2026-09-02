@@ -26,6 +26,7 @@ import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
 import PieceMarkPdfIntake from '@/components/projects/PieceMarkPdfIntake';
+import PartsHardwarePdfIntake from '@/components/projects/PartsHardwarePdfIntake';
 import TmTrackingPanel from '@/components/projects/TmTrackingPanel';
 import ProjectHandoffPanel from '@/components/projects/ProjectHandoffPanel';
 import { generateTurnoverReviewPdf } from '@/lib/turnoverReviewPdf';
@@ -976,9 +977,13 @@ export default function ProjectDetail() {
               </div>
             ) : (
               <PieceMarkPdfIntake
+                project={project}
                 pieces={pieces}
                 phasingMode={phasingMode}
+                sequenceAreas={sequenceAreas}
                 onPieceUpdated={(updated) => setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))}
+                onPieceCreated={(created) => setPieces((prev) => [...prev, created])}
+                onSequenceAreaCreated={(created) => setSequenceAreas((prev) => [...prev, created])}
               />
             )}
           </div>
@@ -1068,6 +1073,14 @@ export default function ProjectDetail() {
             </div>
 
             {addPartFormPanel}
+
+            <PartsHardwarePdfIntake
+              project={project}
+              pieces={pieces}
+              sequenceAreas={sequenceAreas}
+              onPieceCreated={(created) => setPieces((prev) => [...prev, created])}
+              onSequenceAreaCreated={(created) => setSequenceAreas((prev) => [...prev, created])}
+            />
 
             {parts.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">No parts or hardware added yet.</p>

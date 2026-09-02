@@ -25,6 +25,9 @@ import { db } from '@/api/apiClient';
 import { normalizeScanValue } from '@/lib/pieceScan';
 import { logStatusChange } from '@/lib/statusHistory';
 import { generatePiecePayload } from '@/lib/qrSerialization';
+import { isDrawingFile } from '@/lib/detailerImportParser';
+import { getDetailerImportFileBlob } from '@/lib/detailerImportBlobStore';
+import { matchFilenameToPiece, attachFileToPiece } from '@/lib/pieceFileIntake';
 
 const PIECE_MARK_TEXT_FIELDS = ['assembly', 'material_grade', 'material_profile', 'finished_length', 'revision', 'drawing_number'];
 
@@ -35,6 +38,11 @@ const buildPieceMarkFields = (row) => {
   });
   if (row.quantity != null) fields.quantity = row.quantity;
   if (row.weight != null) fields.weight_lbs = row.weight;
+  // Only ever set when the reviewer explicitly picked one on this row (see
+  // BatchReviewModal.jsx) — leaving it unset here means an existing
+  // PieceMark's current sequence_area_id is left untouched on update, rather
+  // than an unassigned staged row silently clearing it.
+  if (row.sequence_area_id) fields.sequence_area_id = row.sequence_area_id;
   return fields;
 };
 
@@ -156,7 +164,34 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
     await db.entities.DetailerImportedPiece.update(row.id, { committed: true, piece_mark_id: pieceMark.id });
   }
 
+  // Drawing files uploaded alongside the BOM data in this same batch (PDFs,
+  // or anything else non-parsable and not a CNC file — see isDrawingFile in
+  // detailerImportParser.js) never produce staged rows of their own, so they
+  // ride along here instead: match each to a PieceMark by filename using the
+  // exact same algorithm PieceMarkPdfIntake.jsx uses for a standalone drop
+  // (matchFilenameToPiece in pieceFileIntake.js), against the piece list this
+  // same commit just created/updated — a piece created earlier in this loop
+  // is matchable by a drawing later in the same batch. Best-effort: a file
+  // that fails to load or attach is skipped rather than failing the commit.
+  const drawingFiles = (batch.uploaded_files || []).filter((f) => isDrawingFile(f.file_name));
+  let drawingsMatched = 0;
+  if (drawingFiles.length > 0) {
+    const allPieceMarks = Array.from(existingByMark.values());
+    for (const fileEntry of drawingFiles) {
+      const matched = matchFilenameToPiece(allPieceMarks, fileEntry.file_name);
+      if (!matched) continue;
+      try {
+        const blob = await getDetailerImportFileBlob(fileEntry.file_id);
+        if (!blob) continue;
+        await attachFileToPiece(matched, blob);
+        drawingsMatched += 1;
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  }
+
   const updatedBatch = await db.entities.DetailerImportBatch.update(batch.id, { import_status: 'committed' });
 
-  return { created, updated, skipped, revisionsSkipped, batch: updatedBatch };
+  return { created, updated, skipped, revisionsSkipped, drawingsMatched, batch: updatedBatch };
 };

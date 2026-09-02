@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { UploadCloud, FileText, Eye, Download, Trash2, Loader2, Paperclip, FolderOpen, AlertTriangle, Cpu } from 'lucide-react';
+import { UploadCloud, FileText, Eye, Download, Trash2, Loader2, Paperclip, FolderOpen, AlertTriangle, Cpu, PlusCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
@@ -9,9 +10,11 @@ import { cn } from '@/lib/utils';
 import { downloadFile } from '@/lib/downloadFile';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { scanValueMatches } from '@/lib/pieceScan';
-import { createDocumentId, pieceDocumentsKey, getDocumentRecords, saveDocumentRecords } from '@/lib/pieceMarkDocumentStore';
+import { normalizeScanValue } from '@/lib/pieceScan';
+import { createDocumentId, pieceDocumentsKey, getDocumentRecords } from '@/lib/pieceMarkDocumentStore';
 import { saveCncFile, getCncFileUrl, deleteCncFile } from '@/lib/cncFileStore';
+import { stripFileExtension, matchFilenameToPiece, attachFileToPiece, createPieceFromFile } from '@/lib/pieceFileIntake';
+import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
 
 const isPdf = (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
 
@@ -24,26 +27,20 @@ const formatSize = (bytes) => {
 
 const piecePhaseKey = (p) => (p.phase || '').trim() || 'Unassigned';
 
-// Matches a detailer PDF export filename to a piece_mark within this
-// project's own piece list only — the piece_mark uniqueness scope is
-// (project_id, piece_mark), and `pieces` here is already filtered to one
-// project, so no explicit project check is needed on top of this.
-const matchFilenameToPiece = (pieces, filename) => {
-  const stem = String(filename || '').replace(/\.pdf$/i, '');
-  return pieces.find((p) => scanValueMatches([p.piece_mark], stem)) || null;
-};
-
 // Bulk PDF intake for the Piece Marks section — a single drop zone (plus one
 // on every phase/area folder, all wired to this same routing logic) accepts
 // multiple PDFs at once, auto-matches each by filename to a piece_mark, and
-// falls back to manual assignment for anything unmatched. Where a file lands
-// is always driven by which piece it matched (its own phase/area), never by
-// which zone physically received the drop.
-export default function PieceMarkPdfIntake({ pieces, phasingMode, onPieceUpdated }) {
+// falls back to a per-file "create a new piece from this file" (default) or
+// "attach to an existing piece instead" choice for anything unmatched. Where
+// a matched file lands is always driven by which piece it matched (its own
+// phase/area), never by which zone physically received the drop.
+export default function PieceMarkPdfIntake({ project, pieces, phasingMode, sequenceAreas, onPieceUpdated, onPieceCreated, onSequenceAreaCreated }) {
   const { toast } = useToast();
   const [dragging, setDragging] = useState(false);
   const [processing, setProcessing] = useState(null); // { current, total } | null
-  const [unmatchedFiles, setUnmatchedFiles] = useState([]); // { id, file, assignTo }
+  // mode: 'create' (default) or 'existing'. markInput/sequenceAreaId only
+  // apply to 'create'; assignTo only applies to 'existing'.
+  const [unmatchedFiles, setUnmatchedFiles] = useState([]); // { id, file, mode, markInput, assignTo, sequenceAreaId }
   const [busyFileIds, setBusyFileIds] = useState(new Set());
   const [viewingDocsFor, setViewingDocsFor] = useState(null); // PieceMark | null
   const [viewingDocs, setViewingDocs] = useState([]);
@@ -68,20 +65,6 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode, onPieceUpdated
     });
   }, [pieces]);
 
-  const attachFileToPiece = async (piece, file) => {
-    const key = pieceDocumentsKey(piece.id);
-    const existing = await getDocumentRecords(key);
-    const doc = {
-      id: createDocumentId(),
-      filename: file.name,
-      mimetype: file.type || 'application/pdf',
-      size: file.size,
-      uploadDate: new Date().toISOString(),
-      blob: file,
-    };
-    await saveDocumentRecords(key, [...existing, doc]);
-  };
-
   const handleFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     if (files.length === 0) return;
@@ -105,10 +88,10 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode, onPieceUpdated
           await attachFileToPiece(matched, file);
           matchedCount += 1;
         } catch (e) {
-          stillUnmatched.push({ id: createDocumentId(), file, assignTo: '' });
+          stillUnmatched.push({ id: createDocumentId(), file, mode: 'create', markInput: stripFileExtension(file.name), assignTo: '', sequenceAreaId: null });
         }
       } else {
-        stillUnmatched.push({ id: createDocumentId(), file, assignTo: '' });
+        stillUnmatched.push({ id: createDocumentId(), file, mode: 'create', markInput: stripFileExtension(file.name), assignTo: '', sequenceAreaId: null });
       }
     }
     setProcessing(null);
@@ -118,15 +101,42 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode, onPieceUpdated
     }
     if (stillUnmatched.length > 0) {
       setUnmatchedFiles((prev) => [...prev, ...stillUnmatched]);
-      toast({ title: `${stillUnmatched.length} PDF${stillUnmatched.length === 1 ? '' : 's'} need manual assignment`, description: 'No piece mark matched the filename — pick one below.', variant: 'destructive' });
+      toast({ title: `${stillUnmatched.length} PDF${stillUnmatched.length === 1 ? '' : 's'} need review`, description: 'No piece mark matched the filename — create a new piece or attach to an existing one below.', variant: 'destructive' });
     }
   };
 
-  const setUnmatchedAssignment = (id, pieceId) => {
-    setUnmatchedFiles((prev) => prev.map((f) => (f.id === id ? { ...f, assignTo: pieceId } : f)));
+  const updateUnmatched = (id, patch) => {
+    setUnmatchedFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   };
 
   const removeUnmatched = (id) => setUnmatchedFiles((prev) => prev.filter((f) => f.id !== id));
+
+  // Default action for an unmatched file — create a brand-new piece from it
+  // rather than requiring it be assigned to something that already exists.
+  // Still guards against colliding with an existing piece_mark (e.g. the
+  // user hand-edited markInput to something already in use) the same way
+  // ProjectDetail.jsx's manual "Add Part" form does, pointing them at
+  // "attach to an existing piece instead" rather than silently creating a
+  // second PieceMark with the same mark.
+  const confirmCreate = async (item) => {
+    const mark = item.markInput.trim();
+    if (!mark) return;
+    if (pieces.some((p) => normalizeScanValue(p.piece_mark) === normalizeScanValue(mark))) {
+      toast({ title: `Piece mark "${mark}" already exists on this project`, description: 'Use "Attach to existing piece" instead.', variant: 'destructive' });
+      return;
+    }
+    setBusyFileIds((prev) => new Set(prev).add(item.id));
+    try {
+      const created = await createPieceFromFile({ project, file: item.file, itemType: 'Piece_Mark', markOverride: mark, sequenceAreaId: item.sequenceAreaId });
+      onPieceCreated?.(created);
+      setUnmatchedFiles((prev) => prev.filter((f) => f.id !== item.id));
+      toast({ title: `${mark} created from ${item.file.name}` });
+    } catch (e) {
+      toast({ title: 'Unable to create piece', variant: 'destructive' });
+    } finally {
+      setBusyFileIds((prev) => { const next = new Set(prev); next.delete(item.id); return next; });
+    }
+  };
 
   const confirmUnmatchedAssignment = async (item) => {
     const piece = pieces.find((p) => p.id === item.assignTo);
@@ -281,30 +291,73 @@ export default function PieceMarkPdfIntake({ pieces, phasingMode, onPieceUpdated
       {unmatchedFiles.length > 0 && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
-            <AlertTriangle className="w-4 h-4" />Unmatched — {unmatchedFiles.length} file{unmatchedFiles.length === 1 ? '' : 's'} need manual assignment
+            <AlertTriangle className="w-4 h-4" />No filename match — {unmatchedFiles.length} file{unmatchedFiles.length === 1 ? '' : 's'} need review
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {unmatchedFiles.map((f) => (
-              <div key={f.id} className="flex items-center gap-2 rounded-lg border border-border bg-background p-2 text-xs">
-                <div className="w-9 h-9 rounded bg-red-500/10 flex items-center justify-center flex-shrink-0">
-                  <FileText className="w-4 h-4 text-red-500" />
+              <div key={f.id} className="rounded-lg border border-border bg-background p-2 text-xs space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-4 h-4 text-red-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{f.file.name}</p>
+                    <p className="text-muted-foreground">{formatSize(f.file.size)}</p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0 rounded-md border border-border p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => updateUnmatched(f.id, { mode: 'create' })}
+                      className={cn('px-2 py-1 rounded text-xs font-medium', f.mode === 'create' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
+                    >
+                      Create New Piece
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateUnmatched(f.id, { mode: 'existing' })}
+                      className={cn('px-2 py-1 rounded text-xs font-medium', f.mode === 'existing' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}
+                    >
+                      Attach to Existing
+                    </button>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 flex-shrink-0" onClick={() => removeUnmatched(f.id)}>
+                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                  </Button>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{f.file.name}</p>
-                  <p className="text-muted-foreground">{formatSize(f.file.size)}</p>
-                </div>
-                <Select value={f.assignTo} onValueChange={(v) => setUnmatchedAssignment(f.id, v)}>
-                  <SelectTrigger className="h-7 w-44 text-xs flex-shrink-0"><SelectValue placeholder="Assign to piece mark…" /></SelectTrigger>
-                  <SelectContent>
-                    {pieces.map((p) => <SelectItem key={p.id} value={p.id}>{p.piece_mark} ({piecePhaseKey(p)})</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Button size="sm" className="h-7 flex-shrink-0" disabled={!f.assignTo || busyFileIds.has(f.id)} onClick={() => confirmUnmatchedAssignment(f)}>
-                  {busyFileIds.has(f.id) ? 'Attaching…' : 'Attach'}
-                </Button>
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 flex-shrink-0" onClick={() => removeUnmatched(f.id)}>
-                  <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                </Button>
+
+                {f.mode === 'create' ? (
+                  <div className="flex items-center gap-2 pl-11">
+                    <Input
+                      value={f.markInput}
+                      onChange={(e) => updateUnmatched(f.id, { markInput: e.target.value })}
+                      placeholder="Piece mark"
+                      className="h-7 w-36 text-xs"
+                    />
+                    <SequenceAreaSelect
+                      projectId={project?.id}
+                      sequenceAreas={sequenceAreas || []}
+                      value={f.sequenceAreaId}
+                      onChange={(v) => updateUnmatched(f.id, { sequenceAreaId: v })}
+                      onCreated={onSequenceAreaCreated}
+                      triggerClassName="h-7 w-36 text-xs flex-shrink-0"
+                    />
+                    <Button size="sm" className="h-7 flex-shrink-0" disabled={!f.markInput.trim() || busyFileIds.has(f.id)} onClick={() => confirmCreate(f)}>
+                      {busyFileIds.has(f.id) ? 'Creating…' : <><PlusCircle className="w-3.5 h-3.5 mr-1" />Create</>}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 pl-11">
+                    <Select value={f.assignTo} onValueChange={(v) => updateUnmatched(f.id, { assignTo: v })}>
+                      <SelectTrigger className="h-7 w-44 text-xs flex-shrink-0"><SelectValue placeholder="Assign to piece mark…" /></SelectTrigger>
+                      <SelectContent>
+                        {pieces.map((p) => <SelectItem key={p.id} value={p.id}>{p.piece_mark} ({piecePhaseKey(p)})</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" className="h-7 flex-shrink-0" disabled={!f.assignTo || busyFileIds.has(f.id)} onClick={() => confirmUnmatchedAssignment(f)}>
+                      {busyFileIds.has(f.id) ? 'Attaching…' : 'Attach'}
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
