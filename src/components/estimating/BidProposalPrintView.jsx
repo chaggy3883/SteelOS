@@ -156,7 +156,7 @@ export default function BidProposalPrintView({ bid }) {
         </div>
       </div>
 
-      <table className="w-full mt-10 pt-6 border-t border-gray-300 text-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+      <table className="w-full mt-10 pt-6 border-t border-gray-300 text-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid', breakBefore: 'page', pageBreakBefore: 'always' }}>
         <tbody>
           <tr>
             <td className="w-1/2 align-top pr-5">
