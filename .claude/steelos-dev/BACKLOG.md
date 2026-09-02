@@ -1,9 +1,71 @@
 # SteelOS Backlog
 
-Snapshot as of Aug 26 2026. This file is meant to be kept current —
+Snapshot as of Sep 2 2026. This file is meant to be kept current —
 update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
+
+## Also Closed (2026-09-02)
+
+- **Master material catalog (shape types + sizes/grades), admin-extensible**
+  — imported a cleaned real-world catalog (`src/data/materialCatalogSeed.json`:
+  95 shape types, 3,986 sizes, 221 grades) into 3 new entities:
+  `MaterialShapeType` (shape_code/description/category/is_active),
+  `MaterialSizeOption` and `MaterialGradeOption` (both FK'd to
+  `shape_type_id`, resolved from the seed file's shared shape_code at seed
+  time — not stored redundantly). Seeded once via `buildSeedData()`
+  (`src/api/localData.js`'s `buildMaterialCatalogSeedData`), same
+  fills-only-if-empty contract as every other seeded entity, so it
+  backfills automatically into any existing browser store that predates
+  this change. New admin page `/admin/material-catalog`
+  (`MaterialCatalogAdmin.jsx`): list/filter-by-category/search/toggle-active/
+  add shape type; every shape type row is clickable (standing rule) into
+  `MaterialShapeTypeDetailModal.jsx`, which manages that shape's sizes and
+  grades (add/toggle-active/delete/reorder via adjacent sort_order swap)
+  plus a "Bulk Add Sizes" paste-or-upload panel for shapes with 300+ sizes
+  (HSS has 367, MB 332, W 317) — dedupes against what's already there.
+  Access: `admin`/`super_admin`/`estimator` (`materialCatalogAccess.js`) —
+  there's no distinct `estimating_admin` BUILTIN_ROLE, so `estimator` was
+  admitted as the closest existing role, matching how PTO/salesman-rate
+  admin pages admit `hr_admin`/`payroll_admin` alongside full admin.
+  **Wired the original ask**: `FullTakeoff.jsx`'s Material Grade field is
+  now a dropdown sourced live from `MaterialGradeOption`, bridged from
+  `MaterialTakeoffLine`'s own 5-value `shape_class` enum
+  (W-Beam/HSS Tube/C-Channel/L-Angle/PL-Plate) to the catalog's matching
+  `W`/`HSS`/`C`/`L`/`PL` shape_codes — chosen because those 5 catalog
+  entries' descriptions match the enum 1:1, not an arbitrary mapping. Kept
+  the existing "Other" free-text escape hatch; a shape with zero grades
+  configured falls back to a plain free-text input with a note instead of
+  showing an empty dropdown. Verified live in a real (Playwright-driven,
+  since this project has no browser-automation tool installed — see
+  `browser-testing` skill) Chromium session logged in as
+  `estimator@steelos.dev`: 95 shape types listed, category filter (22 for
+  Bolts/Fasteners), shape detail modal, bulk-add (317→319 sizes on W), and
+  the Grade dropdown on a real bid's Full Takeoff tab correctly showing
+  A992/A572-50/A588/A992-GR50/Other for a W-Beam row — screenshotted at
+  1024/1440/1920px with no truncation. Note: testing as `admin@steelos.dev`
+  specifically shows an empty catalog list, because that seeded account
+  also holds `super_admin` and a non-impersonating super_admin session
+  reads every tenant-scoped entity as empty by design (see
+  `applyTenantScope` in `localData.js`) — not a bug in this feature, just
+  use a non-super-admin account (or impersonate a tenant) to see real data.
+  **Not built this pass (reported only, per the request)**: whether
+  `steel_catalog` (IRONSIGHT's AISC weight-per-foot reference, keyed to
+  MaterialTakeoffLine's 5-value shape_class enum) and/or `StockLengthOption`
+  (material optimizer's purchasable lengths, FK'd to a `steel_catalog` row)
+  should eventually be superseded by or linked to this new master catalog.
+  They currently serve different, narrower purposes — `steel_catalog` also
+  carries engineering data this catalog doesn't (dimension1/dimension2,
+  wall_thickness_in, weight_per_ft) needed for tonnage/weight math, and
+  `StockLengthOption` is about purchasable bar/plate lengths, not
+  shape/size/grade taxonomy — so a straight merge would lose fields real
+  workflows depend on. The cleanest eventual path is probably linking
+  rather than replacing: give `steel_catalog` an optional
+  `material_shape_type_id`/`material_size_option_id` FK pair so its 5
+  broad classes point at this catalog's `W`/`HSS`/`C`/`L`/`PL` entries
+  (mirroring the bridge map added to `FullTakeoff.jsx`), while
+  `steel_catalog` keeps owning the weight/dimension data this catalog was
+  never designed to hold.
 
 ## Also Closed (2026-08-26)
 

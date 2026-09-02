@@ -1,0 +1,38 @@
+{
+  "name": "MaterialShapeType",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "shape_code": {
+      "type": "string",
+      "description": "Short detailer-style abbreviation (e.g. 'W', 'HSS', 'AB') — unique per company. MaterialSizeOption/MaterialGradeOption link to this row's id, not this code, once resolved."
+    },
+    "description": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "Structural Steel",
+        "Bolts/Fasteners",
+        "Aluminum",
+        "Stainless",
+        "Other/Misc"
+      ]
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "shape_code",
+    "description",
+    "category"
+  ]
+}

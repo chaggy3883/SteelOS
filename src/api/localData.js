@@ -4,6 +4,7 @@ import { isEmployeeActive, DEACTIVATION_MESSAGE } from '@/lib/employeeAuth';
 import { SHAPE_CLASSES } from '@/data/steelShapeSelector';
 import { SERVICE_SCHEDULE_SEEDS } from '@/lib/serviceScheduleSeedData';
 import { LEGACY_RIGGING_CATEGORY_MAP } from '@/lib/riggingAssetTypes';
+import MATERIAL_CATALOG_SEED from '@/data/materialCatalogSeed.json';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
 const AUTH_STORAGE_KEY = 'steelos_auth_state';
@@ -54,6 +55,58 @@ const createId = () => {
 };
 
 const toLowerCase = (value) => String(value || '').toLowerCase();
+
+const slugifyMaterialCode = (code) => String(code || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+
+// One-time load of the cleaned master material catalog (shape types + their
+// size/grade options) into the seed store — same "only fills an empty
+// collection" contract as every other seeded entity (see migrateStore).
+// size_options/grade_options link to their MaterialShapeType via shape_type_id,
+// resolved here from the seed file's shared shape_code rather than stored
+// redundantly on every child row.
+const buildMaterialCatalogSeedData = (now) => {
+  const shapeTypes = MATERIAL_CATALOG_SEED.shape_types.map((s) => ({
+    id: `material-shape-${slugifyMaterialCode(s.shape_code)}`,
+    company_id: 'company-hancock',
+    shape_code: s.shape_code,
+    description: s.description,
+    category: s.category,
+    is_active: s.is_active !== false,
+    created_by: 'system-seed',
+    created_date: now,
+    updated_date: now,
+  }));
+
+  const shapeTypeIdByCode = new Map(shapeTypes.map((s) => [s.shape_code, s.id]));
+
+  const sizeOptions = MATERIAL_CATALOG_SEED.size_options
+    .filter((s) => shapeTypeIdByCode.has(s.shape_code))
+    .map((s) => ({
+      id: `material-size-${slugifyMaterialCode(s.shape_code)}-${s.sort_order}`,
+      company_id: 'company-hancock',
+      shape_type_id: shapeTypeIdByCode.get(s.shape_code),
+      size_value: s.size_value,
+      sort_order: s.sort_order,
+      is_active: true,
+      created_date: now,
+      updated_date: now,
+    }));
+
+  const gradeOptions = MATERIAL_CATALOG_SEED.grade_options
+    .filter((g) => shapeTypeIdByCode.has(g.shape_code))
+    .map((g) => ({
+      id: `material-grade-${slugifyMaterialCode(g.shape_code)}-${g.sort_order}`,
+      company_id: 'company-hancock',
+      shape_type_id: shapeTypeIdByCode.get(g.shape_code),
+      grade_value: g.grade_value,
+      sort_order: g.sort_order,
+      is_active: true,
+      created_date: now,
+      updated_date: now,
+    }));
+
+  return { MaterialShapeType: shapeTypes, MaterialSizeOption: sizeOptions, MaterialGradeOption: gradeOptions };
+};
 
 const buildSeedData = () => {
   const now = new Date().toISOString();
@@ -855,6 +908,7 @@ const buildSeedData = () => {
       }
     ],
     ApiCredential: [],
+    ...buildMaterialCatalogSeedData(now),
     steel_catalog: SHAPE_CLASSES.flatMap((cls) =>
       cls.sizes.map((size) => ({
         id: `steel-catalog-${cls.value}-${size}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-'),
@@ -2947,7 +3001,7 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'CompanyProposalTerms', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'Meeting', 'MeetingNoteLog', 'TurnoverMeetingRecord', 'ScopeReviewQuestion', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification', 'AuditLog', 'FailedAccessLog', 'TmLaborRate', 'TmLaborEstimateLineItem', 'TmMaterialLineItem', 'TmSubcontractorLineItem', 'TmMaterialUsage', 'BankIntegrationConfig', 'EmployeeBankAccount', 'AchOutgoing', 'AchIncoming', 'candidate_profiles', 'candidate_documents', 'employee_hiring_documents', 'Payment', 'Memo', 'DetailerImportBatch', 'DetailerImportedPiece', 'StockLengthOption', 'MaterialOptimizationRun', 'StockMaterialUnit'];
+const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'CompanyProposalTerms', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'Meeting', 'MeetingNoteLog', 'TurnoverMeetingRecord', 'ScopeReviewQuestion', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification', 'AuditLog', 'FailedAccessLog', 'TmLaborRate', 'TmLaborEstimateLineItem', 'TmMaterialLineItem', 'TmSubcontractorLineItem', 'TmMaterialUsage', 'BankIntegrationConfig', 'EmployeeBankAccount', 'AchOutgoing', 'AchIncoming', 'candidate_profiles', 'candidate_documents', 'employee_hiring_documents', 'Payment', 'Memo', 'DetailerImportBatch', 'DetailerImportedPiece', 'StockLengthOption', 'MaterialOptimizationRun', 'StockMaterialUnit', 'MaterialShapeType', 'MaterialSizeOption', 'MaterialGradeOption'];
 
 // A super_admin session NEVER falls back to its own User row's company_id —
 // even a seeded demo account holding both 'admin' and 'super_admin' plus a

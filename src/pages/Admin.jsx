@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat, Presentation, ClipboardCheck } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat, Presentation, ClipboardCheck, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getEffectiveCompany, isAdminUser, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
@@ -59,6 +59,10 @@ const NAV_LINKS = [
   { path: '/admin/commission-setup', label: 'Sales Commission Setup', icon: DollarSign },
   { path: '/admin/salesman-rates', label: 'Salesman Commission Rates', icon: Percent, roles: ['hr_admin', 'payroll_admin'] },
   { path: '/admin/tm-labor-rates', label: 'T&M Labor Rates', icon: HardHat, roles: ['hr_admin', 'payroll_admin'] },
+  // Estimating-owned reference data (feeds the Material Takeoff grade
+  // dropdown) — admitted alongside full admin the same way PTO/salesman
+  // rates admit hr_admin/payroll_admin above.
+  { path: '/admin/material-catalog', label: 'Material Catalog', icon: Package, roles: ['estimator'] },
 ];
 
 export default function Admin() {

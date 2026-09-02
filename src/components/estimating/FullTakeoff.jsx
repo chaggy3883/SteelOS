@@ -12,7 +12,21 @@ import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
-const STANDARD_MATERIAL_GRADES = ['A36', 'A572 Gr50', 'A992', 'A500 Gr B/C', 'A53', 'A1085'];
+
+// Bridges MaterialTakeoffLine's own 5-value shape_class enum to the master
+// material catalog's much finer shape_code taxonomy (MaterialShapeType —
+// ~95 detailer-style codes) so the Grade dropdown can look up
+// MaterialGradeOption for "whatever's selected in Shape Classification Type"
+// above. These 5 codes are the catalog's own Wideflange/HSS/Channel/Angle/
+// Plate entries — chosen because their descriptions match this enum 1:1,
+// not an arbitrary mapping.
+const SHAPE_CLASS_TO_MATERIAL_CODE = {
+  'W-Beam': 'W',
+  'HSS Tube': 'HSS',
+  'C-Channel': 'C',
+  'L-Angle': 'L',
+  'PL-Plate': 'PL',
+};
 
 function emptyRow() {
   return {
@@ -40,6 +54,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   const { toast } = useToast();
   const [rows, setRows] = useState([]);
   const [catalog, setCatalog] = useState([]);
+  const [gradesByShapeClass, setGradesByShapeClass] = useState({});
   const [shopEfficiencyPct, setShopEfficiencyPct] = useState(bid?.shop_efficiency_pct ?? 100);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -48,6 +63,35 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   useEffect(() => { loadRows(); }, [bid?.id]);
   useEffect(() => {
     db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
+  }, []);
+
+  // Grade dropdown source: the master Material Catalog (MaterialShapeType +
+  // MaterialGradeOption), bridged via SHAPE_CLASS_TO_MATERIAL_CODE. Loaded
+  // once — this grid's 5 shape classes never change at runtime.
+  useEffect(() => {
+    (async () => {
+      try {
+        const codes = Object.values(SHAPE_CLASS_TO_MATERIAL_CODE);
+        const shapeTypes = await db.entities.MaterialShapeType.filter({ is_active: true }, 'shape_code', 500);
+        const relevantTypes = shapeTypes.filter((s) => codes.includes(s.shape_code));
+        if (relevantTypes.length === 0) return;
+        const grades = await db.entities.MaterialGradeOption.list('sort_order', 5000);
+        const gradesByTypeId = new Map();
+        grades.forEach((g) => {
+          if (g.is_active === false) return;
+          if (!gradesByTypeId.has(g.shape_type_id)) gradesByTypeId.set(g.shape_type_id, []);
+          gradesByTypeId.get(g.shape_type_id).push(g.grade_value);
+        });
+        const byShapeClass = {};
+        Object.entries(SHAPE_CLASS_TO_MATERIAL_CODE).forEach(([shapeClass, code]) => {
+          const type = relevantTypes.find((s) => s.shape_code === code);
+          if (type) byShapeClass[shapeClass] = gradesByTypeId.get(type.id) || [];
+        });
+        setGradesByShapeClass(byShapeClass);
+      } catch (e) {
+        setGradesByShapeClass({});
+      }
+    })();
   }, []);
 
   // Live catalog lookup — the "Available Size" dropdown no longer reads the
@@ -258,13 +302,30 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                 <div className="col-span-6 sm:col-span-2">
                   <Label className="text-xs">Grade</Label>
                   {(() => {
+                    const availableGrades = gradesByShapeClass[row.shape_class] || [];
+                    // No grades configured yet in the Material Catalog admin
+                    // page for this shape — fall back to free text rather
+                    // than blocking entry with an empty dropdown.
+                    if (availableGrades.length === 0) {
+                      return (
+                        <>
+                          <Input
+                            value={row.grade}
+                            onChange={(e) => updateRow(idx, 'grade', e.target.value)}
+                            className="mt-1 h-8 text-sm"
+                            placeholder="Enter grade"
+                          />
+                          <p className="text-[10px] text-muted-foreground mt-0.5">No grades configured for this shape yet — free text.</p>
+                        </>
+                      );
+                    }
                     // A row loaded from an existing bid may carry a custom
                     // grade string typed before this dropdown existed (or one
-                    // outside the standard list below) — treat anything not in
-                    // the standard list as "Other" automatically so it's never
+                    // outside this shape's configured list) — treat anything
+                    // not in the list as "Other" automatically so it's never
                     // silently dropped, matching the requirement to keep a
                     // free-text escape hatch.
-                    const isOther = !!row.grade_is_other || (!!row.grade && !STANDARD_MATERIAL_GRADES.includes(row.grade));
+                    const isOther = !!row.grade_is_other || (!!row.grade && !availableGrades.includes(row.grade));
                     return (
                       <>
                         <Select
@@ -280,7 +341,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                         >
                           <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select grade" /></SelectTrigger>
                           <SelectContent>
-                            {STANDARD_MATERIAL_GRADES.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                            {availableGrades.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
                             <SelectItem value="Other">Other</SelectItem>
                           </SelectContent>
                         </Select>
