@@ -111,7 +111,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   });
   const [insuranceEnabled, setInsuranceEnabled] = useState(bid?.insurance_enabled ?? false);
   const [bondEnabled, setBondEnabled] = useState(bid?.bond_enabled ?? true);
-  const [joistDeckTaxable, setJoistDeckTaxable] = useState(bid?.joist_deck_taxable ?? false);
   const [taxInfo, setTaxInfo] = useState({ rate: 0, source: 'manual_entry', effective_date: null, tax_zone_id: null });
   const [taxLabel, setTaxLabel] = useState('Sales Tax');
   const [dirty, setDirty] = useState(false);
@@ -342,7 +341,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
 
   const updateInsuranceEnabled = (checked) => { setInsuranceEnabled(checked); setDirty(true); };
   const updateBondEnabled = (checked) => { setBondEnabled(checked); setDirty(true); };
-  const updateJoistDeckTaxable = (checked) => { setJoistDeckTaxable(checked); setDirty(true); };
   const updateMarkupPct = (value) => { setMarkupPct(value); setDirty(true); };
 
   const subtotal = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0), 0);
@@ -363,7 +361,12 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const averageMarkupPct = subtotal > 0 ? (markupAmount / subtotal) * 100 : 0;
   const overrideTotal = ['insurance', 'bond', 'procore_pay', 'textura'].reduce((s, k) => s + (parseFloat(overrides[k]) || 0), 0);
   const grandTotal = subtotalWithMarkup + overrideTotal;
-  const calculatedTaxRate = taxInfo.rate;
+  // Gated directly on bid.tax_exempt (the single source of truth — the
+  // inverse of Base Info's top-level "Tax Enabled" toggle, see BidDetail.jsx)
+  // rather than on taxInfo.rate alone: taxInfo is populated by an async effect
+  // below, so this keeps the on/off state itself synchronous and immediate
+  // even in the brief window before that effect resolves.
+  const calculatedTaxRate = bid?.tax_exempt ? 0 : taxInfo.rate;
   const joistDeckTaxRate = getJoistDeckTaxRate(bid);
   // Taxable/non-taxable is a data flag on COST_CATEGORIES (is_taxable, default
   // true) rather than a hardcoded category-key list — steel_erection,
@@ -376,7 +379,12 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     if (cat?.is_taxable === false) return sum;
     return sum + Number(line?.total_cost || 0) * lineMarkupMultiplier(line) * calculatedTaxRate;
   }, 0);
-  const joistDeckTaxAmount = joistDeckTaxable && !bid?.tax_exempt ? Number(lines['joist_deck']?.total_cost || 0) * lineMarkupMultiplier(lines['joist_deck']) * joistDeckTaxRate : 0;
+  // Joist & Deck no longer has its own on/off toggle (the old "Joist & Deck
+  // Taxable" switch in Administrative Overrides was a second, independently-
+  // wired tax gate — removed so every tax line reads from the single top
+  // "Tax Enabled" toggle). It still uses its own joist_deck_tax_rate, just
+  // gated by the same tax_exempt flag as everything else.
+  const joistDeckTaxAmount = bid?.tax_exempt ? 0 : Number(lines['joist_deck']?.total_cost || 0) * lineMarkupMultiplier(lines['joist_deck']) * joistDeckTaxRate;
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
   const bondAmount = (() => {
     const contractValue = Math.max(0, subtotalWithMarkup + overrideTotal);
@@ -452,9 +460,15 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         return db.entities.TakeoffLine.create(payload);
       }).filter(Boolean);
       await Promise.all(ops);
-      const freshBid = await db.entities.Bid.get(bid.id);
       const deliveryJobCostEntryId = await postDeliveryJobCostEntry();
-      const freshTaxInfo = await computeEffectiveTaxRate(buildTaxRateInput(freshBid));
+      // tax_enabled/tax_rate/tax_rate_source/tax_zone_id are NOT re-derived or
+      // re-written here — Base Info (BidDetail.jsx's handleBaseInfoSave) is the
+      // single source of truth for tax configuration. Re-fetching and
+      // recomputing them from this separate save path used to risk writing a
+      // stale snapshot back over Base Info's own value whenever "Save Takeoff"
+      // was clicked without first saving Base Info (see the tax-worksheet bug
+      // fix this comment accompanies) — bid_total_cost below already reflects
+      // the live tax config via the bid prop BidDetail passes in.
       await db.entities.Bid.update(bid.id, {
         bid_total_cost: totalWithTax,
         inclusions,
@@ -478,15 +492,9 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         insurance_professional_liability: parseFloat(insuranceInputs.professional_liability) || null,
         bond_override: parseFloat(overrides.bond) || null,
         bond_enabled: bondEnabled,
-        joist_deck_taxable: joistDeckTaxable,
         procore_pay_override: parseFloat(overrides.procore_pay) || null,
         textura_override: parseFloat(overrides.textura) || null,
         leed_level_override: overrides.leed_level || null,
-        tax_rate: freshTaxInfo.rate,
-        tax_rate_source: freshTaxInfo.source,
-        tax_rate_effective_date: freshTaxInfo.effective_date,
-        tax_zone_id: freshTaxInfo.tax_zone_id,
-        tax_enabled: !!freshBid?.tax_enabled,
         delivery_distance_miles: deliveryDistance,
         delivery_trip_count: parseFloat(deliveryTripCount) || 1,
         delivery_cost_per_trip: deliveryCostPerTrip,
@@ -741,7 +749,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       <div className="steel-card p-5">
         <h4 className="font-semibold mb-1">Administrative Overrides</h4>
         <p className="text-xs text-muted-foreground mb-4">Type over to override calculated values. Overridden cells are highlighted yellow.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div className="flex items-center justify-between rounded-lg border border-border p-3">
             <div>
               <p className="text-sm font-medium">Insurance Allocation</p>
@@ -756,14 +764,11 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             </div>
             <Switch checked={bondEnabled} onCheckedChange={updateBondEnabled} />
           </div>
-          <div className="flex items-center justify-between rounded-lg border border-border p-3">
-            <div>
-              <p className="text-sm font-medium">Joist &amp; Deck Taxable</p>
-              <p className="text-xs text-muted-foreground">{joistDeckTaxable ? `Taxed at ${(joistDeckTaxRate * 100).toFixed(2)}%` : 'Tax exempt — no joist/deck tax applied'}</p>
-            </div>
-            <Switch checked={joistDeckTaxable} onCheckedChange={updateJoistDeckTaxable} />
-          </div>
         </div>
+        {/* Joist & Deck taxability is no longer its own toggle here — it's
+            governed by the single "Tax Enabled" switch in Base Information
+            above (see the Grand Total's tax lines below), same as every
+            other tax-affected line item. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
             // cost_code metadata only (see COST_CATEGORIES audit) — these stay
@@ -866,18 +871,23 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             <span>Delivery Cost{deliveryCostCode && <span className="text-xs text-muted-foreground"> ({deliveryCostCode})</span>}</span>
             <span className="font-mono">${deliveryTotalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
-          <div className="flex justify-between text-sm">
-            <span>{bid?.tax_exempt ? taxLabel : `${taxLabel} (${(calculatedTaxRate * 100).toFixed(2)}%)`}</span>
-            <span className="font-mono">${structuralTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span>Joist &amp; Deck Tax{joistDeckTaxable && !bid?.tax_exempt ? ` (${(joistDeckTaxRate * 100).toFixed(2)}%)` : ''}</span>
-            {joistDeckTaxable && !bid?.tax_exempt ? (
+          {/* Both tax lines are omitted entirely when the bid is tax exempt
+              (top "Tax Enabled" toggle off in Base Information) — matching
+              the customer-facing proposal PDF's exempt handling
+              (drawPricingBlock in bidProposalPdfLayout.js), which likewise
+              drops its tax row rather than showing a $0/"exempt" placeholder. */}
+          {!bid?.tax_exempt && (
+            <div className="flex justify-between text-sm">
+              <span>{taxLabel} ({(calculatedTaxRate * 100).toFixed(2)}%)</span>
+              <span className="font-mono">${structuralTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            </div>
+          )}
+          {!bid?.tax_exempt && (
+            <div className="flex justify-between text-sm">
+              <span>Joist &amp; Deck Tax ({(joistDeckTaxRate * 100).toFixed(2)}%)</span>
               <span className="font-mono">${joistDeckTaxAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-            ) : (
-              <span className="text-xs text-muted-foreground">Tax Exempt</span>
-            )}
-          </div>
+            </div>
+          )}
           <div className="flex justify-between items-center pt-2 mt-1 border-t border-border">
             <span className="font-bold text-lg">Total Cost</span>
             <span className="font-mono font-bold text-lg text-primary">${totalWithTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>

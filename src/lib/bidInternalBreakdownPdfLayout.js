@@ -151,7 +151,7 @@ function drawSummaryTable(doc, startY, summary) {
     [`Insurance Allocation${!summary.insuranceEnabled ? ' (off)' : ''}`, fmt(summary.insuranceAllocation)],
     ['Delivery Cost', fmt(summary.deliveryTotalCost)],
     [`Sales Tax ${summary.taxExempt ? '(exempt)' : `(${(summary.taxRate * 100).toFixed(2)}%)`}`, fmt(summary.structuralTaxAmount)],
-    [`Joist & Deck Tax ${summary.joistDeckTaxable && !summary.taxExempt ? `(${(summary.joistDeckTaxRate * 100).toFixed(2)}%)` : '(exempt)'}`, fmt(summary.joistDeckTaxAmount)],
+    [`Joist & Deck Tax ${summary.taxExempt ? '(exempt)' : `(${(summary.joistDeckTaxRate * 100).toFixed(2)}%)`}`, fmt(summary.joistDeckTaxAmount)],
     ['Total Cost', fmt(summary.grandTotal), { bold: true, big: true, topRule: true }],
   ];
 

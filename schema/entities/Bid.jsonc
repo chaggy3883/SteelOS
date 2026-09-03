@@ -178,12 +178,8 @@
     },
     "joist_deck_tax_rate": {
       "type": "number",
-      "default": 0.0675
-    },
-    "joist_deck_taxable": {
-      "type": "boolean",
-      "default": false,
-      "description": "Joist and deck line items are only taxed when this is explicitly enabled."
+      "default": 0.0675,
+      "description": "Independent tax rate applied only to the joist_deck line item — gated by tax_enabled/tax_exempt, the same single source of truth as every other tax line, not a separate toggle (the old joist_deck_taxable field was removed for exactly this reason: two independently-wired tax toggles, and only one of them actually drove the calculation)."
     },
     "tax_exempt_certificate_uri": {
       "type": "string",

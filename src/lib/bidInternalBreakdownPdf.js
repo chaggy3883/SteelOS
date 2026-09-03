@@ -50,9 +50,10 @@ export async function generateBidInternalBreakdownPdf(bid) {
     return sum + (line.total_cost || 0) * lineMarkupMultiplier(line) * taxRate;
   }, 0);
   const joistDeckLine = lines.find((l) => l.cost_category === 'joist_deck');
-  const joistDeckTaxAmount = bid?.joist_deck_taxable && !bid?.tax_exempt
-    ? (joistDeckLine?.total_cost || 0) * lineMarkupMultiplier(joistDeckLine) * joistDeckTaxRate
-    : 0;
+  // Gated purely on tax_exempt, same as structuralTaxAmount above — there is
+  // no separate Joist & Deck taxability toggle anymore (removed in favor of
+  // a single tax_enabled/tax_exempt source of truth; see TakeoffEngine.jsx).
+  const joistDeckTaxAmount = bid?.tax_exempt ? 0 : (joistDeckLine?.total_cost || 0) * lineMarkupMultiplier(joistDeckLine) * joistDeckTaxRate;
 
   const insuranceAllocation = bid?.insurance_enabled
     ? (parseFloat(bid?.insurance_general_liability) || 0) + (parseFloat(bid?.insurance_umbrella) || 0) + (parseFloat(bid?.insurance_professional_liability) || 0)
@@ -81,7 +82,7 @@ export async function generateBidInternalBreakdownPdf(bid) {
       insuranceEnabled: !!bid.insurance_enabled, insuranceAllocation,
       deliveryTotalCost: bid.delivery_total_cost,
       taxExempt: !!bid.tax_exempt, taxRate, structuralTaxAmount,
-      joistDeckTaxable: !!bid.joist_deck_taxable, joistDeckTaxRate, joistDeckTaxAmount,
+      joistDeckTaxRate, joistDeckTaxAmount,
       grandTotal,
     },
   };

@@ -478,6 +478,27 @@ export default function BidDetail() {
   if (loading) return <div className="p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
   if (!bid) return <div className="p-6 text-center text-muted-foreground">Bid not found.</div>;
 
+  // Base Information's tax fields (baseInfo, above) are the single source of
+  // truth for tax config, but they only land on `bid` itself once Base Info
+  // is saved (handleBaseInfoSave). The BID Worksheet tab needs its sales tax
+  // math to react to the top "Tax Enabled" toggle immediately — the same way
+  // its own on-page toggles already do — not only after a full Base Info
+  // save + reload round trip. Overlaying the live, in-progress baseInfo
+  // values onto the bid object passed to TakeoffEngine gives it that same
+  // instant recalculation path.
+  const liveTaxBid = {
+    ...bid,
+    street: baseInfo.street,
+    city: baseInfo.city,
+    state: baseInfo.state,
+    zip: baseInfo.zip,
+    tax_enabled: baseInfo.tax_enabled,
+    tax_exempt: !baseInfo.tax_enabled,
+    tax_exempt_reason: baseInfo.tax_exempt_reason,
+    tax_rate: baseInfo.tax_rate,
+    joist_deck_tax_rate: baseInfo.joist_deck_tax_rate,
+  };
+
   return (
     <>
     <div className="p-6 pb-24 animate-fade-in">
@@ -800,7 +821,7 @@ export default function BidDetail() {
         ) : (
           <>
             <TabsContent value="takeoff">
-              <TakeoffEngine ref={takeoffRef} bid={bid} onSaved={() => loadBid()} />
+              <TakeoffEngine ref={takeoffRef} bid={liveTaxBid} onSaved={() => loadBid()} />
             </TabsContent>
 
             <TabsContent value="fulltakeoff">
