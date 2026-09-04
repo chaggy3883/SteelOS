@@ -389,10 +389,21 @@ export default function HumanResources() {
   // — the single call site both this page and EmployeeCenter.jsx's HR queue
   // use, so the ledger discipline can't be bypassed from either surface.
   const decideLeaveRequest = async (request, status, notes = '') => {
-    const result = await decidePtoRequest({
-      request, newStatus: status, notes,
-      changedBy: currentUser?.full_name || currentUser?.email || 'Unknown',
-    });
+    let result;
+    try {
+      result = await decidePtoRequest({
+        request, newStatus: status, notes,
+        changedBy: currentUser?.full_name || currentUser?.email || 'Unknown',
+      });
+    } catch (e) {
+      // An unexpected throw here (vs. decidePtoRequest's own ok:false path)
+      // must still surface something — an unhandled rejection is silent and
+      // makes Approve/Decline look like it's doing nothing at all, exactly
+      // the failure mode the ok:false inline-reason handling below already
+      // guards against.
+      toast({ title: `Unable to ${status === 'Approved' ? 'approve' : 'decline'} request`, description: e?.message || 'Unexpected error', variant: 'destructive' });
+      return;
+    }
     if (!result.ok) {
       // Blocked (insufficient balance / waiting period) — the request stays
       // pending, so surface the reason inline on its row rather than only in

@@ -68,6 +68,7 @@ const createLocalApi = () => ({
     payroll_document_mappings: createEntityApi('payroll_document_mappings'),
     time_off_requests: createEntityApi('time_off_requests'),
     PtoPolicy: createEntityApi('PtoPolicy'),
+    EmployeePtoPolicy: createEntityApi('EmployeePtoPolicy'),
     PtoBalance: createEntityApi('PtoBalance'),
     PtoTransaction: createEntityApi('PtoTransaction'),
     login_slideshow_images: createEntityApi('login_slideshow_images'),
