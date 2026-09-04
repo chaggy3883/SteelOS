@@ -119,8 +119,9 @@ function drawHeader(doc, { logo, aiscBadge, aiscCertified, company }) {
 // Three-column top info block matching the reference template exactly:
 // Date / Proposal Expires / Quote # on one line; Project / Customer and
 // (City, State) / Attention as a two-column pair beneath it; then
-// full-width Specification Sections / Drawings Used / Supplied Cut Sheet
-// lines; then Addendums after a gap.
+// full-width Specification Sections / Drawings Used lines; then Addendums
+// after a gap. Supplied Cut Sheet is intentionally omitted — present in the
+// original reference template but not wanted in the actual output.
 function drawTopInfoBlock(doc, startY, bid, company) {
   let y = startY;
   const rightColX = MARGIN + (CONTENT_RIGHT - MARGIN) * 0.62;
@@ -185,7 +186,6 @@ function drawTopInfoBlock(doc, startY, bid, company) {
 
   fullWidthField('Specification Sections:', bid.specification_sections);
   fullWidthField('Drawings Used:', bid.drawings_used);
-  fullWidthField('Supplied Cut Sheet:', bid.supplied_cut_sheet);
   y += 0.14;
   fullWidthField('Addendums:', bid.addendums);
 

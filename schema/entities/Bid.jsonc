@@ -364,32 +364,7 @@
     },
     "delivery_distance_miles": {
       "type": "number",
-      "description": "One-way mileage from the company address to this bid's jobsite address, from googleMapsService.calculateDistance. Null until calculated."
-    },
-    "delivery_trip_count": {
-      "type": "number",
-      "default": 1
-    },
-    "delivery_cost_per_trip": {
-      "type": "number",
-      "description": "Resolved cost per trip — either the matched DeliveryPricingTier.cost_per_trip, or a manual entry when delivery_cost_manual_entry is true."
-    },
-    "delivery_cost_manual_entry": {
-      "type": "boolean",
-      "default": false,
-      "description": "True when delivery_cost_per_trip was typed manually (mileage exceeds every DeliveryPricingTier band, or mileage could not be calculated) rather than resolved from a tier."
-    },
-    "delivery_cost_code": {
-      "type": "string",
-      "description": "Selected CostCode.code_name for the delivery line item, e.g. \"DELIVERY\"."
-    },
-    "delivery_total_cost": {
-      "type": "number",
-      "description": "delivery_cost_per_trip * delivery_trip_count, rolled into bid_total_cost."
-    },
-    "delivery_job_cost_entry_id": {
-      "type": "string",
-      "description": "Id of the JobCostLedgerEntry posted for this bid's delivery cost, once a project exists (project_id or won_project_id) — re-saves update this entry instead of duplicating it."
+      "description": "One-way driving mileage from the company address to this bid's jobsite address, from mileageService.calculateDistance (free OSRM/Nominatim lookup). Null until calculated. Used only to look up the matching DeliveryPricingTier rate for the jobsite_freight TakeoffLine — see the Bid Worksheet's Freight Mileage Calculator in TakeoffEngine.jsx."
     }
   },
   "required": [

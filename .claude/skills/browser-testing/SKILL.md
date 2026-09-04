@@ -181,12 +181,12 @@ skill is not proof they're fine:
   this skill to verify a blob uploaded on one machine/browser is visible
   on another — that has to be checked by hand on the actual two devices in
   question, and it's expected to fail (there's no backend to sync it).
-- **Google Maps API calls needing a key**: any feature going through
-  `@googlemaps/js-api-loader` needs a real API key configured in
-  `.env.local` to render anything meaningful. Without one, expect a
-  blank/broken map — that's a missing-config state, not necessarily a
-  code regression, and this skill has no way to tell the two apart
-  automatically.
+- **Freight mileage calculator hitting public OSRM/Nominatim servers**:
+  the Bid Worksheet's mileage lookup (`src/lib/mileageService.js`) calls
+  free public demo servers with no API key — no config to check, but
+  expect occasional failures/rate-limiting from those public services that
+  aren't a code regression, and this skill has no way to tell the two
+  apart automatically.
 - **Anything behind the External Data Portal's separate login**
   (`/portal/*`) — different auth system from everything in the role
   matrix above; walk it manually if it's in scope for a given change.

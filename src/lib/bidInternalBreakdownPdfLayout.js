@@ -27,18 +27,27 @@ function ensureSpace(doc, y, needed) {
   return y;
 }
 
-function drawHeader(doc, logo) {
+function drawHeader(doc, logo, companyName) {
   const y = MARGIN + 0.18;
-  doc.setFont(undefined, 'bold');
-  doc.setFontSize(15);
-  doc.text('SteelOS', MARGIN, y);
-  const steelOsWidth = doc.getTextWidth('SteelOS');
+  let titleX = MARGIN;
+  // Internal, not customer-facing — but still no SteelOS name/logo here,
+  // same as bidProposalPdfLayout.js's drawHeader: the real company's own
+  // name (or nothing, if it isn't loaded) stands in for app branding.
+  if (companyName) {
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(15);
+    doc.setTextColor(0);
+    doc.text(companyName, MARGIN, y);
+    const nameWidth = doc.getTextWidth(companyName);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(150);
+    doc.text('|', MARGIN + nameWidth + 0.1, y);
+    titleX = MARGIN + nameWidth + 0.25;
+  }
   doc.setFont(undefined, 'normal');
-  doc.setTextColor(150);
-  doc.text('|', MARGIN + steelOsWidth + 0.1, y);
   doc.setTextColor(100);
   doc.setFontSize(9);
-  doc.text('Internal Financial Breakdown', MARGIN + steelOsWidth + 0.25, y);
+  doc.text('Internal Financial Breakdown', titleX, y);
   doc.setTextColor(0);
 
   if (logo?.dataUrl && logo.width && logo.height) {
@@ -152,7 +161,6 @@ function drawSummaryTable(doc, startY, summary) {
     ...(summary.leedSurchargeAmount > 0 ? [[`LEED / Gov't Job Surcharge (${summary.leedLevel})`, fmt(summary.leedSurchargeAmount)]] : []),
     ...(summary.procorePlatformFee ? [[`Procore Pay Fee (fee ${fmt(summary.procorePlatformFee.fee)} + tax ${fmt(summary.procorePlatformFee.tax)})`, fmt(summary.procorePlatformFee.total)]] : []),
     ...(summary.texturaPlatformFee ? [[`Textura Fee (fee ${fmt(summary.texturaPlatformFee.fee)} + tax ${fmt(summary.texturaPlatformFee.tax)})`, fmt(summary.texturaPlatformFee.total)]] : []),
-    ['Delivery Cost', fmt(summary.deliveryTotalCost)],
     [`Sales Tax ${summary.taxExempt ? '(exempt)' : `(${(summary.taxRate * 100).toFixed(2)}%)`}`, fmt(summary.structuralTaxAmount)],
     [`Joist & Deck Tax ${summary.taxExempt ? '(exempt)' : `(${(summary.joistDeckTaxRate * 100).toFixed(2)}%)`}`, fmt(summary.joistDeckTaxAmount)],
     ['Total Cost', fmt(summary.grandTotal), { bold: true, big: true, topRule: true }],
@@ -182,7 +190,7 @@ function drawSummaryTable(doc, startY, summary) {
 
 export function drawBidInternalBreakdownPdf(data) {
   const doc = new jsPDF({ unit: 'in', format: 'letter' });
-  let y = drawHeader(doc, data.logo);
+  let y = drawHeader(doc, data.logo, data.companyName);
   y = drawJobInfoBox(doc, y, data.bid);
   y = drawLineItemsTable(doc, y, data.rows, { subtotal: data.subtotal, averageMarkupPct: data.averageMarkupPct, subtotalWithMarkup: data.subtotalWithMarkup });
   drawSummaryTable(doc, y, data.summary);

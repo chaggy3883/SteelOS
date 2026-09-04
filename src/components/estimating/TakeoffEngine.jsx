@@ -13,22 +13,8 @@ import { computeEffectiveTaxRate, getJoistDeckTaxRate, buildTaxRateInput, getTax
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
-import { calculateDistance, isGoogleMapsConfigured } from '@/lib/googleMapsService';
-import { isPeriodLocked, formatPeriodLabel } from '@/lib/periodLock';
+import { calculateDistance } from '@/lib/mileageService';
 import { calculateBondAmount, bondRateForContractValue, LEED_SURCHARGE_LEVELS, calculateLeedSurcharge, calculatePaymentPlatformFee, PAYMENT_PLATFORM_FEE_RATE } from '@/lib/bidWorksheetCalc';
-
-// No DeliveryPricingTier is tagged with a CostCode, so the ledger posting
-// buckets the selected code into JobCostLedgerEntry's fixed MAT/SUB/EQP/LAB
-// cost_class by keyword — delivery/freight has no dedicated class in that
-// enum, so it defaults to MAT (closest existing bucket, matching how
-// jobsite_freight already lives next to structural_material above).
-const inferCostClassFromCodeName = (codeName) => {
-  const upper = (codeName || '').toUpperCase();
-  if (upper.includes('LABOR')) return 'LAB';
-  if (upper.includes('EQUIP')) return 'EQP';
-  if (upper.includes('SUBCONTRACT')) return 'SUB';
-  return 'MAT';
-};
 
 const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 
@@ -138,24 +124,22 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const [markupPct, setMarkupPct] = useState(bid?.markup_percentage ?? 0);
 
   const [company, setCompany] = useState(null);
-  const [costCodeOptions, setCostCodeOptions] = useState([]);
-  const [deliveryTiers, setDeliveryTiers] = useState([]);
-  const [deliveryDistance, setDeliveryDistance] = useState(bid?.delivery_distance_miles ?? null);
-  const [deliveryLoading, setDeliveryLoading] = useState(false);
-  const [deliveryError, setDeliveryError] = useState('');
-  const [deliveryTripCount, setDeliveryTripCount] = useState(bid?.delivery_trip_count ?? 1);
-  const [deliveryCostPerTripManual, setDeliveryCostPerTripManual] = useState(
-    bid?.delivery_cost_per_trip != null ? String(bid.delivery_cost_per_trip) : ''
-  );
-  const [deliveryCostCode, setDeliveryCostCode] = useState(bid?.delivery_cost_code || '');
+  // Freight mileage calculator: purely a lookup tool that tells the
+  // estimator which DeliveryPricingTier rate applies to the Jobsite Freight
+  // (Material Delivery) line in the Cost Breakdown table above — it has no
+  // total of its own and posts nothing to the job cost ledger. See
+  // DeliveryPricingAdmin.jsx for the tier structure itself, unchanged here.
+  const [freightTiers, setFreightTiers] = useState([]);
+  const [freightDistance, setFreightDistance] = useState(bid?.delivery_distance_miles ?? null);
+  const [freightLoading, setFreightLoading] = useState(false);
+  const [freightError, setFreightError] = useState('');
 
   useEffect(() => {
     getEffectiveCompany().then(setCompany).catch(() => setCompany(null));
   }, []);
 
   useEffect(() => {
-    db.entities.CostCode.filter({ is_active: true }, 'code_name', 200).then(setCostCodeOptions).catch(() => setCostCodeOptions([]));
-    db.entities.DeliveryPricingTier.list('min_miles', 200).then(setDeliveryTiers).catch(() => setDeliveryTiers([]));
+    db.entities.DeliveryPricingTier.list('min_miles', 200).then(setFreightTiers).catch(() => setFreightTiers([]));
   }, []);
 
   const jobsiteAddress = joinAddressParts([
@@ -168,46 +152,33 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      setDeliveryDistance(null);
-      setDeliveryError('');
+      setFreightDistance(null);
+      setFreightError('');
       if (!jobsiteAddress || !companyAddress) {
-        setDeliveryError('Enter a jobsite address above and your company address in Settings to calculate mileage automatically.');
+        setFreightError('Enter a jobsite address above and your company address in Settings to calculate mileage automatically.');
         return;
       }
-      if (!isGoogleMapsConfigured()) {
-        setDeliveryError('Google Maps API key not configured — enter cost per trip manually.');
-        return;
-      }
-      setDeliveryLoading(true);
+      setFreightLoading(true);
       try {
         const miles = await calculateDistance(companyAddress, jobsiteAddress);
-        if (!cancelled) setDeliveryDistance(miles);
+        if (!cancelled) setFreightDistance(miles);
       } catch (e) {
-        if (!cancelled) setDeliveryError(e?.message || 'Unable to calculate mileage — enter cost per trip manually.');
+        if (!cancelled) setFreightError(e?.message || 'Unable to calculate mileage — look up the tier manually.');
       } finally {
-        if (!cancelled) setDeliveryLoading(false);
+        if (!cancelled) setFreightLoading(false);
       }
     };
     run();
     return () => { cancelled = true; };
   }, [jobsiteAddress, companyAddress]);
 
-  const matchedDeliveryTier = deliveryDistance != null
-    ? deliveryTiers.find((t) => deliveryDistance >= (t.min_miles ?? 0) && deliveryDistance <= (t.max_miles ?? Infinity))
+  const matchedFreightTier = freightDistance != null
+    ? freightTiers.find((t) => freightDistance >= (t.min_miles ?? 0) && freightDistance <= (t.max_miles ?? Infinity))
     : null;
-  const maxTierMiles = deliveryTiers.length > 0 ? Math.max(...deliveryTiers.map((t) => t.max_miles ?? 0)) : 125;
-  const deliveryManualMode = !deliveryLoading && (!!deliveryError || (deliveryDistance != null && !matchedDeliveryTier));
-  const deliveryManualReason = deliveryError || (deliveryDistance != null && !matchedDeliveryTier
-    ? `Mileage exceeds ${maxTierMiles} miles — enter cost per trip manually.`
-    : '');
-  const deliveryCostPerTrip = deliveryManualMode
-    ? (parseFloat(deliveryCostPerTripManual) || 0)
-    : (matchedDeliveryTier?.cost_per_trip || 0);
-  const deliveryTotalCost = deliveryCostPerTrip * (parseFloat(deliveryTripCount) || 0);
-
-  const updateDeliveryTripCount = (value) => { setDeliveryTripCount(value); setDirty(true); };
-  const updateDeliveryCostPerTripManual = (value) => { setDeliveryCostPerTripManual(value); setDirty(true); };
-  const updateDeliveryCostCode = (value) => { setDeliveryCostCode(value); setDirty(true); };
+  const maxTierMiles = freightTiers.length > 0 ? Math.max(...freightTiers.map((t) => t.max_miles ?? 0)) : null;
+  const freightNoTierReason = freightDistance != null && !matchedFreightTier && maxTierMiles != null
+    ? `Mileage exceeds ${maxTierMiles} miles — no matching tier; price Jobsite Freight manually.`
+    : '';
 
   const visibleCategories = hasModule(company, '/shop-fabrication')
     ? COST_CATEGORIES
@@ -398,7 +369,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   // fees (both of which are layered on top of everything else, so neither can
   // be part of its own base) — the "current total" the bond tier and the fee
   // % are each applied against.
-  const preBondTotal = grandTotal + taxAmount + includedInsuranceAllocation + leedSurchargeAmount + deliveryTotalCost;
+  const preBondTotal = grandTotal + taxAmount + includedInsuranceAllocation + leedSurchargeAmount;
   const computedBondAmount = calculateBondAmount(preBondTotal);
   const bondOverrideValue = overrides.bond === '' || overrides.bond === null || overrides.bond === undefined
     ? null
@@ -412,44 +383,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const includedTexturaFee = texturaEnabled ? texturaPlatformFee.total : 0;
   const totalWithTax = preFeeTotal + includedProcoreFee + includedTexturaFee;
   const canOpenDocuments = currentUserRoles.some(r => ['admin', 'estimator', 'president', 'ceo', 'finance_department'].includes(normalizeRoleName(r)));
-
-  // JobCostLedgerEntry requires a project_id — a bid only has one once it's
-  // linked to (or won into) a Project. Pre-award, we still save the
-  // delivery_* fields on the Bid itself; posting to the ledger just waits
-  // until there's a real project to post against. Re-saves update the same
-  // entry (via delivery_job_cost_entry_id) instead of creating duplicates.
-  const postDeliveryJobCostEntry = async () => {
-    const projectId = bid.project_id || bid.won_project_id;
-    if (!projectId || !deliveryCostCode || deliveryTotalCost <= 0) {
-      return bid.delivery_job_cost_entry_id || null;
-    }
-    const transactionDate = new Date().toISOString().slice(0, 10);
-    const payload = {
-      project_id: projectId,
-      cost_code: deliveryCostCode,
-      cost_class: inferCostClassFromCodeName(deliveryCostCode),
-      amount: deliveryTotalCost,
-      transaction_date: transactionDate,
-      source_type: 'other',
-      source_id: bid.id,
-      description: `Delivery — ${deliveryTripCount} trip(s) @ $${deliveryCostPerTrip.toFixed(2)}/trip (${deliveryCostCode})`,
-    };
-    if (bid.delivery_job_cost_entry_id) {
-      // Accounting controls audit: JobCostLedgerEntry has no delete path
-      // anywhere in the app, but this re-save was its one existing .update()
-      // call site with zero period-lock awareness — a closed period is
-      // supposed to freeze historical job cost data, so this check stays
-      // here even though nothing else currently edits this entity. Don't
-      // strip it out without checking src/lib/periodLock.js first.
-      if (await isPeriodLocked(transactionDate)) {
-        throw new Error(`This period (${formatPeriodLabel(transactionDate.slice(0, 7))}) is closed. An Admin, Controller, or Super Admin must reopen it before this delivery cost can be re-saved.`);
-      }
-      const updated = await db.entities.JobCostLedgerEntry.update(bid.delivery_job_cost_entry_id, payload);
-      return updated.id;
-    }
-    const created = await db.entities.JobCostLedgerEntry.create(payload);
-    return created.id;
-  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -474,7 +407,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         return db.entities.TakeoffLine.create(payload);
       }).filter(Boolean);
       await Promise.all(ops);
-      const deliveryJobCostEntryId = await postDeliveryJobCostEntry();
       // tax_enabled/tax_rate/tax_rate_source/tax_zone_id are NOT re-derived or
       // re-written here — Base Info (BidDetail.jsx's handleBaseInfoSave) is the
       // single source of truth for tax configuration. Re-fetching and
@@ -509,13 +441,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         procore_pay_enabled: procorePayEnabled,
         textura_enabled: texturaEnabled,
         leed_level_override: overrides.leed_level || null,
-        delivery_distance_miles: deliveryDistance,
-        delivery_trip_count: parseFloat(deliveryTripCount) || 1,
-        delivery_cost_per_trip: deliveryCostPerTrip,
-        delivery_cost_manual_entry: deliveryManualMode,
-        delivery_cost_code: deliveryCostCode || null,
-        delivery_total_cost: deliveryTotalCost,
-        delivery_job_cost_entry_id: deliveryJobCostEntryId,
+        delivery_distance_miles: freightDistance,
       });
       toast({ title: 'Takeoff saved!' });
       setDirty(false);
@@ -700,63 +626,50 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         </div>
       </div>
 
-      {/* Delivery Cost Calculator */}
+      {/* Freight Mileage Calculator */}
       <div className="steel-card p-5">
-        <h4 className="font-semibold mb-1 flex items-center gap-2"><Truck className="w-4 h-4 text-primary" />Delivery Cost Calculator</h4>
-        <p className="text-xs text-muted-foreground mb-4">Freight cost to this bid's jobsite address (Base Information above), banded by mileage from your company address.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <h4 className="font-semibold mb-1 flex items-center gap-2"><Truck className="w-4 h-4 text-primary" />Freight Mileage Calculator</h4>
+        <p className="text-xs text-muted-foreground mb-4">
+          Driving distance from your company address (Settings) to this bid's jobsite address (Base Information above), looked up against the Delivery Pricing Tiers to price the Jobsite Freight (Material Delivery) line in the Cost Breakdown above.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <Label className="text-xs">Delivery Mileage</Label>
+            <Label className="text-xs">Driving Distance</Label>
             <div className="mt-1 h-9 flex items-center px-3 rounded-md border border-input bg-muted/30 text-sm">
-              {deliveryLoading ? (
+              {freightLoading ? (
                 <span className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" />Calculating…</span>
-              ) : deliveryDistance != null ? (
-                <span>Calculated mileage: {deliveryDistance.toFixed(1)} miles</span>
+              ) : freightDistance != null ? (
+                <span>{freightDistance.toFixed(1)} miles</span>
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}
             </div>
           </div>
           <div>
-            <Label className="text-xs">Number of Trips</Label>
-            <Input type="number" min="1" value={deliveryTripCount}
-              onChange={e => updateDeliveryTripCount(e.target.value)}
-              className="mt-1 h-9" />
+            <Label className="text-xs">Matched Tier</Label>
+            <div className="mt-1 h-9 flex items-center px-3 rounded-md border border-input bg-muted/30 text-sm">
+              {matchedFreightTier ? `${matchedFreightTier.min_miles}–${matchedFreightTier.max_miles} mi` : <span className="text-muted-foreground">—</span>}
+            </div>
           </div>
           <div>
-            <Label className="text-xs">Cost per Trip</Label>
-            {deliveryManualMode ? (
-              <div className="relative mt-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
-                <Input type="number" step="0.01" value={deliveryCostPerTripManual}
-                  onChange={e => updateDeliveryCostPerTripManual(e.target.value)}
-                  placeholder="0.00" className="h-9 pl-7" />
-              </div>
-            ) : (
-              <div className="h-9 flex items-center px-3 rounded-md border border-input bg-muted/30 text-sm font-mono">
-                ${deliveryCostPerTrip.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            )}
-          </div>
-          <div>
-            <Label className="text-xs">Delivery Cost Code</Label>
-            <Select value={deliveryCostCode} onValueChange={updateDeliveryCostCode}>
-              <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select cost code" /></SelectTrigger>
-              <SelectContent>
-                {costCodeOptions.map(c => <SelectItem key={c.id} value={c.code_name}>{c.code_name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Label className="text-xs">Tier Rate / Load</Label>
+            <div className="mt-1 h-9 flex items-center justify-between px-3 rounded-md border border-input bg-muted/30 text-sm">
+              <span className="font-mono">
+                {matchedFreightTier ? `$${matchedFreightTier.cost_per_trip.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+              </span>
+              {matchedFreightTier && (
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs"
+                  onClick={() => updateLine('jobsite_freight', 'unit_cost', matchedFreightTier.cost_per_trip)}>
+                  Use Rate
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
-        {deliveryManualMode && deliveryManualReason && (
-          <p className="text-xs text-amber-600 mt-3">{deliveryManualReason}</p>
+        {(freightError || freightNoTierReason) && (
+          <p className="text-xs text-amber-600 mt-3">{freightError || freightNoTierReason}</p>
         )}
-
-        <div className="flex justify-between items-center pt-3 mt-3 border-t border-border font-semibold">
-          <span>Total Delivery Cost</span>
-          <span className="font-mono">${deliveryTotalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-        </div>
       </div>
 
       {/* Administrative Manual Overrides */}
@@ -959,10 +872,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
               <span className="font-mono">${includedTexturaFee.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             </div>
           )}
-          <div className="flex justify-between text-sm">
-            <span>Delivery Cost{deliveryCostCode && <span className="text-xs text-muted-foreground"> ({deliveryCostCode})</span>}</span>
-            <span className="font-mono">${deliveryTotalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-          </div>
           {/* Both tax lines are omitted entirely when the bid is tax exempt
               (top "Tax Enabled" toggle off in Base Information) — matching
               the customer-facing proposal PDF's exempt handling
