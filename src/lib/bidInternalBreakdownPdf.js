@@ -65,7 +65,7 @@ export async function generateBidInternalBreakdownPdf(bid) {
   const averageMarkupPct = subtotal > 0 ? (markupAmount / subtotal) * 100 : 0;
 
   const taxRate = Number(bid?.tax_rate || 0);
-  const joistDeckTaxRate = getJoistDeckTaxRate(bid);
+  const joistDeckTaxRate = getJoistDeckTaxRate(bid, taxRate);
   const structuralTaxAmount = bid?.tax_exempt ? 0 : lines.reduce((sum, line) => {
     const cat = catForLine(line);
     if (cat?.is_taxable === false) return sum;

@@ -14,7 +14,7 @@ const ERECTION_CATEGORIES = ['steel_erection', 'outsourced_misc_material_erectio
 // every time this function ran, instead of only on its next real recalculation.
 export function computeBidTaxBreakdown(bid, lines) {
   const taxRate = Number(bid?.tax_rate || 0);
-  const joistDeckTaxRate = getJoistDeckTaxRate(bid);
+  const joistDeckTaxRate = getJoistDeckTaxRate(bid, taxRate);
   const structuralTaxAmount = bid?.tax_exempt ? 0 : lines.reduce((s, l) => {
     if (ERECTION_CATEGORIES.includes(l.cost_category) || l.cost_category === 'joist_deck') return s;
     return s + (l.total_cost || 0) * taxRate;

@@ -343,7 +343,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   // below, so this keeps the on/off state itself synchronous and immediate
   // even in the brief window before that effect resolves.
   const calculatedTaxRate = bid?.tax_exempt ? 0 : taxInfo.rate;
-  const joistDeckTaxRate = getJoistDeckTaxRate(bid);
+  const joistDeckTaxRate = getJoistDeckTaxRate(bid, taxInfo.rate);
   // Taxable/non-taxable is a data flag on COST_CATEGORIES (is_taxable, default
   // true) rather than a hardcoded category-key list — steel_erection,
   // outsourced_misc_material_erection, and joist_deck are the only categories

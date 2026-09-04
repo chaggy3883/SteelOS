@@ -132,8 +132,15 @@ export async function getTaxDisplayLabel(input) {
   return 'Sales Tax';
 }
 
-export function getJoistDeckTaxRate(bid) {
-  return Number(bid?.joist_deck_tax_rate ?? HANCOCK_COUNTY_TAX_RATE);
+// Joist & Deck can legitimately be taxed at a different rate than general
+// structural steel in some jurisdictions, so an explicit bid.joist_deck_tax_rate
+// always wins. Absent that override, it must start in sync with the SAME
+// resolved rate the caller already computed for structural tax (jurisdiction
+// table / manual entry / snapshotted bid.tax_rate, whichever that caller
+// uses) — resolvedBaseTaxRate carries that value in. HANCOCK_COUNTY_TAX_RATE
+// is only the last-resort fallback if a caller has no resolved rate at all.
+export function getJoistDeckTaxRate(bid, resolvedBaseTaxRate) {
+  return Number(bid?.joist_deck_tax_rate ?? resolvedBaseTaxRate ?? HANCOCK_COUNTY_TAX_RATE);
 }
 
 // Sanitizes free-typed text toward the TAX_RATE_PATTERN shape: digits and a
