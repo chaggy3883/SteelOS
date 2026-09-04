@@ -157,6 +157,13 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   }, 0);
   const efficiencyFactor = (Number(shopEfficiencyPct) || 0) / 100;
   const totalManHours = efficiencyFactor > 0 ? baselineManHours / efficiencyFactor : baselineManHours;
+  // Pushed to Bid.estimated_paint_area_sqft / estimated_galvanizing_tons on
+  // save so TakeoffEngine.jsx's Bid Worksheet can auto-fill Primer (Paint)
+  // and Galvanizing quantities from this takeoff instead of the estimator
+  // re-deriving them by hand. paintAreaSqIn is already 0 for any row not
+  // coated 'Paint' (see rowCalc), so summing every row is correct as-is.
+  const totalPaintAreaSqFt = calcs.reduce((sum, c) => sum + c.paintAreaSqIn, 0) / 144;
+  const totalGalvanizedTons = rows.reduce((sum, row, i) => (row.coating_type === 'Galvanized' ? sum + calcs[i].totalTons : sum), 0);
 
   const handleSave = async () => {
     if (!bid?.id) return;
@@ -186,6 +193,8 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
         estimated_tons: totalTons,
         estimated_man_hours: totalManHours,
         shop_efficiency_pct: Number(shopEfficiencyPct) || 100,
+        estimated_paint_area_sqft: totalPaintAreaSqFt,
+        estimated_galvanizing_tons: totalGalvanizedTons,
       });
       toast({ title: 'Material takeoff saved', description: 'Tons and man-hours were pushed to the bid workspace.' });
       setDirty(false);
@@ -445,7 +454,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
         <p className="text-xs text-muted-foreground mt-1">Applied to baseline man-hours/ton. 100% = baseline; below 100% (less efficient) increases hours; above 100% decreases them.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 text-primary"><Gauge className="w-4 h-4" /><span className="text-sm font-semibold">Total Estimated Tons</span></div>
           <p className="text-2xl font-bold mt-2">{totalTons.toFixed(2)}</p>
@@ -453,6 +462,16 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 text-primary"><Clock3 className="w-4 h-4" /><span className="text-sm font-semibold">Total Estimated Man-Hours</span></div>
           <p className="text-2xl font-bold mt-2">{totalManHours.toFixed(1)}</p>
+        </div>
+        <div className="steel-card p-4">
+          <div className="flex items-center gap-2 text-primary"><Gauge className="w-4 h-4" /><span className="text-sm font-semibold">Total Paint Area (Sq Ft)</span></div>
+          <p className="text-2xl font-bold mt-2">{totalPaintAreaSqFt.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+          <p className="text-[11px] text-muted-foreground mt-1">Auto-fills Primer (Paint) qty on the Bid Worksheet.</p>
+        </div>
+        <div className="steel-card p-4">
+          <div className="flex items-center gap-2 text-primary"><Gauge className="w-4 h-4" /><span className="text-sm font-semibold">Total Galvanized Tons</span></div>
+          <p className="text-2xl font-bold mt-2">{totalGalvanizedTons.toFixed(2)}</p>
+          <p className="text-[11px] text-muted-foreground mt-1">Auto-fills Galvanizing qty on the Bid Worksheet.</p>
         </div>
       </div>
 

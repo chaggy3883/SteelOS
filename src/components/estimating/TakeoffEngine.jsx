@@ -56,8 +56,8 @@ export const COST_CATEGORIES = [
   { key: 'load_unload_material', label: 'Load/Unload Material', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Rate/Hr', cost_code: '05-400', default_markup_pct: 10 },
   { key: 'jobsite_freight', label: 'Jobsite Freight (Material Delivery)', unit: 'load', cost_code: '05-401', default_markup_pct: 30 },
   // Split from the reference's single 05-500 line for finer input granularity — both halves share the code.
-  { key: 'misc_fab_structural', label: 'Misc. Fab - Structural Shaping', unit: 'hrs', qtyLabel: 'Fab Hours', rateLabel: 'Fab Hourly Rate', cost_code: '05-500', default_markup_pct: 35 },
-  { key: 'misc_fab_processing', label: 'Misc. Fab - Processing', unit: 'hrs', qtyLabel: 'Processing Hours', rateLabel: 'Processing Rate', cost_code: '05-500', default_markup_pct: 35 },
+  { key: 'misc_fab_structural', label: 'Misc. Fab - Structural Shaping', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: '05-500', default_markup_pct: 35 },
+  { key: 'misc_fab_processing', label: 'Misc. Fab - Processing', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: '05-500', default_markup_pct: 35 },
   { key: 'misc_material', label: 'Misc. Material', unit: 'ea', cost_code: '05-510', default_markup_pct: 35 },
   { key: 'steel_erection', label: 'Steel Erection', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', is_taxable: false, cost_code: '05-600', default_markup_pct: 10 },
   { key: 'outsourced_misc_material_erection', label: 'Outsourced Misc. Material & Erection', unit: 'lot', is_taxable: false, cost_code: '05-601', default_markup_pct: 10 },
@@ -257,6 +257,31 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       COST_CATEGORIES.forEach(cat => {
         const found = existing.find(e => e.cost_category === cat.key);
         const categoryDefaultMarkupPct = cat.default_markup_pct ?? bidMarkupPct;
+        // Primer (Paint)/Galvanizing quantities default from the Full Takeoff's
+        // own paint-area/galvanized-tonnage totals (Bid.estimated_paint_area_sqft/
+        // estimated_galvanizing_tons) the same way BIM/AI-parsed lines auto-fill
+        // elsewhere — only while the line has never been hand-edited here
+        // (no saved row, or a saved row still is_auto_filled && !is_overridden),
+        // and only when the takeoff actually produced a positive number, so a
+        // bid with no takeoff run yet still starts blank instead of "AUTO 0".
+        const autoQty = cat.key === 'primer_paint' ? Number(bid?.estimated_paint_area_sqft) || 0
+          : cat.key === 'galvanizing' ? Number(bid?.estimated_galvanizing_tons) || 0
+          : 0;
+        if (autoQty > 0 && (!found || (found.is_auto_filled && !found.is_overridden))) {
+          const base = found || { quantity: 0, unit_cost: 0, coverage_rate: 300, markup_percentage: categoryDefaultMarkupPct, id: null };
+          const unitCost = base.unit_cost || 0;
+          const coverageRate = base.coverage_rate ?? 300;
+          map[cat.key] = {
+            ...base,
+            quantity: autoQty,
+            coverage_rate: coverageRate,
+            markup_percentage: base.markup_percentage ?? categoryDefaultMarkupPct,
+            total_cost: cat.inputMode === 'coverage' ? (autoQty / (coverageRate || 300)) * unitCost : autoQty * unitCost,
+            is_auto_filled: true,
+            source: 'calculated',
+          };
+          return;
+        }
         map[cat.key] = found
           ? { ...found, coverage_rate: found.coverage_rate ?? 300, markup_percentage: found.markup_percentage ?? categoryDefaultMarkupPct }
           : { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, markup_percentage: categoryDefaultMarkupPct, is_auto_filled: false, source: 'manual', id: null };

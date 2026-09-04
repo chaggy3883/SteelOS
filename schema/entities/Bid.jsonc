@@ -168,6 +168,16 @@
       "type": "number",
       "default": 0
     },
+    "estimated_paint_area_sqft": {
+      "type": "number",
+      "default": 0,
+      "description": "Sum of every Full Takeoff line's calculated paint surface area (coating_type 'Paint' only), converted to sq ft. Feeds TakeoffEngine.jsx's Primer (Paint) quantity as an auto-fill default, never overwriting a value the estimator has already entered/overridden there."
+    },
+    "estimated_galvanizing_tons": {
+      "type": "number",
+      "default": 0,
+      "description": "Sum of every Full Takeoff line's tonnage where coating_type is 'Galvanized'. Feeds TakeoffEngine.jsx's Galvanizing quantity as an auto-fill default, never overwriting a value the estimator has already entered/overridden there."
+    },
     "shop_efficiency_pct": {
       "type": "number",
       "default": 100
