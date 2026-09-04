@@ -32,15 +32,18 @@
     },
     "jtd_hours": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Legacy hand-entered field — no longer written by Accounting.jsx. Job Cost Detail now computes JTD hours live from JobLaborAllocation instead of trusting a manually-typed number (see src/lib/jobCostEngine.js). Left on the schema only because pre-existing rows still carry it."
     },
     "jtd_costs": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Legacy hand-entered field — no longer written by Accounting.jsx. Job Cost Detail now computes JTD costs live by blending JobCostLedgerEntry and cost-coded credit_card_expenses (see src/lib/jobCostEngine.js). Left on the schema only because pre-existing rows still carry it."
     },
     "profit_loss": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Legacy hand-entered field — no longer written by Accounting.jsx. Job Cost Detail now computes this live as revised_estimated_cost minus the computed jtd_costs (see src/lib/jobCostEngine.js). Left on the schema only because pre-existing rows still carry it."
     },
     "source_report_name": {
       "type": "string"

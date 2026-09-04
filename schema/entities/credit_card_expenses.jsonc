@@ -19,8 +19,12 @@
     },
     "expense_category": {
       "type": "string",
-      "enum": ["Lodging", "Meals", "Fuel", "Tolls_Parking", "Other"],
+      "enum": ["Lodging", "Meals", "Fuel", "Car_Rental", "Tolls_Parking", "Other"],
       "default": "Other"
+    },
+    "cost_code_id": {
+      "type": "string",
+      "description": "FK to CostCode — the code this expense should post against in job costing, same job-costing axis as TimeEntry.cost_code_id. Separate from expense_category (a free-text reimbursement/travel-policy tag) — a Fuel expense might code to a project's EQUIPMENT cost code, for example. Blank for overhead expenses with no project_id, which have nothing to job-cost against."
     },
     "amount_cents": {
       "type": "number",

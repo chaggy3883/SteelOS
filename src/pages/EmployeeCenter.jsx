@@ -57,10 +57,11 @@ const EMPLOYEE_CENTER_TABS = [
 const LABOR_CATEGORIES = ['Shop_Fab', 'Drill_Line', 'Welding', 'Paint', 'Field_Erection'];
 const MATERIAL_PROFILE_TYPES = ['Wide_Flange_Beam', 'Moment_Column', 'Angle', 'Channel', 'Plate', 'HSS', 'Other'];
 const LEAVE_TYPES = ['PTO', 'Sick', 'Unpaid', 'Bereavement'];
-const EXPENSE_CATEGORIES = ['Lodging', 'Meals', 'Fuel', 'Tolls_Parking', 'Other'];
+const EXPENSE_CATEGORIES = ['Lodging', 'Meals', 'Fuel', 'Car_Rental', 'Tolls_Parking', 'Other'];
+const NO_COST_CODE = '__uncoded__';
 const emptyLeaveForm = () => ({ leave_type: 'PTO', start_date: '', end_date: '', total_hours: '', reason: '' });
 const emptyExpenseForm = () => ({
-  expense_category: 'Lodging', merchant_name: '', amount: '', expense_date: '', per_diem_allowance: '', is_out_of_town_travel: true,
+  expense_category: 'Lodging', merchant_name: '', amount: '', expense_date: '', per_diem_allowance: '', is_out_of_town_travel: true, cost_code_id: '',
 });
 
 export default function EmployeeCenter() {
@@ -94,6 +95,7 @@ export default function EmployeeCenter() {
   const [lockInfo, setLockInfo] = useState({ locked: false });
 
   const [projects, setProjects] = useState([]);
+  const [costCodes, setCostCodes] = useState([]);
   const [punches, setPunches] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [laborCategory, setLaborCategory] = useState('');
@@ -135,6 +137,7 @@ export default function EmployeeCenter() {
   useEffect(() => {
     checkLock();
     db.entities.Project.filter({ is_archived: false }, 'name', 50).then(setProjects).catch(() => setProjects([]));
+    db.entities.CostCode.filter({ is_active: true }, 'code_name', 200).then(setCostCodes).catch(() => setCostCodes([]));
     db.auth.me()
       .then((me) => {
         setAppUserRoles(me?.roles || ['user']);
@@ -522,6 +525,7 @@ export default function EmployeeCenter() {
         project_id: selectedProjectId || lastPunch?.project_id || '',
         merchant_name: expenseForm.merchant_name.trim(),
         expense_category: expenseForm.expense_category,
+        cost_code_id: expenseForm.cost_code_id || '',
         amount_cents: Math.round((Number(expenseForm.amount) || 0) * 100),
         expense_date: expenseForm.expense_date,
         per_diem_allowance_cents: Math.round((Number(expenseForm.per_diem_allowance) || 0) * 100),
@@ -1211,6 +1215,16 @@ export default function EmployeeCenter() {
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {EXPENSE_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c.replace('_', ' ')}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Cost Code (optional)</Label>
+              <Select value={expenseForm.cost_code_id || NO_COST_CODE} onValueChange={(v) => setExpenseForm((f) => ({ ...f, cost_code_id: v === NO_COST_CODE ? '' : v }))}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Uncoded" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_COST_CODE}>Uncoded</SelectItem>
+                  {costCodes.map((c) => <SelectItem key={c.id} value={c.id}>{c.code_name}{c.description ? ` — ${c.description}` : ''}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

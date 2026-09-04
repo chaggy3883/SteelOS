@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw, ShieldAlert, X } from 'lucide-react';
@@ -42,6 +42,8 @@ import BalanceDrilldownModal from '@/components/accounting/BalanceDrilldownModal
 import { computeCustomerBalances, computeVendorBalances } from '@/lib/balancesReport';
 import { computeArAging, computeApAging, AGING_BUCKETS, AGING_BUCKET_LABELS } from '@/lib/agingReport';
 import { generateCustomerStatementPdf } from '@/lib/customerStatementPdf';
+import { buildProjectJobCostRows, buildCompanyWideJobCostRollup, sumProjectJobCostTotals, expenseAsLedgerRow, isRealizedExpense } from '@/lib/jobCostEngine';
+import { generateProjectJobCostPdf, generateCompanyWideJobCostPdf } from '@/lib/jobCostDetailPdf';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
@@ -93,7 +95,6 @@ function emptyRowForm() {
   return {
     cost_code: '', description: '', cost_class: 'LAB',
     original_estimate: 0, approved_co: 0, revised_estimated_cost: 0,
-    jtd_hours: 0, jtd_costs: 0, profit_loss: 0,
   };
 }
 
@@ -159,6 +160,20 @@ export default function Accounting() {
   const [deletingRow, setDeletingRow] = useState(null);
   const [deleteRowReason, setDeleteRowReason] = useState('');
   const [deletingRowSaving, setDeletingRowSaving] = useState(false);
+
+  // --- Job Cost Detail actuals (real ledger data, not hand-typed rows —
+  // see src/lib/jobCostEngine.js). costCodes is the company-wide master
+  // list; laborAllocations/projectExpenses are the current project's real
+  // activity blended in alongside jobCostRows' ledgerEntries. ---
+  const [costCodes, setCostCodes] = useState([]);
+  const [laborAllocations, setLaborAllocations] = useState([]);
+  const [projectExpenses, setProjectExpenses] = useState([]);
+  const [jobCostViewMode, setJobCostViewMode] = useState('project');
+  const [companyLedgerEntries, setCompanyLedgerEntries] = useState([]);
+  const [companyExpenses, setCompanyExpenses] = useState([]);
+  const [loadingCompanyJobCost, setLoadingCompanyJobCost] = useState(false);
+  const [companyDateFrom, setCompanyDateFrom] = useState('');
+  const [companyDateTo, setCompanyDateTo] = useState('');
 
   // --- Closed-period / post-payment override gate (accounting controls
   // audit). One shared dialog for every gated financial mutation below —
@@ -285,11 +300,14 @@ export default function Accounting() {
       loadProjectChangeOrders(selectedProjectId);
     }
   }, [selectedProjectId]);
+  useEffect(() => {
+    if (activeTab === 'jobcostdetail' && jobCostViewMode === 'company') loadCompanyJobCostRollup();
+  }, [activeTab, jobCostViewMode]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [projData, findData, vendorData, poData, rlData, billData, paymentData, customerData, invoiceData, subcontractData, payAppData, memoData] = await Promise.all([
+      const [projData, findData, vendorData, poData, rlData, billData, paymentData, customerData, invoiceData, subcontractData, payAppData, memoData, costCodeData] = await Promise.all([
         db.entities.Project.filter({ is_archived: false }, '-contract_value', 50),
         db.entities.AIFinding.filter({ review_package: 'accounting' }, '-created_date', 50),
         db.entities.Vendor.list('-created_date', 100),
@@ -302,6 +320,7 @@ export default function Accounting() {
         db.entities.Subcontract.list('-created_date', 500),
         db.entities.SubcontractPayApp.list('-created_date', 2000),
         loadAllMemos(),
+        db.entities.CostCode.filter({ is_active: true }, 'code_name', 200),
       ]);
       setProjects(projData);
       setFindings(findData);
@@ -315,6 +334,7 @@ export default function Accounting() {
       setSubcontracts(subcontractData);
       setAllPayApps(payAppData);
       setMemos(memoData);
+      setCostCodes(costCodeData);
       if (!selectedProjectId && projData.length > 0) setSelectedProjectId(projData[0].id);
     } catch (e) {} finally { setLoading(false); }
   };
@@ -333,16 +353,39 @@ export default function Accounting() {
 
   const loadSovAndLedger = async (projectId) => {
     try {
-      const [sovData, invoiceData, ledgerData] = await Promise.all([
+      const [sovData, invoiceData, ledgerData, laborData, expenseData] = await Promise.all([
         db.entities.SovLine.filter({ project_id: projectId }, '-created_date', 200),
         db.entities.InvoiceReceivable.filter({ project_id: projectId }, '-created_date', 200),
         db.entities.JobCostLedgerEntry.filter({ project_id: projectId }, '-created_date', 500),
+        db.entities.JobLaborAllocation.filter({ project_id: projectId }, '-created_date', 2000),
+        db.entities.credit_card_expenses.filter({ project_id: projectId }, '-expense_date', 500),
       ]);
       setSovLines(sovData);
       setInvoiceReceivables(invoiceData);
       setLedgerEntries(ledgerData);
+      setLaborAllocations(laborData);
+      setProjectExpenses(expenseData);
     } catch (e) {
-      setSovLines([]); setInvoiceReceivables([]); setLedgerEntries([]);
+      setSovLines([]); setInvoiceReceivables([]); setLedgerEntries([]); setLaborAllocations([]); setProjectExpenses([]);
+    }
+  };
+
+  // Company-wide rollup data is loaded lazily — only once the leadership
+  // "Company-Wide" view is actually opened, since it scans every project's
+  // ledger/expense activity rather than one project's.
+  const loadCompanyJobCostRollup = async () => {
+    setLoadingCompanyJobCost(true);
+    try {
+      const [ledgerData, expenseData] = await Promise.all([
+        db.entities.JobCostLedgerEntry.list('-transaction_date', 5000),
+        db.entities.credit_card_expenses.list('-expense_date', 5000),
+      ]);
+      setCompanyLedgerEntries(ledgerData);
+      setCompanyExpenses(expenseData);
+    } catch (e) {
+      setCompanyLedgerEntries([]); setCompanyExpenses([]);
+    } finally {
+      setLoadingCompanyJobCost(false);
     }
   };
 
@@ -432,12 +475,15 @@ export default function Accounting() {
   };
 
   const startAddRow = () => { setEditingRow('new'); setRowForm(emptyRowForm()); };
+  // row is one of the computed projectJobCostRows entries — budgetRowId is
+  // only set when a ProjectJobCostSummary already exists for this cost code;
+  // a code that only has real ledger/expense activity (never manually
+  // budgeted) has none, so Save below creates one instead of updating.
   const startEditRow = (row) => {
     setEditingRow(row);
     setRowForm({
       cost_code: row.cost_code || '', description: row.description || '', cost_class: row.cost_class || 'LAB',
       original_estimate: row.original_estimate || 0, approved_co: row.approved_co || 0, revised_estimated_cost: row.revised_estimated_cost || 0,
-      jtd_hours: row.jtd_hours || 0, jtd_costs: row.jtd_costs || 0, profit_loss: row.profit_loss || 0,
     });
   };
 
@@ -446,8 +492,8 @@ export default function Accounting() {
     setSavingRow(true);
     try {
       const payload = { ...rowForm, project_id: selectedProjectId };
-      if (editingRow && editingRow !== 'new') {
-        await db.entities.ProjectJobCostSummary.update(editingRow.id, payload);
+      if (editingRow && editingRow !== 'new' && editingRow.budgetRowId) {
+        await db.entities.ProjectJobCostSummary.update(editingRow.budgetRowId, payload);
       } else {
         await db.entities.ProjectJobCostSummary.create(payload);
       }
@@ -461,7 +507,11 @@ export default function Accounting() {
     }
   };
 
-  const openDeleteRow = (row) => { setDeletingRow(row); setDeleteRowReason(''); };
+  // Only a row with a real ProjectJobCostSummary budget row behind it can be
+  // deleted — a row that exists purely because of real ledger/expense
+  // activity has nothing to delete (deleting it wouldn't remove the actuals
+  // driving it, so the action wouldn't mean anything).
+  const openDeleteRow = (row) => { if (!row.budgetRowId) return; setDeletingRow(row); setDeleteRowReason(''); };
   const closeDeleteRow = () => { setDeletingRow(null); setDeleteRowReason(''); };
 
   // Soft-delete, not a real delete — historical job cost data must survive
@@ -469,7 +519,7 @@ export default function Accounting() {
   // has no per-row transaction date, so the period-lock check gates on
   // today's period rather than a specific historical one.
   const handleConfirmDeleteRow = async () => {
-    if (!deletingRow) return;
+    if (!deletingRow || !deletingRow.budgetRowId) return;
     const reason = deleteRowReason.trim();
     if (!reason) { toast({ title: 'A reason is required to delete a job cost row', variant: 'destructive' }); return; }
     setDeletingRowSaving(true);
@@ -479,14 +529,14 @@ export default function Accounting() {
         toast({ title: periodLockedMessage(new Date().toISOString().slice(0, 10)), variant: 'destructive' });
         return;
       }
-      await db.entities.ProjectJobCostSummary.update(deletingRow.id, {
+      await db.entities.ProjectJobCostSummary.update(deletingRow.budgetRowId, {
         is_deleted: true,
         deleted_reason: reason,
         deleted_by: currentUser?.full_name || currentUser?.email || 'Unknown',
         deleted_date: new Date().toISOString(),
       });
       await logFinancialOverride({
-        entityType: 'ProjectJobCostSummary', entityId: deletingRow.id, action: 'delete', reason, changedBy: currentUser,
+        entityType: 'ProjectJobCostSummary', entityId: deletingRow.budgetRowId, action: 'delete', reason, changedBy: currentUser,
       });
       toast({ title: 'Row deleted' });
       closeDeleteRow();
@@ -495,6 +545,26 @@ export default function Accounting() {
       toast({ title: 'Unable to delete row', variant: 'destructive' });
     } finally {
       setDeletingRowSaving(false);
+    }
+  };
+
+  const handleExportProjectJobCostPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateProjectJobCostPdf({ project: selectedProject, company, rows: projectJobCostRows });
+      toast({ title: 'Job Cost Detail PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Job Cost Detail PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportCompanyJobCostPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateCompanyWideJobCostPdf({ company, rows: companyRollupRows, dateFrom: companyDateFrom, dateTo: companyDateTo });
+      toast({ title: 'Company-wide Job Cost Rollup PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate rollup PDF', variant: 'destructive' });
     }
   };
 
@@ -982,6 +1052,22 @@ export default function Accounting() {
 
   const wip = selectedProject ? calculateWIPSchedule(selectedProject, sovLines, ledgerEntries, jobCostRows, invoiceReceivables) : null;
 
+  const codeNameById = useMemo(() => new Map(costCodes.map((c) => [c.id, c.code_name])), [costCodes]);
+  const projectJobCostRows = useMemo(() => buildProjectJobCostRows({
+    costCodes, budgetRows: jobCostRows, ledgerEntries, laborAllocations, expenses: projectExpenses,
+  }), [costCodes, jobCostRows, ledgerEntries, laborAllocations, projectExpenses]);
+  const projectJobCostTotals = useMemo(() => sumProjectJobCostTotals(projectJobCostRows), [projectJobCostRows]);
+
+  const companyRollupRows = useMemo(() => {
+    const inRange = (dateStr) => (!dateStr ? true : (!companyDateFrom || dateStr >= companyDateFrom) && (!companyDateTo || dateStr <= companyDateTo));
+    return buildCompanyWideJobCostRollup({
+      costCodes,
+      ledgerEntries: companyLedgerEntries.filter((e) => inRange(e.transaction_date)),
+      expenses: companyExpenses.filter((e) => inRange(e.expense_date)),
+    });
+  }, [costCodes, companyLedgerEntries, companyExpenses, companyDateFrom, companyDateTo]);
+  const companyRollupTotal = useMemo(() => companyRollupRows.reduce((sum, r) => sum + (Number(r.jtd_costs) || 0), 0), [companyRollupRows]);
+
   const totalContractValue = projects.reduce((s, p) => s + (p.contract_value || 0), 0);
   const activeProjects = projects.filter(p => !['complete','cancelled','lead'].includes(p.status));
   const activeValue = activeProjects.reduce((s, p) => s + (p.contract_value || 0), 0);
@@ -1121,7 +1207,12 @@ export default function Accounting() {
 
         {canAccessTab('jobcostdetail') && (
         <TabsContent value="jobcostdetail">
-          {selectedProjectId && (
+          <div className="flex items-center gap-2 mb-4">
+            <Button size="sm" variant={jobCostViewMode === 'project' ? 'default' : 'outline'} className={jobCostViewMode === 'project' ? 'steel-gradient text-white border-0' : ''} onClick={() => setJobCostViewMode('project')}>This Project</Button>
+            <Button size="sm" variant={jobCostViewMode === 'company' ? 'default' : 'outline'} className={jobCostViewMode === 'company' ? 'steel-gradient text-white border-0' : ''} onClick={() => setJobCostViewMode('company')}>Company-Wide</Button>
+          </div>
+
+          {jobCostViewMode === 'project' && selectedProjectId && (
             <>
               <div className="steel-card p-5 mb-4">
                 <div className="flex items-center justify-between mb-3">
@@ -1154,7 +1245,10 @@ export default function Accounting() {
               <div className="steel-card overflow-hidden">
                 <div className="flex items-center justify-between p-4 border-b border-border">
                   <h3 className="font-semibold">Job Cost by Cost Code</h3>
-                  <Button size="sm" onClick={startAddRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Cost Code</Button>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={handleExportProjectJobCostPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                    <Button size="sm" onClick={startAddRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Cost Code</Button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -1174,23 +1268,26 @@ export default function Accounting() {
                     <tbody>
                       {loadingJobCost ? (
                         <tr><td colSpan={9} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
-                      ) : jobCostRows.length === 0 ? (
+                      ) : projectJobCostRows.length === 0 ? (
                         <tr><td colSpan={9} className="py-12 text-center text-muted-foreground">No job cost data for this project yet.</td></tr>
                       ) : (
-                        jobCostRows.map(row => {
-                          const codeEntries = ledgerEntries.filter(e => e.cost_code === row.cost_code);
+                        projectJobCostRows.map(row => {
+                          const codeExpenseEntries = projectExpenses
+                            .filter((ex) => isRealizedExpense(ex) && ex.cost_code_id && codeNameById.get(ex.cost_code_id) === row.cost_code)
+                            .map((ex) => expenseAsLedgerRow(ex, row.cost_code));
+                          const codeEntries = [...ledgerEntries.filter(e => e.cost_code === row.cost_code), ...codeExpenseEntries];
                           const openCodeLedger = () => openLedgerDrilldown(
                             `Ledger — ${row.cost_code}`,
                             codeEntries,
                             `No job cost ledger entries recorded against ${row.cost_code} yet.`
                           );
                           return (
-                            <tr key={row.id} onClick={() => startEditRow(row)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                            <tr key={row.cost_code} onClick={() => startEditRow(row)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
                               <td className="py-3 px-4">
                                 <button onClick={(e) => { e.stopPropagation(); openCodeLedger(); }} className="font-mono font-bold text-primary hover:underline">{row.cost_code}</button>
                                 {row.description && <p className="text-xs text-muted-foreground font-sans">{row.description}</p>}
                               </td>
-                              <td className="py-3 px-4">{row.cost_class}</td>
+                              <td className="py-3 px-4">{row.cost_class || '—'}</td>
                               <td className="py-3 px-4 text-right font-mono">${(row.original_estimate || 0).toLocaleString()}</td>
                               <td className="py-3 px-4 text-right font-mono">${(row.approved_co || 0).toLocaleString()}</td>
                               <td className="py-3 px-4 text-right font-mono">${(row.revised_estimated_cost || 0).toLocaleString()}</td>
@@ -1203,17 +1300,105 @@ export default function Accounting() {
                               </td>
                               <td className="py-3 px-4 text-right">
                                 <button onClick={(e) => { e.stopPropagation(); startEditRow(row); }} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-4 h-4" /></button>
-                                <button onClick={(e) => { e.stopPropagation(); openDeleteRow(row); }} className="text-muted-foreground hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>
+                                {row.budgetRowId && <button onClick={(e) => { e.stopPropagation(); openDeleteRow(row); }} className="text-muted-foreground hover:text-red-500 p-1"><Trash2 className="w-4 h-4" /></button>}
                               </td>
                             </tr>
                           );
                         })
                       )}
                     </tbody>
+                    {projectJobCostRows.length > 0 && (
+                      <tfoot>
+                        <tr className="bg-muted/40 font-bold">
+                          <td className="py-3 px-4" colSpan={2}>Project Total</td>
+                          <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.original_estimate.toLocaleString()}</td>
+                          <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.approved_co.toLocaleString()}</td>
+                          <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.revised_estimated_cost.toLocaleString()}</td>
+                          <td className="py-3 px-4 text-right font-mono">{projectJobCostTotals.jtd_hours.toLocaleString()}</td>
+                          <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.jtd_costs.toLocaleString()}</td>
+                          <td className={`py-3 px-4 text-right font-mono ${projectJobCostTotals.profit_loss < 0 ? 'text-red-500' : 'text-green-500'}`}>${projectJobCostTotals.profit_loss.toLocaleString()}</td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>
             </>
+          )}
+
+          {jobCostViewMode === 'company' && (
+            <div className="steel-card overflow-hidden">
+              <div className="flex items-center justify-between flex-wrap gap-3 p-4 border-b border-border">
+                <div>
+                  <h3 className="font-semibold">Company-Wide Cost Distribution</h3>
+                  <p className="text-xs text-muted-foreground">Total cost per cost code, across every project — leadership view of overall company cost distribution.</p>
+                </div>
+                <div className="flex items-end gap-2">
+                  <div>
+                    <Label className="text-xs">From</Label>
+                    <Input type="date" value={companyDateFrom} onChange={(e) => setCompanyDateFrom(e.target.value)} className="mt-1 h-8" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">To</Label>
+                    <Input type="date" value={companyDateTo} onChange={(e) => setCompanyDateTo(e.target.value)} className="mt-1 h-8" />
+                  </div>
+                  <Button size="sm" variant="outline" onClick={handleExportCompanyJobCostPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                      <th className="text-left py-3 px-4">Cost Code</th>
+                      <th className="text-left py-3 px-4">Description</th>
+                      <th className="text-right py-3 px-4">Projects</th>
+                      <th className="text-right py-3 px-4">Total Cost</th>
+                      <th className="text-right py-3 px-4">% of Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loadingCompanyJobCost ? (
+                      <tr><td colSpan={5} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
+                    ) : companyRollupRows.length === 0 ? (
+                      <tr><td colSpan={5} className="py-12 text-center text-muted-foreground">No job cost activity recorded across any project yet.</td></tr>
+                    ) : (
+                      companyRollupRows.map((row) => {
+                        const rowLedgerEntries = companyLedgerEntries
+                          .filter((e) => e.cost_code === row.cost_code && (!companyDateFrom || e.transaction_date >= companyDateFrom) && (!companyDateTo || e.transaction_date <= companyDateTo))
+                          .map((e) => ({ ...e, description: `${projects.find(p => p.id === e.project_id)?.name || 'Unknown Project'} — ${e.description || ''}` }));
+                        const rowExpenseEntries = companyExpenses
+                          .filter((ex) => isRealizedExpense(ex) && ex.cost_code_id && codeNameById.get(ex.cost_code_id) === row.cost_code && (!companyDateFrom || ex.expense_date >= companyDateFrom) && (!companyDateTo || ex.expense_date <= companyDateTo))
+                          .map((ex) => ({ ...expenseAsLedgerRow(ex, row.cost_code), description: `${projects.find(p => p.id === ex.project_id)?.name || 'Unknown Project'} — ${expenseAsLedgerRow(ex, row.cost_code).description}` }));
+                        const openRollupDrilldown = () => openLedgerDrilldown(
+                          `Company-Wide — ${row.cost_code}`,
+                          [...rowLedgerEntries, ...rowExpenseEntries],
+                          `No job cost activity recorded against ${row.cost_code} yet.`
+                        );
+                        return (
+                          <tr key={row.cost_code} onClick={openRollupDrilldown} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
+                            <td className="py-3 px-4 font-mono font-bold text-primary">{row.cost_code}</td>
+                            <td className="py-3 px-4 text-xs text-muted-foreground">{row.description || '—'}</td>
+                            <td className="py-3 px-4 text-right font-mono">{row.project_count}</td>
+                            <td className="py-3 px-4 text-right font-mono font-bold">${row.jtd_costs.toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right font-mono">{row.pct_of_total.toFixed(1)}%</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  {companyRollupRows.length > 0 && (
+                    <tfoot>
+                      <tr className="bg-muted/40 font-bold">
+                        <td className="py-3 px-4" colSpan={3}>Company Total</td>
+                        <td className="py-3 px-4 text-right font-mono">${companyRollupTotal.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-right font-mono">100.0%</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
           )}
         </TabsContent>
         )}
@@ -1776,8 +1961,11 @@ export default function Accounting() {
       <Dialog open={!!editingRow} onOpenChange={(open) => !open && setEditingRow(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingRow === 'new' ? 'Add Cost Code' : 'Edit Cost Code'}</DialogTitle>
+            <DialogTitle>{editingRow === 'new' ? 'Add Cost Code' : 'Edit Cost Code Budget'}</DialogTitle>
           </DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-2">
+            JTD Hours, JTD Costs, and Profit/Loss are computed live from the job cost ledger and cost-coded expenses — only the budget figures below are entered here.
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label>Cost Code</Label>
@@ -1807,18 +1995,6 @@ export default function Accounting() {
             <div>
               <Label>Revised Estimated Cost ($)</Label>
               <Input type="number" value={rowForm.revised_estimated_cost} onChange={(e) => setRowForm(f => ({ ...f, revised_estimated_cost: parseFloat(e.target.value) || 0 }))} className="mt-1" />
-            </div>
-            <div>
-              <Label>JTD Hours</Label>
-              <Input type="number" value={rowForm.jtd_hours} onChange={(e) => setRowForm(f => ({ ...f, jtd_hours: parseFloat(e.target.value) || 0 }))} className="mt-1" />
-            </div>
-            <div>
-              <Label>JTD Costs ($)</Label>
-              <Input type="number" value={rowForm.jtd_costs} onChange={(e) => setRowForm(f => ({ ...f, jtd_costs: parseFloat(e.target.value) || 0 }))} className="mt-1" />
-            </div>
-            <div>
-              <Label>Profit/Loss ($)</Label>
-              <Input type="number" value={rowForm.profit_loss} onChange={(e) => setRowForm(f => ({ ...f, profit_loss: parseFloat(e.target.value) || 0 }))} className="mt-1" />
             </div>
           </div>
           <DialogFooter>

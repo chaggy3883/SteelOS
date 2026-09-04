@@ -390,12 +390,28 @@ const buildSeedData = () => {
         updated_date: now
       }
     ],
+    // The 5 broad codes are the general-purpose master list a real project
+    // would pick from going forward (surfaced in TimeEntryPanel/credit_card_expenses'
+    // cost-code pickers). The 7 granular codes below them exist because
+    // demoDataSeeder.js's JobCostLedgerEntry/EquipmentUsageLog seed data
+    // already posts against those exact strings (see its own comments) —
+    // without a matching master row here, Job Cost Detail's cost-code
+    // breakdown (src/lib/jobCostEngine.js) would show those real seeded
+    // dollars under a description-less orphan code instead of a real,
+    // described one. Purely additive — no seeded amount anywhere changes.
     CostCode: [
       { id: 'cost-code-delivery', company_id: 'company-hancock', code_name: 'DELIVERY', description: 'Freight and mileage to jobsite', is_active: true, created_date: now, updated_date: now },
       { id: 'cost-code-labor', company_id: 'company-hancock', code_name: 'LABOR', description: 'Shop and field labor', is_active: true, created_date: now, updated_date: now },
       { id: 'cost-code-materials', company_id: 'company-hancock', code_name: 'MATERIALS', description: 'Raw steel and consumables', is_active: true, created_date: now, updated_date: now },
       { id: 'cost-code-equipment', company_id: 'company-hancock', code_name: 'EQUIPMENT', description: 'Owned/rented equipment usage', is_active: true, created_date: now, updated_date: now },
-      { id: 'cost-code-subcontractor', company_id: 'company-hancock', code_name: 'SUBCONTRACTOR', description: 'Subcontracted scope', is_active: true, created_date: now, updated_date: now }
+      { id: 'cost-code-subcontractor', company_id: 'company-hancock', code_name: 'SUBCONTRACTOR', description: 'Subcontracted scope', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-lab-fab', company_id: 'company-hancock', code_name: 'LAB-FAB', description: 'Shop fabrication labor', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-lab-erect', company_id: 'company-hancock', code_name: 'LAB-ERECT', description: 'Field erection labor', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-lab-001', company_id: 'company-hancock', code_name: 'LAB-001', description: 'Payroll-posted labor (legacy default code)', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-mat-stl', company_id: 'company-hancock', code_name: 'MAT-STL', description: 'Structural steel material draw', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-sub-erect', company_id: 'company-hancock', code_name: 'SUB-ERECT', description: 'Erection subcontractor billing', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-eqp-crane', company_id: 'company-hancock', code_name: 'EQP-CRANE', description: 'Crane and rigging equipment', is_active: true, created_date: now, updated_date: now },
+      { id: 'cost-code-eqp-001', company_id: 'company-hancock', code_name: 'EQP-001', description: 'Equipment usage — job-assigned default code', is_active: true, created_date: now, updated_date: now }
     ],
     DeliveryPricingTier: [
       { id: 'delivery-tier-1', company_id: 'company-hancock', min_miles: 0, max_miles: 25, cost_per_trip: 750, created_date: now, updated_date: now },
