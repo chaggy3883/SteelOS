@@ -310,20 +310,33 @@
       "type": "number"
     },
     "bond_override": {
-      "type": "number"
+      "type": "number",
+      "description": "Manual override for the Performance/Payment Bond estimate — used in place of the tiered-rate formula (see calculateBondAmount in src/lib/bidWorksheetCalc.js) when a real bond quote comes in different. Null/absent means use the calculated value."
     },
     "bond_enabled": {
       "type": "boolean",
       "default": true
     },
-    "procore_pay_override": {
-      "type": "number"
+    "procore_pay_enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "When on, a 0.2% payment-processing fee (plus tax on that fee) is auto-calculated from the proposal total — see calculatePaymentPlatformFee in src/lib/bidWorksheetCalc.js. No manual dollar entry."
     },
-    "textura_override": {
-      "type": "number"
+    "textura_enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Same 0.2% auto-calculated payment-processing fee as procore_pay_enabled, for bids using Textura instead of Procore Pay."
     },
     "leed_level_override": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "Certified",
+        "Silver",
+        "Gold",
+        "Platinum",
+        "Government"
+      ],
+      "description": "Maps to a fixed hour allocation at $50/hr (30/50/80/120/140 hours respectively — see LEED_SURCHARGE_LEVELS in src/lib/bidWorksheetCalc.js), added to the total price. Null/absent means not a LEED or government job — no surcharge line. Must stay 'Government' (not 'Government Job', which is display-only) to match bidRecapMapping.js's LEED_TIERS."
     },
     "is_archived": {
       "type": "boolean",

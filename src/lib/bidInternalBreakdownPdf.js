@@ -4,6 +4,7 @@ import { COST_CATEGORIES } from '@/components/estimating/TakeoffEngine';
 import { loadImageAsDataUrl } from '@/lib/pdfImage';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { drawBidInternalBreakdownPdf } from '@/lib/bidInternalBreakdownPdfLayout';
+import { calculateBondAmount, calculateLeedSurcharge, calculatePaymentPlatformFee } from '@/lib/bidWorksheetCalc';
 
 export { drawBidInternalBreakdownPdf };
 
@@ -58,15 +59,19 @@ export async function generateBidInternalBreakdownPdf(bid) {
   const insuranceAllocation = bid?.insurance_enabled
     ? (parseFloat(bid?.insurance_general_liability) || 0) + (parseFloat(bid?.insurance_umbrella) || 0) + (parseFloat(bid?.insurance_professional_liability) || 0)
     : 0;
-  const overrideTotal = ['insurance_override', 'bond_override', 'procore_pay_override', 'textura_override']
-    .reduce((s, k) => s + (parseFloat(bid?.[k]) || 0), 0);
-  const bondAmount = (() => {
-    const contractValue = Math.max(0, subtotalWithMarkup + overrideTotal);
-    if (contractValue <= 500000) return contractValue * 0.00810;
-    if (contractValue <= 2500000) return contractValue * 0.00567;
-    if (contractValue <= 5000000) return contractValue * 0.00486;
-    return contractValue * 0.00432;
-  })();
+  const overrideTotal = parseFloat(bid?.insurance_override) || 0;
+  const includedInsuranceAllocation = bid?.insurance_enabled ? insuranceAllocation : 0;
+  const leedSurchargeAmount = calculateLeedSurcharge(bid?.leed_level_override);
+  // Same ordering as TakeoffEngine.jsx: bond and the Procore/Textura fees are
+  // each layered on top of the total that precedes them (see
+  // src/lib/bidWorksheetCalc.js), so neither can be part of its own base.
+  const preBondTotal = subtotalWithMarkup + overrideTotal + structuralTaxAmount + joistDeckTaxAmount + includedInsuranceAllocation + leedSurchargeAmount + (Number(bid?.delivery_total_cost) || 0);
+  const computedBondAmount = calculateBondAmount(preBondTotal);
+  const bondAmount = bid?.bond_override != null ? Number(bid.bond_override) : computedBondAmount;
+  const includedBondAmount = bid?.bond_enabled ? bondAmount : 0;
+  const preFeeTotal = preBondTotal + includedBondAmount;
+  const procorePlatformFee = bid?.procore_pay_enabled ? calculatePaymentPlatformFee(preFeeTotal, taxRate) : null;
+  const texturaPlatformFee = bid?.textura_enabled ? calculatePaymentPlatformFee(preFeeTotal, taxRate) : null;
   const grandTotal = Number(bid?.bid_total_cost || 0);
 
   const data = {
@@ -80,6 +85,8 @@ export async function generateBidInternalBreakdownPdf(bid) {
       subtotal, averageMarkupPct, markupAmount, overrideTotal,
       bondEnabled: !!bid.bond_enabled, bondAmount,
       insuranceEnabled: !!bid.insurance_enabled, insuranceAllocation,
+      leedLevel: bid?.leed_level_override || null, leedSurchargeAmount,
+      procorePlatformFee, texturaPlatformFee,
       deliveryTotalCost: bid.delivery_total_cost,
       taxExempt: !!bid.tax_exempt, taxRate, structuralTaxAmount,
       joistDeckTaxRate, joistDeckTaxAmount,

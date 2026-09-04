@@ -15,6 +15,7 @@ import { getEffectiveCompany } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import { calculateDistance, isGoogleMapsConfigured } from '@/lib/googleMapsService';
 import { isPeriodLocked, formatPeriodLabel } from '@/lib/periodLock';
+import { calculateBondAmount, bondRateForContractValue, LEED_SURCHARGE_LEVELS, calculateLeedSurcharge, calculatePaymentPlatformFee, PAYMENT_PLATFORM_FEE_RATE } from '@/lib/bidWorksheetCalc';
 
 // No DeliveryPricingTier is tagged with a CostCode, so the ledger posting
 // buckets the selected code into JobCostLedgerEntry's fixed MAT/SUB/EQP/LAB
@@ -84,7 +85,9 @@ export const COST_CATEGORIES = [
   { key: 'hss_contingency', label: 'HSS Contingency', unit: 'lot', cost_code: null, default_markup_pct: 10 },
   // Not in the audit's mapping/null lists either — treated the same as the other non-reference additions above pending user confirmation.
   { key: 'additional_cost_insurance', label: 'Additional Cost: Insurance', unit: 'lot', override: true, cost_code: null, default_markup_pct: 10 },
-  { key: 'additional_cost_leed_govt', label: "Additional Cost: LEED / Gov't Job", unit: 'lot', override: true, cost_code: null, default_markup_pct: 10 },
+  // LEED/Gov't job surcharge moved to the Administrative Overrides section
+  // below (a level dropdown × fixed hours × $50/hr, not a manual $ line) —
+  // see the leed_level override field and leedSurchargeAmount.
 ];
 
 const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
@@ -93,8 +96,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const [overrides, setOverrides] = useState({
     insurance: bid?.insurance_override ?? '',
     bond: bid?.bond_override ?? '',
-    procore_pay: bid?.procore_pay_override ?? '',
-    textura: bid?.textura_override ?? '',
     leed_level: bid?.leed_level_override ?? '',
   });
   const [saving, setSaving] = useState(false);
@@ -111,6 +112,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   });
   const [insuranceEnabled, setInsuranceEnabled] = useState(bid?.insurance_enabled ?? false);
   const [bondEnabled, setBondEnabled] = useState(bid?.bond_enabled ?? true);
+  const [procorePayEnabled, setProcorePayEnabled] = useState(bid?.procore_pay_enabled ?? false);
+  const [texturaEnabled, setTexturaEnabled] = useState(bid?.textura_enabled ?? false);
   const [taxInfo, setTaxInfo] = useState({ rate: 0, source: 'manual_entry', effective_date: null, tax_zone_id: null });
   const [taxLabel, setTaxLabel] = useState('Sales Tax');
   const [dirty, setDirty] = useState(false);
@@ -341,6 +344,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
 
   const updateInsuranceEnabled = (checked) => { setInsuranceEnabled(checked); setDirty(true); };
   const updateBondEnabled = (checked) => { setBondEnabled(checked); setDirty(true); };
+  const updateProcorePayEnabled = (checked) => { setProcorePayEnabled(checked); setDirty(true); };
+  const updateTexturaEnabled = (checked) => { setTexturaEnabled(checked); setDirty(true); };
   const updateMarkupPct = (value) => { setMarkupPct(value); setDirty(true); };
 
   const subtotal = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0), 0);
@@ -359,7 +364,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   // bid, and a plain mean across all of them would be dragged toward zero
   // regardless of what markup is actually being charged on real dollars.
   const averageMarkupPct = subtotal > 0 ? (markupAmount / subtotal) * 100 : 0;
-  const overrideTotal = ['insurance', 'bond', 'procore_pay', 'textura'].reduce((s, k) => s + (parseFloat(overrides[k]) || 0), 0);
+  const overrideTotal = parseFloat(overrides.insurance) || 0;
   const grandTotal = subtotalWithMarkup + overrideTotal;
   // Gated directly on bid.tax_exempt (the single source of truth — the
   // inverse of Base Info's top-level "Tax Enabled" toggle, see BidDetail.jsx)
@@ -386,17 +391,26 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   // gated by the same tax_exempt flag as everything else.
   const joistDeckTaxAmount = bid?.tax_exempt ? 0 : Number(lines['joist_deck']?.total_cost || 0) * lineMarkupMultiplier(lines['joist_deck']) * joistDeckTaxRate;
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
-  const bondAmount = (() => {
-    const contractValue = Math.max(0, subtotalWithMarkup + overrideTotal);
-    if (contractValue <= 500000) return contractValue * 0.00810;
-    if (contractValue <= 2500000) return contractValue * 0.00567;
-    if (contractValue <= 5000000) return contractValue * 0.00486;
-    return contractValue * 0.00432;
-  })();
   const insuranceAllocation = (parseFloat(insuranceInputs.general_liability) || 0) + (parseFloat(insuranceInputs.umbrella) || 0) + (parseFloat(insuranceInputs.professional_liability) || 0);
-  const includedBondAmount = bondEnabled ? bondAmount : 0;
   const includedInsuranceAllocation = insuranceEnabled ? insuranceAllocation : 0;
-  const totalWithTax = grandTotal + taxAmount + includedBondAmount + includedInsuranceAllocation + deliveryTotalCost;
+  const leedSurchargeAmount = calculateLeedSurcharge(overrides.leed_level);
+  // Bid's running total before the bond itself and before the Procore/Textura
+  // fees (both of which are layered on top of everything else, so neither can
+  // be part of its own base) — the "current total" the bond tier and the fee
+  // % are each applied against.
+  const preBondTotal = grandTotal + taxAmount + includedInsuranceAllocation + leedSurchargeAmount + deliveryTotalCost;
+  const computedBondAmount = calculateBondAmount(preBondTotal);
+  const bondOverrideValue = overrides.bond === '' || overrides.bond === null || overrides.bond === undefined
+    ? null
+    : parseFloat(overrides.bond);
+  const effectiveBondAmount = (bondOverrideValue != null && !Number.isNaN(bondOverrideValue)) ? bondOverrideValue : computedBondAmount;
+  const includedBondAmount = bondEnabled ? effectiveBondAmount : 0;
+  const preFeeTotal = preBondTotal + includedBondAmount;
+  const procorePlatformFee = calculatePaymentPlatformFee(preFeeTotal, calculatedTaxRate);
+  const texturaPlatformFee = calculatePaymentPlatformFee(preFeeTotal, calculatedTaxRate);
+  const includedProcoreFee = procorePayEnabled ? procorePlatformFee.total : 0;
+  const includedTexturaFee = texturaEnabled ? texturaPlatformFee.total : 0;
+  const totalWithTax = preFeeTotal + includedProcoreFee + includedTexturaFee;
   const canOpenDocuments = currentUserRoles.some(r => ['admin', 'estimator', 'president', 'ceo', 'finance_department'].includes(normalizeRoleName(r)));
 
   // JobCostLedgerEntry requires a project_id — a bid only has one once it's
@@ -492,8 +506,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         insurance_professional_liability: parseFloat(insuranceInputs.professional_liability) || null,
         bond_override: parseFloat(overrides.bond) || null,
         bond_enabled: bondEnabled,
-        procore_pay_override: parseFloat(overrides.procore_pay) || null,
-        textura_override: parseFloat(overrides.textura) || null,
+        procore_pay_enabled: procorePayEnabled,
+        textura_enabled: texturaEnabled,
         leed_level_override: overrides.leed_level || null,
         delivery_distance_miles: deliveryDistance,
         delivery_trip_count: parseFloat(deliveryTripCount) || 1,
@@ -748,53 +762,113 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       {/* Administrative Manual Overrides */}
       <div className="steel-card p-5">
         <h4 className="font-semibold mb-1">Administrative Overrides</h4>
-        <p className="text-xs text-muted-foreground mb-4">Type over to override calculated values. Overridden cells are highlighted yellow.</p>
+        <p className="text-xs text-muted-foreground mb-4">Toggle to include a calculated line in Total Cost. Overridden cells are highlighted yellow.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-          <div className="flex items-center justify-between rounded-lg border border-border p-3">
-            <div>
-              <p className="text-sm font-medium">Insurance Allocation</p>
-              <p className="text-xs text-muted-foreground">Include insurance allocation in Total Cost</p>
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Insurance Allocation</p>
+                <p className="text-xs text-muted-foreground">Include insurance allocation in Total Cost</p>
+              </div>
+              <Switch checked={insuranceEnabled} onCheckedChange={updateInsuranceEnabled} />
             </div>
-            <Switch checked={insuranceEnabled} onCheckedChange={updateInsuranceEnabled} />
           </div>
-          <div className="flex items-center justify-between rounded-lg border border-border p-3">
-            <div>
-              <p className="text-sm font-medium">Performance/Payment Bond</p>
-              <p className="text-xs text-muted-foreground">Include bond estimate in Total Cost</p>
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Performance/Payment Bond</p>
+                <p className="text-xs text-muted-foreground">
+                  {(bondRateForContractValue(preBondTotal) * 100).toFixed(3)}% tiered rate — ${computedBondAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })} calculated
+                </p>
+              </div>
+              <Switch checked={bondEnabled} onCheckedChange={updateBondEnabled} />
             </div>
-            <Switch checked={bondEnabled} onCheckedChange={updateBondEnabled} />
+            {bondEnabled && (
+              <div className="mt-2">
+                <Label className="text-xs">Manual Override ($) — leave blank to use the calculated value</Label>
+                <Input
+                  type="number" step="0.01"
+                  value={overrides.bond ?? ''}
+                  placeholder={computedBondAmount.toFixed(2)}
+                  onChange={e => updateOverride('bond', e.target.value)}
+                  className={cn('mt-1 h-8 text-sm', bondOverrideValue != null && !Number.isNaN(bondOverrideValue) && 'bg-yellow-500/10 ring-1 ring-yellow-500/30')}
+                />
+              </div>
+            )}
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Procore Pay Fee</p>
+                <p className="text-xs text-muted-foreground">{(PAYMENT_PLATFORM_FEE_RATE * 100).toFixed(1)}% of proposal total, plus tax</p>
+              </div>
+              <Switch checked={procorePayEnabled} onCheckedChange={updateProcorePayEnabled} />
+            </div>
+            {procorePayEnabled && (
+              <div className="mt-2 flex justify-between text-xs font-mono text-muted-foreground">
+                <span>Fee ${procorePlatformFee.fee.toFixed(2)} + Tax ${procorePlatformFee.tax.toFixed(2)}</span>
+                <span className="font-semibold text-foreground">${procorePlatformFee.total.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Textura Fee</p>
+                <p className="text-xs text-muted-foreground">{(PAYMENT_PLATFORM_FEE_RATE * 100).toFixed(1)}% of proposal total, plus tax</p>
+              </div>
+              <Switch checked={texturaEnabled} onCheckedChange={updateTexturaEnabled} />
+            </div>
+            {texturaEnabled && (
+              <div className="mt-2 flex justify-between text-xs font-mono text-muted-foreground">
+                <span>Fee ${texturaPlatformFee.fee.toFixed(2)} + Tax ${texturaPlatformFee.tax.toFixed(2)}</span>
+                <span className="font-semibold text-foreground">${texturaPlatformFee.total.toFixed(2)}</span>
+              </div>
+            )}
           </div>
         </div>
         {/* Joist & Deck taxability is no longer its own toggle here — it's
             governed by the single "Tax Enabled" switch in Base Information
             above (see the Grand Total's tax lines below), same as every
             other tax-affected line item. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[
-            // cost_code metadata only (see COST_CATEGORIES audit) — these stay
-            // bid-level override fields, not COST_CATEGORIES line items;
-            // the code is exposed here for reporting/export lookups only.
-            { key: 'insurance', label: 'Insurance ($)', cost_code: '17-994' },
-            { key: 'bond', label: 'Performance / Payment Bonds ($)', cost_code: '17-996' },
-            { key: 'procore_pay', label: 'Procore Pay ($)', cost_code: '01-970' },
-            { key: 'textura', label: 'Textura ($)', cost_code: '01-970' },
-            { key: 'leed_level', label: 'LEED Level', isText: true, cost_code: null },
-          ].map(field => (
-            <div key={field.key} className={cn(
-              'p-2 rounded-lg',
-              overrides[field.key] !== '' && overrides[field.key] !== undefined && overrides[field.key] !== null
-                ? 'bg-yellow-500/10 ring-1 ring-yellow-500/30' : ''
-            )}>
-              <Label className="text-xs">{field.label}</Label>
-              <Input
-                type={field.isText ? 'text' : 'number'}
-                value={overrides[field.key] ?? ''}
-                placeholder={field.isText ? 'e.g. Silver' : '0.00'}
-                onChange={e => updateOverride(field.key, e.target.value)}
-                className="mt-1 h-8 text-sm"
-              />
-            </div>
-          ))}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className={cn(
+            'p-2 rounded-lg',
+            overrides.insurance !== '' && overrides.insurance !== undefined && overrides.insurance !== null
+              ? 'bg-yellow-500/10 ring-1 ring-yellow-500/30' : ''
+          )}>
+            {/* cost_code 17-994 (see COST_CATEGORIES audit) — stays a bid-level
+                override field, not a COST_CATEGORIES line item; exposed here
+                for reporting/export lookups only. */}
+            <Label className="text-xs">Insurance ($)</Label>
+            <Input
+              type="number"
+              value={overrides.insurance ?? ''}
+              placeholder="0.00"
+              onChange={e => updateOverride('insurance', e.target.value)}
+              className="mt-1 h-8 text-sm"
+            />
+          </div>
+          <div className="p-2 rounded-lg">
+            <Label className="text-xs">LEED / Government Job Level</Label>
+            <Select
+              value={overrides.leed_level || 'none'}
+              onValueChange={v => updateOverride('leed_level', v === 'none' ? '' : v)}
+            >
+              <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Not a LEED/Gov't job" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Not a LEED / Gov't job</SelectItem>
+                {LEED_SURCHARGE_LEVELS.map(l => (
+                  <SelectItem key={l.value} value={l.value}>{l.label} ({l.hours} hrs)</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {leedSurchargeAmount > 0 && (
+              <p className="text-xs text-muted-foreground mt-1 font-mono">
+                {LEED_SURCHARGE_LEVELS.find(l => l.value === overrides.leed_level)?.hours} hrs × $50/hr = ${leedSurchargeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+            )}
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
           {[
@@ -809,7 +883,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
           ))}
         </div>
         <div className="flex justify-between items-center py-2 mt-3 border-t border-border font-semibold">
-          <span>Override Total</span>
+          <span>Manual Override Total</span>
           <span className="font-mono">${overrideTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
         </div>
       </div>
@@ -858,7 +932,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             </span>
             <span className="font-mono">${markupAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
-          <div className="flex justify-between text-sm"><span>Administrative Overrides</span><span className="font-mono">${overrideTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
+          <div className="flex justify-between text-sm"><span>Manual Override Total</span><span className="font-mono">${overrideTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
           <div className="flex justify-between text-sm">
             <span>Bond Estimate{!bondEnabled && <span className="text-xs text-muted-foreground"> (off — not included)</span>}</span>
             <span className="font-mono">${includedBondAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
@@ -867,6 +941,24 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             <span>Insurance Allocation{!insuranceEnabled && <span className="text-xs text-muted-foreground"> (off — not included)</span>}</span>
             <span className="font-mono">${includedInsuranceAllocation.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
+          {leedSurchargeAmount > 0 && (
+            <div className="flex justify-between text-sm">
+              <span>LEED / Gov't Job Surcharge</span>
+              <span className="font-mono">${leedSurchargeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            </div>
+          )}
+          {procorePayEnabled && (
+            <div className="flex justify-between text-sm">
+              <span>Procore Pay Fee</span>
+              <span className="font-mono">${includedProcoreFee.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            </div>
+          )}
+          {texturaEnabled && (
+            <div className="flex justify-between text-sm">
+              <span>Textura Fee</span>
+              <span className="font-mono">${includedTexturaFee.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            </div>
+          )}
           <div className="flex justify-between text-sm">
             <span>Delivery Cost{deliveryCostCode && <span className="text-xs text-muted-foreground"> ({deliveryCostCode})</span>}</span>
             <span className="font-mono">${deliveryTotalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
