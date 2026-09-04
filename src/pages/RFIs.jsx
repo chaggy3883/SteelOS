@@ -30,7 +30,7 @@ const RFI_STATUS_LABELS = {
   answered: 'Answered', closed: 'Closed', void: 'Void',
 };
 
-const RFI_STATUS_FILTER_OPTIONS = ['all', 'draft', 'submitted', 'under_review', 'answered', 'closed', 'void'];
+const RFI_STATUS_FILTER_OPTIONS = ['all', 'open', 'draft', 'submitted', 'under_review', 'answered', 'closed', 'void'];
 
 const RFI_STATUS_TRANSITIONS = {
   draft: [
@@ -103,6 +103,7 @@ export default function RFIs() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ project_id: '', bid_id: '', subject: '', description: '', priority: 'medium' });
   const [saving, setSaving] = useState(false);
@@ -435,8 +436,13 @@ Draft the response now.`;
       || r.subject?.toLowerCase().includes(q)
       || r.description?.toLowerCase().includes(q)
       || proj?.name?.toLowerCase().includes(q);
-    const matchStatus = statusFilter === 'all' || r.status === statusFilter;
-    return matchSearch && matchStatus;
+    const matchStatus = statusFilter === 'all'
+      ? true
+      : statusFilter === 'open'
+      ? ['submitted', 'under_review'].includes(r.status)
+      : r.status === statusFilter;
+    const matchOverdue = !overdueOnly || isRfiOverdue(r);
+    return matchSearch && matchStatus && matchOverdue;
   });
 
   const PRIORITY_COLORS = { low: 'text-gray-400', medium: 'text-yellow-500', high: 'text-orange-500', critical: 'text-red-500' };
@@ -499,17 +505,31 @@ Draft the response now.`;
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Total RFIs', value: stats.total, icon: MessageSquare, color: 'text-blue-500' },
-          { label: 'Open', value: stats.open, icon: Clock, color: 'text-orange-500' },
-          { label: 'Answered', value: stats.answered, icon: CheckCircle2, color: 'text-green-500' },
-          { label: 'Overdue', value: stats.overdue, icon: AlertCircle, color: 'text-red-500' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Total RFIs', value: stats.total, icon: MessageSquare, color: 'text-blue-500', active: statusFilter === 'all' && !overdueOnly, onClick: () => { setStatusFilter('all'); setOverdueOnly(false); } },
+          { label: 'Open', value: stats.open, icon: Clock, color: 'text-orange-500', active: statusFilter === 'open' && !overdueOnly, onClick: () => { setStatusFilter('open'); setOverdueOnly(false); } },
+          { label: 'Answered', value: stats.answered, icon: CheckCircle2, color: 'text-green-500', active: statusFilter === 'answered' && !overdueOnly, onClick: () => { setStatusFilter('answered'); setOverdueOnly(false); } },
+          { label: 'Overdue', value: stats.overdue, icon: AlertCircle, color: 'text-red-500', active: overdueOnly, onClick: () => { setStatusFilter('all'); setOverdueOnly(true); } },
+        ].map(({ label, value, icon: Icon, color, active, onClick }) => (
+          <button
+            type="button"
+            key={label}
+            onClick={onClick}
+            className={`steel-card p-4 text-left hover:ring-1 hover:ring-primary/40 transition-shadow ${active ? 'ring-1 ring-primary/60' : ''}`}
+          >
             <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
+
+      {(statusFilter !== 'all' || overdueOnly) && (
+        <div className="flex items-center justify-between text-sm mb-4 px-3 py-2 rounded-lg bg-primary/10 text-primary">
+          <span>
+            Showing {overdueOnly ? 'overdue RFIs' : statusFilter === 'open' ? 'open RFIs (submitted / under review)' : `${RFI_STATUS_LABELS[statusFilter] || statusFilter} RFIs`}.
+          </span>
+          <button className="flex items-center gap-1 hover:underline" onClick={() => { setStatusFilter('all'); setOverdueOnly(false); }}>Clear filter</button>
+        </div>
+      )}
 
       <div className="flex gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">

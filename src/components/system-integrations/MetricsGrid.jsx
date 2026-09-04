@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, Gauge } from 'lucide-react';
 import StatsCard from '@/components/ui/StatsCard';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-export default function MetricsGrid({ logs }) {
+export default function MetricsGrid({ logs, onViewLogs }) {
   const { totalVolume, errorRatePct, avgLatency, latencyByEndpoint } = useMemo(() => {
     const total = logs.length;
     const errors = logs.filter(l => Number(l.response_status) >= 400).length;
@@ -29,9 +29,9 @@ export default function MetricsGrid({ logs }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatsCard title="Total Transactions" value={totalVolume} subtitle="Logged API calls" icon={Activity} color="blue" />
-        <StatsCard title="Error Rate" value={`${errorRatePct}%`} subtitle="Non-200 responses" icon={AlertTriangle} color={errorRatePct > 10 ? 'red' : 'green'} />
-        <StatsCard title="Avg Latency" value={`${avgLatency} ms`} subtitle="Across all endpoints" icon={Gauge} color="purple" />
+        <StatsCard title="Total Transactions" value={totalVolume} subtitle="Logged API calls" icon={Activity} color="blue" onClick={onViewLogs} />
+        <StatsCard title="Error Rate" value={`${errorRatePct}%`} subtitle="Non-200 responses" icon={AlertTriangle} color={errorRatePct > 10 ? 'red' : 'green'} onClick={onViewLogs} />
+        <StatsCard title="Avg Latency" value={`${avgLatency} ms`} subtitle="Across all endpoints" icon={Gauge} color="purple" onClick={onViewLogs} />
       </div>
 
       <div className="steel-card p-5">

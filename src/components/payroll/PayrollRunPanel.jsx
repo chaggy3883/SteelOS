@@ -107,6 +107,7 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
     settled: thisMonthAch.filter((a) => a.status === 'settled').length,
     pending: thisMonthAch.filter((a) => a.status === 'pending').length,
   };
+  const [achStatusDialog, setAchStatusDialog] = useState(null);
   const projectLabel = (id) => { const p = projects.find((pr) => pr.id === id); return p ? `${p.project_number} — ${p.name}` : id; };
   const costCodeName = (id) => costCodes.find((c) => c.id === id)?.code_name || id;
 
@@ -724,10 +725,33 @@ export default function PayrollRunPanel({ employees, projects, costCodes, payPer
       <div className="steel-card p-4">
         <p className="text-xs text-muted-foreground mb-2">ACH Batches This Month</p>
         <p className="text-sm">
-          <span className="font-bold text-blue-600">{achCounts.transmitted}</span> transmitted, <span className="font-bold text-green-600">{achCounts.settled}</span> settled, <span className="font-bold text-amber-600">{achCounts.pending}</span> pending
+          <button type="button" className="font-bold text-blue-600 hover:underline" onClick={() => setAchStatusDialog('transmitted')}>{achCounts.transmitted}</button> transmitted,{' '}
+          <button type="button" className="font-bold text-green-600 hover:underline" onClick={() => setAchStatusDialog('settled')}>{achCounts.settled}</button> settled,{' '}
+          <button type="button" className="font-bold text-amber-600 hover:underline" onClick={() => setAchStatusDialog('pending')}>{achCounts.pending}</button> pending
           <Link to="/admin?tab=integrations" className="ml-2 text-primary hover:underline text-xs">View ACH configuration &amp; report →</Link>
         </p>
       </div>
+
+      <Dialog open={!!achStatusDialog} onOpenChange={(o) => !o && setAchStatusDialog(null)}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{achStatusDialog ? achStatusDialog.charAt(0).toUpperCase() + achStatusDialog.slice(1) : ''} ACH Batches — This Month</DialogTitle></DialogHeader>
+          {thisMonthAch.filter((a) => a.status === achStatusDialog).length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No batches with this status.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {thisMonthAch.filter((a) => a.status === achStatusDialog).map((a) => (
+                <div key={a.id} className="flex items-center justify-between rounded-lg border border-border p-2.5 text-sm">
+                  <span className="font-medium">{employeeName(a.employee_id)}</span>
+                  <span className="text-xs text-muted-foreground">{a.effective_date} • ${(a.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAchStatusDialog(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="steel-card overflow-hidden">
         <div className="overflow-x-auto">

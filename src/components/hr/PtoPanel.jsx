@@ -39,6 +39,7 @@ export default function PtoPanel({ employee, roles = [] }) {
   const [saving, setSaving] = useState(false);
   const [viewingTransaction, setViewingTransaction] = useState(null);
   const [viewingSourceRequest, setViewingSourceRequest] = useState(null);
+  const [selectedLeaveType, setSelectedLeaveType] = useState(null);
 
   useEffect(() => {
     db.auth.me().then(setCurrentUser).catch(() => setCurrentUser(null));
@@ -123,8 +124,15 @@ export default function PtoPanel({ employee, roles = [] }) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {PTO_TRACKED_LEAVE_TYPES.map((leaveType) => {
           const balance = balanceFor(leaveType);
+          const isSelected = selectedLeaveType === leaveType;
           return (
-            <div key={leaveType} className="steel-card p-3 space-y-1.5">
+            <button
+              key={leaveType}
+              type="button"
+              onClick={() => setSelectedLeaveType(isSelected ? null : leaveType)}
+              className={`steel-card p-3 space-y-1.5 text-left transition-colors hover:bg-muted/50 ${isSelected ? 'ring-2 ring-primary' : ''}`}
+              title={`Filter Transaction History to ${leaveType}`}
+            >
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{leaveType}</p>
               <p className="text-2xl font-bold font-mono">{Number(balance?.balance_hours || 0).toFixed(1)}h</p>
               <div className="text-xs text-muted-foreground space-y-0.5">
@@ -134,7 +142,7 @@ export default function PtoPanel({ employee, roles = [] }) {
                 <p>Anniversary: {balance?.anniversary_date || employee.hire_date || '—'}</p>
                 <p>Next renewal: {balance?.policy_year_end || '—'}</p>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -146,12 +154,26 @@ export default function PtoPanel({ employee, roles = [] }) {
       )}
 
       <div className="steel-card p-4">
-        <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><History className="w-4 h-4 text-primary" />Transaction History</h4>
-        {transactions.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">No PTO transactions on file yet.</p>
-        ) : (
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h4 className="font-semibold text-sm flex items-center gap-2"><History className="w-4 h-4 text-primary" />Transaction History{selectedLeaveType ? ` — ${selectedLeaveType}` : ''}</h4>
+          {selectedLeaveType && (
+            <button type="button" onClick={() => setSelectedLeaveType(null)} className="text-xs text-primary hover:underline flex-shrink-0">
+              All leave types
+            </button>
+          )}
+        </div>
+        {(() => {
+          const filteredTransactions = selectedLeaveType ? transactions.filter((t) => t.leave_type === selectedLeaveType) : transactions;
+          if (filteredTransactions.length === 0) {
+            return (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                {selectedLeaveType ? `No ${selectedLeaveType} transactions on file yet.` : 'No PTO transactions on file yet.'}
+              </p>
+            );
+          }
+          return (
           <div className="space-y-1.5 max-h-80 overflow-y-auto">
-            {transactions.map((t) => {
+            {filteredTransactions.map((t) => {
               const meta = TRANSACTION_LABELS[t.transaction_type] || { label: t.transaction_type, class: 'bg-gray-500/10 text-gray-600' };
               return (
                 <button
@@ -171,7 +193,8 @@ export default function PtoPanel({ employee, roles = [] }) {
               );
             })}
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {showAdjustDialog && (

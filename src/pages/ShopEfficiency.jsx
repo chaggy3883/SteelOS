@@ -3,6 +3,8 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { Loader2, Gauge } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { computeEfficiencyPct, normalizeTargetMinutes } from '@/lib/shopOpsMetrics';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
@@ -24,6 +26,8 @@ export default function ShopEfficiency() {
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [logDialog, setLogDialog] = useState(null);
+  const openLogDialog = (title, rows) => setLogDialog({ title, rows });
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => {
@@ -148,7 +152,14 @@ export default function ShopEfficiency() {
                 {leaderboard.length === 0 ? (
                   <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">No completed pieces logged yet.</td></tr>
                 ) : leaderboard.map((row) => (
-                  <tr key={row.employee_id} className="border-t">
+                  <tr
+                    key={row.employee_id}
+                    onClick={() => openLogDialog(
+                      `${employeeName(row.employee_id)} — Completed Pieces`,
+                      logs.filter((l) => l.employee_id === row.employee_id).map((l) => ({ label: l.piece_mark || l.id, sublabel: `${l.elapsed_minutes || 0}m actual${normalizeTargetMinutes(l.target_minutes) != null ? ` / ${normalizeTargetMinutes(l.target_minutes)}m target` : ' / no target'}` }))
+                    )}
+                    className="border-t hover:bg-muted/40 cursor-pointer"
+                  >
                     <td className="p-3 font-medium">{employeeName(row.employee_id)}</td>
                     <td className="p-3">
                       {row.pieces}
@@ -176,7 +187,14 @@ export default function ShopEfficiency() {
                 {varianceMatrix.length === 0 ? (
                   <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">No completed pieces logged yet.</td></tr>
                 ) : varianceMatrix.map((row) => (
-                  <tr key={row.material_profile_type} className="border-t">
+                  <tr
+                    key={row.material_profile_type}
+                    onClick={() => openLogDialog(
+                      `${row.material_profile_type.replace(/_/g, ' ')} — Completed Pieces`,
+                      logs.filter((l) => (l.material_profile_type || 'Other') === row.material_profile_type).map((l) => ({ label: l.piece_mark || l.id, sublabel: `${employeeName(l.employee_id)} • ${l.elapsed_minutes || 0}m` }))
+                    )}
+                    className="border-t hover:bg-muted/40 cursor-pointer"
+                  >
                     <td className="p-3 font-medium">{row.material_profile_type.replace(/_/g, ' ')}</td>
                     <td className="p-3">
                       {row.pieces}
@@ -204,7 +222,14 @@ export default function ShopEfficiency() {
                 {tonnageRollup.length === 0 ? (
                   <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">No completed pieces logged yet.</td></tr>
                 ) : tonnageRollup.map((row) => (
-                  <tr key={row.project_id || 'unassigned'} className="border-t">
+                  <tr
+                    key={row.project_id || 'unassigned'}
+                    onClick={() => openLogDialog(
+                      `${projectLabel(row.project_id)} — Completed Pieces`,
+                      logs.filter((l) => (l.project_id || 'unassigned') === (row.project_id || 'unassigned')).map((l) => ({ label: l.piece_mark || l.id, sublabel: `${employeeName(l.employee_id)} • ${l.elapsed_minutes || 0}m` }))
+                    )}
+                    className="border-t hover:bg-muted/40 cursor-pointer"
+                  >
                     <td className="p-3 font-medium">{projectLabel(row.project_id)}</td>
                     <td className="p-3">{row.pieces}</td>
                     <td className="p-3">{row.hoursConsumed.toFixed(1)}</td>
@@ -217,6 +242,27 @@ export default function ShopEfficiency() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!logDialog} onOpenChange={(o) => !o && setLogDialog(null)}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{logDialog?.title}</DialogTitle></DialogHeader>
+          {(logDialog?.rows || []).length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No completed pieces on file.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {logDialog.rows.map((r, i) => (
+                <div key={i} className="flex items-center justify-between rounded-lg border border-border p-2.5 text-sm">
+                  <span className="font-medium">{r.label}</span>
+                  <span className="text-xs text-muted-foreground">{r.sublabel}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLogDialog(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
@@ -141,6 +141,7 @@ export default function Subcontracts() {
   // ============ TAB 1 — Subcontracts ============
   const [scProjectFilter, setScProjectFilter] = useState(initialProjectFilter);
   const [scStatusFilter, setScStatusFilter] = useState('all');
+  const subcontractsTableRef = useRef(null);
   const [scScopeFilter, setScScopeFilter] = useState('all');
   const [newSubcontractOpen, setNewSubcontractOpen] = useState(false);
   const [subcontractForm, setSubcontractForm] = useState(emptySubcontractForm());
@@ -533,15 +534,15 @@ export default function Subcontracts() {
         <TabsContent value="subcontracts">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {[
-              { label: 'Active Subcontracts', value: scStats.activeCount, icon: FileSignature, color: 'text-blue-500' },
-              { label: 'Total Committed Value', value: money(scStats.totalCommitted), icon: DollarSign, color: 'text-primary' },
-              { label: 'Total Paid to Date', value: money(scStats.totalPaid), icon: Banknote, color: 'text-green-500' },
-              { label: 'Retention Held', value: money(scStats.retentionHeld), icon: ShieldCheck, color: 'text-orange-500' },
-            ].map(({ label, value, icon: Icon, color }) => (
-              <div key={label} className="steel-card p-4">
+              { label: 'Active Subcontracts', value: scStats.activeCount, icon: FileSignature, color: 'text-blue-500', onClick: () => setScStatusFilter('active') },
+              { label: 'Total Committed Value', value: money(scStats.totalCommitted), icon: DollarSign, color: 'text-primary', onClick: () => subcontractsTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+              { label: 'Total Paid to Date', value: money(scStats.totalPaid), icon: Banknote, color: 'text-green-500', onClick: () => subcontractsTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+              { label: 'Retention Held', value: money(scStats.retentionHeld), icon: ShieldCheck, color: 'text-orange-500', onClick: () => subcontractsTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+            ].map(({ label, value, icon: Icon, color, onClick }) => (
+              <button type="button" key={label} onClick={onClick} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
                 <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
                 <p className={`text-2xl font-bold ${color}`}>{value}</p>
-              </div>
+              </button>
             ))}
           </div>
 
@@ -647,7 +648,7 @@ export default function Subcontracts() {
             </Dialog>
           </div>
 
-          <div className="steel-card overflow-x-auto">
+          <div ref={subcontractsTableRef} className="steel-card overflow-x-auto">
             <table className="w-full text-sm min-w-[900px]">
               <thead>
                 <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
@@ -874,7 +875,12 @@ export default function Subcontracts() {
               <h3 className="font-semibold text-sm mb-3 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-orange-500" />Lien Waiver Compliance</h3>
               <div className="space-y-2">
                 {complianceRows.map(({ subcontract, paidCount, missingPayApps }) => (
-                  <div key={subcontract.id} className="flex items-center justify-between text-sm p-2 rounded-lg hover:bg-muted/40">
+                  <button
+                    type="button"
+                    key={subcontract.id}
+                    onClick={() => { setSelectedSubcontract(subcontract); setEditingSubcontract(false); }}
+                    className="w-full flex items-center justify-between text-sm p-2 rounded-lg hover:bg-muted/40 text-left"
+                  >
                     <div>
                       <span className="font-medium">{subcontract.subcontractor_name}</span>
                       <span className="text-xs text-muted-foreground ml-2">{paidCount} paid pay app{paidCount === 1 ? '' : 's'}</span>
@@ -886,7 +892,7 @@ export default function Subcontracts() {
                     ) : (
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border bg-green-500/10 text-green-600 border-green-500/20"><CheckCircle2 className="w-3 h-3 mr-1" />Compliant</span>
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

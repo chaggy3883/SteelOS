@@ -72,6 +72,9 @@ export default function ProjectDetail() {
   const { user } = useAuth();
   const [showStatusHistory, setShowStatusHistory] = useState(false);
   const [project, setProject] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [findingsStatusFilter, setFindingsStatusFilter] = useState(null);
+  const [partsFilter, setPartsFilter] = useState(null); // { kind: 'type'|'material', value }
   const [findings, setFindings] = useState([]);
   const [rfis, setRfis] = useState([]);
   const [pieces, setPieces] = useState([]);
@@ -690,13 +693,13 @@ export default function ProjectDetail() {
         </div>
         <StatsCard title="Contract Value" value={project.contract_value ? `$${(project.contract_value/1000).toFixed(0)}K` : '—'} icon={DollarSign} color="green" />
         <StatsCard title="Estimated Tons" value={project.estimated_tons ? `${project.estimated_tons}T` : '—'} icon={Layers} color="blue" />
-        <StatsCard title="AI Findings" value={findings.length} subtitle={`${pendingFindings.length} pending review`} icon={Brain} color="orange" />
-        <StatsCard title="Open RFIs" value={rfis.filter(r => !['answered','closed'].includes(r.status)).length} icon={MessageSquare} color={rfis.filter(r => !['answered','closed'].includes(r.status)).length > 0 ? 'red' : 'green'} />
-        <StatsCard title="Open Action Items" value={openActionItems.length} subtitle={`${openActionItems.filter(({ item }) => isOverdue(item)).length} overdue`} icon={ListChecks} color={openActionItems.some(({ item }) => isOverdue(item)) ? 'red' : 'blue'} />
+        <StatsCard title="AI Findings" value={findings.length} subtitle={`${pendingFindings.length} pending review`} icon={Brain} color="orange" onClick={() => { setFindingsStatusFilter(null); setActiveTab('findings'); }} />
+        <StatsCard title="Open RFIs" value={rfis.filter(r => !['answered','closed'].includes(r.status)).length} icon={MessageSquare} color={rfis.filter(r => !['answered','closed'].includes(r.status)).length > 0 ? 'red' : 'green'} onClick={() => setActiveTab('rfis')} />
+        <StatsCard title="Open Action Items" value={openActionItems.length} subtitle={`${openActionItems.filter(({ item }) => isOverdue(item)).length} overdue`} icon={ListChecks} color={openActionItems.some(({ item }) => isOverdue(item)) ? 'red' : 'blue'} onClick={() => setActiveTab('notes')} />
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
@@ -779,8 +782,8 @@ export default function ProjectDetail() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">AI Findings</span>
                   <div className="flex gap-2">
-                    <span className="text-red-500 font-medium">{failFindings.length} fail</span>
-                    <span className="text-yellow-500 font-medium">{warnFindings.length} warn</span>
+                    <button type="button" className="text-red-500 font-medium hover:underline" onClick={() => { setFindingsStatusFilter('fail'); setActiveTab('findings'); }}>{failFindings.length} fail</button>
+                    <button type="button" className="text-yellow-500 font-medium hover:underline" onClick={() => { setFindingsStatusFilter('warning'); setActiveTab('findings'); }}>{warnFindings.length} warn</button>
                   </div>
                 </div>
               </div>
@@ -797,16 +800,16 @@ export default function ProjectDetail() {
                 </Link>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div>
+                <Link to={`/subcontracts?project=${id}`} className="block hover:opacity-80 transition-opacity">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Active Subcontracts</p>
                   <p className="text-lg font-bold">{subcontracts.filter((s) => s.status === 'active').length}</p>
-                </div>
-                <div>
+                </Link>
+                <Link to={`/subcontracts?project=${id}`} className="block hover:opacity-80 transition-opacity">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Total Committed Value</p>
                   <p className="text-lg font-bold">
                     ${subcontracts.filter((s) => s.status !== 'terminated').reduce((sum, s) => sum + (s.contract_value || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </p>
-                </div>
+                </Link>
               </div>
             </div>
           </div>
@@ -826,11 +829,12 @@ export default function ProjectDetail() {
         <TabsContent value="findings">
           <div className="steel-card p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold">AI Findings</h3>
-              <div className="flex gap-2 text-xs">
-                <span className="text-red-500">{failFindings.length} fail</span>
-                <span className="text-yellow-500">{warnFindings.length} warning</span>
-                <span className="text-muted-foreground">{findings.filter(f=>f.status==='pass').length} pass</span>
+              <h3 className="font-semibold">AI Findings{findingsStatusFilter ? ` — ${findingsStatusFilter}` : ''}</h3>
+              <div className="flex items-center gap-2 text-xs">
+                <button type="button" className="text-red-500 hover:underline" onClick={() => setFindingsStatusFilter((f) => f === 'fail' ? null : 'fail')}>{failFindings.length} fail</button>
+                <button type="button" className="text-yellow-500 hover:underline" onClick={() => setFindingsStatusFilter((f) => f === 'warning' ? null : 'warning')}>{warnFindings.length} warning</button>
+                <button type="button" className="text-muted-foreground hover:underline" onClick={() => setFindingsStatusFilter((f) => f === 'pass' ? null : 'pass')}>{findings.filter(f=>f.status==='pass').length} pass</button>
+                {findingsStatusFilter && <button type="button" className="text-primary hover:underline" onClick={() => setFindingsStatusFilter(null)}>Clear</button>}
               </div>
             </div>
             {findings.length === 0 ? (
@@ -838,9 +842,11 @@ export default function ProjectDetail() {
                 <Brain className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">No AI findings yet — upload documents to analyze</p>
               </div>
+            ) : (findingsStatusFilter ? findings.filter(f => f.status === findingsStatusFilter) : findings).length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No {findingsStatusFilter} findings.</p>
             ) : (
               <div className="space-y-3">
-                {findings.map(f => (
+                {(findingsStatusFilter ? findings.filter(f => f.status === findingsStatusFilter) : findings).map(f => (
                   <div key={f.id} className="p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1">
@@ -1086,6 +1092,12 @@ export default function ProjectDetail() {
               <p className="text-sm text-muted-foreground py-8 text-center">No parts or hardware added yet.</p>
             ) : (
               <>
+                {partsFilter && (
+                  <div className="flex items-center justify-between text-xs bg-primary/10 text-primary rounded-lg px-3 py-1.5 mb-2">
+                    <span>Filtered to {partsFilter.kind === 'type' ? partsFilter.value.replace(/_/g, ' ') : partsFilter.value}</span>
+                    <button type="button" className="hover:underline" onClick={() => setPartsFilter(null)}>Clear filter</button>
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -1100,7 +1112,11 @@ export default function ProjectDetail() {
                       </tr>
                     </thead>
                     <tbody>
-                      {parts.map((p) => (
+                      {parts.filter((p) => {
+                        if (!partsFilter) return true;
+                        if (partsFilter.kind === 'type') return (p.item_type || 'Loose_Part') === partsFilter.value;
+                        return (p.item_type === 'Bolt' ? `${p.bolt_size || '—'} ${p.bolt_grade || ''}`.trim() : (p.stock_material_description || '—')) === partsFilter.value;
+                      }).map((p) => (
                         <tr key={p.id} onClick={() => setViewingPart(p)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
                           <td className="py-2 px-3">{(p.item_type || 'Loose_Part').replace(/_/g, ' ')}</td>
                           <td className="py-2 px-3 font-mono font-medium">{p.part_number || '—'}</td>
@@ -1122,10 +1138,15 @@ export default function ProjectDetail() {
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Total Parts by Type</p>
                     <div className="space-y-1">
                       {Object.entries(partCountByType).map(([type, count]) => (
-                        <div key={type} className="flex items-center justify-between text-sm">
+                        <button
+                          type="button"
+                          key={type}
+                          onClick={() => setPartsFilter((f) => (f?.kind === 'type' && f.value === type ? null : { kind: 'type', value: type }))}
+                          className="w-full flex items-center justify-between text-sm rounded px-1 -mx-1 hover:bg-muted/50"
+                        >
                           <span>{type.replace(/_/g, ' ')}</span>
                           <span className="font-mono font-medium">{count}</span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -1135,10 +1156,15 @@ export default function ProjectDetail() {
                       {Object.keys(stockLengthsByMaterial).length === 0 ? (
                         <p className="text-sm text-muted-foreground">No stock material requirements.</p>
                       ) : Object.entries(stockLengthsByMaterial).map(([material, qty]) => (
-                        <div key={material} className="flex items-center justify-between text-sm gap-2">
+                        <button
+                          type="button"
+                          key={material}
+                          onClick={() => setPartsFilter((f) => (f?.kind === 'material' && f.value === material ? null : { kind: 'material', value: material }))}
+                          className="w-full flex items-center justify-between text-sm gap-2 rounded px-1 -mx-1 hover:bg-muted/50"
+                        >
                           <span className="truncate">{material}</span>
                           <span className="font-mono font-medium flex-shrink-0">{qty}</span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </div>

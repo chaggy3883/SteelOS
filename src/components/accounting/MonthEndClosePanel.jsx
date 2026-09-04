@@ -8,6 +8,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, CheckCircle2, Lock, Unlock, ListChecks, AlertTriangle, ArrowUpRight } from 'lucide-react';
+import { hasFinanceOverrideAccess } from '@/lib/financeAccess';
+import BalanceDrilldownModal from '@/components/accounting/BalanceDrilldownModal';
+import VendorBillDetailModal from '@/components/accounting/VendorBillDetailModal';
+import InvoiceReceivableDetailModal from '@/components/accounting/InvoiceReceivableDetailModal';
 
 // This is a checklist/status workflow that ties together data that already
 // exists elsewhere (bank reconciliation, vendor bills, AR, WIP) — it does
@@ -64,6 +68,19 @@ export default function MonthEndClosePanel() {
   const [readiness, setReadiness] = useState(null);
   const [loadingReadiness, setLoadingReadiness] = useState(false);
 
+  // --- Drill-down targets (standing rule: every data point navigates to its
+  // full underlying record). listDrilldown is a generic "here are the raw
+  // rows behind this count" dialog (reusing BalanceDrilldownModal, the same
+  // component Accounting.jsx uses for Customer/Vendor Balances and Aging);
+  // viewingBillId/viewingInvoiceId open the same full detail modals
+  // Accounting.jsx's Vendor Bills / AR Billings tabs use. ---
+  const [listDrilldown, setListDrilldown] = useState(null);
+  const [viewingBillId, setViewingBillId] = useState(null);
+  const [viewingInvoiceId, setViewingInvoiceId] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const canOverrideFinanceLock = hasFinanceOverrideAccess(currentUser?.roles || []);
+
+  useEffect(() => { db.auth.me().then(setCurrentUser).catch(() => setCurrentUser(null)); }, []);
   useEffect(() => { loadClose(period); }, [period]);
 
   const loadClose = async (p) => {
@@ -109,28 +126,78 @@ export default function MonthEndClosePanel() {
       const transactionsByAccount = await Promise.all(
         accounts.map((a) => db.entities.BankTransaction.filter({ bank_account_id: a.id }, '-transaction_date', 1000))
       );
-      const unreconciledCount = transactionsByAccount
+      const unreconciledTransactions = transactionsByAccount
         .flat()
-        .filter((t) => !t.reconciled && String(t.transaction_date || '').startsWith(p)).length;
+        .filter((t) => !t.reconciled && String(t.transaction_date || '').startsWith(p));
 
       const bills = await db.entities.VendorBill.list('-created_date', 1000);
-      const pendingBillsCount = bills.filter(
+      const pendingBills = bills.filter(
         (b) => ['Pending_Match', 'Flagged_Review'].includes(b.status) && String(b.invoice_date || '').startsWith(p)
-      ).length;
+      );
 
       const invoices = await db.entities.InvoiceReceivable.list('-created_date', 1000);
       // billing_period on older records isn't guaranteed to be strict
       // YYYY-MM, so this matches on substring rather than exact equality.
-      const draftInvoicesCount = invoices.filter(
+      const draftInvoices = invoices.filter(
         (inv) => inv.payment_status === 'Draft' && String(inv.billing_period || '').includes(p)
-      ).length;
+      );
 
-      setReadiness({ unreconciledCount, pendingBillsCount, draftInvoicesCount });
+      setReadiness({ unreconciledTransactions, pendingBills, draftInvoices });
     } catch (e) {
       setReadiness(null);
     } finally {
       setLoadingReadiness(false);
     }
+  };
+
+  // Raw-record drill-downs behind the three readiness stat boxes below —
+  // each opens the same generic list dialog (BalanceDrilldownModal), with
+  // bills/invoices click-through to their real detail modal. Bank
+  // transactions have no dedicated detail modal in this app, so those rows
+  // just list the transaction and clicking one deep-links to the account
+  // reconciliation screen where it can actually be reconciled.
+  const openUnreconciledDrilldown = () => {
+    setListDrilldown({
+      title: `Unreconciled Bank Transactions — ${formatPeriodLabel(period)}`,
+      subtitle: 'Bank transactions dated in this period that are not yet marked reconciled.',
+      rows: (readiness?.unreconciledTransactions || []).map((t) => ({
+        id: t.id,
+        label: `${t.transaction_date || '—'} — ${t.description || 'Transaction'}`,
+        sublabel: t.transaction_type || '—',
+        amount: t.amount,
+      })),
+      onRowClick: () => { setListDrilldown(null); navigate('/accounting?tab=cash'); },
+    });
+  };
+
+  const openPendingBillsDrilldown = () => {
+    setListDrilldown({
+      title: `Vendor Bills Pending Match / Flagged — ${formatPeriodLabel(period)}`,
+      subtitle: 'Vendor bills invoiced in this period still awaiting 3-way match or flagged for review.',
+      rows: (readiness?.pendingBills || []).map((b) => ({
+        id: b.id,
+        label: `Bill ${b.invoice_number || b.id}`,
+        sublabel: (b.status || '').replace(/_/g, ' '),
+        amount: b.gross_amount,
+        raw: b,
+      })),
+      onRowClick: (r) => { setListDrilldown(null); setViewingBillId(r.raw.id); },
+    });
+  };
+
+  const openDraftInvoicesDrilldown = () => {
+    setListDrilldown({
+      title: `Draft AR Invoices — ${formatPeriodLabel(period)}`,
+      subtitle: 'Progress billings for this period still sitting in Draft status.',
+      rows: (readiness?.draftInvoices || []).map((inv) => ({
+        id: inv.id,
+        label: inv.billing_period || inv.id,
+        sublabel: inv.payment_status,
+        amount: inv.gross_amount,
+        raw: inv,
+      })),
+      onRowClick: (r) => { setListDrilldown(null); setViewingInvoiceId(r.raw.id); },
+    });
   };
 
   const handleStartClose = async () => {
@@ -219,9 +286,9 @@ export default function MonthEndClosePanel() {
 
   const readinessStats = readiness
     ? [
-        { label: 'Unreconciled Bank Transactions', count: readiness.unreconciledCount },
-        { label: 'Vendor Bills Pending Match / Flagged', count: readiness.pendingBillsCount },
-        { label: 'Draft AR Invoices', count: readiness.draftInvoicesCount },
+        { label: 'Unreconciled Bank Transactions', count: readiness.unreconciledTransactions.length, onClick: openUnreconciledDrilldown },
+        { label: 'Vendor Bills Pending Match / Flagged', count: readiness.pendingBills.length, onClick: openPendingBillsDrilldown },
+        { label: 'Draft AR Invoices', count: readiness.draftInvoices.length, onClick: openDraftInvoicesDrilldown },
       ]
     : [];
 
@@ -305,13 +372,18 @@ export default function MonthEndClosePanel() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {readinessStats.map((stat) => (
-                  <div key={stat.label} className={`rounded-lg border p-3 ${stat.count > 0 ? 'border-amber-500/40 bg-amber-500/10' : 'border-border bg-muted/30'}`}>
+                  <button
+                    type="button"
+                    key={stat.label}
+                    onClick={stat.onClick}
+                    className={`text-left rounded-lg border p-3 transition-colors ${stat.count > 0 ? 'border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20' : 'border-border bg-muted/30 hover:bg-muted/50'}`}
+                  >
                     <div className="flex items-center gap-1.5">
                       {stat.count > 0 && <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />}
                       <p className="text-xs text-muted-foreground">{stat.label}</p>
                     </div>
                     <p className={`font-mono font-bold text-lg ${stat.count > 0 ? 'text-amber-600' : ''}`}>{stat.count}</p>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -369,6 +441,34 @@ export default function MonthEndClosePanel() {
           </div>
         </>
       )}
+
+      <BalanceDrilldownModal
+        open={!!listDrilldown}
+        onOpenChange={(open) => !open && setListDrilldown(null)}
+        title={listDrilldown?.title}
+        subtitle={listDrilldown?.subtitle}
+        rows={listDrilldown?.rows || []}
+        onRowClick={listDrilldown?.onRowClick}
+      />
+
+      <VendorBillDetailModal
+        open={!!viewingBillId}
+        onOpenChange={(open) => !open && setViewingBillId(null)}
+        billId={viewingBillId}
+        onViewPO={() => navigate('/accounting?tab=vendorbills')}
+        currentUser={currentUser}
+        canOverrideFinanceLock={canOverrideFinanceLock}
+        onChanged={() => loadReadiness(period)}
+      />
+
+      <InvoiceReceivableDetailModal
+        open={!!viewingInvoiceId}
+        onOpenChange={(open) => !open && setViewingInvoiceId(null)}
+        invoiceId={viewingInvoiceId}
+        currentUser={currentUser}
+        canOverrideFinanceLock={canOverrideFinanceLock}
+        onChanged={() => loadReadiness(period)}
+      />
     </div>
   );
 }

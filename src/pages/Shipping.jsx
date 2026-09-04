@@ -11,6 +11,7 @@ import YardScanning from '@/components/shipping/YardScanning';
 import LoadDetailModal from '@/components/shipping/LoadDetailModal';
 import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 import ManifestDetailModal from '@/components/shipping/ManifestDetailModal';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
@@ -36,6 +37,7 @@ export default function Shipping() {
   // Set when "Resume" is clicked on a Partial Load — tells LoadBuilder which
   // load to focus once the Load Builder tab is active, then gets cleared.
   const [resumeLoadId, setResumeLoadId] = useState(null);
+  const [statusDialog, setStatusDialog] = useState(null); // { title, rows: PieceMark[] }
 
   const [pieces, setPieces] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -140,14 +142,19 @@ export default function Shipping() {
 
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: 'Ready to Ship', value: readyToShip.length, icon: Package, color: 'text-blue-500' },
-          { label: 'Shipped', value: shipped.length, icon: Truck, color: 'text-orange-500' },
-          { label: 'Erected', value: erected.length, icon: CheckCircle2, color: 'text-green-500' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Ready to Ship', value: readyToShip.length, icon: Package, color: 'text-blue-500', rows: readyToShip },
+          { label: 'Shipped', value: shipped.length, icon: Truck, color: 'text-orange-500', rows: shipped },
+          { label: 'Erected', value: erected.length, icon: CheckCircle2, color: 'text-green-500', rows: erected },
+        ].map(({ label, value, icon: Icon, color, rows }) => (
+          <button
+            type="button"
+            key={label}
+            onClick={() => setStatusDialog({ title: label, rows })}
+            className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow"
+          >
             <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -305,6 +312,30 @@ export default function Shipping() {
         onViewLoad={(loadId) => { setViewingManifestId(null); setViewingLoadId(loadId); }}
       />
 
+      <Dialog open={!!statusDialog} onOpenChange={(o) => !o && setStatusDialog(null)}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{statusDialog?.title}</DialogTitle></DialogHeader>
+          {(statusDialog?.rows || []).length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No pieces in this status.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {statusDialog.rows.map((pm) => (
+                <button
+                  key={pm.id}
+                  onClick={() => { setStatusDialog(null); setViewingPiece({ pieceMarkId: pm.id }); }}
+                  className="w-full flex items-center justify-between gap-3 rounded-lg border border-border p-2.5 text-sm text-left hover:bg-muted/50 transition-colors"
+                >
+                  <span className="font-mono font-medium">{pm.piece_mark}</span>
+                  <span className="text-xs text-muted-foreground">{jobName(pm.project_id)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusDialog(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

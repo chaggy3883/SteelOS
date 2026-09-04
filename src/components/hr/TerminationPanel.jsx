@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { hasFullEmployeeAccess, TERMINATION_REASONS, terminationReasonLabel } from '@/lib/employeesApi';
 import { GRANULAR_ACTIONS, hasGranularPermission } from '@/lib/permissionCatalog';
@@ -45,6 +45,10 @@ export default function TerminationPanel({ employee, roles = [], granularPermiss
   const [reinstating, setReinstating] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [returningAsset, setReturningAsset] = useState(null);
+  const [showAllEquipment, setShowAllEquipment] = useState(false);
+  const finalCheckSettlementRef = useRef(null);
+  const equipmentReturnRef = useRef(null);
+  const scrollToRef = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   useEffect(() => { db.auth.me().then(setCurrentUser).catch(() => setCurrentUser(null)); }, []);
   useEffect(() => { load(); }, [employee?.id, employee?.termination_date, terminationDate]);
@@ -218,16 +222,19 @@ export default function TerminationPanel({ employee, roles = [], granularPermiss
         label: 'Final payroll run created',
         checked: !!finalCheckLine,
         note: finalCheckLine ? `Net ${money(finalCheckLine.net_pay)}` : 'No final-check payroll line on file',
+        onClick: () => scrollToRef(finalCheckSettlementRef),
       },
       {
         label: 'PTO balance paid out (if applicable per policy)',
         checked: ptoPaidOut || !ptoTouched,
         note: ptoPaidOut ? 'Paid out per policy' : ptoTouched ? 'Forfeited per policy — no payout owed' : 'No PTO/Sick/Bereavement balance on file',
+        onClick: () => scrollToRef(finalCheckSettlementRef),
       },
       {
         label: 'Equipment return confirmed (issued assets reviewed)',
         checked: equipmentOutstanding.length === 0,
         note: issuedAssets.length === 0 ? 'No assets on file' : `${issuedAssets.length - equipmentOutstanding.length} of ${issuedAssets.length} returned`,
+        onClick: issuedAssets.length > 0 ? () => { setShowAllEquipment(true); scrollToRef(equipmentReturnRef); } : null,
       },
       {
         label: 'Access revoked',
@@ -268,20 +275,35 @@ export default function TerminationPanel({ employee, roles = [], granularPermiss
           <h4 className="font-semibold text-sm mb-3">Offboarding Checklist</h4>
           <p className="text-xs text-muted-foreground mb-3">Status indicators only — nothing here blocks or is enforced by this screen.</p>
           <div className="space-y-2">
-            {checklist.map((item) => (
-              <div key={item.label} className="flex items-start gap-2.5">
-                {item.checked ? <CheckSquare className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> : <Square className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />}
-                <div>
-                  <p className="text-sm font-medium">{item.label}</p>
-                  <p className="text-xs text-muted-foreground">{item.note}</p>
-                </div>
-              </div>
-            ))}
+            {checklist.map((item) => {
+              const Wrapper = item.onClick ? 'button' : 'div';
+              return (
+                <Wrapper
+                  key={item.label}
+                  type={item.onClick ? 'button' : undefined}
+                  onClick={item.onClick || undefined}
+                  className={`w-full flex items-start gap-2.5 text-left ${item.onClick ? 'rounded-lg -mx-1 px-1 py-0.5 hover:bg-muted/50 transition-colors' : ''}`}
+                >
+                  {item.checked ? <CheckSquare className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> : <Square className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />}
+                  <div>
+                    <p className={`text-sm font-medium ${item.onClick ? 'text-primary' : ''}`}>{item.label}</p>
+                    <p className="text-xs text-muted-foreground">{item.note}</p>
+                  </div>
+                </Wrapper>
+              );
+            })}
           </div>
         </div>
 
-        <div className="steel-card p-4">
-          <h4 className="font-semibold text-sm mb-1">Equipment Return</h4>
+        <div ref={equipmentReturnRef} className="steel-card p-4">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <h4 className="font-semibold text-sm">Equipment Return</h4>
+            {issuedAssets.length > 0 && (
+              <button type="button" onClick={() => setShowAllEquipment((v) => !v)} className="text-xs text-primary hover:underline flex-shrink-0">
+                {showAllEquipment ? 'Show outstanding only' : 'Show all equipment'}
+              </button>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground mb-3">
             {issuedAssets.length === 0
               ? 'No equipment on file for this employee.'
@@ -289,26 +311,30 @@ export default function TerminationPanel({ employee, roles = [], granularPermiss
                 ? 'All issued equipment has been returned.'
                 : `${equipmentOutstanding.length} item${equipmentOutstanding.length === 1 ? '' : 's'} outstanding — click to record its return.`}
           </p>
-          {equipmentOutstanding.length > 0 && (
+          {(showAllEquipment ? issuedAssets : equipmentOutstanding).length > 0 && (
             <div className="space-y-2">
-              {equipmentOutstanding.map((asset) => (
-                <button
-                  key={asset.id}
-                  onClick={() => setReturningAsset(asset)}
-                  className="w-full flex items-start gap-2.5 rounded-lg border border-border p-2.5 text-left hover:bg-muted/50 transition-colors"
-                >
-                  <Square className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium">{assetTypeLabel(asset.asset_type)}{asset.asset_tag ? ` — ${asset.asset_tag}` : ''}</p>
-                    <p className="text-xs text-muted-foreground">Issued {asset.issued_date || '—'} — not yet returned</p>
-                  </div>
-                </button>
-              ))}
+              {(showAllEquipment ? issuedAssets : equipmentOutstanding).map((asset) => {
+                const isReturned = !!asset.returned_date;
+                return (
+                  <button
+                    key={asset.id}
+                    onClick={() => !isReturned && setReturningAsset(asset)}
+                    disabled={isReturned}
+                    className={`w-full flex items-start gap-2.5 rounded-lg border border-border p-2.5 text-left transition-colors ${isReturned ? 'opacity-60 cursor-default' : 'hover:bg-muted/50'}`}
+                  >
+                    {isReturned ? <CheckSquare className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" /> : <Square className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />}
+                    <div>
+                      <p className="text-sm font-medium">{assetTypeLabel(asset.asset_type)}{asset.asset_tag ? ` — ${asset.asset_tag}` : ''}</p>
+                      <p className="text-xs text-muted-foreground">Issued {asset.issued_date || '—'}{isReturned ? ` — returned ${asset.returned_date}` : ' — not yet returned'}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
 
-        <div className="steel-card p-4">
+        <div ref={finalCheckSettlementRef} className="steel-card p-4">
           <h4 className="font-semibold text-sm mb-3">Final Check Settlement</h4>
           {finalCheckLine ? (
             <div className="grid grid-cols-2 gap-3 text-sm mb-3">

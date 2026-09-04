@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '@/api/apiClient';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,10 @@ export default function TmTrackingPanel({ project }) {
   const [employees, setEmployees] = useState([]);
   const [laborRates, setLaborRates] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const scrollToRef = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const laborSectionRef = useRef(null);
+  const materialsSectionRef = useRef(null);
+  const subsSectionRef = useRef(null);
 
   const [usageDialog, setUsageDialog] = useState(null);
   const [poDialogFor, setPoDialogFor] = useState(null);
@@ -135,33 +139,33 @@ export default function TmTrackingPanel({ project }) {
     <div className="space-y-6">
       {/* Overall variance */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="steel-card p-4">
+        <button type="button" onClick={() => scrollToRef(laborSectionRef)} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
           <p className="text-xs text-muted-foreground flex items-center gap-1.5"><HardHat className="w-3.5 h-3.5" />Labor Variance</p>
           <p className="text-lg font-bold mt-1">{estimatedHours.toLocaleString()} est · {laborActual.totalHours.toLocaleString()} actual hrs</p>
           <p className={`text-sm font-medium ${laborVar.variancePct > 0 ? 'text-red-600' : 'text-green-600'}`}>{pct(laborVar.variancePct)}</p>
           {laborActual.unmatchedHours > 0 && (
             <p className="text-xs text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{laborActual.unmatchedHours} hrs unpriced — no T&M rate for: {laborActual.unmatchedPositions.join(', ') || 'unknown position'}</p>
           )}
-        </div>
-        <div className="steel-card p-4">
+        </button>
+        <button type="button" onClick={() => scrollToRef(laborSectionRef)} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
           <p className="text-xs text-muted-foreground">Estimated vs. Actual $</p>
           <p className="text-lg font-bold mt-1">{money(overallEstimated)} est · {money(overallActual)} actual</p>
           <p className={`text-sm font-medium flex items-center gap-1 ${overallVarPct > 0 ? 'text-red-600' : 'text-green-600'}`}>
             {overallVarPct > 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}{pct(overallVarPct)}
           </p>
-        </div>
+        </button>
         <div className="steel-card p-4">
           <p className="text-xs text-muted-foreground">By Category</p>
           <div className="text-xs mt-1 space-y-0.5">
-            <p>Labor: {money(laborEstimateTotal)} → {money(laborActual.totalCost)}</p>
-            <p>Materials: {money(materialVar.estimatedTotal)} → {money(materialVar.actualTotal)}</p>
-            <p>Subs: {money(subVar.estimatedTotal)} → {money(subVar.actualTotal)}</p>
+            <button type="button" onClick={() => scrollToRef(laborSectionRef)} className="block w-full text-left hover:underline">Labor: {money(laborEstimateTotal)} → {money(laborActual.totalCost)}</button>
+            <button type="button" onClick={() => scrollToRef(materialsSectionRef)} className="block w-full text-left hover:underline">Materials: {money(materialVar.estimatedTotal)} → {money(materialVar.actualTotal)}</button>
+            <button type="button" onClick={() => scrollToRef(subsSectionRef)} className="block w-full text-left hover:underline">Subs: {money(subVar.estimatedTotal)} → {money(subVar.actualTotal)}</button>
           </div>
         </div>
       </div>
 
       {/* Labor by position */}
-      <div className="steel-card overflow-hidden">
+      <div ref={laborSectionRef} className="steel-card overflow-hidden">
         <div className="p-4 border-b border-border"><h3 className="font-semibold flex items-center gap-2"><HardHat className="w-4 h-4" />Labor — Estimated vs. Actual</h3></div>
         <table className="w-full text-sm">
           <thead className="bg-muted/50 border-b border-border">
@@ -191,7 +195,7 @@ export default function TmTrackingPanel({ project }) {
       </div>
 
       {/* Materials */}
-      <div className="steel-card overflow-hidden">
+      <div ref={materialsSectionRef} className="steel-card overflow-hidden">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <h3 className="font-semibold flex items-center gap-2"><Package className="w-4 h-4" />Materials — Usage Log</h3>
           <Button size="sm" variant="outline" onClick={() => setUsageDialog({ tm_material_line_item_id: '', material_description: '', quantity_used: '', unit_cost: '', received_date: new Date().toISOString().slice(0, 10), vendor: '' })}>
@@ -234,7 +238,7 @@ export default function TmTrackingPanel({ project }) {
       </div>
 
       {/* Subcontractors */}
-      <div className="steel-card overflow-hidden">
+      <div ref={subsSectionRef} className="steel-card overflow-hidden">
         <div className="p-4 border-b border-border"><h3 className="font-semibold flex items-center gap-2"><Handshake className="w-4 h-4" />Subcontractors — Quoted vs. Actual</h3></div>
         <table className="w-full text-sm">
           <thead className="bg-muted/50 border-b border-border">

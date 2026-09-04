@@ -105,6 +105,12 @@ export default function EmployeeCenter() {
   const [showLeaveForm, setShowLeaveForm] = useState(false);
   const [leaveForm, setLeaveForm] = useState(emptyLeaveForm());
   const [ptoBalances, setPtoBalances] = useState([]);
+  const [timeOffStatusFilter, setTimeOffStatusFilter] = useState(null);
+  const [viewingYtdYear, setViewingYtdYear] = useState(null);
+  // null until the user (or a cross-section link like the approved-leave-hours
+  // note below) explicitly switches tabs — falls back to the role-computed
+  // defaultTabValue below so first render still lands on the right tab.
+  const [activeSection, setActiveSection] = useState(null);
 
   const [payrollDocs, setPayrollDocs] = useState([]);
   const [payrollLines, setPayrollLines] = useState([]);
@@ -742,7 +748,7 @@ export default function EmployeeCenter() {
             </div>
           )}
 
-          <Tabs defaultValue={defaultTabValue} onValueChange={(v) => { if (!isAdminViewing && v !== 'payroll') setVaultUnlocked(false); }}>
+          <Tabs value={activeSection || defaultTabValue} onValueChange={(v) => { setActiveSection(v); if (!isAdminViewing && v !== 'payroll') setVaultUnlocked(false); }}>
             <TabsList className="mb-4 max-w-full overflow-x-auto justify-start">
               {isTabVisible('kiosk') && <TabsTrigger value="kiosk">Time Clock Kiosk</TabsTrigger>}
               {isTabVisible('profile') && <TabsTrigger value="profile">My Profile</TabsTrigger>}
@@ -983,16 +989,24 @@ export default function EmployeeCenter() {
 
               <div className="steel-card p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-semibold text-sm">My Time Off Requests</h4>
-                  {!isAdminViewing && (
-                    <Button size="sm" className="gap-2 steel-gradient text-white border-0" onClick={() => setShowLeaveForm(true)}>
-                      <Plus className="w-4 h-4" />New Request
-                    </Button>
-                  )}
+                  <h4 className="font-semibold text-sm">My Time Off Requests{timeOffStatusFilter ? ` — ${timeOffStatusFilter}` : ''}</h4>
+                  <div className="flex items-center gap-3">
+                    {timeOffStatusFilter && (
+                      <button type="button" onClick={() => setTimeOffStatusFilter(null)} className="text-xs text-primary hover:underline">Clear filter</button>
+                    )}
+                    {!isAdminViewing && (
+                      <Button size="sm" className="gap-2 steel-gradient text-white border-0" onClick={() => setShowLeaveForm(true)}>
+                        <Plus className="w-4 h-4" />New Request
+                      </Button>
+                    )}
+                  </div>
                 </div>
-                {timeOffRequests.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">No time off requests yet.</p>
-                ) : timeOffRequests.map((r) => {
+                {(() => {
+                  const visibleRequests = timeOffStatusFilter ? timeOffRequests.filter((r) => r.status === timeOffStatusFilter) : timeOffRequests;
+                  if (visibleRequests.length === 0) {
+                    return <p className="text-sm text-muted-foreground py-4 text-center">{timeOffStatusFilter ? `No ${timeOffStatusFilter.toLowerCase()} requests.` : 'No time off requests yet.'}</p>;
+                  }
+                  return visibleRequests.map((r) => {
                   const isPending = r.status === 'Submitted' || r.status === 'Pending';
                   const balance = ptoBalances.find((b) => b.leave_type === r.leave_type);
                   const projected = isPending && r.leave_type !== 'Unpaid' ? projectedBalanceIfApproved(balance, r.total_hours) : null;
@@ -1017,7 +1031,8 @@ export default function EmployeeCenter() {
                       )}
                     </div>
                   );
-                })}
+                  });
+                })()}
               </div>
 
               {isHrReviewer && !isAdminViewing && (
@@ -1063,7 +1078,17 @@ export default function EmployeeCenter() {
               ) : (
                 <div className="steel-card p-4">
                   <h4 className="font-semibold text-sm mb-1">Pay Stubs &amp; W-2s</h4>
-                  <p className="text-xs text-muted-foreground mb-3">{approvedLeaveHours > 0 ? `${approvedLeaveHours}h of approved leave pending payout in the upcoming pay period.` : 'No approved leave hours pending payout.'}</p>
+                  {approvedLeaveHours > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => { setTimeOffStatusFilter('Approved'); setActiveSection('timeoff'); }}
+                      className="text-xs text-primary hover:underline mb-3 text-left"
+                    >
+                      {approvedLeaveHours}h of approved leave pending payout in the upcoming pay period.
+                    </button>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mb-3">No approved leave hours pending payout.</p>
+                  )}
                   {payrollDocs.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-4 text-center">No payroll documents on file.</p>
                   ) : payrollDocs.map((doc) => (
@@ -1085,10 +1110,10 @@ export default function EmployeeCenter() {
                             <Eye className="w-3.5 h-3.5 mr-1.5" />Open
                           </Button>
                         )}
-                        <div className="text-right">
+                        <button type="button" onClick={() => setViewingYtdYear(doc.tax_year)} className="text-right hover:underline">
                           <p className="font-mono text-sm font-semibold">{ytdHoursForYear(doc.tax_year)}h</p>
                           <p className="text-[10px] text-muted-foreground">YTD {doc.tax_year} hours</p>
-                        </div>
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1256,6 +1281,33 @@ export default function EmployeeCenter() {
             <Button onClick={submitExpense} disabled={savingExpense} className="steel-gradient text-white border-0">
               {savingExpense ? 'Saving…' : 'Log Expense'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingYtdYear} onOpenChange={(o) => !o && setViewingYtdYear(null)}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{viewingYtdYear} Clock-Out Punches</DialogTitle></DialogHeader>
+          {(() => {
+            const yearPunches = punches
+              .filter((p) => p.punch_type === 'Clock_Out' && new Date(p.punch_time).getFullYear() === viewingYtdYear)
+              .sort((a, b) => new Date(b.punch_time) - new Date(a.punch_time));
+            if (yearPunches.length === 0) {
+              return <p className="text-sm text-muted-foreground py-4 text-center">No {viewingYtdYear} clock-out punches on file.</p>;
+            }
+            return (
+              <div className="space-y-1.5">
+                {yearPunches.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between rounded-lg border border-border p-2.5 text-sm">
+                    <span>{new Date(p.punch_time).toLocaleDateString()}</span>
+                    <span className="font-mono">{(((p.total_regular_minutes || 0) + (p.total_overtime_minutes || 0)) / 60).toFixed(2)}h</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingYtdYear(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { BarChart3, TrendingUp, DollarSign, Package, Download } from 'lucide-react';
@@ -13,6 +14,7 @@ const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308'
 
 export default function Reports() {
   useDocumentTitle('SteelOS — Reports');
+  const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [pieces, setPieces] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -89,10 +91,10 @@ export default function Reports() {
           { label: 'Total Estimated Tons', value: `${totalTons.toLocaleString()} T`, icon: Package, color: 'text-orange-500' },
           { label: 'Avg Project Health', value: `${avgHealth}%`, icon: TrendingUp, color: avgHealth >= 80 ? 'text-green-500' : avgHealth >= 60 ? 'text-yellow-500' : 'text-red-500' },
         ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="steel-card p-4">
+          <button type="button" key={label} onClick={() => navigate('/projects')} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
             <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 

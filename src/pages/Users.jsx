@@ -39,6 +39,7 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [formFullName, setFormFullName] = useState('');
   const [formEmail, setFormEmail] = useState('');
@@ -130,9 +131,15 @@ export default function Users() {
   // super_admin-holding user row, even in counts/search results.
   const visibleUsers = viewerIsSuperAdmin ? users : users.filter((u) => !(u.roles || []).includes('super_admin'));
   const filtered = visibleUsers.filter(u =>
-    !search ||
-    u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    u.email?.toLowerCase().includes(search.toLowerCase())
+    (!search ||
+      u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+      u.email?.toLowerCase().includes(search.toLowerCase())) &&
+    (!roleFilter || (
+      roleFilter === 'admin' ? u.roles?.includes('admin') :
+      roleFilter === 'user' ? u.roles?.includes('user') :
+      roleFilter === 'pin_set' ? /^\d{5}$/.test(u.security_pin || '') :
+      true
+    ))
   );
 
   return (
@@ -234,22 +241,32 @@ export default function Users() {
       {/* Role Legend */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'Administrators', count: visibleUsers.filter(u => u.roles?.includes('admin')).length, color: 'text-red-500' },
-          { label: 'Office Users', count: visibleUsers.filter(u => u.roles?.includes('user')).length, color: 'text-blue-500' },
-          { label: 'Total Active', count: visibleUsers.length, color: 'text-green-500' },
-          { label: 'Security PIN Set', count: visibleUsers.filter(u => /^\d{5}$/.test(u.security_pin || '')).length, color: 'text-orange-500' },
-        ].map(({ label, count, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Administrators', count: visibleUsers.filter(u => u.roles?.includes('admin')).length, color: 'text-red-500', filterValue: 'admin' },
+          { label: 'Office Users', count: visibleUsers.filter(u => u.roles?.includes('user')).length, color: 'text-blue-500', filterValue: 'user' },
+          { label: 'Total Active', count: visibleUsers.length, color: 'text-green-500', filterValue: null },
+          { label: 'Security PIN Set', count: visibleUsers.filter(u => /^\d{5}$/.test(u.security_pin || '')).length, color: 'text-orange-500', filterValue: 'pin_set' },
+        ].map(({ label, count, color, filterValue }) => (
+          <button
+            type="button"
+            key={label}
+            onClick={() => setRoleFilter((f) => (f === filterValue ? null : filterValue))}
+            className={`steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow ${roleFilter === filterValue && filterValue ? 'ring-2 ring-primary/60' : ''}`}
+          >
             <p className="text-xs text-muted-foreground mb-1">{label}</p>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : count}</p>
-          </div>
+          </button>
         ))}
       </div>
 
       {/* Search */}
-      <div className="relative max-w-sm mb-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+        </div>
+        {roleFilter && (
+          <button type="button" onClick={() => setRoleFilter(null)} className="text-xs text-primary hover:underline">Clear role filter</button>
+        )}
       </div>
 
       {/* Users List */}

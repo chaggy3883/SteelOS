@@ -148,6 +148,7 @@ export default function CertifiedPayroll() {
   const [projectFilter, setProjectFilter] = useState('all');
   const [subFilter, setSubFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [activeMainTab, setActiveMainTab] = useState('submissions');
   const [weekFrom, setWeekFrom] = useState('');
   const [weekTo, setWeekTo] = useState('');
   const [newOpen, setNewOpen] = useState(false);
@@ -396,7 +397,7 @@ export default function CertifiedPayroll() {
         icon={FileCheck2}
       />
 
-      <Tabs defaultValue="submissions">
+      <Tabs value={activeMainTab} onValueChange={setActiveMainTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="submissions">Submissions</TabsTrigger>
           <TabsTrigger value="compliance">Compliance Dashboard</TabsTrigger>
@@ -407,15 +408,15 @@ export default function CertifiedPayroll() {
         <TabsContent value="submissions">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {[
-              { label: 'Total Expected', value: coverageStats.totalExpected, icon: ClipboardList, color: 'text-blue-500' },
-              { label: 'Received', value: coverageStats.totalReceived, icon: CheckCircle2, color: 'text-green-500' },
-              { label: 'Deficient', value: coverageStats.deficient, icon: AlertTriangle, color: 'text-red-500' },
-              { label: 'Overdue', value: coverageStats.overdue, icon: XCircle, color: 'text-orange-500' },
-            ].map(({ label, value, icon: Icon, color }) => (
-              <div key={label} className="steel-card p-4">
+              { label: 'Total Expected', value: coverageStats.totalExpected, icon: ClipboardList, color: 'text-blue-500', onClick: () => setActiveMainTab('compliance') },
+              { label: 'Received', value: coverageStats.totalReceived, icon: CheckCircle2, color: 'text-green-500', onClick: () => setActiveMainTab('compliance') },
+              { label: 'Deficient', value: coverageStats.deficient, icon: AlertTriangle, color: 'text-red-500', onClick: () => setStatusFilter('deficient') },
+              { label: 'Overdue', value: coverageStats.overdue, icon: XCircle, color: 'text-orange-500', onClick: () => setActiveMainTab('compliance') },
+            ].map(({ label, value, icon: Icon, color, onClick }) => (
+              <button type="button" key={label} onClick={onClick} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
                 <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
                 <p className={`text-2xl font-bold ${color}`}>{value}</p>
-              </div>
+              </button>
             ))}
           </div>
 

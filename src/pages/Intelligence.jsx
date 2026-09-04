@@ -315,7 +315,11 @@ Generate at least 15-20 realistic findings covering different risk areas.`;
   };
 
   const packageFindings = findings.filter(f => f.review_package === activePackage);
-  const filteredFindings = filterStatus === 'all' ? packageFindings : packageFindings.filter(f => f.status === filterStatus);
+  const filteredFindings = filterStatus === 'all'
+    ? packageFindings
+    : filterStatus === 'pending_review'
+    ? packageFindings.filter(f => f.review_status === 'pending')
+    : packageFindings.filter(f => f.status === filterStatus);
 
   const packageCounts = REVIEW_PACKAGES.reduce((acc, pkg) => {
     acc[pkg] = findings.filter(f => f.review_package === pkg).length;
@@ -430,16 +434,21 @@ Generate at least 15-20 realistic findings covering different risk areas.`;
           <h3 className="font-semibold mb-4">Analysis Summary</h3>
           <div className="space-y-2">
             {[
-              { label: 'Total Findings', value: findings.length, color: 'text-foreground' },
-              { label: 'Fail', value: findings.filter(f => f.status === 'fail').length, color: 'text-red-500' },
-              { label: 'Warning', value: findings.filter(f => f.status === 'warning').length, color: 'text-yellow-500' },
-              { label: 'Pass', value: findings.filter(f => f.status === 'pass').length, color: 'text-green-500' },
-              { label: 'Pending Review', value: findings.filter(f => f.review_status === 'pending').length, color: 'text-blue-500' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="flex justify-between items-center py-1.5 border-b border-border/50 last:border-0">
+              { label: 'Total Findings', value: findings.length, color: 'text-foreground', filterValue: 'all' },
+              { label: 'Fail', value: findings.filter(f => f.status === 'fail').length, color: 'text-red-500', filterValue: 'fail' },
+              { label: 'Warning', value: findings.filter(f => f.status === 'warning').length, color: 'text-yellow-500', filterValue: 'warning' },
+              { label: 'Pass', value: findings.filter(f => f.status === 'pass').length, color: 'text-green-500', filterValue: 'pass' },
+              { label: 'Pending Review', value: findings.filter(f => f.review_status === 'pending').length, color: 'text-blue-500', filterValue: 'pending_review' },
+            ].map(({ label, value, color, filterValue }) => (
+              <button
+                type="button"
+                key={label}
+                onClick={() => setFilterStatus(filterValue)}
+                className="w-full flex justify-between items-center py-1.5 border-b border-border/50 last:border-0 hover:bg-muted/50 rounded px-1 -mx-1"
+              >
                 <span className="text-sm text-muted-foreground">{label}</span>
                 <span className={`text-sm font-bold ${color}`}>{value}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -455,7 +464,7 @@ Generate at least 15-20 realistic findings covering different risk areas.`;
                 <SelectValue placeholder="Filter..." />
               </SelectTrigger>
               <SelectContent>
-                {['all','pass','warning','fail','manual_review','not_found'].map(s => (
+                {['all','pass','warning','fail','manual_review','not_found','pending_review'].map(s => (
                   <SelectItem key={s} value={s}>{s === 'all' ? 'All Statuses' : s.replace('_',' ').replace(/\b\w/g, c => c.toUpperCase())}</SelectItem>
                 ))}
               </SelectContent>

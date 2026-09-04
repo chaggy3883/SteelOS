@@ -505,17 +505,17 @@ export default function ExecutiveAnalytics() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Top Loss Reasons</p>
             {winLoss.topLossReasons.length === 0 ? <p className="text-xs text-muted-foreground">None logged.</p> : winLoss.topLossReasons.map((r) => (
-              <div key={r.reason} className="flex justify-between text-sm py-1 border-b border-border/50">
+              <button type="button" key={r.reason} onClick={() => navigate('/estimating/analytics')} className="w-full flex justify-between text-sm py-1 border-b border-border/50 hover:bg-muted/50 rounded px-1 -mx-1 text-left">
                 <span>{REASON_LABELS[r.reason] || r.reason}</span><span className="font-mono">{r.count}</span>
-              </div>
+              </button>
             ))}
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Top Did-Not-Bid Reasons</p>
             {winLoss.topDnbReasons.length === 0 ? <p className="text-xs text-muted-foreground">None logged.</p> : winLoss.topDnbReasons.map((r) => (
-              <div key={r.reason} className="flex justify-between text-sm py-1 border-b border-border/50">
+              <button type="button" key={r.reason} onClick={() => navigate('/estimating/analytics')} className="w-full flex justify-between text-sm py-1 border-b border-border/50 hover:bg-muted/50 rounded px-1 -mx-1 text-left">
                 <span>{REASON_LABELS[r.reason] || r.reason}</span><span className="font-mono">{r.count}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -530,18 +530,18 @@ export default function ExecutiveAnalytics() {
           detailPath="/estimating/analytics" navigate={navigate}
         />
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4 mb-4">
-          <div className="steel-card p-4">
+          <button type="button" onClick={() => navigate('/estimating/analytics')} className="steel-card p-4 text-left hover:bg-muted/50 transition-colors">
             <p className="text-xs text-muted-foreground uppercase tracking-wide">Win Rate</p>
             <p className="text-2xl font-bold text-primary">{winLoss.winRatePct === null ? '—' : `${winLoss.winRatePct}%`}</p>
-          </div>
-          <div className="steel-card p-4">
+          </button>
+          <button type="button" onClick={() => navigate('/estimating')} className="steel-card p-4 text-left hover:bg-muted/50 transition-colors">
             <p className="text-xs text-muted-foreground uppercase tracking-wide">Bid Volume</p>
             <p className="text-2xl font-bold">{bidVolumeStats.totalBids}</p>
-          </div>
-          <div className="steel-card p-4">
+          </button>
+          <button type="button" onClick={() => navigate('/estimating')} className="steel-card p-4 text-left hover:bg-muted/50 transition-colors">
             <p className="text-xs text-muted-foreground uppercase tracking-wide">Avg Bid Size</p>
             <p className="text-2xl font-bold">{fmtMoney(bidVolumeStats.avgBidSize)}</p>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -554,18 +554,18 @@ export default function ExecutiveAnalytics() {
           detailPath="/shop-operations" navigate={navigate}
         />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-          <div className="steel-card p-4">
+          <button type="button" onClick={() => navigate('/shop-operations')} className="steel-card p-4 text-left hover:bg-muted/50 transition-colors">
             <p className="text-xs text-muted-foreground uppercase tracking-wide">This Week's Capacity Utilization</p>
             <p className={`text-2xl font-bold ${currentWeekStatus === 'Red' ? 'text-red-500' : currentWeekStatus === 'Yellow' ? 'text-yellow-500' : 'text-green-500'}`}>
               {fmtPct(currentWeekUtilizationPct)}
             </p>
             <p className="text-xs text-muted-foreground mt-1">{Math.round(currentWeekTons).toLocaleString()} of {maxShopCapacity.toLocaleString()} tons</p>
-          </div>
-          <div className="steel-card p-4">
+          </button>
+          <button type="button" onClick={() => navigate('/shop-operations')} className="steel-card p-4 text-left hover:bg-muted/50 transition-colors">
             <p className="text-xs text-muted-foreground uppercase tracking-wide">Avg Dwell Time Variance</p>
             <p className={`text-2xl font-bold ${avgDwellVariancePct > 25 ? 'text-red-500' : 'text-foreground'}`}>{fmtPct(avgDwellVariancePct)}</p>
             <p className="text-xs text-muted-foreground mt-1">Actual vs. target minutes, across stations with target data</p>
-          </div>
+          </button>
           <div className="steel-card p-4">
             <p className="text-xs text-muted-foreground uppercase tracking-wide">On-Time Completion Rate</p>
             <p className="text-2xl font-bold text-muted-foreground">—</p>
@@ -606,14 +606,14 @@ export default function ExecutiveAnalytics() {
           </div>
           {canViewCommission ? (
             <>
-              <div className="steel-card p-4">
+              <button type="button" onClick={() => navigate('/estimating')} className="steel-card p-4 text-left hover:bg-muted/50 transition-colors">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">Pending Commission</p>
                 <p className="text-2xl font-bold">{fmtMoney(commissionTotals.thisMonthPending)}</p>
-              </div>
-              <div className="steel-card p-4">
+              </button>
+              <button type="button" onClick={() => navigate('/estimating')} className="steel-card p-4 text-left hover:bg-muted/50 transition-colors">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">YTD Commission Paid</p>
                 <p className="text-2xl font-bold">{fmtMoney(commissionTotals.ytdPaid)}</p>
-              </div>
+              </button>
             </>
           ) : (
             <div className="steel-card p-4 sm:col-span-2 flex items-center justify-center text-center">
@@ -647,7 +647,7 @@ export default function ExecutiveAnalytics() {
               {taxRows.length === 0 ? (
                 <tr><td colSpan={4} className="py-8 text-center text-muted-foreground">No bid tax data available yet.</td></tr>
               ) : taxRows.map((row) => (
-                <tr key={row.quarter} className="border-b border-border/50">
+                <tr key={row.quarter} onClick={() => navigate('/estimating')} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
                   <td className="py-3 px-5 font-medium">{row.quarter}</td>
                   <td className="py-3 px-5 text-right font-mono">{fmtMoney(row.hancockCountyTax)}</td>
                   <td className="py-3 px-5 text-right font-mono">{fmtMoney(row.joistDeckTax)}</td>

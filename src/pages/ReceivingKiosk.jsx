@@ -531,7 +531,11 @@ export default function ReceivingKiosk() {
               const poReceived = poLinesForLog.reduce((sum, l) => sum + (Number(l.quantity_received) || 0), 0);
               const poCompletionPct = poOrdered > 0 ? Math.round((poReceived / poOrdered) * 100) : 0;
               return (
-                <div key={log.id} className="flex items-center justify-between p-3 rounded-lg border border-border text-sm">
+                <div
+                  key={log.id}
+                  onClick={relatedPo ? () => { setReviewPoId(relatedPo.id); setReviewOpen(true); } : undefined}
+                  className={`flex items-center justify-between p-3 rounded-lg border border-border text-sm ${relatedPo ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}`}
+                >
                   <div>
                     <p className="font-medium">{log.po_number} {relatedPo?.vendor_name ? `· ${relatedPo.vendor_name}` : ''}</p>
                     <p className="text-muted-foreground text-xs">

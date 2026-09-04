@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, ClipboardList, Scale } from 'lucide-react';
+import LedgerDrilldownModal from '@/components/accounting/LedgerDrilldownModal';
 
 // Company-wide annual budgeting with budget-vs-actual variance. This does
 // NOT create new cost tracking — actuals are read straight from data that
@@ -139,6 +140,22 @@ export default function BudgetPanel() {
 
   const budgetedForCategoryPeriod = (category, period) => Number(lineByKey[`${category}_${period}`]?.budgeted_amount) || 0;
 
+  // Drill-down behind the variance/YTD cells below — the raw records each
+  // actual figure is summed from (InvoiceReceivable for Revenue,
+  // JobCostLedgerEntry otherwise), reused via LedgerDrilldownModal.
+  const [drilldown, setDrilldown] = useState(null);
+  const openCategoryDrilldown = (category, periods, label) => {
+    const rows = category === 'Revenue'
+      ? invoiceReceivables
+          .filter((inv) => periods.some((p) => String(inv.billing_period || '').includes(p)))
+          .map((inv) => ({
+            id: inv.id, transaction_date: inv.billing_period, cost_code: 'Revenue', cost_class: '',
+            source_type: 'invoice', amount: inv.net_billing, description: inv.payment_status,
+          }))
+      : ledgerEntries.filter((l) => l.cost_class === category && periods.some((p) => String(l.transaction_date || '').startsWith(p)));
+    setDrilldown({ title: `${category} — ${label}`, rows });
+  };
+
   const now = new Date();
   const ytdMonthCount = fiscalYear === String(now.getFullYear()) ? now.getMonth() + 1 : 12;
   const ytdMonths = MONTHS.slice(0, ytdMonthCount);
@@ -265,14 +282,20 @@ export default function BudgetPanel() {
                             const variancePct = budgeted !== 0 ? variance / budgeted : null;
                             return (
                               <td key={m} className={`py-1.5 px-2 text-right font-mono text-xs ${varianceColorClass(category, variance)}`}>
-                                {fmtPct(variancePct)}
+                                <button className="hover:underline" onClick={() => openCategoryDrilldown(category, [period], MONTH_LABELS[m - 1])}>{fmtPct(variancePct)}</button>
                               </td>
                             );
                           })}
-                          <td className="py-2 px-3 text-right font-mono border-l border-border">{fmtMoney(ytdActual)}</td>
+                          <td className="py-2 px-3 text-right font-mono border-l border-border">
+                            <button className="hover:underline" onClick={() => openCategoryDrilldown(category, ytdMonths.map((m) => periodFor(fiscalYear, m)), `YTD through ${MONTH_LABELS[ytdMonthCount - 1]}`)}>{fmtMoney(ytdActual)}</button>
+                          </td>
                           <td className="py-2 px-3 text-right font-mono">{fmtMoney(ytdBudgeted)}</td>
-                          <td className={`py-2 px-3 text-right font-mono font-bold ${varianceColorClass(category, ytdVariance)}`}>{fmtMoney(ytdVariance)}</td>
-                          <td className={`py-2 px-3 text-right font-mono font-bold ${varianceColorClass(category, ytdVariance)}`}>{fmtPct(ytdVariancePct)}</td>
+                          <td className={`py-2 px-3 text-right font-mono font-bold ${varianceColorClass(category, ytdVariance)}`}>
+                            <button className="hover:underline" onClick={() => openCategoryDrilldown(category, ytdMonths.map((m) => periodFor(fiscalYear, m)), `YTD through ${MONTH_LABELS[ytdMonthCount - 1]}`)}>{fmtMoney(ytdVariance)}</button>
+                          </td>
+                          <td className={`py-2 px-3 text-right font-mono font-bold ${varianceColorClass(category, ytdVariance)}`}>
+                            <button className="hover:underline" onClick={() => openCategoryDrilldown(category, ytdMonths.map((m) => periodFor(fiscalYear, m)), `YTD through ${MONTH_LABELS[ytdMonthCount - 1]}`)}>{fmtPct(ytdVariancePct)}</button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -283,6 +306,14 @@ export default function BudgetPanel() {
           </div>
         </>
       )}
+
+      <LedgerDrilldownModal
+        open={!!drilldown}
+        onOpenChange={(open) => !open && setDrilldown(null)}
+        title={drilldown?.title}
+        entries={drilldown?.rows || []}
+        emptyMessage="No entries recorded for this category/period yet."
+      />
     </div>
   );
 }

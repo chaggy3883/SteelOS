@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import {
@@ -25,6 +26,7 @@ const emptyOverrideForm = () => ({ piece_id: '', override_type: 'Expedite_Part',
 
 export default function ShopOperations() {
   useDocumentTitle('SteelOS — Shop Operations');
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [projects, setProjects] = useState([]);
   const [pieces, setPieces] = useState([]);
@@ -35,7 +37,13 @@ export default function ShopOperations() {
   const [overrides, setOverrides] = useState([]);
   const [settings, setSettings] = useState(null);
   const [timeOffRequests, setTimeOffRequests] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Generic "here's what's behind this number" list dialog — reused across
+  // the on-leave count, capacity total, bottleneck tiles, and scorecard rows
+  // below instead of a bespoke dialog per stat.
+  const [listDialog, setListDialog] = useState(null);
+  const openListDialog = (title, rows) => setListDialog({ title, rows });
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [materialLines, setMaterialLines] = useState([]);
@@ -69,7 +77,7 @@ export default function ShopOperations() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [projectData, pieceData, logsData, qaData, scheduleData, remnantData, overrideData, settingsRows, poData, receivingData, leaveData, manifestData, printJobData, pieceProductionLogData] = await Promise.all([
+      const [projectData, pieceData, logsData, qaData, scheduleData, remnantData, overrideData, settingsRows, poData, receivingData, leaveData, manifestData, printJobData, pieceProductionLogData, employeeData] = await Promise.all([
         db.entities.Project.filter({ is_archived: false }, 'name', 50),
         db.entities.pieces.list('-created_date', 500),
         db.entities.station_logs.list('-created_date', 500),
@@ -84,6 +92,7 @@ export default function ShopOperations() {
         db.entities.shipping_manifests.list('-created_date', 200),
         db.entities.print_label_jobs.list('-created_date', 500),
         db.entities.piece_production_logs.filter({ status: 'Complete' }, '-created_date', 1000),
+        db.entities.employees.list('full_name', 500),
       ]);
       setProjects(projectData);
       setPieces(pieceData);
@@ -98,6 +107,7 @@ export default function ShopOperations() {
       setManifests(manifestData);
       setPrintJobs(printJobData);
       setPieceProductionLogs(pieceProductionLogData);
+      setEmployees(employeeData);
       let settingsRow = settingsRows[0];
       if (!settingsRow) {
         settingsRow = await db.entities.SystemSetting.create({ setting_group: 'production' });
@@ -155,6 +165,7 @@ export default function ShopOperations() {
     () => weekColumns.map((week) => timeOffRequests.filter((r) => new Date(r.end_date) >= week.weekStart && new Date(r.start_date) <= week.weekEnd).length),
     [weekColumns, timeOffRequests]
   );
+  const employeeName = (id) => employees.find((e) => e.id === id)?.full_name || id;
   const bottlenecks = useMemo(() => getStationBottlenecks(pieces, bottleneckThreshold), [pieces, bottleneckThreshold]);
   const stationSignals = useMemo(
     () => getStationDwellVariance(stationLogs, pieces, pieceProductionLogs, bottlenecks, dwellThresholdPct),
@@ -229,7 +240,20 @@ export default function ShopOperations() {
                   {weekColumns.map((w, i) => (
                     <th key={w.label} className="text-center py-1 px-2 font-mono">
                       {w.label}
-                      {onLeaveCounts[i] > 0 && <span className="block text-[10px] font-sans text-yellow-700 normal-case">{onLeaveCounts[i]} on leave</span>}
+                      {onLeaveCounts[i] > 0 && (
+                        <button
+                          type="button"
+                          className="block text-[10px] font-sans text-yellow-700 normal-case hover:underline"
+                          onClick={() => openListDialog(
+                            `On Leave — Week of ${w.label}`,
+                            timeOffRequests
+                              .filter((r) => new Date(r.end_date) >= w.weekStart && new Date(r.start_date) <= w.weekEnd)
+                              .map((r) => ({ label: employeeName(r.employee_id), sublabel: `${r.leave_type} • ${r.start_date} to ${r.end_date}` }))
+                          )}
+                        >
+                          {onLeaveCounts[i]} on leave
+                        </button>
+                      )}
                     </th>
                   ))}
                 </tr>
@@ -247,7 +271,18 @@ export default function ShopOperations() {
                   <td className="py-1.5 px-2">Total / Status</td>
                   {capacityMatrix.totals.map((t, i) => (
                     <td key={i} className={`text-center py-1.5 px-2 font-mono rounded ${HEATMAP_COLOR[capacityMatrix.statuses[i]]}`}>
-                      {t.toFixed(0)}
+                      <button
+                        type="button"
+                        className="hover:underline"
+                        onClick={() => openListDialog(
+                          `Scheduled Tons — Week of ${weekColumns[i].label}`,
+                          capacityMatrix.rows
+                            .filter((row) => row.cells[i] > 0)
+                            .map((row) => ({ label: row.project.name, sublabel: `${row.cells[i].toFixed(1)} tons` }))
+                        )}
+                      >
+                        {t.toFixed(0)}
+                      </button>
                     </td>
                   ))}
                 </tr>
@@ -283,7 +318,15 @@ export default function ShopOperations() {
             <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-red-600" />Station Bottleneck Alert (queue threshold: {bottleneckThreshold} • dwell threshold: +{dwellThresholdPct}%)</h4>
             <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
               {stationSignals.map((s) => (
-                <div key={s.stationId} className={`rounded-lg border p-3 text-center ${s.isBottleneck ? 'border-red-500 bg-red-500/10 animate-pulse' : 'border-border'}`}>
+                <button
+                  type="button"
+                  key={s.stationId}
+                  onClick={() => openListDialog(
+                    `${stationName(s.stationId)} — Pieces at Station`,
+                    pieces.filter((p) => p.current_station_id === s.stationId).map((p) => ({ label: p.piece_mark || p.id, sublabel: p.workflow_status || p.field_status || '—' }))
+                  )}
+                  className={`rounded-lg border p-3 text-center hover:bg-muted/50 transition-colors ${s.isBottleneck ? 'border-red-500 bg-red-500/10 animate-pulse' : 'border-border'}`}
+                >
                   <p className="text-xs text-muted-foreground">{stationName(s.stationId)}</p>
                   <p className={`text-xl font-bold ${s.isBottleneck ? 'text-red-600' : ''}`}>{s.count}</p>
                   <p className="text-[10px] text-muted-foreground mt-1">
@@ -298,7 +341,7 @@ export default function ShopOperations() {
                   {s.isBottleneck && (
                     <p className="text-[10px] font-semibold text-red-600 uppercase tracking-wide mt-1">{s.signal}</p>
                   )}
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -331,8 +374,17 @@ export default function ShopOperations() {
               </thead>
               <tbody>
                 {scorecards.map((sc) => (
-                  <tr key={sc.employee_id} className="border-b border-border/50">
-                    <td className="py-2 font-mono">{sc.employee_id}</td>
+                  <tr
+                    key={sc.employee_id}
+                    onClick={() => openListDialog(
+                      `${employeeName(sc.employee_id)} — Station Log`,
+                      stationLogs
+                        .filter((log) => log.employee_id === sc.employee_id)
+                        .map((log) => ({ label: `${stationName(log.station_id)} — ${log.status}`, sublabel: `${log.elapsed_minutes || 0}m • piece ${log.piece_id}` }))
+                    )}
+                    className="border-b border-border/50 hover:bg-muted/50 cursor-pointer"
+                  >
+                    <td className="py-2 font-mono">{employeeName(sc.employee_id)}</td>
                     <td className="py-2 text-right">{sc.totalActiveMinutes}</td>
                     <td className="py-2 text-right">{sc.partThroughput}</td>
                     <td className="py-2 text-right">{sc.qaPassRatePct === null ? '—' : `${sc.qaPassRatePct}%`}</td>
@@ -357,10 +409,16 @@ export default function ShopOperations() {
             {shortages.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">No outstanding material shortages for this project's takeoff.</p>
             ) : shortages.map((line) => (
-              <div key={line.id} className="rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm mb-2">
+              <button
+                type="button"
+                key={line.id}
+                onClick={() => line.bid_id && navigate(`/estimating/${line.bid_id}`)}
+                disabled={!line.bid_id}
+                className="w-full rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm mb-2 text-left hover:bg-red-500/10 transition-colors disabled:cursor-default disabled:hover:bg-red-500/5"
+              >
                 <p className="font-medium">{(line.material_type || 'Material').replace(/_/g, ' ')} — {line.material_size || line.custom_name}</p>
                 <p className="text-xs text-red-600">No matching purchase order marked "Received Complete" on file.</p>
-              </div>
+              </button>
             ))}
           </div>
 
@@ -444,6 +502,27 @@ export default function ShopOperations() {
             <Button onClick={handleCreateOverride} disabled={savingOverride} className="steel-gradient text-white border-0">
               {savingOverride ? 'Authorizing…' : 'Authorize Override'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!listDialog} onOpenChange={(o) => !o && setListDialog(null)}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{listDialog?.title}</DialogTitle></DialogHeader>
+          {(listDialog?.rows || []).length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Nothing on file.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {listDialog.rows.map((r, i) => (
+                <div key={i} className="flex items-center justify-between rounded-lg border border-border p-2.5 text-sm">
+                  <span className="font-medium">{r.label}</span>
+                  <span className="text-xs text-muted-foreground">{r.sublabel}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setListDialog(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

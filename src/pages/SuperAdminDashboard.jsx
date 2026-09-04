@@ -82,6 +82,9 @@ export default function SuperAdminDashboard() {
   const [allUsers, setAllUsers] = useState([]);
   const [allSessionLogs, setAllSessionLogs] = useState([]);
   const [loadingUsage, setLoadingUsage] = useState(true);
+  const [tenantFilter, setTenantFilter] = useState(null);
+  const [showIntegrationErrors, setShowIntegrationErrors] = useState(false);
+  const [usageDialog, setUsageDialog] = useState(null); // { type: 'users'|'hours', company }
 
   useEffect(() => { init(); }, []);
 
@@ -229,40 +232,77 @@ export default function SuperAdminDashboard() {
   const newCompaniesThisMonth = tenants.filter((t) => String(t.created_date || '').startsWith(currentYearMonth)).length;
 
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const integrationErrors24h = apiIntegrationLogs.filter(
+  const integrationErrorLogs = apiIntegrationLogs.filter(
     (log) => (log.response_status || 0) >= 400 && String(log.processed_at || '') >= twentyFourHoursAgo
-  ).length;
+  );
+  const integrationErrors24h = integrationErrorLogs.length;
+  const tenantById = new Map(tenants.map((t) => [t.id, t]));
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const usageByCompany = tenants
     .map((company) => {
-      const userCount = allUsers.filter((u) => u.company_id === company.id && u.is_active).length;
-      const totalHours = allSessionLogs
-        .filter((s) => s.company_id === company.id && String(s.login_at || '') >= thirtyDaysAgo)
-        .reduce((sum, s) => sum + sessionHours(s), 0);
-      return { company, userCount, totalHours };
+      const activeUsers = allUsers.filter((u) => u.company_id === company.id && u.is_active);
+      const companySessions = allSessionLogs.filter((s) => s.company_id === company.id && String(s.login_at || '') >= thirtyDaysAgo);
+      const totalHours = companySessions.reduce((sum, s) => sum + sessionHours(s), 0);
+      return { company, userCount: activeUsers.length, activeUsers, companySessions, totalHours };
     })
     .sort((a, b) => b.totalHours - a.totalHours);
+
+  // Toggle semantics: clicking an already-active filter clears it.
+  const toggleTenantFilter = (type, value) => {
+    setTenantFilter((prev) => (prev && prev.type === type && prev.value === value ? null : { type, value }));
+  };
+
+  const filteredTenants = tenantFilter
+    ? tenants.filter((t) => {
+        if (tenantFilter.type === 'status') return (t.subscription_status || 'Active') === tenantFilter.value;
+        if (tenantFilter.type === 'plan') return (t.subscription_plan || 'starter') === tenantFilter.value;
+        if (tenantFilter.type === 'ai_provider') return (t.ai_provider || 'local') === tenantFilter.value;
+        if (tenantFilter.type === 'new_this_month') return String(t.created_date || '').startsWith(currentYearMonth);
+        return true;
+      })
+    : tenants;
+
+  const filterLabel = (() => {
+    if (!tenantFilter) return null;
+    if (tenantFilter.type === 'status') return `Subscription Status: ${tenantFilter.value.replace('_', ' ')}`;
+    if (tenantFilter.type === 'plan') return `Plan: ${PLAN_LABELS[tenantFilter.value] || tenantFilter.value}`;
+    if (tenantFilter.type === 'ai_provider') return `AI Provider: ${AI_PROVIDER_LABELS[tenantFilter.value] || tenantFilter.value}`;
+    if (tenantFilter.type === 'new_this_month') return 'New This Month';
+    return null;
+  })();
 
   return (
     <div className="p-6 w-full max-w-none space-y-4">
       <PageHeader title="Super Admin Dashboard" subtitle="Tenant impersonation matrix and billing status controls — platform operator only" />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="steel-card p-4">
+        <button
+          type="button"
+          onClick={() => toggleTenantFilter('status', 'Active')}
+          className={`steel-card p-4 text-left hover:shadow-md transition-shadow ${tenantFilter?.type === 'status' && tenantFilter.value === 'Active' ? 'ring-2 ring-green-500/60' : ''}`}
+        >
           <div className="flex items-center gap-2 mb-1"><Building2 className="w-4 h-4 text-green-500" /><p className="text-xs text-muted-foreground">Active Companies</p></div>
           <p className="text-xl font-bold text-green-500">{loading ? '—' : activeCompaniesCount}</p>
-        </div>
+        </button>
 
-        <div className={`steel-card p-4 ${pastDueCount > 0 ? 'border-amber-500/40 bg-amber-500/10' : ''}`}>
+        <button
+          type="button"
+          onClick={() => toggleTenantFilter('status', 'Past_Due')}
+          className={`steel-card p-4 text-left hover:shadow-md transition-shadow ${pastDueCount > 0 ? 'border-amber-500/40 bg-amber-500/10' : ''} ${tenantFilter?.type === 'status' && tenantFilter.value === 'Past_Due' ? 'ring-2 ring-amber-500/60' : ''}`}
+        >
           <div className="flex items-center gap-2 mb-1"><AlertTriangle className={`w-4 h-4 ${pastDueCount > 0 ? 'text-amber-600' : 'text-muted-foreground'}`} /><p className="text-xs text-muted-foreground">Past Due</p></div>
           <p className={`text-xl font-bold ${pastDueCount > 0 ? 'text-amber-600' : ''}`}>{loading ? '—' : pastDueCount}</p>
-        </div>
+        </button>
 
-        <div className="steel-card p-4">
+        <button
+          type="button"
+          onClick={() => toggleTenantFilter('new_this_month', currentYearMonth)}
+          className={`steel-card p-4 text-left hover:shadow-md transition-shadow ${tenantFilter?.type === 'new_this_month' ? 'ring-2 ring-blue-500/60' : ''}`}
+        >
           <div className="flex items-center gap-2 mb-1"><Sparkles className="w-4 h-4 text-blue-500" /><p className="text-xs text-muted-foreground">New Companies This Month</p></div>
           <p className="text-xl font-bold text-blue-500">{loading ? '—' : newCompaniesThisMonth}</p>
-        </div>
+        </button>
 
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 mb-2"><Building2 className="w-4 h-4 text-primary" /><p className="text-xs text-muted-foreground">Companies by Plan</p></div>
@@ -270,10 +310,15 @@ export default function SuperAdminDashboard() {
             {plansBreakdown.length === 0 ? (
               <p className="text-xs text-muted-foreground">No companies yet.</p>
             ) : plansBreakdown.map(({ plan, count }) => (
-              <div key={plan} className="flex items-center justify-between text-xs">
+              <button
+                type="button"
+                key={plan}
+                onClick={() => toggleTenantFilter('plan', plan)}
+                className={`flex items-center justify-between text-xs w-full text-left rounded px-1 -mx-1 hover:bg-muted/50 ${tenantFilter?.type === 'plan' && tenantFilter.value === plan ? 'bg-primary/10' : ''}`}
+              >
                 <span className="text-muted-foreground">{PLAN_LABELS[plan] || plan}</span>
                 <span className="font-mono font-semibold">{count}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -282,18 +327,27 @@ export default function SuperAdminDashboard() {
           <div className="flex items-center gap-2 mb-2"><Cpu className="w-4 h-4 text-primary" /><p className="text-xs text-muted-foreground">AI Provider Adoption</p></div>
           <div className="space-y-1">
             {aiProviderBreakdown.map(({ provider, count }) => (
-              <div key={provider} className="flex items-center justify-between text-xs">
+              <button
+                type="button"
+                key={provider}
+                onClick={() => toggleTenantFilter('ai_provider', provider)}
+                className={`flex items-center justify-between text-xs w-full text-left rounded px-1 -mx-1 hover:bg-muted/50 ${tenantFilter?.type === 'ai_provider' && tenantFilter.value === provider ? 'bg-primary/10' : ''}`}
+              >
                 <span className="text-muted-foreground">{AI_PROVIDER_LABELS[provider]}</span>
                 <span className="font-mono font-semibold">{count}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
 
-        <div className={`steel-card p-4 ${integrationErrors24h > 0 ? 'border-amber-500/40 bg-amber-500/10' : ''}`}>
+        <button
+          type="button"
+          onClick={() => setShowIntegrationErrors(true)}
+          className={`steel-card p-4 text-left hover:shadow-md transition-shadow ${integrationErrors24h > 0 ? 'border-amber-500/40 bg-amber-500/10' : ''}`}
+        >
           <div className="flex items-center gap-2 mb-1"><AlertTriangle className={`w-4 h-4 ${integrationErrors24h > 0 ? 'text-amber-600' : 'text-muted-foreground'}`} /><p className="text-xs text-muted-foreground">Integration Errors (24h)</p></div>
           <p className={`text-xl font-bold ${integrationErrors24h > 0 ? 'text-amber-600' : ''}`}>{loadingUsage ? '—' : integrationErrors24h}</p>
-        </div>
+        </button>
       </div>
 
       <div className="steel-card overflow-hidden">
@@ -316,12 +370,28 @@ export default function SuperAdminDashboard() {
               ) : usageByCompany.length === 0 ? (
                 <tr><td colSpan={3} className="py-12 text-center text-muted-foreground">No companies yet.</td></tr>
               ) : (
-                usageByCompany.map(({ company, userCount, totalHours }) => (
+                usageByCompany.map(({ company, userCount, activeUsers, companySessions, totalHours }) => (
                   <tr key={company.id} className="border-b border-border/50">
                     <td className="py-3 px-4 font-medium">{company.name}</td>
-                    <td className="py-3 px-4 text-right font-mono">{userCount}</td>
-                    <td className="py-3 px-4 text-right font-mono flex items-center justify-end gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-muted-foreground" />{totalHours.toFixed(1)}
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        className="font-mono hover:underline text-primary disabled:text-muted-foreground disabled:no-underline disabled:cursor-default"
+                        disabled={userCount === 0}
+                        onClick={() => setUsageDialog({ type: 'users', company, activeUsers })}
+                      >
+                        {userCount}
+                      </button>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        className="font-mono flex items-center justify-end gap-1.5 w-full hover:underline text-primary disabled:text-muted-foreground disabled:no-underline disabled:cursor-default"
+                        disabled={companySessions.length === 0}
+                        onClick={() => setUsageDialog({ type: 'hours', company, companySessions })}
+                      >
+                        <Clock className="w-3.5 h-3.5 text-muted-foreground" />{totalHours.toFixed(1)}
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -340,7 +410,13 @@ export default function SuperAdminDashboard() {
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-2">
+        {filterLabel ? (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">Filtered: {filterLabel}</span>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setTenantFilter(null)}>Clear</Button>
+          </div>
+        ) : <span />}
         <Button size="sm" className="gap-2 steel-gradient text-white border-0" onClick={() => setShowTenantForm(true)}>
           <Plus className="w-4 h-4" />New Tenant
         </Button>
@@ -361,7 +437,9 @@ export default function SuperAdminDashboard() {
             </tr>
           </thead>
           <tbody>
-            {tenants.map((company) => (
+            {filteredTenants.length === 0 ? (
+              <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">No tenants match this filter.</td></tr>
+            ) : filteredTenants.map((company) => (
               <tr key={company.id} className="border-b border-border/50">
                 <td className="py-3 px-4 font-medium">{company.name}</td>
                 <td className="py-3 px-4 text-muted-foreground capitalize">{company.subscription_plan}</td>
@@ -447,6 +525,107 @@ export default function SuperAdminDashboard() {
             <Button onClick={handleCreateTenant} disabled={creatingTenant} className="steel-gradient text-white border-0">
               {creatingTenant ? 'Provisioning…' : 'Create Tenant'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showIntegrationErrors} onOpenChange={setShowIntegrationErrors}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Integration Errors — Last 24 Hours</DialogTitle></DialogHeader>
+          <div className="max-h-96 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                  <th className="text-left py-2 pr-3">Company</th>
+                  <th className="text-left py-2 pr-3">Endpoint</th>
+                  <th className="text-right py-2 pr-3">Status</th>
+                  <th className="text-right py-2 pr-3">Timestamp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {integrationErrorLogs.length === 0 ? (
+                  <tr><td colSpan={4} className="py-6 text-center text-muted-foreground">No integration errors in the last 24 hours.</td></tr>
+                ) : integrationErrorLogs.map((log) => (
+                  <tr key={log.id} className="border-b border-border/50">
+                    <td className="py-2 pr-3">{tenantById.get(log.company_id)?.name || log.company_id || '—'}</td>
+                    <td className="py-2 pr-3 font-mono text-xs">{log.endpoint_url}</td>
+                    <td className="py-2 pr-3 text-right font-mono text-red-600">{log.response_status}</td>
+                    <td className="py-2 pr-3 text-right text-xs text-muted-foreground">{log.processed_at ? new Date(log.processed_at).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowIntegrationErrors(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!usageDialog} onOpenChange={(open) => !open && setUsageDialog(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {usageDialog?.type === 'users' ? `Active Users — ${usageDialog?.company?.name}` : `Hours Breakdown (30d) — ${usageDialog?.company?.name}`}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-96 overflow-y-auto">
+            {usageDialog?.type === 'users' ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left py-2 pr-3">Name</th>
+                    <th className="text-left py-2 pr-3">Email</th>
+                    <th className="text-left py-2 pr-3">Role</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(usageDialog.activeUsers || []).length === 0 ? (
+                    <tr><td colSpan={3} className="py-6 text-center text-muted-foreground">No active users.</td></tr>
+                  ) : usageDialog.activeUsers.map((u) => (
+                    <tr key={u.id} className="border-b border-border/50">
+                      <td className="py-2 pr-3">{u.full_name || u.name || '—'}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">{u.email}</td>
+                      <td className="py-2 pr-3 text-muted-foreground capitalize">{(u.role || '').replace(/_/g, ' ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : usageDialog?.type === 'hours' ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left py-2 pr-3">User</th>
+                    <th className="text-right py-2 pr-3">Sessions</th>
+                    <th className="text-right py-2 pr-3">Hours</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const byUser = new Map();
+                    (usageDialog.companySessions || []).forEach((s) => {
+                      const key = s.user_email || s.user_id || 'Unknown';
+                      if (!byUser.has(key)) byUser.set(key, { key, sessions: 0, hours: 0 });
+                      const entry = byUser.get(key);
+                      entry.sessions += 1;
+                      entry.hours += sessionHours(s);
+                    });
+                    const rows = Array.from(byUser.values()).sort((a, b) => b.hours - a.hours);
+                    if (rows.length === 0) return <tr><td colSpan={3} className="py-6 text-center text-muted-foreground">No sessions in the last 30 days.</td></tr>;
+                    return rows.map((row) => (
+                      <tr key={row.key} className="border-b border-border/50">
+                        <td className="py-2 pr-3">{row.key}</td>
+                        <td className="py-2 pr-3 text-right font-mono">{row.sessions}</td>
+                        <td className="py-2 pr-3 text-right font-mono">{row.hours.toFixed(1)}</td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUsageDialog(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

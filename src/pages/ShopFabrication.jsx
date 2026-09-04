@@ -109,6 +109,8 @@ export default function ShopFabrication() {
   const [selectedPieceMark, setSelectedPieceMark] = useState(null);
   const [stockUnitId, setStockUnitId] = useState(null);
   const [viewingStockUnitId, setViewingStockUnitId] = useState(null);
+  const [activeTab, setActiveTab] = useState('logs');
+  const [logsAutoPausedOnly, setLogsAutoPausedOnly] = useState(false);
   const touchPrimary = useIsTouchPrimaryDevice();
 
   useEffect(() => { loadData(); }, []);
@@ -501,10 +503,15 @@ export default function ShopFabrication() {
 
       {autoPausedLogs.length > 0 && (
         <div className="steel-card p-3 border-yellow-500/30 bg-yellow-500/5 flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2 text-sm">
+          <button
+            type="button"
+            onClick={() => { setActiveTab('logs'); setLogsAutoPausedOnly(true); }}
+            className="flex items-center gap-2 text-sm text-left hover:underline underline-offset-2"
+            title="View these auto-paused work log entries"
+          >
             <AlertTriangle className="w-4 h-4 text-yellow-600" />
             <span>{autoPausedLogs.length} punch{autoPausedLogs.length > 1 ? 'es' : ''} auto-paused at shift end for this piece.</span>
-          </div>
+          </button>
           <Button size="sm" variant="outline" className="gap-2" onClick={() => resumeWork(autoPausedLogs[0])}>
             <PlayCircle className="w-4 h-4" />Resume Work
           </Button>
@@ -641,17 +648,23 @@ export default function ShopFabrication() {
         </div>
       </div>
 
-      <Tabs defaultValue="logs">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-3">
           <TabsTrigger value="logs">Work Logs</TabsTrigger>
           <TabsTrigger value="qa">QA Queue</TabsTrigger>
           <TabsTrigger value="pieces">Pieces</TabsTrigger>
         </TabsList>
         <TabsContent value="logs" className="space-y-3">
-          {pieceLogs.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-4">No work logs for this piece yet.</p>
-          ) : pieceLogs.map((entry) => (
-            <div key={entry.id} className="steel-card p-3 text-sm">
+          {logsAutoPausedOnly && (
+            <div className="flex items-center justify-between rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-xs">
+              <span className="flex items-center gap-1.5 text-yellow-700"><AlertTriangle className="w-3.5 h-3.5" />Showing only shift-end auto-paused entries</span>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setLogsAutoPausedOnly(false)}>Clear filter</Button>
+            </div>
+          )}
+          {(logsAutoPausedOnly ? pieceLogs.filter((entry) => entry.auto_paused) : pieceLogs).length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">{logsAutoPausedOnly ? 'No auto-paused entries for this piece.' : 'No work logs for this piece yet.'}</p>
+          ) : (logsAutoPausedOnly ? pieceLogs.filter((entry) => entry.auto_paused) : pieceLogs).map((entry) => (
+            <div key={entry.id} className={`steel-card p-3 text-sm ${entry.auto_paused ? 'border-yellow-500/40 bg-yellow-500/5' : ''}`}>
               <div className="flex items-center justify-between">
                 <span className="font-medium">{stationName(entry.station_id)}</span>
                 <span className="text-muted-foreground">{entry.status}{entry.auto_paused ? ' (shift-end fail-safe)' : ''}</span>

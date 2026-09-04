@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { CalendarClock, ChevronLeft, ChevronRight, ShieldAlert, Clock, Users, TrendingUp, FolderKanban, Wrench } from 'lucide-react';
@@ -74,6 +74,8 @@ export default function PayrollHours() {
   const [anchorDate, setAnchorDate] = useState(todayStr());
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
+  const gridTableRef = useRef(null);
+  const scrollToGrid = () => gridTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const [showOtSeparately, setShowOtSeparately] = useState(false);
 
   const [selectedCell, setSelectedCell] = useState(null); // { employee, dayIdx }
@@ -315,34 +317,34 @@ export default function PayrollHours() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="steel-card p-4">
+        <button type="button" onClick={scrollToGrid} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
           <div className="flex items-center gap-2 mb-1"><Clock className="w-4 h-4 text-blue-500" /><p className="text-xs text-muted-foreground">Total Hours This Week</p></div>
           <p className="text-2xl font-bold text-blue-500">{summary.totalHours.toFixed(1)}</p>
-        </div>
-        <div className="steel-card p-4">
+        </button>
+        <button type="button" onClick={scrollToGrid} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
           <div className="flex items-center gap-2 mb-1"><TrendingUp className="w-4 h-4 text-amber-500" /><p className="text-xs text-muted-foreground">Total OT Hours</p></div>
           <p className="text-2xl font-bold text-amber-500">{summary.otHours.toFixed(1)}</p>
-        </div>
-        <div className="steel-card p-4">
+        </button>
+        <button type="button" onClick={scrollToGrid} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
           <div className="flex items-center gap-2 mb-1"><Users className="w-4 h-4 text-green-500" /><p className="text-xs text-muted-foreground">Employees With Hours</p></div>
           <p className="text-2xl font-bold text-green-500">{summary.employeesWithHours}</p>
-        </div>
+        </button>
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 mb-2"><FolderKanban className="w-4 h-4 text-primary" /><p className="text-xs text-muted-foreground">Top Projects (Labor Hours)</p></div>
           <div className="space-y-1">
             {summary.topProjects.length === 0 ? (
               <p className="text-xs text-muted-foreground">No project-tagged hours.</p>
             ) : summary.topProjects.map(({ projectId, hours }) => (
-              <div key={projectId} className="flex items-center justify-between text-xs">
+              <button type="button" key={projectId} onClick={() => { setProjectFilter(projectId); scrollToGrid(); }} className="w-full flex items-center justify-between text-xs rounded px-1 -mx-1 hover:bg-muted/50">
                 <span className="text-muted-foreground truncate" title={projectsById[projectId]?.name || projectId}>{projectsById[projectId]?.name || projectId}</span>
                 <span className="font-mono font-semibold">{hours.toFixed(1)}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="steel-card overflow-x-auto">
+      <div ref={gridTableRef} className="steel-card overflow-x-auto">
         <table className="w-full text-sm min-w-[900px]">
           <thead>
             <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">

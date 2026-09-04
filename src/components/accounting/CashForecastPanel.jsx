@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, TrendingUp } from 'lucide-react';
 import { computeAccountBalance } from '@/lib/cashBalance';
+import LedgerDrilldownModal from '@/components/accounting/LedgerDrilldownModal';
 
 const BUCKET_COUNT = 13; // ~90 days in weekly buckets (13 * 7 = 91)
 const RECEIVABLE_STATUSES = ['Approved', 'Released'];
@@ -63,7 +65,9 @@ function generateOccurrences(item, windowStartIso, windowEndIso) {
 // every load so it's always consistent with the ledger.
 export default function CashForecastPanel() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [bucketDrilldown, setBucketDrilldown] = useState(null);
   const [startingBalance, setStartingBalance] = useState(0);
   const [linkedTransactions, setLinkedTransactions] = useState([]);
   const [vendorBills, setVendorBills] = useState([]);
@@ -104,6 +108,7 @@ export default function CashForecastPanel() {
 
   const buckets = useMemo(() => {
     const netChange = Array(BUCKET_COUNT).fill(0);
+    const items = Array.from({ length: BUCKET_COUNT }, () => []);
 
     const paidBillIds = new Set(
       linkedTransactions.filter((t) => t.linked_entity_type === 'VendorBill').map((t) => t.linked_entity_id)
@@ -111,7 +116,14 @@ export default function CashForecastPanel() {
     vendorBills.forEach((bill) => {
       if (paidBillIds.has(bill.id)) return;
       const idx = bucketIndexForDate(bill.due_date, todayIso);
-      if (idx >= 0) netChange[idx] -= Number(bill.gross_amount) || 0;
+      if (idx >= 0) {
+        const amount = -(Number(bill.gross_amount) || 0);
+        netChange[idx] += amount;
+        items[idx].push({
+          id: bill.id, transaction_date: bill.due_date, cost_code: 'Vendor Bill', cost_class: '',
+          source_type: 'vendor_bill', amount, description: `Bill ${bill.invoice_number || bill.id}`,
+        });
+      }
     });
 
     const receivedInvoiceIds = new Set(
@@ -120,7 +132,14 @@ export default function CashForecastPanel() {
     invoiceReceivables.forEach((inv) => {
       if (receivedInvoiceIds.has(inv.id)) return;
       const idx = bucketIndexForDate(inv.expected_payment_date, todayIso);
-      if (idx >= 0) netChange[idx] += Number(inv.net_billing) || 0;
+      if (idx >= 0) {
+        const amount = Number(inv.net_billing) || 0;
+        netChange[idx] += amount;
+        items[idx].push({
+          id: inv.id, transaction_date: inv.expected_payment_date, cost_code: 'AR Invoice', cost_class: '',
+          source_type: 'invoice', amount, description: inv.billing_period || inv.id,
+        });
+      }
     });
 
     const windowEndIso = addDaysIso(todayIso, BUCKET_COUNT * 7);
@@ -128,14 +147,21 @@ export default function CashForecastPanel() {
       const sign = item.direction === 'Inflow' ? 1 : -1;
       generateOccurrences(item, todayIso, windowEndIso).forEach((occIso) => {
         const idx = bucketIndexForDate(occIso, todayIso);
-        if (idx >= 0) netChange[idx] += sign * (Number(item.amount) || 0);
+        if (idx >= 0) {
+          const amount = sign * (Number(item.amount) || 0);
+          netChange[idx] += amount;
+          items[idx].push({
+            id: `${item.id}-${occIso}`, transaction_date: occIso, cost_code: 'Recurring', cost_class: '',
+            source_type: 'recurring_cash_item', amount, description: item.description || item.name || item.id,
+          });
+        }
       });
     });
 
     let running = startingBalance;
     return netChange.map((change, i) => {
       running += change;
-      return { bucketEndDate: addDaysIso(todayIso, (i + 1) * 7), netChange: change, runningBalance: running };
+      return { bucketEndDate: addDaysIso(todayIso, (i + 1) * 7), netChange: change, runningBalance: running, items: items[i] };
     });
   }, [vendorBills, invoiceReceivables, recurringItems, linkedTransactions, startingBalance, todayIso]);
 
@@ -148,16 +174,20 @@ export default function CashForecastPanel() {
       <div className="steel-card p-6">
         <h3 className="font-semibold mb-3 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" />90-Day Cash Forecast</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <div>
+          <button type="button" onClick={() => navigate('/accounting?tab=cash')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
             <p className="text-xs text-muted-foreground">Starting Balance (all active accounts)</p>
             <p className="font-mono font-bold text-lg">{fmtMoney(startingBalance)}</p>
-          </div>
-          <div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setBucketDrilldown({ bucketEndDate: '90-day window', items: buckets.flatMap((b) => b.items) })}
+            className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors"
+          >
             <p className="text-xs text-muted-foreground">Projected Balance in 90 Days</p>
             <p className={`font-mono font-bold text-lg ${buckets[buckets.length - 1]?.runningBalance < 0 ? 'text-red-500' : ''}`}>
               {fmtMoney(buckets[buckets.length - 1]?.runningBalance)}
             </p>
-          </div>
+          </button>
           {willGoNegative && (
             <div>
               <p className="text-xs text-red-500 font-medium">⚠ Projected shortfall — balance goes negative in at least one week below.</p>
@@ -185,7 +215,7 @@ export default function CashForecastPanel() {
             </thead>
             <tbody>
               {buckets.map((b) => (
-                <tr key={b.bucketEndDate} className="border-b border-border/50 hover:bg-muted/50">
+                <tr key={b.bucketEndDate} onClick={() => setBucketDrilldown(b)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
                   <td className="py-3 px-4 text-xs">{b.bucketEndDate}</td>
                   <td className={`py-3 px-4 text-right font-mono ${b.netChange < 0 ? 'text-red-500' : 'text-green-500'}`}>{fmtMoney(b.netChange)}</td>
                   <td className={`py-3 px-4 text-right font-mono font-bold ${b.runningBalance < 0 ? 'text-red-500' : ''}`}>{fmtMoney(b.runningBalance)}</td>
@@ -195,6 +225,14 @@ export default function CashForecastPanel() {
           </table>
         </div>
       </div>
+
+      <LedgerDrilldownModal
+        open={!!bucketDrilldown}
+        onOpenChange={(open) => !open && setBucketDrilldown(null)}
+        title={`Week Ending ${bucketDrilldown?.bucketEndDate || ''}`}
+        entries={bucketDrilldown?.items || []}
+        emptyMessage="No specific bills, invoices, or recurring items land in this week."
+      />
     </div>
   );
 }

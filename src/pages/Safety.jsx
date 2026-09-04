@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { ShieldCheck, AlertTriangle, HardHat, FileWarning, CheckCircle2, ClipboardList } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
@@ -19,11 +20,15 @@ const SAFETY_ITEMS = [
 
 export default function Safety() {
   useDocumentTitle('SteelOS — Safety');
+  const navigate = useNavigate();
   const [findings, setFindings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [activeTab, setActiveTab] = useState('meetings');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState(null);
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => {
@@ -44,6 +49,21 @@ export default function Safety() {
 
   const critical = findings.filter(f => f.risk_level === 'critical' || f.status === 'fail');
   const warnings = findings.filter(f => f.status === 'warning');
+  const resolved = findings.filter(f => f.is_resolved);
+
+  const filtered = findings.filter(f => {
+    if (statusFilter === 'critical' && !(f.risk_level === 'critical' || f.status === 'fail')) return false;
+    if (statusFilter === 'warning' && f.status !== 'warning') return false;
+    if (statusFilter === 'resolved' && !f.is_resolved) return false;
+    if (categoryFilter && !f.title?.toLowerCase().includes(categoryFilter.split(' ')[0].toLowerCase())) return false;
+    return true;
+  });
+
+  const jumpToFindings = (status, category) => {
+    setStatusFilter(status || 'all');
+    setCategoryFilter(category || null);
+    setActiveTab('findings');
+  };
 
   const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
   const showModule = moduleAllowed || isPlatformOperatorView;
@@ -62,19 +82,19 @@ export default function Safety() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Total Safety Flags', value: findings.length, icon: ShieldCheck, color: 'text-blue-500' },
-          { label: 'Critical Issues', value: critical.length, icon: FileWarning, color: 'text-red-500' },
-          { label: 'Warnings', value: warnings.length, icon: AlertTriangle, color: 'text-yellow-500' },
-          { label: 'Resolved', value: findings.filter(f => f.is_resolved).length, icon: CheckCircle2, color: 'text-green-500' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Total Safety Flags', value: findings.length, icon: ShieldCheck, color: 'text-blue-500', status: 'all' },
+          { label: 'Critical Issues', value: critical.length, icon: FileWarning, color: 'text-red-500', status: 'critical' },
+          { label: 'Warnings', value: warnings.length, icon: AlertTriangle, color: 'text-yellow-500', status: 'warning' },
+          { label: 'Resolved', value: resolved.length, icon: CheckCircle2, color: 'text-green-500', status: 'resolved' },
+        ].map(({ label, value, icon: Icon, color, status }) => (
+          <button key={label} onClick={() => jumpToFindings(status)} className="steel-card p-4 text-left hover:bg-muted/40 transition-colors">
             <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      <Tabs defaultValue="meetings">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="meetings" className="gap-1.5"><ClipboardList className="w-3.5 h-3.5" />Safety Meetings</TabsTrigger>
           <TabsTrigger value="findings">AI Safety Findings</TabsTrigger>
@@ -86,20 +106,34 @@ export default function Safety() {
         </TabsContent>
 
         <TabsContent value="findings">
+          {(statusFilter !== 'all' || categoryFilter) && (
+            <div className="mb-4">
+              <button
+                onClick={() => { setStatusFilter('all'); setCategoryFilter(null); }}
+                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20"
+              >
+                Filtered: {categoryFilter || statusFilter} — clear
+              </button>
+            </div>
+          )}
           {loading ? (
             <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />)}</div>
-          ) : findings.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="text-center py-16 steel-card">
               <HardHat className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
               <p className="text-sm text-muted-foreground">No safety findings yet. Upload project documents to generate safety analysis.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {findings.map(f => (
-                <div key={f.id} className={`steel-card p-4 border-l-4 ${
-                  f.status === 'fail' || f.risk_level === 'critical' ? 'border-l-red-500' :
-                  f.status === 'warning' ? 'border-l-yellow-500' : 'border-l-blue-500'
-                }`}>
+              {filtered.map(f => (
+                <div
+                  key={f.id}
+                  onClick={() => f.project_id && navigate(`/projects/${f.project_id}`)}
+                  className={`steel-card p-4 border-l-4 ${f.project_id ? 'cursor-pointer hover:bg-muted/40 transition-colors' : ''} ${
+                    f.status === 'fail' || f.risk_level === 'critical' ? 'border-l-red-500' :
+                    f.status === 'warning' ? 'border-l-yellow-500' : 'border-l-blue-500'
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
@@ -124,7 +158,11 @@ export default function Safety() {
               {SAFETY_ITEMS.map(item => {
                 const matched = findings.find(f => f.title?.toLowerCase().includes(item.split(' ')[0].toLowerCase()));
                 return (
-                  <div key={item} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors">
+                  <button
+                    key={item}
+                    onClick={() => jumpToFindings(null, item)}
+                    className="w-full flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-left"
+                  >
                     <div className="flex items-center gap-3">
                       <ShieldCheck className={`w-4 h-4 ${matched ? 'text-orange-500' : 'text-muted-foreground'}`} />
                       <span className="text-sm">{item}</span>
@@ -133,7 +171,7 @@ export default function Safety() {
                       ? <StatusBadge status={matched.status} />
                       : <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">Not Reviewed</span>
                     }
-                  </div>
+                  </button>
                 );
               })}
             </div>

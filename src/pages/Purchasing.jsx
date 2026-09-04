@@ -64,6 +64,7 @@ export default function Purchasing() {
   const [currentUser, setCurrentUser] = useState(null);
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [activeTab, setActiveTab] = useState('reorder');
 
   useEffect(() => {
     const checkAccess = async () => {
@@ -412,19 +413,24 @@ export default function Purchasing() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Total SKUs', value: inventory.length, icon: Package, color: 'text-blue-500' },
-          { label: 'Low Stock Alerts', value: lowStock.length, icon: AlertTriangle, color: 'text-orange-500' },
-          { label: 'AI Purchasing Flags', value: findings.length, icon: TrendingDown, color: 'text-purple-500' },
-          { label: 'Inventory Value', value: `$${(totalValue/1000).toFixed(0)}K`, icon: ShoppingCart, color: 'text-green-500' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Total SKUs', value: inventory.length, icon: Package, color: 'text-blue-500', tab: 'all' },
+          { label: 'Low Stock Alerts', value: lowStock.length, icon: AlertTriangle, color: 'text-orange-500', tab: 'reorder' },
+          { label: 'AI Purchasing Flags', value: findings.length, icon: TrendingDown, color: 'text-purple-500', tab: 'ai' },
+          { label: 'Inventory Value', value: `$${(totalValue/1000).toFixed(0)}K`, icon: ShoppingCart, color: 'text-green-500', tab: 'all' },
+        ].map(({ label, value, icon: Icon, color, tab }) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow cursor-pointer"
+          >
             <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      <Tabs defaultValue="reorder">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="reorder">Reorder Alerts ({lowStock.length})</TabsTrigger>
           <TabsTrigger value="ai">AI Purchasing Flags ({findings.length})</TabsTrigger>

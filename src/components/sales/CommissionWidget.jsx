@@ -5,15 +5,30 @@ import { getSalesmanCommissionSummary } from '@/lib/commissionEngine';
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
 
+// Which byProject row a tile's filter matches. A project can be earned AND
+// have a pending balance simultaneously, so "thisMonthEarned"/"thisMonthPending"
+// aren't mutually exclusive — both check the relevant amount is > 0.
+const TILE_FILTERS = {
+  thisMonthEarned: (row) => (Number(row.commissionPaid) || 0) > 0,
+  thisMonthPending: (row) => (Number(row.commissionPending) || 0) > 0,
+  ytdPaid: (row) => (Number(row.commissionPaid) || 0) > 0,
+};
+
 export default function CommissionWidget({ salesmanId }) {
   const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeTile, setActiveTile] = useState(null);
 
   useEffect(() => {
     setLoading(true);
     getSalesmanCommissionSummary(salesmanId).then(setSummary).catch(() => setSummary(null)).finally(() => setLoading(false));
   }, [salesmanId]);
+
+  const toggleTile = (tile) => setActiveTile((prev) => (prev === tile ? null : tile));
+
+  const allRows = summary?.byProject || [];
+  const visibleRows = activeTile ? allRows.filter(TILE_FILTERS[activeTile]) : allRows;
 
   return (
     <div className="steel-card p-4">
@@ -27,19 +42,40 @@ export default function CommissionWidget({ salesmanId }) {
       ) : (
         <>
           <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="border border-border rounded-lg p-3">
+            <button
+              type="button"
+              onClick={() => toggleTile('thisMonthEarned')}
+              className={`border rounded-lg p-3 text-left transition-colors ${activeTile === 'thisMonthEarned' ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/30'}`}
+            >
               <p className="text-xs text-muted-foreground">This Month's Commission</p>
               <p className="text-xl font-bold mt-1">{money(summary?.thisMonthEarned)}</p>
-            </div>
-            <div className="border border-border rounded-lg p-3">
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleTile('thisMonthPending')}
+              className={`border rounded-lg p-3 text-left transition-colors ${activeTile === 'thisMonthPending' ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/30'}`}
+            >
               <p className="text-xs text-muted-foreground">This Month Pending</p>
               <p className="text-xl font-bold mt-1">{money(summary?.thisMonthPending)}</p>
-            </div>
-            <div className="border border-border rounded-lg p-3">
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleTile('ytdPaid')}
+              className={`border rounded-lg p-3 text-left transition-colors ${activeTile === 'ytdPaid' ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/30'}`}
+            >
               <p className="text-xs text-muted-foreground">Year-to-Date</p>
               <p className="text-xl font-bold mt-1">{money(summary?.ytdPaid)}</p>
-            </div>
+            </button>
           </div>
+
+          {activeTile && (
+            <div className="flex items-center gap-2 mb-2 text-xs">
+              <span className="px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
+                Filtered to projects matching {activeTile === 'thisMonthEarned' ? "This Month's Commission" : activeTile === 'thisMonthPending' ? 'This Month Pending' : 'Year-to-Date'}
+              </span>
+              <button type="button" className="text-muted-foreground hover:underline" onClick={() => setActiveTile(null)}>Clear</button>
+            </div>
+          )}
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -55,9 +91,9 @@ export default function CommissionWidget({ salesmanId }) {
                 </tr>
               </thead>
               <tbody>
-                {(summary?.byProject || []).length === 0 ? (
-                  <tr><td colSpan={7} className="py-6 text-center text-muted-foreground">No commission activity yet.</td></tr>
-                ) : summary.byProject.map((row) => (
+                {visibleRows.length === 0 ? (
+                  <tr><td colSpan={7} className="py-6 text-center text-muted-foreground">{activeTile ? 'No projects match this filter.' : 'No commission activity yet.'}</td></tr>
+                ) : visibleRows.map((row) => (
                   <tr key={row.projectId} className="border-b border-border/50 hover:bg-muted/30">
                     <td className="py-1.5 pr-3">
                       <button type="button" className="font-medium hover:underline text-left" onClick={() => navigate(`/projects/${row.projectId}`)}>{row.projectName}</button>

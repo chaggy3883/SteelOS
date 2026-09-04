@@ -38,6 +38,7 @@ export default function ChangeOrders() {
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [selectedCo, setSelectedCo] = useState(null);
+  const [coReceivedOnly, setCoReceivedOnly] = useState(false);
   const [editingCo, setEditingCo] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [savingEdit, setSavingEdit] = useState(false);
@@ -276,13 +277,27 @@ export default function ChangeOrders() {
             <div className="steel-card p-5 space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-sm">Change Orders — {selectedProject.name}</h3>
-                <span className="text-xs text-muted-foreground">{changeOrders.length} logged · {changeOrders.filter((co) => co.received_from_customer).length} received from customer · Revised Value ${Number(selectedProject.contract_value || 0).toLocaleString()}</span>
+                <span className="text-xs text-muted-foreground">
+                  {changeOrders.length} logged ·{' '}
+                  <button type="button" className="hover:underline" onClick={() => setCoReceivedOnly((v) => !v)}>
+                    {changeOrders.filter((co) => co.received_from_customer).length} received from customer
+                  </button>
+                  {' '}· Revised Value ${Number(selectedProject.contract_value || 0).toLocaleString()}
+                </span>
               </div>
+              {coReceivedOnly && (
+                <div className="flex items-center justify-between text-xs bg-primary/10 text-primary rounded-lg px-2.5 py-1.5">
+                  <span>Showing only change orders received from customer</span>
+                  <button type="button" className="hover:underline" onClick={() => setCoReceivedOnly(false)}>Clear filter</button>
+                </div>
+              )}
               {changeOrders.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">No change orders logged for this project yet.</p>
+              ) : (coReceivedOnly ? changeOrders.filter((co) => co.received_from_customer) : changeOrders).length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No change orders received from customer.</p>
               ) : (
                 <div className="space-y-2">
-                  {changeOrders.map((co) => (
+                  {(coReceivedOnly ? changeOrders.filter((co) => co.received_from_customer) : changeOrders).map((co) => (
                     <div
                       key={co.id}
                       onClick={() => { setSelectedCo(co); setEditingCo(false); }}

@@ -191,9 +191,17 @@ export default function CashManagementPanel() {
   const statementBalance = statementBalanceInput === '' ? null : Number(statementBalanceInput) || 0;
   const reconciliationDifference = statementBalance == null ? null : statementBalance - reconciledBalance;
 
+  // null = show all, true = reconciled only (behind "Reconciled Balance"),
+  // false = unreconciled only (behind "Difference") — reset whenever the
+  // selected account changes so a filter doesn't silently carry over.
+  const [reconciledFilter, setReconciledFilter] = useState(null);
+  useEffect(() => { setReconciledFilter(null); }, [selectedAccount?.id]);
+
   const transactionsSortedDesc = useMemo(
-    () => [...transactions].sort((a, b) => (b.transaction_date || '').localeCompare(a.transaction_date || '')),
-    [transactions]
+    () => [...transactions]
+      .filter((t) => reconciledFilter === null || !!t.reconciled === reconciledFilter)
+      .sort((a, b) => (b.transaction_date || '').localeCompare(a.transaction_date || '')),
+    [transactions, reconciledFilter]
   );
 
   const handleAddAccount = async () => {
@@ -426,20 +434,20 @@ export default function CashManagementPanel() {
                   placeholder="From your bank statement"
                 />
               </div>
-              <div>
+              <button type="button" onClick={() => setReconciledFilter(null)} className={`text-left rounded p-1 -m-1 hover:bg-muted/50 transition-colors ${reconciledFilter === null ? 'ring-1 ring-primary/40' : ''}`}>
                 <p className="text-xs text-muted-foreground">Current Balance</p>
                 <p className="font-mono font-bold text-lg">{fmtMoney(currentBalance)}</p>
-              </div>
-              <div>
+              </button>
+              <button type="button" onClick={() => setReconciledFilter(true)} className={`text-left rounded p-1 -m-1 hover:bg-muted/50 transition-colors ${reconciledFilter === true ? 'ring-1 ring-primary/40' : ''}`}>
                 <p className="text-xs text-muted-foreground">Reconciled Balance</p>
                 <p className="font-mono font-bold text-lg">{fmtMoney(reconciledBalance)}</p>
-              </div>
-              <div>
+              </button>
+              <button type="button" onClick={() => setReconciledFilter(false)} className={`text-left rounded p-1 -m-1 hover:bg-muted/50 transition-colors ${reconciledFilter === false ? 'ring-1 ring-primary/40' : ''}`}>
                 <p className="text-xs text-muted-foreground">Difference</p>
                 <p className={`font-mono font-bold text-lg ${reconciliationDifference == null ? '' : Math.abs(reconciliationDifference) < 0.005 ? 'text-green-500' : 'text-red-500'}`}>
                   {reconciliationDifference == null ? '—' : fmtMoney(reconciliationDifference)}
                 </p>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -537,8 +545,14 @@ export default function CashManagementPanel() {
           </div>
 
           <div className="steel-card overflow-hidden">
-            <div className="p-4 border-b border-border">
-              <h3 className="font-semibold">Transactions — {transactionsSortedDesc.length}</h3>
+            <div className="p-4 border-b border-border flex items-center justify-between gap-2">
+              <h3 className="font-semibold">
+                Transactions — {transactionsSortedDesc.length}
+                {reconciledFilter !== null && <span className="text-xs font-normal text-muted-foreground"> ({reconciledFilter ? 'reconciled only' : 'unreconciled only'})</span>}
+              </h3>
+              {reconciledFilter !== null && (
+                <button type="button" onClick={() => setReconciledFilter(null)} className="text-xs text-primary hover:underline flex-shrink-0">Clear filter</button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

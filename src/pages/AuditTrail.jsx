@@ -103,6 +103,8 @@ export default function AuditTrail() {
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   }, [logs]);
 
+  const [payrollOnlyFilter, setPayrollOnlyFilter] = useState(false);
+
   const filtered = useMemo(() => {
     return logs.filter((log) => {
       if (dateFrom && log.created_date < dateFrom) return false;
@@ -111,15 +113,16 @@ export default function AuditTrail() {
       if (userFilter !== 'all' && log.user_id !== userFilter) return false;
       if (actionFilter !== 'all' && log.action !== actionFilter) return false;
       if (entityIdSearch && !String(log.entity_id || '').toLowerCase().includes(entityIdSearch.toLowerCase())) return false;
+      if (payrollOnlyFilter && !PAYROLL_ENTITY_TYPES.has(log.entity_type)) return false;
       return true;
     });
-  }, [logs, dateFrom, dateTo, entityTypeFilter, userFilter, actionFilter, entityIdSearch]);
+  }, [logs, dateFrom, dateTo, entityTypeFilter, userFilter, actionFilter, entityIdSearch, payrollOnlyFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageLogs = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const resetFilters = () => {
-    setDateFrom(''); setDateTo(''); setEntityTypeFilter('all'); setUserFilter('all'); setActionFilter('all'); setEntityIdSearch(''); setPage(0);
+    setDateFrom(''); setDateTo(''); setEntityTypeFilter('all'); setUserFilter('all'); setActionFilter('all'); setEntityIdSearch(''); setPayrollOnlyFilter(false); setPage(0);
   };
 
   const applyDrilldown = (patch) => {
@@ -129,6 +132,9 @@ export default function AuditTrail() {
       if (key === 'userId') setUserFilter(value);
       if (key === 'entityId') setEntityIdSearch(value);
       if (key === 'action') setActionFilter(value);
+      if (key === 'dateFrom') setDateFrom(value);
+      if (key === 'dateTo') setDateTo(value);
+      if (key === 'payrollOnly') setPayrollOnlyFilter(value);
     });
   };
 
@@ -268,12 +274,16 @@ export default function AuditTrail() {
         <div className="steel-card p-3">
           <p className="text-xs font-semibold text-muted-foreground mb-2">Payroll Changes This Cycle</p>
           {payrollChangesThisCycle ? (
-            <div>
+            <button
+              type="button"
+              onClick={() => applyDrilldown({ dateFrom: payrollChangesThisCycle.period.period_start, dateTo: payrollChangesThisCycle.period.period_end, payrollOnly: true })}
+              className="text-left hover:underline"
+            >
               <span className="text-2xl font-bold">{payrollChangesThisCycle.count}</span>
               <p className="text-[10px] text-muted-foreground mt-0.5">
                 {payrollChangesThisCycle.period.period_start} → {payrollChangesThisCycle.period.period_end} ({payrollChangesThisCycle.period.status})
               </p>
-            </div>
+            </button>
           ) : <p className="text-xs text-muted-foreground">No open or processing pay period on file.</p>}
         </div>
       </div>

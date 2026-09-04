@@ -38,6 +38,9 @@ export default function EstimatingAnalytics() {
   const [loading, setLoading] = useState(true);
   const [shopHoursProjectId, setShopHoursProjectId] = useState('all');
   const shopHoursCardRef = useRef(null);
+  const adjusterAlertsRef = useRef(null);
+  const winLossRef = useRef(null);
+  const scrollToRef = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   useEffect(() => { loadData(); }, []);
 
@@ -147,15 +150,15 @@ export default function EstimatingAnalytics() {
       {/* Top KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Completed Projects (EVA)', value: variances.length, icon: BarChart3, color: 'text-blue-500' },
-          { label: 'Active Adjuster Alerts', value: adjusterAlerts.length, icon: AlertTriangle, color: 'text-red-500' },
-          { label: 'Avg Win Rate', value: decided.length > 0 ? `${Math.round(wonBids.length / decided.length * 100)}%` : '—', icon: Target, color: 'text-green-500' },
-          { label: 'Bids Decided', value: decided.length, icon: Percent, color: 'text-purple-500' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Completed Projects (EVA)', value: variances.length, icon: BarChart3, color: 'text-blue-500', onClick: () => scrollToRef(shopHoursCardRef) },
+          { label: 'Active Adjuster Alerts', value: adjusterAlerts.length, icon: AlertTriangle, color: 'text-red-500', onClick: () => scrollToRef(adjusterAlertsRef) },
+          { label: 'Avg Win Rate', value: decided.length > 0 ? `${Math.round(wonBids.length / decided.length * 100)}%` : '—', icon: Target, color: 'text-green-500', onClick: () => scrollToRef(winLossRef) },
+          { label: 'Bids Decided', value: decided.length, icon: Percent, color: 'text-purple-500', onClick: () => scrollToRef(winLossRef) },
+        ].map(({ label, value, icon: Icon, color, onClick }) => (
+          <button type="button" key={label} onClick={onClick} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
             <div className="flex items-center gap-2 mb-1"><Icon className={`w-4 h-4 ${color}`} /><p className="text-xs text-muted-foreground">{label}</p></div>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -182,7 +185,7 @@ export default function EstimatingAnalytics() {
 
       {/* Smart Adjuster Alerts */}
       {adjusterAlerts.length > 0 && (
-        <div className="steel-card p-5 mb-6 border-red-500/20">
+        <div ref={adjusterAlertsRef} className="steel-card p-5 mb-6 border-red-500/20">
           <h3 className="font-semibold mb-3 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-red-500" />Smart Estimating Adjuster — Active Alerts</h3>
           <div className="space-y-2">
             {adjusterAlerts.map(v => (
@@ -240,7 +243,7 @@ export default function EstimatingAnalytics() {
       </div>
 
       {/* Win/Loss Post-Mortem Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div ref={winLossRef} className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Win Rate by GC */}
         <div className="steel-card p-5">
           <h3 className="font-semibold mb-4 flex items-center gap-2"><Target className="w-4 h-4 text-blue-500" />Win Rate by General Contractor</h3>

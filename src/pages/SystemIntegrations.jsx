@@ -13,6 +13,7 @@ export default function SystemIntegrations() {
   const [logs, setLogs] = useState([]);
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('console');
 
   const loadData = useCallback(async () => {
     try {
@@ -42,7 +43,7 @@ export default function SystemIntegrations() {
       {loading ? (
         <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">Loading integrations…</div>
       ) : (
-        <Tabs defaultValue="console">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="console"><Webhook className="w-3.5 h-3.5 mr-1.5" />Webhook Console</TabsTrigger>
             <TabsTrigger value="metrics">Performance Metrics</TabsTrigger>
@@ -54,7 +55,7 @@ export default function SystemIntegrations() {
           </TabsContent>
 
           <TabsContent value="metrics" className="mt-4">
-            <MetricsGrid logs={logs} />
+            <MetricsGrid logs={logs} onViewLogs={() => setActiveTab('console')} />
           </TabsContent>
 
           <TabsContent value="vault" className="mt-4">

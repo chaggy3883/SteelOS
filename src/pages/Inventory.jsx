@@ -29,6 +29,8 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('list');
+  const [stockFilter, setStockFilter] = useState(null);
+  const [zoneFilter, setZoneFilter] = useState(null);
   const [showAddItem, setShowAddItem] = useState(false);
   const [itemForm, setItemForm] = useState(emptyItemForm());
   const [savingItem, setSavingItem] = useState(false);
@@ -97,10 +99,12 @@ export default function Inventory() {
   };
 
   const filtered = items.filter(i =>
-    !search ||
-    i.description?.toLowerCase().includes(search.toLowerCase()) ||
-    i.item_number?.toLowerCase().includes(search.toLowerCase()) ||
-    i.material_grade?.toLowerCase().includes(search.toLowerCase())
+    (!search ||
+      i.description?.toLowerCase().includes(search.toLowerCase()) ||
+      i.item_number?.toLowerCase().includes(search.toLowerCase()) ||
+      i.material_grade?.toLowerCase().includes(search.toLowerCase())) &&
+    (!stockFilter || (i.reorder_point && i.quantity_available <= i.reorder_point)) &&
+    (!zoneFilter || i.warehouse_zone === zoneFilter)
   );
 
   const lowStock = items.filter(i => i.reorder_point && i.quantity_available <= i.reorder_point);
@@ -134,26 +138,30 @@ export default function Inventory() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Total SKUs', value: items.length, color: 'text-blue-500' },
-          { label: 'Low Stock Alerts', value: lowStock.length, color: lowStock.length > 0 ? 'text-red-500' : 'text-green-500' },
-          { label: 'Inventory Value', value: `$${(totalValue/1000).toFixed(0)}K`, color: 'text-green-500' },
-          { label: 'Zones', value: [...new Set(items.map(i=>i.warehouse_zone).filter(Boolean))].length || 0, color: 'text-purple-500' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="steel-card p-4">
+          { label: 'Total SKUs', value: items.length, color: 'text-blue-500', onClick: () => { setStockFilter(null); setZoneFilter(null); setActiveTab('list'); } },
+          { label: 'Low Stock Alerts', value: lowStock.length, color: lowStock.length > 0 ? 'text-red-500' : 'text-green-500', onClick: () => { setStockFilter('low'); setZoneFilter(null); setActiveTab('list'); } },
+          { label: 'Inventory Value', value: `$${(totalValue/1000).toFixed(0)}K`, color: 'text-green-500', onClick: () => { setStockFilter(null); setZoneFilter(null); setActiveTab('list'); } },
+          { label: 'Zones', value: [...new Set(items.map(i=>i.warehouse_zone).filter(Boolean))].length || 0, color: 'text-purple-500', onClick: () => setActiveTab('warehouse') },
+        ].map(({ label, value, color, onClick }) => (
+          <button type="button" key={label} onClick={onClick} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow">
             <p className="text-xs text-muted-foreground mb-1">{label}</p>
             <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
       {lowStock.length > 0 && (
-        <div className="flex items-center gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/20 mb-6">
+        <button
+          type="button"
+          onClick={() => { setStockFilter('low'); setZoneFilter(null); setActiveTab('list'); }}
+          className="w-full flex items-center gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/20 mb-6 text-left hover:bg-red-500/15 transition-colors"
+        >
           <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
             <p className="text-sm font-semibold text-red-500">{lowStock.length} items below reorder point</p>
             <p className="text-xs text-muted-foreground">{lowStock.map(i => i.description).slice(0,3).join(', ')}{lowStock.length > 3 ? ` +${lowStock.length - 3} more` : ''}</p>
           </div>
-        </div>
+        </button>
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -164,11 +172,19 @@ export default function Inventory() {
 
         <TabsContent value="list">
           <div className="steel-card">
-            <div className="p-4 border-b border-border">
+            <div className="p-4 border-b border-border space-y-2">
               <div className="relative max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input placeholder="Search materials..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
               </div>
+              {(stockFilter || zoneFilter) && (
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
+                    Filtered: {stockFilter === 'low' ? 'Low Stock' : ''}{stockFilter && zoneFilter ? ' + ' : ''}{zoneFilter ? `Zone ${zoneLabel(zoneFilter)}` : ''}
+                  </span>
+                  <button onClick={() => { setStockFilter(null); setZoneFilter(null); }} className="text-muted-foreground hover:underline">Clear</button>
+                </div>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -227,7 +243,7 @@ export default function Inventory() {
         </TabsContent>
 
         <TabsContent value="warehouse">
-          <Warehouse3D items={items} />
+          <Warehouse3D items={items} onViewZoneItems={(zoneId) => { setZoneFilter(zoneId); setStockFilter(null); setActiveTab('list'); }} />
         </TabsContent>
       </Tabs>
 

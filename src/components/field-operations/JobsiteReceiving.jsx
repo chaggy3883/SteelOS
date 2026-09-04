@@ -37,6 +37,7 @@ export default function JobsiteReceiving() {
   const [pieceMarks, setPieceMarks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [openPhases, setOpenPhases] = useState({});
+  const [typeFilterByPhase, setTypeFilterByPhase] = useState({});
   const [scanValues, setScanValues] = useState({});
   const [viewingPieceMark, setViewingPieceMark] = useState(null);
   const [viewingLoad, setViewingLoad] = useState(null);
@@ -300,7 +301,24 @@ export default function JobsiteReceiving() {
                       </div>
                       <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                         {ITEM_TYPES.filter((t) => group.byType[t]).map((t) => (
-                          <span key={t} className="text-[11px] text-muted-foreground">{t.replace(/_/g, ' ')}: <span className="font-medium text-foreground">{group.byType[t]}</span></span>
+                          <span
+                            key={t}
+                            role="button"
+                            tabIndex={0}
+                            title={`Filter this phase's list to ${t.replace(/_/g, ' ')}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenPhases((p) => ({ ...p, [group.phase]: true }));
+                              setTypeFilterByPhase((f) => ({ ...f, [group.phase]: f[group.phase] === t ? null : t }));
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setOpenPhases((p) => ({ ...p, [group.phase]: true })); setTypeFilterByPhase((f) => ({ ...f, [group.phase]: f[group.phase] === t ? null : t })); } }}
+                            className={cn(
+                              'text-[11px] text-muted-foreground rounded px-1 -mx-1 cursor-pointer hover:bg-muted/70 hover:text-foreground transition-colors',
+                              typeFilterByPhase[group.phase] === t && 'bg-primary/10 text-primary'
+                            )}
+                          >
+                            {t.replace(/_/g, ' ')}: <span className="font-medium text-foreground">{group.byType[t]}</span>
+                          </span>
                         ))}
                       </div>
                     </div>
@@ -336,8 +354,14 @@ export default function JobsiteReceiving() {
                       </div>
                     </div>
 
+                    {typeFilterByPhase[group.phase] && (
+                      <div className="flex items-center justify-between text-xs bg-primary/10 text-primary rounded-lg px-3 py-1.5">
+                        <span>Showing only {typeFilterByPhase[group.phase].replace(/_/g, ' ')} items</span>
+                        <button type="button" className="hover:underline" onClick={() => setTypeFilterByPhase((f) => ({ ...f, [group.phase]: null }))}>Clear filter</button>
+                      </div>
+                    )}
                     <div className="space-y-1.5">
-                      {group.rows.map((pm) => {
+                      {group.rows.filter((pm) => !typeFilterByPhase[group.phase] || (pm.item_type || 'Piece_Mark') === typeFilterByPhase[group.phase]).map((pm) => {
                         const linked = pieceByPieceMarkId.get(pm.id);
                         const isReceived = linked?.field_status === 'On_Site';
                         return (

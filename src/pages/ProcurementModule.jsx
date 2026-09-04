@@ -60,6 +60,8 @@ export default function ProcurementModule() {
   const [canInvoice, setCanInvoice] = useState(false);
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+  const [activeTab, setActiveTab] = useState('buyouts');
+  const [reqPendingOnly, setReqPendingOnly] = useState(false);
 
   useEffect(() => {
     getEffectiveCompany()
@@ -288,22 +290,22 @@ export default function ProcurementModule() {
       <PageHeader title="Purchasing & Procurement" subtitle="Mill buyouts, requisitions, receiving, and payable reconciliation" />
       <div className="grid gap-4 md:grid-cols-4">
         {[
-          { label: 'Buyout Budget', value: `$${stats.budgeted.toLocaleString()}`, icon: DollarSign },
-          { label: 'Actual Buyout', value: `$${stats.actual.toLocaleString()}`, icon: ClipboardCheck },
-          { label: 'Variance', value: `$${stats.variance.toLocaleString()}`, icon: AlertTriangle },
-          { label: 'Pending Approvals', value: stats.pendingApprovals, icon: FileText },
+          { label: 'Buyout Budget', value: `$${stats.budgeted.toLocaleString()}`, icon: DollarSign, onClick: () => setActiveTab('buyouts') },
+          { label: 'Actual Buyout', value: `$${stats.actual.toLocaleString()}`, icon: ClipboardCheck, onClick: () => setActiveTab('buyouts') },
+          { label: 'Variance', value: `$${stats.variance.toLocaleString()}`, icon: AlertTriangle, onClick: () => setActiveTab('buyouts') },
+          { label: 'Pending Approvals', value: stats.pendingApprovals, icon: FileText, onClick: () => { setActiveTab('requisitions'); setReqPendingOnly(true); } },
         ].map((item) => (
-          <div key={item.label} className="steel-card p-4">
+          <button key={item.label} type="button" onClick={item.onClick} className="steel-card p-4 text-left hover:ring-2 hover:ring-primary/40 transition-shadow cursor-pointer">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <item.icon className="w-4 h-4" />
               {item.label}
             </div>
             <p className="mt-2 text-xl font-semibold">{item.value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      <Tabs defaultValue="buyouts">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="buyouts">Mill Buyout Dashboard</TabsTrigger>
           <TabsTrigger value="requisitions">Project Requisitions</TabsTrigger>
@@ -431,8 +433,18 @@ export default function ProcurementModule() {
           </div>
           )}
 
+          {reqPendingOnly && (
+            <div className="steel-card p-3 flex items-center justify-between gap-3 bg-orange-500/10 border border-orange-500/20">
+              <p className="text-sm text-orange-700 dark:text-orange-400">Showing pending-approval requisitions only.</p>
+              <Button size="sm" variant="outline" onClick={() => setReqPendingOnly(false)}>Show All</Button>
+            </div>
+          )}
+
           <div className="space-y-3">
-            {requisitions.map((item) => (
+            {(reqPendingOnly
+              ? requisitions.filter((item) => item.requires_signature && item.status !== 'Auto_Approved' && item.status !== 'Rejected')
+              : requisitions
+            ).map((item) => (
               <div
                 key={item.id}
                 onClick={() => setDetailReq(item)}

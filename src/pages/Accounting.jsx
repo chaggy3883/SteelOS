@@ -452,22 +452,24 @@ export default function Accounting() {
     });
   };
 
-  const openArAgingDrilldown = (row, bucket) => {
+  // bucket omitted (row total cell) shows every item across every bucket
+  // instead of filtering to one.
+  const openArAgingDrilldown = (row, bucket = null) => {
     setBalanceDrilldown({
-      title: `${row.customer?.name || 'Unknown Customer'} — ${AGING_BUCKET_LABELS[bucket]}`,
-      subtitle: 'Invoices in this aging bucket.',
-      rows: row.items.filter((i) => i.bucket === bucket).map(({ invoice, project, outstanding }) => ({
+      title: `${row.customer?.name || 'Unknown Customer'} — ${bucket ? AGING_BUCKET_LABELS[bucket] : 'All Aging Buckets'}`,
+      subtitle: bucket ? 'Invoices in this aging bucket.' : 'Every outstanding invoice for this customer, across all aging buckets.',
+      rows: row.items.filter((i) => !bucket || i.bucket === bucket).map(({ invoice, project, outstanding }) => ({
         id: invoice.id, label: `${project?.name || 'Unknown Project'} — ${invoice.billing_period}`, sublabel: invoice.payment_status, amount: outstanding, raw: invoice,
       })),
       onRowClick: (r) => { setBalanceDrilldown(null); setViewingInvoiceId(r.raw.id); },
     });
   };
 
-  const openApAgingDrilldown = (row, bucket) => {
+  const openApAgingDrilldown = (row, bucket = null) => {
     setBalanceDrilldown({
-      title: `${row.vendor?.name || 'Unknown Vendor'} — ${AGING_BUCKET_LABELS[bucket]}`,
-      subtitle: 'Vendor bills in this aging bucket.',
-      rows: row.items.filter((i) => i.bucket === bucket).map(({ bill, outstanding }) => ({
+      title: `${row.vendor?.name || 'Unknown Vendor'} — ${bucket ? AGING_BUCKET_LABELS[bucket] : 'All Aging Buckets'}`,
+      subtitle: bucket ? 'Vendor bills in this aging bucket.' : 'Every outstanding vendor bill for this vendor, across all aging buckets.',
+      rows: row.items.filter((i) => !bucket || i.bucket === bucket).map(({ bill, outstanding }) => ({
         id: bill.id, label: `Bill ${bill.invoice_number || bill.id}`, sublabel: bill.status, amount: outstanding, raw: bill,
       })),
       onRowClick: (r) => { setBalanceDrilldown(null); setViewingBillId(r.raw.id); },
@@ -1307,20 +1309,33 @@ export default function Accounting() {
                         })
                       )}
                     </tbody>
-                    {projectJobCostRows.length > 0 && (
-                      <tfoot>
-                        <tr className="bg-muted/40 font-bold">
-                          <td className="py-3 px-4" colSpan={2}>Project Total</td>
-                          <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.original_estimate.toLocaleString()}</td>
-                          <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.approved_co.toLocaleString()}</td>
-                          <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.revised_estimated_cost.toLocaleString()}</td>
-                          <td className="py-3 px-4 text-right font-mono">{projectJobCostTotals.jtd_hours.toLocaleString()}</td>
-                          <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.jtd_costs.toLocaleString()}</td>
-                          <td className={`py-3 px-4 text-right font-mono ${projectJobCostTotals.profit_loss < 0 ? 'text-red-500' : 'text-green-500'}`}>${projectJobCostTotals.profit_loss.toLocaleString()}</td>
-                          <td />
-                        </tr>
-                      </tfoot>
-                    )}
+                    {projectJobCostRows.length > 0 && (() => {
+                      const allCodeEntries = projectJobCostRows.flatMap((row) => {
+                        const codeExpenseEntries = projectExpenses
+                          .filter((ex) => isRealizedExpense(ex) && ex.cost_code_id && codeNameById.get(ex.cost_code_id) === row.cost_code)
+                          .map((ex) => expenseAsLedgerRow(ex, row.cost_code));
+                        return [...ledgerEntries.filter(e => e.cost_code === row.cost_code), ...codeExpenseEntries];
+                      });
+                      const openAllCodesLedger = () => openLedgerDrilldown(
+                        `All Job Cost Activity — ${selectedProject?.name || ''}`,
+                        allCodeEntries,
+                        'No job cost ledger entries recorded for this project yet.'
+                      );
+                      return (
+                        <tfoot>
+                          <tr onClick={openAllCodesLedger} className="bg-muted/40 font-bold cursor-pointer hover:bg-muted/60">
+                            <td className="py-3 px-4" colSpan={2}>Project Total</td>
+                            <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.original_estimate.toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.approved_co.toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.revised_estimated_cost.toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right font-mono">{projectJobCostTotals.jtd_hours.toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right font-mono">${projectJobCostTotals.jtd_costs.toLocaleString()}</td>
+                            <td className={`py-3 px-4 text-right font-mono ${projectJobCostTotals.profit_loss < 0 ? 'text-red-500' : 'text-green-500'}`}>${projectJobCostTotals.profit_loss.toLocaleString()}</td>
+                            <td />
+                          </tr>
+                        </tfoot>
+                      );
+                    })()}
                   </table>
                 </div>
               </div>
@@ -1387,15 +1402,31 @@ export default function Accounting() {
                       })
                     )}
                   </tbody>
-                  {companyRollupRows.length > 0 && (
-                    <tfoot>
-                      <tr className="bg-muted/40 font-bold">
-                        <td className="py-3 px-4" colSpan={3}>Company Total</td>
-                        <td className="py-3 px-4 text-right font-mono">${companyRollupTotal.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-right font-mono">100.0%</td>
-                      </tr>
-                    </tfoot>
-                  )}
+                  {companyRollupRows.length > 0 && (() => {
+                    const allRollupEntries = companyRollupRows.flatMap((row) => {
+                      const rowLedgerEntries = companyLedgerEntries
+                        .filter((e) => e.cost_code === row.cost_code && (!companyDateFrom || e.transaction_date >= companyDateFrom) && (!companyDateTo || e.transaction_date <= companyDateTo))
+                        .map((e) => ({ ...e, description: `${projects.find(p => p.id === e.project_id)?.name || 'Unknown Project'} — ${e.description || ''}` }));
+                      const rowExpenseEntries = companyExpenses
+                        .filter((ex) => isRealizedExpense(ex) && ex.cost_code_id && codeNameById.get(ex.cost_code_id) === row.cost_code && (!companyDateFrom || ex.expense_date >= companyDateFrom) && (!companyDateTo || ex.expense_date <= companyDateTo))
+                        .map((ex) => ({ ...expenseAsLedgerRow(ex, row.cost_code), description: `${projects.find(p => p.id === ex.project_id)?.name || 'Unknown Project'} — ${expenseAsLedgerRow(ex, row.cost_code).description}` }));
+                      return [...rowLedgerEntries, ...rowExpenseEntries];
+                    });
+                    const openAllRollupDrilldown = () => openLedgerDrilldown(
+                      'All Company-Wide Job Cost Activity',
+                      allRollupEntries,
+                      'No job cost activity recorded across any project yet.'
+                    );
+                    return (
+                      <tfoot>
+                        <tr onClick={openAllRollupDrilldown} className="bg-muted/40 font-bold cursor-pointer hover:bg-muted/60">
+                          <td className="py-3 px-4" colSpan={3}>Company Total</td>
+                          <td className="py-3 px-4 text-right font-mono">${companyRollupTotal.toLocaleString()}</td>
+                          <td className="py-3 px-4 text-right font-mono">100.0%</td>
+                        </tr>
+                      </tfoot>
+                    );
+                  })()}
                 </table>
               </div>
             </div>
@@ -1762,7 +1793,9 @@ export default function Accounting() {
                           ) : '—'}
                         </td>
                       ))}
-                      <td className="py-3 px-4 text-right font-mono font-bold">${row.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold">
+                        <button className="hover:underline" onClick={() => openArAgingDrilldown(row)}>${row.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1801,7 +1834,9 @@ export default function Accounting() {
                           ) : '—'}
                         </td>
                       ))}
-                      <td className="py-3 px-4 text-right font-mono font-bold">${row.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold">
+                        <button className="hover:underline" onClick={() => openApAgingDrilldown(row)}>${row.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

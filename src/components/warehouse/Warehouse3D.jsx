@@ -60,7 +60,7 @@ const RACKS = [
   { zone: 'shipping', id: 'S-02', x: -9, z: 7, label: 'S-02' },
 ];
 
-export default function Warehouse3D({ items = [] }) {
+export default function Warehouse3D({ items = [], onViewZoneItems }) {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
@@ -461,6 +461,11 @@ export default function Warehouse3D({ items = [] }) {
                 <p className="text-sm font-bold font-mono">{selectedZone.id.toUpperCase().replace('_','-')}</p>
               </div>
             </div>
+            {onViewZoneItems && selectedZone.itemCount > 0 && (
+              <Button size="sm" variant="outline" className="w-full mt-2" onClick={() => onViewZoneItems(selectedZone.id)}>
+                View {selectedZone.itemCount} Item{selectedZone.itemCount === 1 ? '' : 's'}
+              </Button>
+            )}
           </div>
         )}
 

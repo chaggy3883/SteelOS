@@ -33,6 +33,7 @@ export default function EquipmentPanel({ employee }) {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [editingAsset, setEditingAsset] = useState(null);
+  const [showOutstandingOnly, setShowOutstandingOnly] = useState(false);
 
   useEffect(() => { load(); }, [employee?.id]);
 
@@ -58,13 +59,26 @@ export default function EquipmentPanel({ employee }) {
 
   const outstanding = assets.filter((a) => !a.returned_date);
   const dialogOpen = showCreate || !!editingAsset;
+  const visibleAssets = showOutstandingOnly ? outstanding : assets;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          {assets.length === 0 ? 'No equipment issued yet.' : `${outstanding.length} outstanding of ${assets.length} issued.`}
-        </p>
+        {assets.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No equipment issued yet.</p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => outstanding.length > 0 && setShowOutstandingOnly((v) => !v)}
+            disabled={outstanding.length === 0}
+            className="text-xs text-muted-foreground text-left hover:text-primary hover:underline disabled:hover:no-underline disabled:hover:text-muted-foreground disabled:cursor-default"
+            title={outstanding.length > 0 ? (showOutstandingOnly ? 'Click to show all issued equipment' : 'Click to filter to outstanding equipment') : undefined}
+          >
+            {showOutstandingOnly
+              ? `Showing ${outstanding.length} outstanding of ${assets.length} issued — click to show all.`
+              : `${outstanding.length} outstanding of ${assets.length} issued.`}
+          </button>
+        )}
         <Button size="sm" className="gap-1.5" onClick={() => setShowCreate(true)}>
           <Plus className="w-3.5 h-3.5" />Issue Item
         </Button>
@@ -75,9 +89,14 @@ export default function EquipmentPanel({ employee }) {
           <Package className="w-8 h-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No equipment on file for {employee.full_name}.</p>
         </div>
+      ) : visibleAssets.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
+          <Package className="w-8 h-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">All issued equipment has been returned.</p>
+        </div>
       ) : (
         <div className="space-y-2">
-          {assets.map((asset) => (
+          {visibleAssets.map((asset) => (
             <button
               key={asset.id}
               onClick={() => setEditingAsset(asset)}
