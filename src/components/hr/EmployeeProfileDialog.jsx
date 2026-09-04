@@ -12,6 +12,7 @@ import PtoPanel from '@/components/hr/PtoPanel';
 import PtoPolicyPanel from '@/components/hr/PtoPolicyPanel';
 import TerminationPanel from '@/components/hr/TerminationPanel';
 import EquipmentPanel from '@/components/hr/EquipmentPanel';
+import EmployeeBankingPanel from '@/components/hr/EmployeeBankingPanel';
 import { canManageDisciplinaryActions } from '@/lib/disciplinaryAccess';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
 import { GRANULAR_ACTIONS, hasGranularPermission } from '@/lib/permissionCatalog';
@@ -24,6 +25,10 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
   // Equipment issue/return history is HR/admin-only, same as Compliance and
   // Termination below — employees never see their own issued_assets records.
   const showEquipment = hasFullEmployeeAccess(roles);
+  // Banking (EmployeeBankAccount) is equally sensitive HR/payroll data —
+  // gated the same as Equipment/Compliance/Termination, never exposed to an
+  // employee viewing their own profile.
+  const showBanking = hasFullEmployeeAccess(roles);
   // Deliberately separate from showTermination: that flag also gates the
   // Compliance and PTO Policy tabs below, which aren't part of this pass's
   // granular-permission scope — widening showTermination itself would hand a
@@ -57,6 +62,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             <TabsTrigger value="emergency">Emergency Contact</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
             {showEquipment && <TabsTrigger value="equipment">Equipment</TabsTrigger>}
+            {showBanking && <TabsTrigger value="banking">Banking</TabsTrigger>}
             {showTermination && <TabsTrigger value="compliance">Compliance</TabsTrigger>}
             <TabsTrigger value="pto">PTO</TabsTrigger>
             {showTermination && <TabsTrigger value="pto-policy">PTO Policy</TabsTrigger>}
@@ -79,6 +85,11 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           {showEquipment && (
             <TabsContent value="equipment">
               <EquipmentPanel employee={current} />
+            </TabsContent>
+          )}
+          {showBanking && (
+            <TabsContent value="banking">
+              <EmployeeBankingPanel employee={current} roles={roles} onUpdated={handleUpdated} />
             </TabsContent>
           )}
           {showTermination && (

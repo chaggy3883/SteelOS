@@ -27,6 +27,7 @@ export async function generateBidProposalPdf(bid) {
   // company row happens to be most recently created" — see
   // BidProposalPrintView.jsx's original comment (git history) for why.
   const company = bid.company_id ? await db.entities.Company.get(bid.company_id).catch(() => null) : null;
+  const estimator = bid.estimator_id ? await db.entities.employees.get(bid.estimator_id).catch(() => null) : null;
   const taxLabel = await getTaxDisplayLabel(bid).catch(() => 'Sales Tax');
   const logo = await loadImageAsDataUrl(company?.logo_url);
   const aiscBadge = company?.aisc_certified ? await loadImageAsDataUrl(company?.aisc_badge_url) : null;
@@ -73,6 +74,8 @@ export async function generateBidProposalPdf(bid) {
     bid,
     companyName: company?.name || '',
     company,
+    estimatorName: estimator?.full_name || '',
+    estimatorEmail: estimator?.personal_email || '',
     logo,
     aiscBadge,
     taxLabel,

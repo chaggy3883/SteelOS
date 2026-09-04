@@ -447,6 +447,29 @@ function drawClosingLines(doc, startY, company) {
   return y + 0.28;
 }
 
+// The assigned estimator's personal sign-off — separate from the mutual
+// "Agree To:" signature block further down. Skipped entirely when no
+// estimator is assigned to the bid (estimator_id blank), rather than
+// printing a bare "Sincerely," with nothing under it.
+function drawSincerelyBlock(doc, startY, estimatorName, estimatorEmail) {
+  if (!estimatorName && !estimatorEmail) return startY;
+
+  const lineCount = (estimatorName ? 1 : 0) + (estimatorEmail ? 1 : 0);
+  const h = 0.3 + lineCount * 0.16 + 0.1;
+  let y = ensureSpace(doc, startY, h);
+
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(0);
+  doc.text('Sincerely,', MARGIN, y);
+  y += 0.3;
+
+  if (estimatorName) { doc.text(estimatorName, MARGIN, y); y += 0.16; }
+  if (estimatorEmail) { doc.text(estimatorEmail, MARGIN, y); y += 0.16; }
+
+  return y + 0.1;
+}
+
 // Only drawn when at least one terms document/body exists — the transition
 // sentence only makes sense if terms actually follow.
 function drawTermsIntro(doc, startY) {
@@ -676,6 +699,7 @@ export function drawBidProposalPdf(data) {
   y = drawPricingBlock(doc, y, data);
   y = drawMaterialQuantitySummary(doc, y, bid);
   y = drawClosingLines(doc, y, company);
+  y = drawSincerelyBlock(doc, y, data.estimatorName, data.estimatorEmail);
 
   const termsEntries = data.termsPages || [];
   let endedOnFullBleedPage = false;
