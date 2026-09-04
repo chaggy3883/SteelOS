@@ -6,8 +6,10 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Plus, Landmark, Scale, UploadCloud } from 'lucide-react';
+import { Loader2, Plus, Landmark, Scale, UploadCloud, Download } from 'lucide-react';
 import { computeAccountBalance } from '@/lib/cashBalance';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { generateCashReconciliationPdf } from '@/lib/cashReconciliationPdf';
 
 const ACCOUNT_TYPES = ['Checking', 'Savings', 'Line of Credit'];
 const TRANSACTION_TYPES = ['Deposit', 'Withdrawal', 'Transfer', 'Fee', 'Interest'];
@@ -203,6 +205,24 @@ export default function CashManagementPanel() {
       .sort((a, b) => (b.transaction_date || '').localeCompare(a.transaction_date || '')),
     [transactions, reconciledFilter]
   );
+
+  const handleExportPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateCashReconciliationPdf({
+        company,
+        account: selectedAccount,
+        transactions: transactionsSortedDesc.map((t) => ({ ...t, balance: runningBalanceById[t.id] })),
+        currentBalance,
+        reconciledBalance,
+        statementBalance,
+        reconciliationDifference,
+      });
+      toast({ title: 'Cash Reconciliation PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Cash Reconciliation PDF', variant: 'destructive' });
+    }
+  };
 
   const handleAddAccount = async () => {
     if (!accountForm.account_name.trim()) {
@@ -422,7 +442,10 @@ export default function CashManagementPanel() {
       {selectedAccount && (
         <>
           <div className="steel-card p-6">
-            <h3 className="font-semibold mb-3 flex items-center gap-2"><Scale className="w-4 h-4 text-primary" />Reconciliation — {selectedAccount.account_name}</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold flex items-center gap-2"><Scale className="w-4 h-4 text-primary" />Reconciliation — {selectedAccount.account_name}</h3>
+              <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 items-end">
               <div>
                 <Label className="text-xs">Statement Ending Balance ($)</Label>

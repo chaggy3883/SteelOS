@@ -2,8 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, TrendingUp } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Loader2, TrendingUp, Download } from 'lucide-react';
 import { computeAccountBalance } from '@/lib/cashBalance';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { generateCashForecastPdf } from '@/lib/cashForecastPdf';
 import LedgerDrilldownModal from '@/components/accounting/LedgerDrilldownModal';
 
 const BUCKET_COUNT = 13; // ~90 days in weekly buckets (13 * 7 = 91)
@@ -165,6 +168,16 @@ export default function CashForecastPanel() {
     });
   }, [vendorBills, invoiceReceivables, recurringItems, linkedTransactions, startingBalance, todayIso]);
 
+  const handleExportPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateCashForecastPdf({ company, startingBalance, buckets });
+      toast({ title: 'Cash Forecast PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Cash Forecast PDF', variant: 'destructive' });
+    }
+  };
+
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
   const willGoNegative = buckets.some((b) => b.runningBalance < 0);
@@ -172,7 +185,10 @@ export default function CashForecastPanel() {
   return (
     <div className="max-w-5xl space-y-4">
       <div className="steel-card p-6">
-        <h3 className="font-semibold mb-3 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" />90-Day Cash Forecast</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" />90-Day Cash Forecast</h3>
+          <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <button type="button" onClick={() => navigate('/accounting?tab=cash')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
             <p className="text-xs text-muted-foreground">Starting Balance (all active accounts)</p>

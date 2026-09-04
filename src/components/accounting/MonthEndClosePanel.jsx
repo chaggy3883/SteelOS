@@ -7,8 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, CheckCircle2, Lock, Unlock, ListChecks, AlertTriangle, ArrowUpRight } from 'lucide-react';
+import { Loader2, CheckCircle2, Lock, Unlock, ListChecks, AlertTriangle, ArrowUpRight, Download } from 'lucide-react';
 import { hasFinanceOverrideAccess } from '@/lib/financeAccess';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { generateMonthEndClosePdf } from '@/lib/monthEndClosePdf';
 import BalanceDrilldownModal from '@/components/accounting/BalanceDrilldownModal';
 import VendorBillDetailModal from '@/components/accounting/VendorBillDetailModal';
 import InvoiceReceivableDetailModal from '@/components/accounting/InvoiceReceivableDetailModal';
@@ -292,6 +294,16 @@ export default function MonthEndClosePanel() {
       ]
     : [];
 
+  const handleExportPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateMonthEndClosePdf({ company, periodLabel: formatPeriodLabel(period), close, readinessStats, checklistItems });
+      toast({ title: 'Month-End Close PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Month-End Close PDF', variant: 'destructive' });
+    }
+  };
+
   return (
     <div className="max-w-5xl space-y-4">
       <div className="steel-card p-6">
@@ -390,8 +402,9 @@ export default function MonthEndClosePanel() {
           </div>
 
           <div className="steel-card overflow-hidden">
-            <div className="p-4 border-b border-border">
+            <div className="p-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary" />Close Checklist</h3>
+              <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
             </div>
             {loadingChecklist ? (
               <div className="p-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>

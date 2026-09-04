@@ -11,6 +11,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
 import { matchIncomingAchToPurchaseOrder, notifyArUnmatchedAch } from '@/lib/achEngine';
 import { exportRowsToCsv } from '@/lib/csvExport';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { generateIncomingAchPdf } from '@/lib/incomingAchPdf';
 import { cn } from '@/lib/utils';
 import { recordInvoiceReceivablePayment } from '@/lib/paymentEngine';
 import { memoTotalFromList } from '@/lib/memoEngine';
@@ -223,6 +225,19 @@ export default function IncomingAchPanel() {
     });
   };
 
+  const handleExportPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateIncomingAchPdf({
+        company,
+        rows: sorted.map((a) => ({ ...a, bank_account: bankAccountLabel(a.bank_account_id), status: titleCase(a.status), applied_to: describeMatch(a) })),
+      });
+      toast({ title: 'Incoming ACH PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Incoming ACH PDF', variant: 'destructive' });
+    }
+  };
+
   const targetOptions = () => {
     if (assignForm.target_type === 'PO') return purchaseOrders.map((p) => ({ value: p.id, label: `${p.po_number} — ${p.vendor_name}` }));
     if (assignForm.target_type === 'Invoice') return invoices.map((i) => ({ value: i.id, label: `${i.billing_period} — ${money(i.gross_amount)}` }));
@@ -285,9 +300,14 @@ export default function IncomingAchPanel() {
       <div className="steel-card overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h3 className="font-semibold text-sm">All Incoming ACH — {sorted.length}</h3>
-          <Button size="sm" variant="outline" onClick={handleExportCsv} disabled={sorted.length === 0} className="gap-1.5">
-            <Download className="w-3.5 h-3.5" />Export CSV
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={handleExportPdf} className="gap-1.5">
+              <Download className="w-3.5 h-3.5" />Export PDF
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleExportCsv} disabled={sorted.length === 0} className="gap-1.5">
+              <Download className="w-3.5 h-3.5" />Export CSV
+            </Button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

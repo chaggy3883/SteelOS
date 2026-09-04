@@ -4,8 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, ClipboardList, Scale } from 'lucide-react';
+import { Loader2, ClipboardList, Scale, Download } from 'lucide-react';
 import LedgerDrilldownModal from '@/components/accounting/LedgerDrilldownModal';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { generateBudgetPdf } from '@/lib/budgetPdf';
 
 // Company-wide annual budgeting with budget-vs-actual variance. This does
 // NOT create new cost tracking — actuals are read straight from data that
@@ -169,6 +171,40 @@ export default function BudgetPanel() {
     return isBad ? 'text-red-500' : 'text-green-500';
   };
 
+  const handleExportPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      const budgetRows = CATEGORIES.map((category) => ({
+        category,
+        months: MONTHS.map((m) => budgetedForCategoryPeriod(category, periodFor(fiscalYear, m))),
+        total: rowTotal(category),
+      }));
+      const columnTotals = MONTHS.map((m) => columnTotal(m));
+      const varianceRows = CATEGORIES.map((category) => {
+        const ytdActual = ytdMonths.reduce((sum, m) => sum + actualForCategoryPeriod(category, periodFor(fiscalYear, m)), 0);
+        const ytdBudgeted = ytdMonths.reduce((sum, m) => sum + budgetedForCategoryPeriod(category, periodFor(fiscalYear, m)), 0);
+        const ytdVariance = ytdActual - ytdBudgeted;
+        return {
+          category,
+          monthVariancePct: MONTHS.map((m) => {
+            const period = periodFor(fiscalYear, m);
+            const actual = actualForCategoryPeriod(category, period);
+            const budgeted = budgetedForCategoryPeriod(category, period);
+            return budgeted !== 0 ? (actual - budgeted) / budgeted : null;
+          }),
+          ytdActual,
+          ytdBudgeted,
+          ytdVariance,
+          ytdVariancePct: ytdBudgeted !== 0 ? ytdVariance / ytdBudgeted : null,
+        };
+      });
+      generateBudgetPdf({ company, fiscalYear, monthLabels: MONTH_LABELS, budgetRows, columnTotals, grandTotal, varianceRows, ytdThroughLabel: MONTH_LABELS[ytdMonthCount - 1] });
+      toast({ title: 'Budget PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Budget PDF', variant: 'destructive' });
+    }
+  };
+
   if (loadingBudget) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
   return (
@@ -243,12 +279,15 @@ export default function BudgetPanel() {
           </div>
 
           <div className="steel-card overflow-hidden">
-            <div className="p-4 border-b border-border">
-              <h3 className="font-semibold flex items-center gap-2"><Scale className="w-4 h-4 text-primary" />Budget vs Actual — {fiscalYear}</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Monthly variance % (actual vs budget), plus year-to-date totals through {MONTH_LABELS[ytdMonthCount - 1]}.
-                For LAB/MAT/SUB/EQP, over budget is red. For Revenue, under budget is red.
-              </p>
+            <div className="p-4 border-b border-border flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold flex items-center gap-2"><Scale className="w-4 h-4 text-primary" />Budget vs Actual — {fiscalYear}</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Monthly variance % (actual vs budget), plus year-to-date totals through {MONTH_LABELS[ytdMonthCount - 1]}.
+                  For LAB/MAT/SUB/EQP, over budget is red. For Revenue, under budget is red.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={handleExportPdf} className="flex-shrink-0"><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
             </div>
             {loadingActuals ? (
               <div className="p-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>

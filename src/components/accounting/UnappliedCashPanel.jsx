@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Wallet, Loader2 } from 'lucide-react';
+import { Wallet, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -8,6 +8,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
 import { applyUnappliedCash, appliedTotalFromList, outstandingFor } from '@/lib/paymentEngine';
 import { memoTotalFromList } from '@/lib/memoEngine';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { generateUnappliedCashPdf } from '@/lib/unappliedCashPdf';
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -124,12 +126,25 @@ export default function UnappliedCashPanel() {
     }
   };
 
+  const handleExportPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateUnappliedCashPdf({ company, rows: unapplied.map((p) => ({ source: sourceLabel(p), date: p.payment_date, amount: p.unapplied_amount })) });
+      toast({ title: 'Unapplied Cash PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Unapplied Cash PDF', variant: 'destructive' });
+    }
+  };
+
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
   return (
     <div className="max-w-5xl space-y-4">
       <div className="steel-card p-6">
-        <h3 className="font-semibold flex items-center gap-2"><Wallet className="w-4 h-4 text-primary" />Unapplied Cash</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold flex items-center gap-2"><Wallet className="w-4 h-4 text-primary" />Unapplied Cash</h3>
+          <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+        </div>
         <p className="text-xs text-muted-foreground mt-1">
           Payments recorded against an invoice or bill for more than was owed — the excess sits here until it's applied to a different open invoice/bill.
         </p>

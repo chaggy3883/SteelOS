@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import StatusBadge from '@/components/ui/StatusBadge';
 import StatsCard from '@/components/ui/StatsCard';
@@ -24,6 +25,7 @@ import NoteDetailModal from '@/components/meeting-mode/NoteDetailModal';
 import EmployeeDetailModal from '@/components/meeting-mode/EmployeeDetailModal';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import { logStatusChange } from '@/lib/statusHistory';
+import { resolveActorRole, dispatchRfiNotification } from '@/lib/salesNotifications';
 import { useAuth } from '@/lib/AuthContext';
 import PieceMarkPdfIntake from '@/components/projects/PieceMarkPdfIntake';
 import PartsHardwarePdfIntake from '@/components/projects/PartsHardwarePdfIntake';
@@ -87,6 +89,10 @@ export default function ProjectDetail() {
   const [stockQtyTouched, setStockQtyTouched] = useState(false);
   const [savingPart, setSavingPart] = useState(false);
   const [viewingPart, setViewingPart] = useState(null);
+
+  const [showRfiForm, setShowRfiForm] = useState(false);
+  const [rfiForm, setRfiForm] = useState({ subject: '', description: '', priority: 'medium', date_required: '' });
+  const [savingRfi, setSavingRfi] = useState(false);
 
   // Phasing tab — shopPieces is the shop-floor `pieces` entity (bridged back
   // to a PieceMark via piece_mark_id), used only to derive % Shipped per
@@ -286,6 +292,55 @@ export default function ProjectDetail() {
     setPartForm(emptyPartForm());
     setStockQtyTouched(false);
     setShowPartForm(true);
+  };
+
+  const openAddRfi = () => {
+    setRfiForm({ subject: '', description: '', priority: 'medium', date_required: '' });
+    setShowRfiForm(true);
+  };
+
+  const handleCreateRfi = async () => {
+    if (!rfiForm.subject.trim()) return;
+    setSavingRfi(true);
+    try {
+      const rfiCount = rfis.length + 1;
+      const createdAt = new Date().toISOString();
+      const actorRole = resolveActorRole(user?.roles);
+      const created = await db.entities.RFI.create({
+        project_id: id,
+        subject: rfiForm.subject.trim(),
+        description: rfiForm.description.trim(),
+        priority: rfiForm.priority,
+        date_required: rfiForm.date_required || undefined,
+        rfi_number: `RFI-${String(rfiCount).padStart(3, '0')}`,
+        status: 'draft',
+        date_submitted: createdAt.split('T')[0],
+        created_by_role: actorRole,
+        pending_salesman_response: actorRole !== 'salesman' && !!project?.salesman_id,
+      });
+      await logStatusChange({
+        entityType: 'RFI',
+        entityId: created.id,
+        fieldName: 'status',
+        fromValue: null,
+        toValue: 'draft',
+        changedBy: user?.full_name || user?.email || 'Unknown',
+        note: 'RFI created.',
+      });
+
+      let recipientCount = 0;
+      try {
+        recipientCount = await dispatchRfiNotification(created, project, actorRole, user?.employee_id, user?.full_name || user?.email);
+      } catch (notifyError) {}
+
+      setRfis((prev) => [created, ...prev]);
+      setShowRfiForm(false);
+      toast({ title: 'RFI created!', description: recipientCount > 0 ? `Notified ${recipientCount} teammate${recipientCount === 1 ? '' : 's'}.` : undefined });
+    } catch (e) {
+      toast({ title: 'Unable to create RFI', variant: 'destructive' });
+    } finally {
+      setSavingRfi(false);
+    }
   };
 
   // parts_per_stock and quantity are the only drivers of the auto-computed
@@ -873,7 +928,7 @@ export default function ProjectDetail() {
           <div className="steel-card p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold">Request for Information</h3>
-              <Button size="sm"><MessageSquare className="w-4 h-4 mr-2" /> New RFI</Button>
+              <Button size="sm" onClick={openAddRfi}><MessageSquare className="w-4 h-4 mr-2" /> New RFI</Button>
             </div>
             {rfis.length === 0 ? (
               <div className="text-center py-12">
@@ -976,21 +1031,20 @@ export default function ProjectDetail() {
               <Button size="sm" onClick={openAddPart}><Package className="w-4 h-4 mr-2" /> Add Pieces</Button>
             </div>
             {addPartFormPanel}
-            {pieces.length === 0 ? (
-              <div className="text-center py-12">
+            <PieceMarkPdfIntake
+              project={project}
+              pieces={pieces}
+              phasingMode={phasingMode}
+              sequenceAreas={sequenceAreas}
+              onPieceUpdated={(updated) => setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))}
+              onPieceCreated={(created) => setPieces((prev) => [...prev, created])}
+              onSequenceAreaCreated={(created) => setSequenceAreas((prev) => [...prev, created])}
+            />
+            {pieces.length === 0 && (
+              <div className="text-center py-8">
                 <Package className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">No pieces yet — import from Tekla or add manually</p>
+                <p className="text-sm text-muted-foreground">No pieces yet — drag drawings in above, import from Tekla, or add manually</p>
               </div>
-            ) : (
-              <PieceMarkPdfIntake
-                project={project}
-                pieces={pieces}
-                phasingMode={phasingMode}
-                sequenceAreas={sequenceAreas}
-                onPieceUpdated={(updated) => setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))}
-                onPieceCreated={(created) => setPieces((prev) => [...prev, created])}
-                onSequenceAreaCreated={(created) => setSequenceAreas((prev) => [...prev, created])}
-              />
             )}
           </div>
 
@@ -1313,6 +1367,43 @@ export default function ProjectDetail() {
           <ProjectHandoffPanel ref={handoffRef} project={project} onExportPdf={exportHandoffPdf} />
         </TabsContent>
       </Tabs>
+
+      <Dialog open={showRfiForm} onOpenChange={(o) => !o && setShowRfiForm(false)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>New RFI</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Subject *</Label>
+              <Input value={rfiForm.subject} onChange={(e) => setRfiForm((f) => ({ ...f, subject: e.target.value }))} className="mt-1" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Priority</Label>
+                <Select value={rfiForm.priority} onValueChange={(v) => setRfiForm((f) => ({ ...f, priority: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['low', 'medium', 'high', 'critical'].map((p) => <SelectItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Date Required</Label>
+                <Input type="date" value={rfiForm.date_required} onChange={(e) => setRfiForm((f) => ({ ...f, date_required: e.target.value }))} className="mt-1" />
+              </div>
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea value={rfiForm.description} onChange={(e) => setRfiForm((f) => ({ ...f, description: e.target.value }))} className="mt-1" rows={4} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRfiForm(false)}>Cancel</Button>
+            <Button onClick={handleCreateRfi} disabled={savingRfi || !rfiForm.subject.trim()}>
+              {savingRfi ? 'Creating…' : 'Create RFI'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!viewingPart} onOpenChange={(o) => !o && setViewingPart(null)}>
         <DialogContent className="max-w-lg">

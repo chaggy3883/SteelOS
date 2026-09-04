@@ -44,6 +44,11 @@ import { computeArAging, computeApAging, AGING_BUCKETS, AGING_BUCKET_LABELS } fr
 import { generateCustomerStatementPdf } from '@/lib/customerStatementPdf';
 import { buildProjectJobCostRows, buildCompanyWideJobCostRollup, sumProjectJobCostTotals, expenseAsLedgerRow, isRealizedExpense } from '@/lib/jobCostEngine';
 import { generateProjectJobCostPdf, generateCompanyWideJobCostPdf } from '@/lib/jobCostDetailPdf';
+import { generateJobCostingSummaryPdf } from '@/lib/jobCostingSummaryPdf';
+import { generateVendorBillsPdf } from '@/lib/vendorBillsPdf';
+import { generateArBillingPdf } from '@/lib/arBillingPdf';
+import { generateWipReportPdf } from '@/lib/wipReportPdf';
+import { generateAiFinancialFlagsPdf } from '@/lib/aiFinancialFlagsPdf';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
@@ -567,6 +572,63 @@ export default function Accounting() {
       toast({ title: 'Company-wide Job Cost Rollup PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate rollup PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportJobCostingSummaryPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateJobCostingSummaryPdf({ company, projects: jobsRiskFilter ? projects.filter(p => p.financial_risk > 0) : projects, riskFilterActive: jobsRiskFilter });
+      toast({ title: 'Job Costing Summary PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Job Costing Summary PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportVendorBillsPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      const rows = vendorBills.map(bill => ({
+        ...bill,
+        vendor_name: vendors.find(v => v.id === bill.vendor_id)?.name,
+        po_number: purchaseOrders.find(p => p.id === bill.po_id)?.po_number,
+      }));
+      generateVendorBillsPdf({ company, rows });
+      toast({ title: 'Vendor Bills PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Vendor Bills PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportArBillingPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateArBillingPdf({ project: selectedProject, company, sovLines, invoiceReceivables });
+      toast({ title: 'AR & Billings PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate AR & Billings PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportWipReportPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateWipReportPdf({ project: selectedProject, company, wip, ledgerEntries, changeOrderMargin });
+      toast({ title: 'WIP Report PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate WIP Report PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportAiFindingsPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      const visibleFindings = findingsProjectFilter ? findings.filter(f => f.project_id === findingsProjectFilter) : findings;
+      const projectFilterLabel = findingsProjectFilter ? (projects.find(p => p.id === findingsProjectFilter)?.name || 'selected project') : '';
+      generateAiFinancialFlagsPdf({ company, findings: visibleFindings, projectFilterLabel });
+      toast({ title: 'AI Financial Flags PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate AI Financial Flags PDF', variant: 'destructive' });
     }
   };
 
@@ -1151,6 +1213,9 @@ export default function Accounting() {
               <button className="flex items-center gap-1 hover:underline" onClick={() => setJobsRiskFilter(false)}><X className="w-3.5 h-3.5" />Clear filter</button>
             </div>
           )}
+          <div className="flex justify-end mb-3">
+            <Button size="sm" variant="outline" onClick={handleExportJobCostingSummaryPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+          </div>
           <div className="steel-card overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1457,7 +1522,10 @@ export default function Accounting() {
           <div className="steel-card overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h3 className="font-semibold">Vendor Bills — 3-Way Match Queue</h3>
-              <Button size="sm" onClick={startAddBill}><Plus className="w-3.5 h-3.5 mr-1" />Add Vendor Bill</Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={handleExportVendorBillsPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                <Button size="sm" onClick={startAddBill}><Plus className="w-3.5 h-3.5 mr-1" />Add Vendor Bill</Button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1564,7 +1632,10 @@ export default function Accounting() {
               <div className="steel-card overflow-hidden mb-4">
                 <div className="flex items-center justify-between p-4 border-b border-border">
                   <h3 className="font-semibold">Schedule of Values (SOV)</h3>
-                  <Button size="sm" onClick={startAddSov}><Plus className="w-3.5 h-3.5 mr-1" />Add SOV Line</Button>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={handleExportArBillingPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                    <Button size="sm" onClick={startAddSov}><Plus className="w-3.5 h-3.5 mr-1" />Add SOV Line</Button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -1851,7 +1922,10 @@ export default function Accounting() {
           {selectedProjectId && (
             <>
               <div className="steel-card p-5 mb-4">
-                <h3 className="font-semibold mb-4">WIP Schedule — {selectedProject?.name}</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold">WIP Schedule — {selectedProject?.name}</h3>
+                  <Button size="sm" variant="outline" onClick={handleExportWipReportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                </div>
                 {wip ? (
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     <button type="button" onClick={() => setActiveTab('jobcostdetail')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">
@@ -1962,6 +2036,9 @@ export default function Accounting() {
               <button className="flex items-center gap-1 hover:underline" onClick={() => setFindingsProjectFilter(null)}><X className="w-3.5 h-3.5" />Clear filter</button>
             </div>
           )}
+          <div className="flex justify-end mb-3">
+            <Button size="sm" variant="outline" onClick={handleExportAiFindingsPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+          </div>
           {(() => {
             const visibleFindings = findingsProjectFilter ? findings.filter(f => f.project_id === findingsProjectFilter) : findings;
             return visibleFindings.length === 0 ? (
