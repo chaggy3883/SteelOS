@@ -413,6 +413,17 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
             );
           })}
         </div>
+
+        {/* Repeats the header's "Add Material Line" button, pinned to the
+            bottom of the viewport as the rows list grows (same sticky
+            bottom-0 pattern as BlueprintTakeoff.jsx's summary bar) — so
+            entering several lines in a row never requires scrolling back to
+            the top just to add the next one. */}
+        <div className="sticky bottom-0 z-10 -mx-5 mt-3 px-5 py-2.5 bg-background/95 backdrop-blur border-t border-border flex justify-end">
+          <Button variant="outline" size="sm" onClick={addRow}>
+            <Plus className="w-3.5 h-3.5 mr-1" />Add Material Line
+          </Button>
+        </div>
       </div>
 
       <div className="steel-card p-4">
