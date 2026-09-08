@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { sumProjectJobCostTotals } from '@/lib/jobCostEngine';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -71,7 +72,7 @@ function drawTotalsRow(doc, x0, y, totals, label = 'PROJECT TOTAL') {
 // One project's cost-code-by-cost-code breakdown — same rows Accounting.jsx's
 // Job Cost Detail tab renders (buildProjectJobCostRows), laid out as a table
 // with a project-total footer row.
-export function generateProjectJobCostPdf({ project, company, rows }) {
+export async function generateProjectJobCostPdf({ project, company, rows }) {
   // Landscape — 8 columns of financial detail don't fit portrait's ~192mm
   // usable width (same reasoning as the WH-347 certified payroll table, see
   // pdfLayout.js's comment on PDF_MARGIN_MM).
@@ -90,11 +91,12 @@ export function generateProjectJobCostPdf({ project, company, rows }) {
     return y;
   };
 
+  const letterheadY = await drawLetterheadIfActive(doc, 'job_cost_detail_project', { x: marginX, y: 10, maxWidth: pageWidth - marginX * 2, maxHeight: 22 });
   doc.setFontSize(16);
-  doc.text('JOB COST DETAIL', marginX, 18);
+  doc.text('JOB COST DETAIL', marginX, letterheadY != null ? letterheadY + 6 : 18);
   doc.setFontSize(9);
-  let y = 26;
-  doc.text(company?.name || '—', marginX, y); y += 5;
+  let y = letterheadY != null ? letterheadY + 14 : 26;
+  if (letterheadY == null) { doc.text(company?.name || '—', marginX, y); y += 5; }
   doc.text(`Project: ${project?.name || 'Unknown Project'}${project?.project_number ? ` (#${project.project_number})` : ''}`, marginX, y); y += 5;
   doc.text(`Generated ${today}`, marginX, y); y += 9;
 
@@ -163,7 +165,7 @@ function drawRollupRow(doc, x0, y, row) {
 // Combined "all projects" export — company-wide cost distribution per cost
 // code (buildCompanyWideJobCostRollup's output), the leadership-facing view
 // asked for alongside the per-project breakdown above.
-export function generateCompanyWideJobCostPdf({ company, rows, dateFrom, dateTo }) {
+export async function generateCompanyWideJobCostPdf({ company, rows, dateFrom, dateTo }) {
   const doc = new jsPDF({ format: PDF_PAGE_FORMAT });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -179,11 +181,12 @@ export function generateCompanyWideJobCostPdf({ company, rows, dateFrom, dateTo 
     return y;
   };
 
+  const letterheadY = await drawLetterheadIfActive(doc, 'job_cost_detail_company_wide', { x: marginX, y: 10, maxWidth: pageWidth - marginX * 2, maxHeight: 22 });
   doc.setFontSize(16);
-  doc.text('COMPANY-WIDE JOB COST ROLLUP', marginX, 18);
+  doc.text('COMPANY-WIDE JOB COST ROLLUP', marginX, letterheadY != null ? letterheadY + 6 : 18);
   doc.setFontSize(9);
-  let y = 26;
-  doc.text(company?.name || '—', marginX, y); y += 5;
+  let y = letterheadY != null ? letterheadY + 14 : 26;
+  if (letterheadY == null) { doc.text(company?.name || '—', marginX, y); y += 5; }
   doc.text(`Period: ${dateFrom || 'All'} — ${dateTo || 'Present'}`, marginX, y); y += 5;
   doc.text(`Generated ${today}`, marginX, y); y += 9;
 

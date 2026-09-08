@@ -351,7 +351,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Gauge} title="Financial WIP Radar"
           subtitle="Total contract value vs. actual job-to-date cost recognized (from the job cost ledger), per active project."
-          onExport={() => exportNodeToPdf(wipRadarRef.current, 'wip-radar.pdf')}
+          onExport={() => exportNodeToPdf(wipRadarRef.current, 'wip-radar.pdf', 'exec_wip_radar')}
           detailPath="/accounting?tab=wip" navigate={navigate}
         />
         {wipRadar.length === 0 ? (
@@ -381,7 +381,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Scale} title="WIP Overbilling / Underbilling Summary"
           subtitle="Billed vs. earned revenue per active project (calculateWIPSchedule), rolled up company-wide."
-          onExport={() => exportNodeToPdf(wipSummaryRef.current, 'wip-overbilling-underbilling.pdf')}
+          onExport={() => exportNodeToPdf(wipSummaryRef.current, 'wip-overbilling-underbilling.pdf', 'exec_wip_overbilling_underbilling')}
           detailPath="/accounting?tab=wip" navigate={navigate}
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 mb-4">
@@ -421,7 +421,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Percent} title="AR / AP Aging Summary"
           subtitle="Outstanding receivables and payables bucketed by days past due (agingReport.js), same buckets as Accounting's AR/AP Aging tabs."
-          onExport={() => exportNodeToPdf(agingRef.current, 'ar-ap-aging-summary.pdf')}
+          onExport={() => exportNodeToPdf(agingRef.current, 'ar-ap-aging-summary.pdf', 'exec_ar_ap_aging_summary')}
           navigate={navigate}
         />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
@@ -465,7 +465,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Wallet} title="Cash Position"
           subtitle="90-day cash forecast — starting balance, weekly net change, and projected balance (CashForecastPanel's own logic, embedded so the math is never duplicated)."
-          onExport={() => exportNodeToPdf(cashRef.current, 'cash-position.pdf')}
+          onExport={() => exportNodeToPdf(cashRef.current, 'cash-position.pdf', 'exec_cash_position')}
           detailPath="/accounting?tab=cash" navigate={navigate}
         />
         <div className="mt-3">
@@ -480,7 +480,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={TrendingUp} title="Commercial Bid Win/Loss"
           subtitle="Won/Lost/Did-Not-Bid are parallel outcomes, not funnel stages — shown as a categorical comparison rather than a funnel."
-          onExport={() => exportNodeToPdf(winLossRef.current, 'bid-win-loss.pdf')}
+          onExport={() => exportNodeToPdf(winLossRef.current, 'bid-win-loss.pdf', 'exec_bid_win_loss')}
           detailPath="/estimating" navigate={navigate}
         />
         <div className="grid grid-cols-1 md:grid-cols-[1fr_200px] gap-4 mt-4">
@@ -526,7 +526,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Factory} title="Estimating Performance"
           subtitle="Win rate, bid volume, and average bid size — reuses computeWinLossStats and estimatingAnalytics.js, the same functions behind Historical Analytics."
-          onExport={() => exportNodeToPdf(estimatingRef.current, 'estimating-performance.pdf')}
+          onExport={() => exportNodeToPdf(estimatingRef.current, 'estimating-performance.pdf', 'exec_estimating_performance')}
           detailPath="/estimating/analytics" navigate={navigate}
         />
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4 mb-4">
@@ -550,7 +550,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Boxes} title="Shop Production"
           subtitle="Current-week capacity utilization and dwell-time variance — reuses buildCapacityMatrix and getStationDwellVariance from shopOpsMetrics.js, same as the Bottleneck Radar tab."
-          onExport={() => exportNodeToPdf(shopRef.current, 'shop-production.pdf')}
+          onExport={() => exportNodeToPdf(shopRef.current, 'shop-production.pdf', 'exec_shop_production')}
           detailPath="/shop-operations" navigate={navigate}
         />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
@@ -579,7 +579,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Users} title="Headcount"
           subtitle="Active employees, company-wide."
-          onExport={() => exportNodeToPdf(hrRef.current, 'headcount.pdf')}
+          onExport={() => exportNodeToPdf(hrRef.current, 'headcount.pdf', 'exec_headcount')}
           detailPath="/human-resources" navigate={navigate}
         />
         <div className="mt-4">
@@ -595,7 +595,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={HandCoins} title="Sales Pipeline &amp; Commission"
           subtitle="Open pipeline value reuses bucketPipeline (salesDashboardData.js) across every company bid. Commission is an aggregate company total only — no individual salesman detail is shown here, matching the same privacy gate as the salesman rate screens."
-          onExport={() => exportNodeToPdf(salesRef.current, 'sales-pipeline-commission.pdf')}
+          onExport={() => exportNodeToPdf(salesRef.current, 'sales-pipeline-commission.pdf', 'exec_sales_pipeline_commission')}
           detailPath="/estimating" navigate={navigate}
         />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
@@ -629,7 +629,7 @@ export default function ExecutiveAnalytics() {
           <SectionHeader
             icon={Landmark} title="Quarterly Tax Exposure Grid"
             subtitle="Hancock County structural tax vs. Joist & Deck jobsite tax overrides, by billing quarter, across all bids."
-            onExport={() => exportNodeToPdf(taxRef.current, 'quarterly-tax-exposure.pdf')}
+            onExport={() => exportNodeToPdf(taxRef.current, 'quarterly-tax-exposure.pdf', 'exec_quarterly_tax_exposure')}
             detailPath="/estimating" navigate={navigate}
           />
         </div>

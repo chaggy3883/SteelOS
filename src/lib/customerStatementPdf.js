@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
@@ -10,7 +11,7 @@ const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 // per-customer entry), every payment applied against those invoices, and
 // every credit memo — write-offs show inline in the payment list, labeled
 // distinctly, exactly as they appear in the app's own payment history.
-export function generateCustomerStatementPdf({ customer, company, invoiceRows, payments, memos }) {
+export async function generateCustomerStatementPdf({ customer, company, invoiceRows, payments, memos }) {
   const doc = new jsPDF({ format: PDF_PAGE_FORMAT });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -23,13 +24,21 @@ export function generateCustomerStatementPdf({ customer, company, invoiceRows, p
     return y;
   };
 
+  // An active letterhead replaces only the company name/address line (that
+  // image already carries the company's own branding) — see
+  // letterheadPdf.js. The "CUSTOMER STATEMENT" title and Statement Date
+  // always render, just shifted down when a letterhead is drawn.
+  const letterheadY = await drawLetterheadIfActive(doc, 'customer_statement', { x: marginX, y: 10, maxWidth: pageWidth - marginX * 2, maxHeight: 22 });
+
   doc.setFontSize(16);
-  doc.text('CUSTOMER STATEMENT', marginX, 18);
+  doc.text('CUSTOMER STATEMENT', marginX, letterheadY != null ? letterheadY + 6 : 18);
 
   doc.setFontSize(9);
-  let y = 26;
-  const companyLine = [company?.name, company?.address, company?.city, company?.state].filter(Boolean).join(', ');
-  doc.text(companyLine || '—', marginX, y); y += 5;
+  let y = letterheadY != null ? letterheadY + 14 : 26;
+  if (letterheadY == null) {
+    const companyLine = [company?.name, company?.address, company?.city, company?.state].filter(Boolean).join(', ');
+    doc.text(companyLine || '—', marginX, y); y += 5;
+  }
   doc.text(`Statement Date: ${today}`, marginX, y); y += 9;
 
   doc.setFontSize(12);

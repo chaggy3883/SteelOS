@@ -5,6 +5,7 @@ import { loadImageAsDataUrl } from '@/lib/pdfImage';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { drawBidInternalBreakdownPdf } from '@/lib/bidInternalBreakdownPdfLayout';
 import { calculateBondAmount, calculateLeedSurcharge, calculatePaymentPlatformFee } from '@/lib/bidWorksheetCalc';
+import { loadLetterheadImage } from '@/lib/letterheadPdf';
 
 export { drawBidInternalBreakdownPdf };
 
@@ -32,6 +33,7 @@ export async function generateBidInternalBreakdownPdf(bid) {
   const lines = allLines.filter((l) => COST_CATEGORIES.some((c) => c.key === l.cost_category));
   const companies = await db.entities.Company.list('-created_date', 1).catch(() => []);
   const logo = await loadImageAsDataUrl(companies[0]?.logo_url);
+  const letterheadImage = await loadLetterheadImage('bid_internal_breakdown');
 
   // A TakeoffLine saved before per-line markup existed has markup_percentage
   // null — the live worksheet falls back to that category's default_markup_pct
@@ -99,6 +101,7 @@ export async function generateBidInternalBreakdownPdf(bid) {
   const data = {
     bid,
     logo,
+    letterheadImage,
     companyName: companies[0]?.name || '',
     rows,
     subtotal,

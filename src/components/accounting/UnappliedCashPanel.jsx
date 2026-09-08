@@ -129,7 +129,7 @@ export default function UnappliedCashPanel() {
   const handleExportPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateUnappliedCashPdf({ company, rows: unapplied.map((p) => ({ source: sourceLabel(p), date: p.payment_date, amount: p.unapplied_amount })) });
+      await generateUnappliedCashPdf({ company, rows: unapplied.map((p) => ({ source: sourceLabel(p), date: p.payment_date, amount: p.unapplied_amount })) });
       toast({ title: 'Unapplied Cash PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Unapplied Cash PDF', variant: 'destructive' });

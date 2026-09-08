@@ -3,16 +3,27 @@
 // print dialog (Save as PDF) produces the file — a plain browser-print
 // export, unlike bidProposalPdf.js's direct jsPDF generation, since this
 // grid isn't a top-level print target on its own page tree.
+import { loadLetterheadImage } from '@/lib/letterheadPdf';
+
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
 
-export function exportRequisitionToPdf({ title, subtitle, columns, rows }) {
+export async function exportRequisitionToPdf({ title, subtitle, columns, rows }) {
   const printWindow = window.open('', '_blank');
   if (!printWindow) return;
 
   const headerHtml = columns.map((c) => `<th>${escapeHtml(c)}</th>`).join('');
   const rowsHtml = rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('');
+
+  // This export has no company name/logo of its own today — an active
+  // 'material_requisition' letterhead is simply injected as a full-width
+  // image ahead of the title; no image means no visual change at all. See
+  // letterheadPdf.js.
+  const image = await loadLetterheadImage('material_requisition');
+  const letterheadHtml = image?.dataUrl
+    ? `<img src="${image.dataUrl}" style="max-width:100%;height:auto;max-height:140px;display:block;margin-bottom:16px;" />`
+    : '';
 
   printWindow.document.write(`<!doctype html>
 <html>
@@ -29,6 +40,7 @@ export function exportRequisitionToPdf({ title, subtitle, columns, rows }) {
 </style>
 </head>
 <body>
+  ${letterheadHtml}
   <h1>${escapeHtml(title)}</h1>
   <p class="subtitle">${escapeHtml(subtitle)}</p>
   <table>

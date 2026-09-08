@@ -465,8 +465,8 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
     });
   };
 
-  const handlePrintSpreadsheet = () => {
-    exportRequisitionToPdf({
+  const handlePrintSpreadsheet = async () => {
+    await exportRequisitionToPdf({
       title: 'IRONSIGHT Takeoff Spreadsheet',
       subtitle: `${takeoffName || fileName || 'Untitled takeoff'}${linkedJobLabel ? ` — ${linkedJobLabel}` : ''}`,
       columns: ['Phase', '% of Project', 'Shape', 'Size', 'Qty', 'Metric', 'Est. Weight (lbs)', 'Est. Tons'],

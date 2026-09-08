@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_IN } from './pdfLayout.js';
+import { drawLetterheadImage } from '@/lib/letterheadDraw';
 
 // Pure PDF layout for the Turnover / Contract Review handoff document — see
 // bidProposalPdfLayout.js for why this is a separate, app-import-free module
@@ -24,27 +25,43 @@ function ensureSpace(doc, y, needed) {
   return y;
 }
 
-function drawHeader(doc, logo) {
-  const y = MARGIN + 0.18;
-  doc.setFont(undefined, 'bold');
-  doc.setFontSize(15);
-  doc.text('SteelOS', MARGIN, y);
-  const steelOsWidth = doc.getTextWidth('SteelOS');
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(150);
-  doc.text('|', MARGIN + steelOsWidth + 0.1, y);
-  doc.setTextColor(100);
-  doc.setFontSize(9);
-  doc.text('Turnover / Contract Review', MARGIN + steelOsWidth + 0.25, y);
-  doc.setTextColor(0);
+function drawHeader(doc, logo, letterheadImage) {
+  // An active letterhead replaces the "SteelOS" name/"|" separator + logo
+  // portion of this header (that image already carries the company's own
+  // branding) — see letterheadPdf.js. The "Turnover / Contract Review"
+  // document subtitle is not branding and always renders either way.
+  const letterheadY = drawLetterheadImage(doc, letterheadImage, {
+    x: MARGIN, y: MARGIN, maxWidth: CONTENT_RIGHT - MARGIN, maxHeight: 0.75,
+  });
 
-  if (logo?.dataUrl && logo.width && logo.height) {
-    const h = 0.45;
-    const w = h * (logo.width / logo.height);
-    doc.addImage(logo.dataUrl, 'PNG', CONTENT_RIGHT - w, MARGIN, w, h);
+  const y = letterheadY != null ? letterheadY + 0.05 : MARGIN + 0.18;
+  if (letterheadY == null) {
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(15);
+    doc.text('SteelOS', MARGIN, y);
+    const steelOsWidth = doc.getTextWidth('SteelOS');
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(150);
+    doc.text('|', MARGIN + steelOsWidth + 0.1, y);
+    doc.setTextColor(100);
+    doc.setFontSize(9);
+    doc.text('Turnover / Contract Review', MARGIN + steelOsWidth + 0.25, y);
+    doc.setTextColor(0);
+
+    if (logo?.dataUrl && logo.width && logo.height) {
+      const h = 0.45;
+      const w = h * (logo.width / logo.height);
+      doc.addImage(logo.dataUrl, 'PNG', CONTENT_RIGHT - w, MARGIN, w, h);
+    }
+  } else {
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(100);
+    doc.setFontSize(9);
+    doc.text('Turnover / Contract Review', MARGIN, y);
+    doc.setTextColor(0);
   }
 
-  const ruleY = MARGIN + 0.5;
+  const ruleY = letterheadY != null ? y + 0.14 : MARGIN + 0.5;
   doc.setDrawColor(220, 38, 38);
   doc.setLineWidth(0.025);
   doc.line(MARGIN, ruleY, CONTENT_RIGHT, ruleY);
@@ -216,7 +233,7 @@ function drawTwoColumnFreeText(doc, startY, fields) {
 
 export function drawTurnoverReviewPdf(data) {
   const doc = new jsPDF({ unit: 'in', format: 'letter' });
-  let y = drawHeader(doc, data.logo);
+  let y = drawHeader(doc, data.logo, data.letterheadImage);
   y = drawProjectLine(doc, y, data.project);
 
   y = drawSectionTitle(doc, y, 'Checklist');

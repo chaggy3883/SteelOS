@@ -1,6 +1,7 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_PT, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
+import { prependLetterheadBand } from '@/lib/letterheadPdf';
 
 // Rasterizes a DOM node and paginates it into a letter-size PDF — used by
 // read-only record dialogs (e.g. CandidateApplicationDialog) and report
@@ -17,10 +18,11 @@ import { PDF_MARGIN_PT, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 // would depend on the page break landing exactly on a full pageHeight
 // multiple, which it never does for arbitrary content height. Cropping the
 // source pixels per page sidesteps that entirely.
-export async function exportNodeToPdf(node, filename = 'document.pdf') {
+export async function exportNodeToPdf(node, filename = 'document.pdf', documentTypeKey) {
   if (!node) return;
 
   const canvas = await html2canvas(node, { scale: 2, backgroundColor: '#ffffff' });
+  const finalCanvas = documentTypeKey ? await prependLetterheadBand(canvas, documentTypeKey) : canvas;
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: PDF_PAGE_FORMAT });
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -30,20 +32,20 @@ export async function exportNodeToPdf(node, filename = 'document.pdf') {
 
   // Source-canvas pixels per PDF point, so each page's contentHeight (in PDF
   // points) maps back to the matching slice of the (2x-scaled) source canvas.
-  const pxPerPoint = canvas.width / contentWidth;
+  const pxPerPoint = finalCanvas.width / contentWidth;
   const sliceHeightPx = Math.max(1, Math.floor(contentHeight * pxPerPoint));
 
   let sourceY = 0;
   let first = true;
-  while (sourceY < canvas.height) {
-    const thisSliceHeightPx = Math.min(sliceHeightPx, canvas.height - sourceY);
+  while (sourceY < finalCanvas.height) {
+    const thisSliceHeightPx = Math.min(sliceHeightPx, finalCanvas.height - sourceY);
     const sliceCanvas = document.createElement('canvas');
-    sliceCanvas.width = canvas.width;
+    sliceCanvas.width = finalCanvas.width;
     sliceCanvas.height = thisSliceHeightPx;
     const ctx = sliceCanvas.getContext('2d');
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-    ctx.drawImage(canvas, 0, sourceY, canvas.width, thisSliceHeightPx, 0, 0, canvas.width, thisSliceHeightPx);
+    ctx.drawImage(finalCanvas, 0, sourceY, finalCanvas.width, thisSliceHeightPx, 0, 0, finalCanvas.width, thisSliceHeightPx);
     const sliceData = sliceCanvas.toDataURL('image/png');
     const sliceHeightPt = thisSliceHeightPx / pxPerPoint;
 

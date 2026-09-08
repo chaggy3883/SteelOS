@@ -386,7 +386,7 @@ export default function QualityKpiBuilder() {
     if (!exportRef.current) return;
     const dateStr = new Date().toISOString().slice(0, 10);
     const name = (loadedDashboard?.dashboard_name || `${config.area}_kpi`).replace(/[^a-z0-9_-]+/gi, '_');
-    await exportNodeToPdf(exportRef.current, `${name}_${dateStr}.pdf`);
+    await exportNodeToPdf(exportRef.current, `${name}_${dateStr}.pdf`, 'quality_kpi_report');
   };
 
   if (checkingAccess) {

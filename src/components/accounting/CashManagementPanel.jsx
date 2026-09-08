@@ -209,7 +209,7 @@ export default function CashManagementPanel() {
   const handleExportPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateCashReconciliationPdf({
+      await generateCashReconciliationPdf({
         company,
         account: selectedAccount,
         transactions: transactionsSortedDesc.map((t) => ({ ...t, balance: runningBalanceById[t.id] })),

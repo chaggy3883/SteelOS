@@ -165,7 +165,7 @@ export default function RFIs() {
     setGeneratingNoticeId(rfi.id);
     try {
       const project = projects.find(p => p.id === rfi.project_id);
-      const { blob, filename } = generateDelayImpactNoticePDF({ rfi, contract, daysDelayed, project });
+      const { blob, filename } = await generateDelayImpactNoticePDF({ rfi, contract, daysDelayed, project });
       const file = new File([blob], filename, { type: 'application/pdf' });
       const { file_url } = await db.integrations.Core.UploadFile({ file });
 

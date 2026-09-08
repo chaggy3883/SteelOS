@@ -297,7 +297,7 @@ export default function MonthEndClosePanel() {
   const handleExportPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateMonthEndClosePdf({ company, periodLabel: formatPeriodLabel(period), close, readinessStats, checklistItems });
+      await generateMonthEndClosePdf({ company, periodLabel: formatPeriodLabel(period), close, readinessStats, checklistItems });
       toast({ title: 'Month-End Close PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Month-End Close PDF', variant: 'destructive' });

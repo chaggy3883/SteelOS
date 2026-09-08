@@ -236,8 +236,8 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportRequisitionPdf = () => {
-    exportRequisitionToPdf({
+  const handleExportRequisitionPdf = async () => {
+    await exportRequisitionToPdf({
       title: 'Material Takeoff Requisition',
       subtitle: `${bid?.bid_number || 'Bid TBD'} — ${bid?.job_name || ''} — unpriced, for supplier quoting`,
       columns: ['Shape Type', 'Selected Size', 'Length (ft)', 'Weight (lb/ft)', 'Qty', 'Coating', 'Calculated Metrics'],

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat, Presentation, ClipboardCheck, Package } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat, Presentation, ClipboardCheck, Package, FileImage } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getEffectiveCompany, isAdminUser, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
@@ -15,6 +15,7 @@ import IntegrationsGateway from '@/components/admin/IntegrationsGateway';
 import RoleManager from '@/components/admin/RoleManager';
 import ShopFloorLayoutEditor from '@/components/admin/ShopFloorLayoutEditor';
 import CompanyBrandingPanel from '@/components/admin/CompanyBrandingPanel';
+import LetterheadManager from '@/components/admin/LetterheadManager';
 import FormReportSettingsPanel from '@/components/admin/FormReportSettingsPanel';
 import SteelCatalogPanel from '@/components/settings/SteelCatalogPanel';
 import MeetingModeSettingsPanel from '@/components/admin/MeetingModeSettingsPanel';
@@ -34,6 +35,7 @@ const TABS = [
   // new-hire equipment kit policy lives (issuedAssetsApi.js), an HR-owned
   // setting, not just branding.
   { id: 'branding', label: 'Company Settings', icon: Palette, Component: CompanyBrandingPanel, roles: ['admin', 'super_admin', 'hr_admin'] },
+  { id: 'letterhead', label: 'Company Letterhead', icon: FileImage, Component: LetterheadManager },
   { id: 'form-report-settings', label: 'Form & Report Settings', icon: LayoutTemplate, Component: FormReportSettingsPanel },
   { id: 'meeting-mode', label: 'Meeting Mode', icon: Presentation, Component: MeetingModeSettingsPanel, modulePath: '/meeting-mode' },
   { id: 'turnover-meeting', label: 'Turnover Meeting', icon: ClipboardCheck, Component: TurnoverMeetingSettingsPanel },

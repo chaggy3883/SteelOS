@@ -46,7 +46,7 @@ export default function MaterialOptimizationReportPanel({ projectId, projectName
     }
   };
 
-  const handleExport = () => exportNodeToPdf(reportRef.current, `material-optimization-report-${(projectName || 'project').replace(/[^a-z0-9]+/gi, '-')}.pdf`);
+  const handleExport = () => exportNodeToPdf(reportRef.current, `material-optimization-report-${(projectName || 'project').replace(/[^a-z0-9]+/gi, '-')}.pdf`, 'material_optimization_report');
 
   if (loading) {
     return <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>;

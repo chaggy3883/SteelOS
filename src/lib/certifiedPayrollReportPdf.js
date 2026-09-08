@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM } from '@/lib/pdfLayout';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
@@ -20,19 +21,28 @@ const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 // biweekly/semimonthly/monthly PayrollRun period can span far more days than
 // a rigid 7-column WH-347 grid can hold on one page without becoming
 // illegible, so this keeps the real daily detail without a column explosion.
-export function generateWH347Pdf({ project, period, run, company, rows }) {
+export async function generateWH347Pdf({ project, period, run, company, rows }) {
   const doc = new jsPDF({ orientation: 'landscape' });
   const today = new Date().toISOString().slice(0, 10);
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = PDF_MARGIN_MM;
 
+  // An active letterhead replaces only the "Contractor:" company name/
+  // address line (that image already carries the company's own branding) —
+  // see letterheadPdf.js. The report title and every other metadata line
+  // (Project, Location, Wage Determination #, etc.) always render, just
+  // shifted down when a letterhead is drawn.
+  const letterheadY = await drawLetterheadIfActive(doc, 'certified_payroll_wh347', { x: marginX, y: 10, maxWidth: pageWidth - marginX * 2, maxHeight: 22 });
+
   doc.setFontSize(15);
-  doc.text('STATEMENT OF COMPLIANCE — CERTIFIED PAYROLL (WH-347 FORMAT)', marginX, 15);
+  doc.text('STATEMENT OF COMPLIANCE — CERTIFIED PAYROLL (WH-347 FORMAT)', marginX, letterheadY != null ? letterheadY + 6 : 15);
 
   doc.setFontSize(9);
-  let y = 23;
-  const companyLine = [company?.name, company?.address, company?.city, company?.state, company?.zip].filter(Boolean).join(', ');
-  doc.text(`Contractor: ${companyLine || '—'}`, marginX, y); y += 6;
+  let y = letterheadY != null ? letterheadY + 14 : 23;
+  if (letterheadY == null) {
+    const companyLine = [company?.name, company?.address, company?.city, company?.state, company?.zip].filter(Boolean).join(', ');
+    doc.text(`Contractor: ${companyLine || '—'}`, marginX, y); y += 6;
+  }
   doc.text(`Project: ${project?.project_number || ''} — ${project?.name || ''}`, marginX, y);
   doc.text(`Location: ${[project?.address, project?.city, project?.state].filter(Boolean).join(', ') || '—'}`, pageWidth / 2, y); y += 6;
   doc.text(`Wage Determination #: ${project?.wage_determination_number || '—'}`, marginX, y);

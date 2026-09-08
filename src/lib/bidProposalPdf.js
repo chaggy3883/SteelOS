@@ -5,6 +5,7 @@ import { rasterizePdfPages, detectDocumentKind } from '@/lib/proposalTermsPdfMer
 import { loadImageAsDataUrl, dataUrlImageSize } from '@/lib/pdfImage';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { drawBidProposalPdf } from '@/lib/bidProposalPdfLayout';
+import { loadLetterheadImage } from '@/lib/letterheadPdf';
 
 export { drawBidProposalPdf };
 
@@ -31,6 +32,7 @@ export async function generateBidProposalPdf(bid) {
   const taxLabel = await getTaxDisplayLabel(bid).catch(() => 'Sales Tax');
   const logo = await loadImageAsDataUrl(company?.logo_url);
   const aiscBadge = company?.aisc_certified ? await loadImageAsDataUrl(company?.aisc_badge_url) : null;
+  const letterheadImage = await loadLetterheadImage('bid_proposal');
 
   const { structuralTaxAmount, joistDeckTaxAmount } = computeBidTaxBreakdown(bid, lines);
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
@@ -78,6 +80,7 @@ export async function generateBidProposalPdf(bid) {
     estimatorEmail: estimator?.personal_email || '',
     logo,
     aiscBadge,
+    letterheadImage,
     taxLabel,
     amounts: {
       fobPrice, structuralTaxAmount, joistDeckTaxAmount, grandTotal,

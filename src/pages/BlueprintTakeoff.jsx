@@ -1273,8 +1273,8 @@ export default function BlueprintTakeoff() {
     persist(newRows);
   };
 
-  const handleExportRequisitionPdf = () => {
-    exportRequisitionToPdf({
+  const handleExportRequisitionPdf = async () => {
+    await exportRequisitionToPdf({
       title: 'Blueprint Takeoff Requisition',
       subtitle: `${fileName || 'Untitled document'} — unpriced, for supplier quoting`,
       columns: ['Shape Type', 'Selected Size', 'Length (ft)', 'Weight (lb/ft)', 'Qty', 'Coating', 'Calculated Metrics'],

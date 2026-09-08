@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -46,7 +47,7 @@ function drawRow(doc, x0, y, row) {
 // Bank & Cash → Accounts & Reconciliation sub-tab (CashManagementPanel) for
 // one bank account — same running-balance transactions the on-screen table
 // renders, plus the reconciliation summary figures shown above it.
-export function generateCashReconciliationPdf({ company, account, transactions, currentBalance, reconciledBalance, statementBalance, reconciliationDifference }) {
+export async function generateCashReconciliationPdf({ company, account, transactions, currentBalance, reconciledBalance, statementBalance, reconciliationDifference }) {
   const doc = new jsPDF({ format: PDF_PAGE_FORMAT });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -61,11 +62,12 @@ export function generateCashReconciliationPdf({ company, account, transactions, 
     return y;
   };
 
+  const letterheadY = await drawLetterheadIfActive(doc, 'cash_reconciliation', { x: marginX, y: 10, maxWidth: pageWidth - marginX * 2, maxHeight: 22 });
   doc.setFontSize(16);
-  doc.text('CASH RECONCILIATION', marginX, 18);
+  doc.text('CASH RECONCILIATION', marginX, letterheadY != null ? letterheadY + 6 : 18);
   doc.setFontSize(9);
-  let y = 26;
-  doc.text(company?.name || '—', marginX, y); y += 5;
+  let y = letterheadY != null ? letterheadY + 14 : 26;
+  if (letterheadY == null) { doc.text(company?.name || '—', marginX, y); y += 5; }
   doc.text(`Account: ${account?.account_name || '—'} (${account?.bank_name || '—'} · ****${account?.account_number_last4 || '----'})`, marginX, y); y += 5;
   doc.text(`Generated ${today}`, marginX, y); y += 7;
 

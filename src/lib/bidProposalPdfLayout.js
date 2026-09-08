@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_IN } from './pdfLayout.js';
+import { drawLetterheadImage } from '@/lib/letterheadDraw';
 
 // Pure PDF layout for the customer-facing proposal — takes fully-resolved
 // data (no db/network/browser-image calls) and returns a jsPDF document.
@@ -68,8 +69,18 @@ function ensureSpace(doc, y, needed) {
   return y;
 }
 
-function drawHeader(doc, { logo, aiscBadge, aiscCertified, company }) {
+function drawHeader(doc, { logo, aiscBadge, aiscCertified, company, letterheadImage }) {
   const topY = MARGIN;
+
+  // An active letterhead replaces the logo/company-name + AISC badge + address
+  // block entirely (that image already carries the company's own branding) —
+  // see letterheadPdf.js. Falls through to the normal header when no
+  // letterhead is assigned to 'bid_proposal'.
+  const letterheadY = drawLetterheadImage(doc, letterheadImage, {
+    x: MARGIN, y: topY, maxWidth: CONTENT_RIGHT - MARGIN, maxHeight: 0.9,
+  });
+  if (letterheadY != null) return letterheadY;
+
   let logoRight = MARGIN;
 
   if (logo?.dataUrl && logo.width && logo.height) {
@@ -690,7 +701,7 @@ export function drawBidProposalPdf(data) {
   const doc = new jsPDF({ unit: 'in', format: 'letter' });
   const { bid, company } = data;
 
-  let y = drawHeader(doc, { logo: data.logo, aiscBadge: data.aiscBadge, aiscCertified: !!company?.aisc_certified, company: { ...company, name: company?.name || data.companyName } });
+  let y = drawHeader(doc, { logo: data.logo, aiscBadge: data.aiscBadge, aiscCertified: !!company?.aisc_certified, company: { ...company, name: company?.name || data.companyName }, letterheadImage: data.letterheadImage });
   y = drawTopInfoBlock(doc, y, bid, company);
   y = drawInclusionsExclusions(doc, y, bid);
   y = drawBulletSection(doc, y, 'Clarifications', company?.clarifications_text);

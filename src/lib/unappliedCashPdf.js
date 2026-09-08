@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -39,7 +40,7 @@ function drawRow(doc, x0, y, row) {
 
 // Bank & Cash → Unapplied Cash sub-tab (UnappliedCashPanel) — same
 // overpayment rows the on-screen table renders.
-export function generateUnappliedCashPdf({ company, rows }) {
+export async function generateUnappliedCashPdf({ company, rows }) {
   const doc = new jsPDF({ format: PDF_PAGE_FORMAT });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -54,11 +55,12 @@ export function generateUnappliedCashPdf({ company, rows }) {
     return y;
   };
 
+  const letterheadY = await drawLetterheadIfActive(doc, 'unapplied_cash', { x: marginX, y: 10, maxWidth: pageWidth - marginX * 2, maxHeight: 22 });
   doc.setFontSize(16);
-  doc.text('UNAPPLIED CASH', marginX, 18);
+  doc.text('UNAPPLIED CASH', marginX, letterheadY != null ? letterheadY + 6 : 18);
   doc.setFontSize(9);
-  let y = 26;
-  doc.text(company?.name || '—', marginX, y); y += 5;
+  let y = letterheadY != null ? letterheadY + 14 : 26;
+  if (letterheadY == null) { doc.text(company?.name || '—', marginX, y); y += 5; }
   doc.text(`Generated ${today}`, marginX, y); y += 9;
 
   y = drawTableHeader(doc, marginX, y);

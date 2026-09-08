@@ -228,7 +228,7 @@ export default function IncomingAchPanel() {
   const handleExportPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateIncomingAchPdf({
+      await generateIncomingAchPdf({
         company,
         rows: sorted.map((a) => ({ ...a, bank_account: bankAccountLabel(a.bank_account_id), status: titleCase(a.status), applied_to: describeMatch(a) })),
       });

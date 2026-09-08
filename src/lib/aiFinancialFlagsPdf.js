@@ -1,12 +1,13 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 // AI Financial Flags tab — same findings list Accounting.jsx's "ai" tab
 // renders (optionally already filtered to one project), as stacked blocks
 // rather than a table since each finding carries a variable-length
 // explanation, matching the card layout on screen.
-export function generateAiFinancialFlagsPdf({ company, findings, projectFilterLabel }) {
+export async function generateAiFinancialFlagsPdf({ company, findings, projectFilterLabel }) {
   const doc = new jsPDF({ format: PDF_PAGE_FORMAT });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -16,11 +17,12 @@ export function generateAiFinancialFlagsPdf({ company, findings, projectFilterLa
 
   const ensureRoom = (y, needed = 8) => (y + needed > pageHeight - marginX ? (doc.addPage(), 20) : y);
 
+  const letterheadY = await drawLetterheadIfActive(doc, 'ai_financial_flags', { x: marginX, y: 10, maxWidth, maxHeight: 22 });
   doc.setFontSize(16);
-  doc.text('AI FINANCIAL FLAGS', marginX, 18);
+  doc.text('AI FINANCIAL FLAGS', marginX, letterheadY != null ? letterheadY + 6 : 18);
   doc.setFontSize(9);
-  let y = 26;
-  doc.text(company?.name || '—', marginX, y); y += 5;
+  let y = letterheadY != null ? letterheadY + 14 : 26;
+  if (letterheadY == null) { doc.text(company?.name || '—', marginX, y); y += 5; }
   if (projectFilterLabel) { doc.text(`Showing flags for ${projectFilterLabel}.`, marginX, y); y += 5; }
   doc.text(`Generated ${today}`, marginX, y); y += 9;
 

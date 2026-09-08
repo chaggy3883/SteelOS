@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -67,8 +68,9 @@ function drawInvoiceRow(doc, x0, y, row) {
 // AR & Billings tab for one project — the Schedule of Values and Progress
 // Billings (AIA G702/G703) tables Accounting.jsx renders for
 // selectedProjectId.
-export function generateArBillingPdf({ project, company, sovLines, invoiceReceivables }) {
+export async function generateArBillingPdf({ project, company, sovLines, invoiceReceivables }) {
   const doc = new jsPDF({ format: PDF_PAGE_FORMAT });
+  const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = PDF_MARGIN_MM;
   const today = new Date().toISOString().slice(0, 10);
@@ -82,11 +84,12 @@ export function generateArBillingPdf({ project, company, sovLines, invoiceReceiv
     return y;
   };
 
+  const letterheadY = await drawLetterheadIfActive(doc, 'ar_billing', { x: marginX, y: 10, maxWidth: pageWidth - marginX * 2, maxHeight: 22 });
   doc.setFontSize(16);
-  doc.text('AR & BILLINGS', marginX, 18);
+  doc.text('AR & BILLINGS', marginX, letterheadY != null ? letterheadY + 6 : 18);
   doc.setFontSize(9);
-  let y = 26;
-  doc.text(company?.name || '—', marginX, y); y += 5;
+  let y = letterheadY != null ? letterheadY + 14 : 26;
+  if (letterheadY == null) { doc.text(company?.name || '—', marginX, y); y += 5; }
   doc.text(`Project: ${project?.name || 'Unknown Project'}${project?.project_number ? ` (#${project.project_number})` : ''}`, marginX, y); y += 5;
   doc.text(`Generated ${today}`, marginX, y); y += 9;
 

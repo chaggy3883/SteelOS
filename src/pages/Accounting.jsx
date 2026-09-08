@@ -420,7 +420,7 @@ export default function Accounting() {
       const invoiceIds = new Set(row.invoices.map(({ invoice }) => invoice.id));
       const customerPayments = payments.filter((p) => p.related_entity_type === 'InvoiceReceivable' && invoiceIds.has(p.related_entity_id));
       const customerMemos = memos.filter((m) => m.related_entity_type === 'InvoiceReceivable' && invoiceIds.has(m.related_entity_id));
-      generateCustomerStatementPdf({ customer: row.customer, company, invoiceRows: row.invoices, payments: customerPayments, memos: customerMemos });
+      await generateCustomerStatementPdf({ customer: row.customer, company, invoiceRows: row.invoices, payments: customerPayments, memos: customerMemos });
       toast({ title: 'Statement generated' });
     } catch (e) {
       toast({ title: 'Unable to generate statement', variant: 'destructive' });
@@ -558,7 +558,7 @@ export default function Accounting() {
   const handleExportProjectJobCostPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateProjectJobCostPdf({ project: selectedProject, company, rows: projectJobCostRows });
+      await generateProjectJobCostPdf({ project: selectedProject, company, rows: projectJobCostRows });
       toast({ title: 'Job Cost Detail PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Job Cost Detail PDF', variant: 'destructive' });
@@ -568,7 +568,7 @@ export default function Accounting() {
   const handleExportCompanyJobCostPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateCompanyWideJobCostPdf({ company, rows: companyRollupRows, dateFrom: companyDateFrom, dateTo: companyDateTo });
+      await generateCompanyWideJobCostPdf({ company, rows: companyRollupRows, dateFrom: companyDateFrom, dateTo: companyDateTo });
       toast({ title: 'Company-wide Job Cost Rollup PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate rollup PDF', variant: 'destructive' });
@@ -578,7 +578,7 @@ export default function Accounting() {
   const handleExportJobCostingSummaryPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateJobCostingSummaryPdf({ company, projects: jobsRiskFilter ? projects.filter(p => p.financial_risk > 0) : projects, riskFilterActive: jobsRiskFilter });
+      await generateJobCostingSummaryPdf({ company, projects: jobsRiskFilter ? projects.filter(p => p.financial_risk > 0) : projects, riskFilterActive: jobsRiskFilter });
       toast({ title: 'Job Costing Summary PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Job Costing Summary PDF', variant: 'destructive' });
@@ -593,7 +593,7 @@ export default function Accounting() {
         vendor_name: vendors.find(v => v.id === bill.vendor_id)?.name,
         po_number: purchaseOrders.find(p => p.id === bill.po_id)?.po_number,
       }));
-      generateVendorBillsPdf({ company, rows });
+      await generateVendorBillsPdf({ company, rows });
       toast({ title: 'Vendor Bills PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Vendor Bills PDF', variant: 'destructive' });
@@ -603,7 +603,7 @@ export default function Accounting() {
   const handleExportArBillingPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateArBillingPdf({ project: selectedProject, company, sovLines, invoiceReceivables });
+      await generateArBillingPdf({ project: selectedProject, company, sovLines, invoiceReceivables });
       toast({ title: 'AR & Billings PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate AR & Billings PDF', variant: 'destructive' });
@@ -613,7 +613,7 @@ export default function Accounting() {
   const handleExportWipReportPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateWipReportPdf({ project: selectedProject, company, wip, ledgerEntries, changeOrderMargin });
+      await generateWipReportPdf({ project: selectedProject, company, wip, ledgerEntries, changeOrderMargin });
       toast({ title: 'WIP Report PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate WIP Report PDF', variant: 'destructive' });
@@ -625,7 +625,7 @@ export default function Accounting() {
       const company = await getEffectiveCompany().catch(() => null);
       const visibleFindings = findingsProjectFilter ? findings.filter(f => f.project_id === findingsProjectFilter) : findings;
       const projectFilterLabel = findingsProjectFilter ? (projects.find(p => p.id === findingsProjectFilter)?.name || 'selected project') : '';
-      generateAiFinancialFlagsPdf({ company, findings: visibleFindings, projectFilterLabel });
+      await generateAiFinancialFlagsPdf({ company, findings: visibleFindings, projectFilterLabel });
       toast({ title: 'AI Financial Flags PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate AI Financial Flags PDF', variant: 'destructive' });

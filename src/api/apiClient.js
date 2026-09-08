@@ -168,6 +168,7 @@ const createLocalApi = () => ({
     MaterialShapeType: createEntityApi('MaterialShapeType'),
     MaterialSizeOption: createEntityApi('MaterialSizeOption'),
     MaterialGradeOption: createEntityApi('MaterialGradeOption'),
+    CompanyLetterhead: createEntityApi('CompanyLetterhead'),
     TakeoffLine: createEntityApi('TakeoffLine'),
     TaxRate: createEntityApi('TaxRate'),
     User: createEntityApi('User'),

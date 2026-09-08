@@ -103,7 +103,7 @@ export default function Estimating() {
 
   const scrollToRef = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  const exportListToPdf = (ref, filename) => exportNodeToPdf(ref.current, filename);
+  const exportListToPdf = (ref, filename, documentTypeKey) => exportNodeToPdf(ref.current, filename, documentTypeKey);
 
   const startEditBid = (bid) => {
     setEditingBid(bid);
@@ -279,7 +279,7 @@ export default function Estimating() {
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary" />Bid List — Active</h3>
             <div className="flex items-center gap-3">
-              <Button size="sm" variant="outline" onClick={() => exportListToPdf(bidListRef, 'active-bids.pdf')}>
+              <Button size="sm" variant="outline" onClick={() => exportListToPdf(bidListRef, 'active-bids.pdf', 'estimating_active_bids')}>
                 <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
               </Button>
               <Link to="/estimating/new" className="text-xs text-primary hover:underline">+ New Bid</Link>
@@ -369,7 +369,7 @@ export default function Estimating() {
         <div ref={bidHistoryRef} className="steel-card overflow-hidden">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><Archive className="w-4 h-4 text-muted-foreground" />Bid History — Won & Lost</h3>
-            <Button size="sm" variant="outline" onClick={() => exportListToPdf(bidHistoryRef, 'bid-history.pdf')}>
+            <Button size="sm" variant="outline" onClick={() => exportListToPdf(bidHistoryRef, 'bid-history.pdf', 'estimating_bid_history')}>
               <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
             </Button>
           </div>
@@ -449,7 +449,7 @@ export default function Estimating() {
         <div ref={dnbRef} className="steel-card overflow-hidden mt-6">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><XCircle className="w-4 h-4 text-muted-foreground" />Did Not Bid</h3>
-            <Button size="sm" variant="outline" onClick={() => exportListToPdf(dnbRef, 'did-not-bid.pdf')}>
+            <Button size="sm" variant="outline" onClick={() => exportListToPdf(dnbRef, 'did-not-bid.pdf', 'estimating_did_not_bid')}>
               <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
             </Button>
           </div>

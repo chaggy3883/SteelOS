@@ -140,7 +140,7 @@ export default function EstimatingAnalytics() {
     : [];
   const handleExportShopHoursPdf = () => {
     const suffix = shopHoursProjectId === 'all' ? 'all-projects' : (shopHoursProjectOptions.find(p => p.id === shopHoursProjectId)?.label || shopHoursProjectId).replace(/[^a-z0-9_-]+/gi, '_');
-    exportNodeToPdf(shopHoursCardRef.current, `estimated-vs-shop-hours_${suffix}.pdf`);
+    exportNodeToPdf(shopHoursCardRef.current, `estimated-vs-shop-hours_${suffix}.pdf`, 'estimating_shop_hours_variance');
   };
 
   return (

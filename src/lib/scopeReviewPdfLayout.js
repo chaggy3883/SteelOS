@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_IN } from './pdfLayout.js';
+import { drawLetterheadImage } from '@/lib/letterheadDraw';
 
 // Pure PDF layout for the Scope Review document — see bidProposalPdfLayout.js
 // for why this is a separate, app-import-free module (Node-testable from
@@ -23,21 +24,37 @@ function ensureSpace(doc, y, needed) {
   return y;
 }
 
-function drawHeader(doc) {
-  const y = MARGIN + 0.18;
-  doc.setFont(undefined, 'bold');
-  doc.setFontSize(15);
-  doc.text('SteelOS', MARGIN, y);
-  const steelOsWidth = doc.getTextWidth('SteelOS');
-  doc.setFont(undefined, 'normal');
-  doc.setTextColor(150);
-  doc.text('|', MARGIN + steelOsWidth + 0.1, y);
-  doc.setTextColor(100);
-  doc.setFontSize(9);
-  doc.text('Scope Review', MARGIN + steelOsWidth + 0.25, y);
-  doc.setTextColor(0);
+function drawHeader(doc, letterheadImage) {
+  // An active letterhead replaces the "SteelOS" name/"|" separator portion
+  // of this header (that image already carries the company's own branding)
+  // — see letterheadPdf.js. The "Scope Review" document subtitle is not
+  // branding and always renders either way.
+  const letterheadY = drawLetterheadImage(doc, letterheadImage, {
+    x: MARGIN, y: MARGIN, maxWidth: CONTENT_RIGHT - MARGIN, maxHeight: 0.75,
+  });
 
-  const ruleY = MARGIN + 0.5;
+  const y = letterheadY != null ? letterheadY + 0.05 : MARGIN + 0.18;
+  if (letterheadY == null) {
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(15);
+    doc.text('SteelOS', MARGIN, y);
+    const steelOsWidth = doc.getTextWidth('SteelOS');
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(150);
+    doc.text('|', MARGIN + steelOsWidth + 0.1, y);
+    doc.setTextColor(100);
+    doc.setFontSize(9);
+    doc.text('Scope Review', MARGIN + steelOsWidth + 0.25, y);
+    doc.setTextColor(0);
+  } else {
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(100);
+    doc.setFontSize(9);
+    doc.text('Scope Review', MARGIN, y);
+    doc.setTextColor(0);
+  }
+
+  const ruleY = letterheadY != null ? y + 0.14 : MARGIN + 0.5;
   doc.setDrawColor(220, 38, 38);
   doc.setLineWidth(0.025);
   doc.line(MARGIN, ruleY, CONTENT_RIGHT, ruleY);
@@ -165,7 +182,7 @@ function drawPreparedByBlock(doc, startY, preparedBy, printedDate) {
 
 export function drawScopeReviewPdf(data) {
   const doc = new jsPDF({ unit: 'in', format: 'letter' });
-  let y = drawHeader(doc);
+  let y = drawHeader(doc, data.letterheadImage);
   y = drawProjectLine(doc, y, data.project);
 
   y = drawSectionTitle(doc, y, 'Questions');

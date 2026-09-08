@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -46,8 +47,9 @@ function drawRow(doc, x0, y, row) {
 // WIP Report tab for one project — the WIP schedule stat figures plus the
 // Job Cost Ledger transaction detail table Accounting.jsx renders for
 // selectedProjectId.
-export function generateWipReportPdf({ project, company, wip, ledgerEntries, changeOrderMargin }) {
+export async function generateWipReportPdf({ project, company, wip, ledgerEntries, changeOrderMargin }) {
   const doc = new jsPDF({ format: PDF_PAGE_FORMAT });
+  const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = PDF_MARGIN_MM;
   const today = new Date().toISOString().slice(0, 10);
@@ -60,11 +62,12 @@ export function generateWipReportPdf({ project, company, wip, ledgerEntries, cha
     return y;
   };
 
+  const letterheadY = await drawLetterheadIfActive(doc, 'wip_report', { x: marginX, y: 10, maxWidth: pageWidth - marginX * 2, maxHeight: 22 });
   doc.setFontSize(16);
-  doc.text('WIP REPORT', marginX, 18);
+  doc.text('WIP REPORT', marginX, letterheadY != null ? letterheadY + 6 : 18);
   doc.setFontSize(9);
-  let y = 26;
-  doc.text(company?.name || '—', marginX, y); y += 5;
+  let y = letterheadY != null ? letterheadY + 14 : 26;
+  if (letterheadY == null) { doc.text(company?.name || '—', marginX, y); y += 5; }
   doc.text(`Project: ${project?.name || 'Unknown Project'}${project?.project_number ? ` (#${project.project_number})` : ''}`, marginX, y); y += 5;
   doc.text(`Generated ${today}`, marginX, y); y += 7;
 

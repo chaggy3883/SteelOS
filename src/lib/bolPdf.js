@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 // Generates a single-page Bill of Lading PDF for a load at Call Inspection
 // time. Mirrors delayNoticePdf.js's plain-text jsPDF layout (no autotable
@@ -54,42 +55,53 @@ export async function generateBolPdf({ company, load, project, carrierLabel, tra
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: PDF_PAGE_FORMAT });
   const today = new Date().toISOString().slice(0, 10);
 
-  // Letterhead — company logo (if configured) + name/address/phone on the
-  // left, the BOL title/load number/ship date on the right.
-  let logoWidth = 0;
-  const logoImg = await loadImage(company?.logo_url);
-  if (logoImg && logoImg.naturalWidth && logoImg.naturalHeight) {
-    const dataUrl = imageToDataUrl(logoImg);
-    if (dataUrl) {
-      const scale = Math.min(MAX_LOGO_WIDTH / logoImg.naturalWidth, MAX_LOGO_HEIGHT / logoImg.naturalHeight, 1);
-      logoWidth = logoImg.naturalWidth * scale;
-      doc.addImage(dataUrl, 'PNG', MARGIN, 9, logoWidth, logoImg.naturalHeight * scale);
+  // Letterhead — an active 'bol' letterhead replaces the company
+  // logo/name/address/phone block entirely (that image already carries the
+  // company's own branding) — see letterheadPdf.js. The BOL title/load
+  // number/ship date on the right is document metadata, not branding, and
+  // always renders either way, just shifted down when a letterhead is drawn.
+  const letterheadY = await drawLetterheadIfActive(doc, 'bol', { x: MARGIN, y: 10, maxWidth: CONTENT_RIGHT - MARGIN, maxHeight: 22 });
+
+  if (letterheadY == null) {
+    // Company logo (if configured) + name/address/phone on the left, the
+    // BOL title/load number/ship date on the right.
+    let logoWidth = 0;
+    const logoImg = await loadImage(company?.logo_url);
+    if (logoImg && logoImg.naturalWidth && logoImg.naturalHeight) {
+      const dataUrl = imageToDataUrl(logoImg);
+      if (dataUrl) {
+        const scale = Math.min(MAX_LOGO_WIDTH / logoImg.naturalWidth, MAX_LOGO_HEIGHT / logoImg.naturalHeight, 1);
+        logoWidth = logoImg.naturalWidth * scale;
+        doc.addImage(dataUrl, 'PNG', MARGIN, 9, logoWidth, logoImg.naturalHeight * scale);
+      }
     }
+
+    const textX = MARGIN + (logoWidth ? logoWidth + 4 : 0);
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(13);
+    doc.text(company?.name || 'Company', textX, 15);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(8.5);
+    addressLines(company).forEach((l, i) => doc.text(l, textX, 20 + i * 4.5));
+    if (company?.phone) doc.text(`Phone: ${company.phone}`, textX, 20 + addressLines(company).length * 4.5);
   }
 
-  const textX = MARGIN + (logoWidth ? logoWidth + 4 : 0);
-  doc.setFont(undefined, 'bold');
-  doc.setFontSize(13);
-  doc.text(company?.name || 'Company', textX, 15);
-  doc.setFont(undefined, 'normal');
-  doc.setFontSize(8.5);
-  addressLines(company).forEach((l, i) => doc.text(l, textX, 20 + i * 4.5));
-  if (company?.phone) doc.text(`Phone: ${company.phone}`, textX, 20 + addressLines(company).length * 4.5);
-
+  const titleY = letterheadY != null ? letterheadY + 6 : 15;
   doc.setFont(undefined, 'bold');
   doc.setFontSize(16);
-  doc.text('BILL OF LADING', CONTENT_RIGHT, 15, { align: 'right' });
+  doc.text('BILL OF LADING', CONTENT_RIGHT, titleY, { align: 'right' });
   doc.setFont(undefined, 'normal');
   doc.setFontSize(9);
-  doc.text(`Load #: ${load?.load_number_id || '—'}`, CONTENT_RIGHT, 21, { align: 'right' });
-  doc.text(`Ship Date: ${today}`, CONTENT_RIGHT, 25.5, { align: 'right' });
+  doc.text(`Load #: ${load?.load_number_id || '—'}`, CONTENT_RIGHT, titleY + 6, { align: 'right' });
+  doc.text(`Ship Date: ${today}`, CONTENT_RIGHT, titleY + 10.5, { align: 'right' });
 
+  const ruleY = letterheadY != null ? titleY + 14 : 29;
   doc.setDrawColor(40);
   doc.setLineWidth(0.5);
-  doc.line(MARGIN, 29, CONTENT_RIGHT, 29);
+  doc.line(MARGIN, ruleY, CONTENT_RIGHT, ruleY);
 
   // Carrier / trailer strip — the load/trailer info the old layout omitted.
-  let y = 36;
+  let y = ruleY + 7;
   doc.setFontSize(7.5);
   doc.setTextColor(110);
   doc.text('CARRIER', MARGIN, y);

@@ -314,7 +314,7 @@ export default function CertifiedPayroll() {
       return null;
     }
     const company = await getEffectiveCompany().catch(() => null);
-    generateWH347Pdf({ project, period, run, company, rows });
+    await generateWH347Pdf({ project, period, run, company, rows });
     return period;
   };
 

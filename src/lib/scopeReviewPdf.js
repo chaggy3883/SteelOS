@@ -1,5 +1,6 @@
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { drawScopeReviewPdf } from '@/lib/scopeReviewPdfLayout';
+import { loadLetterheadImage } from '@/lib/letterheadPdf';
 
 export { drawScopeReviewPdf };
 
@@ -11,8 +12,10 @@ export { drawScopeReviewPdf };
 // bidProposalPdf.js. See scopeReviewPdfLayout.js for the actual
 // page-drawing logic.
 export async function generateScopeReviewPdf({ project, preparedBy, questions, generalNotes }) {
+  const letterheadImage = await loadLetterheadImage('scope_review');
   const data = {
     project,
+    letterheadImage,
     questions: questions || [],
     generalNotes,
     preparedBy,

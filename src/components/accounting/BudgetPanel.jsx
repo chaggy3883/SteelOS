@@ -198,7 +198,7 @@ export default function BudgetPanel() {
           ytdVariancePct: ytdBudgeted !== 0 ? ytdVariance / ytdBudgeted : null,
         };
       });
-      generateBudgetPdf({ company, fiscalYear, monthLabels: MONTH_LABELS, budgetRows, columnTotals, grandTotal, varianceRows, ytdThroughLabel: MONTH_LABELS[ytdMonthCount - 1] });
+      await generateBudgetPdf({ company, fiscalYear, monthLabels: MONTH_LABELS, budgetRows, columnTotals, grandTotal, varianceRows, ytdThroughLabel: MONTH_LABELS[ytdMonthCount - 1] });
       toast({ title: 'Budget PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Budget PDF', variant: 'destructive' });

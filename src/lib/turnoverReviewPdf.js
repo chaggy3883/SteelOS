@@ -3,6 +3,7 @@ import { SIMPLE_CHECKLIST_ITEMS, FREE_TEXT_FIELDS } from '@/components/projects/
 import { loadImageAsDataUrl } from '@/lib/pdfImage';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { drawTurnoverReviewPdf } from '@/lib/turnoverReviewPdfLayout';
+import { loadLetterheadImage } from '@/lib/letterheadPdf';
 
 export { drawTurnoverReviewPdf };
 
@@ -15,6 +16,7 @@ export { drawTurnoverReviewPdf };
 export async function generateTurnoverReviewPdf({ project, record }) {
   const companies = await db.entities.Company.list('-created_date', 1).catch(() => []);
   const logo = await loadImageAsDataUrl(companies[0]?.logo_url);
+  const letterheadImage = await loadLetterheadImage('turnover_review');
 
   const items = record.checklist_items || {};
   const checklistRows = [
@@ -28,6 +30,7 @@ export async function generateTurnoverReviewPdf({ project, record }) {
   const data = {
     project,
     logo,
+    letterheadImage,
     checklistRows,
     pricingBasis: record.pricing_basis,
     pricingBasisLabel,

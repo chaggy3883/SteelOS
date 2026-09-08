@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_IN } from './pdfLayout.js';
+import { drawLetterheadImage } from '@/lib/letterheadDraw';
 
 // Pure PDF layout for the internal financial breakdown — see
 // bidProposalPdfLayout.js for why this is a separate, app-import-free module
@@ -27,13 +28,18 @@ function ensureSpace(doc, y, needed) {
   return y;
 }
 
-function drawHeader(doc, logo, companyName) {
-  const y = MARGIN + 0.18;
+function drawHeader(doc, logo, companyName, letterheadImage) {
+  // An active letterhead replaces the company name/"|" separator + logo
+  // portion of this header (that image already carries the company's own
+  // branding) — see letterheadPdf.js. The "Internal Financial Breakdown"
+  // document subtitle is not branding and always renders either way.
+  const letterheadY = drawLetterheadImage(doc, letterheadImage, {
+    x: MARGIN, y: MARGIN, maxWidth: CONTENT_RIGHT - MARGIN, maxHeight: 0.75,
+  });
+
+  const y = letterheadY != null ? letterheadY + 0.05 : MARGIN + 0.18;
   let titleX = MARGIN;
-  // Internal, not customer-facing — but still no SteelOS name/logo here,
-  // same as bidProposalPdfLayout.js's drawHeader: the real company's own
-  // name (or nothing, if it isn't loaded) stands in for app branding.
-  if (companyName) {
+  if (letterheadY == null && companyName) {
     doc.setFont(undefined, 'bold');
     doc.setFontSize(15);
     doc.setTextColor(0);
@@ -50,13 +56,13 @@ function drawHeader(doc, logo, companyName) {
   doc.text('Internal Financial Breakdown', titleX, y);
   doc.setTextColor(0);
 
-  if (logo?.dataUrl && logo.width && logo.height) {
+  if (letterheadY == null && logo?.dataUrl && logo.width && logo.height) {
     const h = 0.45;
     const w = h * (logo.width / logo.height);
     doc.addImage(logo.dataUrl, 'PNG', CONTENT_RIGHT - w, MARGIN, w, h);
   }
 
-  const ruleY = MARGIN + 0.5;
+  const ruleY = letterheadY != null ? y + 0.14 : MARGIN + 0.5;
   doc.setDrawColor(220, 38, 38);
   doc.setLineWidth(0.025);
   doc.line(MARGIN, ruleY, CONTENT_RIGHT, ruleY);
@@ -190,7 +196,7 @@ function drawSummaryTable(doc, startY, summary) {
 
 export function drawBidInternalBreakdownPdf(data) {
   const doc = new jsPDF({ unit: 'in', format: 'letter' });
-  let y = drawHeader(doc, data.logo, data.companyName);
+  let y = drawHeader(doc, data.logo, data.companyName, data.letterheadImage);
   y = drawJobInfoBox(doc, y, data.bid);
   y = drawLineItemsTable(doc, y, data.rows, { subtotal: data.subtotal, averageMarkupPct: data.averageMarkupPct, subtotalWithMarkup: data.subtotalWithMarkup });
   drawSummaryTable(doc, y, data.summary);

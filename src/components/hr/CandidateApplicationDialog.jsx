@@ -9,7 +9,7 @@ export default function CandidateApplicationDialog({ candidate, open, onOpenChan
   if (!candidate) return null;
 
   const handleExportPdf = () => {
-    exportNodeToPdf(printRef.current, `${candidate.candidate_name || 'candidate'}-application.pdf`);
+    exportNodeToPdf(printRef.current, `${candidate.candidate_name || 'candidate'}-application.pdf`, 'hr_candidate_application');
   };
 
   const rows = [

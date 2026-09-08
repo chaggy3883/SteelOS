@@ -171,7 +171,7 @@ export default function CashForecastPanel() {
   const handleExportPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      generateCashForecastPdf({ company, startingBalance, buckets });
+      await generateCashForecastPdf({ company, startingBalance, buckets });
       toast({ title: 'Cash Forecast PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Cash Forecast PDF', variant: 'destructive' });

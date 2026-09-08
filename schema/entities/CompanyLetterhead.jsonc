@@ -1,0 +1,46 @@
+{
+  "name": "CompanyLetterhead",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "description": "Admin-facing label only (e.g. 'Standard Letterhead', 'AISC Cert Footer Variant') — never printed on the document itself."
+    },
+    "letterhead_image_url": {
+      "type": "string",
+      "description": "A data: URI (same convention as LogoUploader.jsx's saved logo, not a blob: URL, which would go stale on reload) or a real hosted image URL. Drawn full-width at the top of the page, replacing that document type's normal logo/company-name header — see src/lib/letterheadPdf.js."
+    },
+    "applies_to": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "bid_proposal", "bid_internal_breakdown", "material_requisition", "delay_impact_notice",
+          "bol", "certified_payroll_wh347",
+          "turnover_review", "scope_review", "material_optimization_report",
+          "customer_statement", "job_cost_detail_project", "job_cost_detail_company_wide", "job_costing_summary",
+          "vendor_bills", "cash_reconciliation", "cash_forecast", "incoming_ach", "unapplied_cash",
+          "month_end_close", "budget", "ar_billing", "wip_report", "ai_financial_flags",
+          "exec_wip_radar", "exec_wip_overbilling_underbilling", "exec_ar_ap_aging_summary", "exec_cash_position",
+          "exec_quarterly_tax_exposure", "exec_bid_win_loss", "exec_estimating_performance",
+          "exec_sales_pipeline_commission", "estimating_active_bids", "estimating_bid_history",
+          "estimating_did_not_bid", "estimating_shop_hours_variance", "exec_shop_production", "exec_headcount",
+          "quality_kpi_report", "hr_candidate_application"
+        ]
+      },
+      "description": "Which PDF export types this letterhead is used for. Keys must match src/lib/letterheadDocumentTypes.js (LETTERHEAD_DOCUMENT_TYPE_KEYS) exactly — that file, not this enum, is what the Admin UI and every PDF generator actually read against at runtime."
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Inactive letterheads are kept for reuse/history but never matched — a document type with no active letterhead assigned falls back to its normal header."
+    }
+  },
+  "required": [
+    "letterhead_image_url",
+    "applies_to"
+  ]
+}

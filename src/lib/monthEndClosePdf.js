@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
+import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
 
 const COLS = [
   { key: 'category', label: 'Category', w: 22 },
@@ -41,7 +42,7 @@ function drawRow(doc, x0, y, row) {
 
 // Month-End Close panel (MonthEndClosePanel) — the checklist for the
 // selected period, plus the same readiness stat counts shown above it.
-export function generateMonthEndClosePdf({ company, periodLabel, close, readinessStats, checklistItems }) {
+export async function generateMonthEndClosePdf({ company, periodLabel, close, readinessStats, checklistItems }) {
   const doc = new jsPDF({ format: PDF_PAGE_FORMAT });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -56,11 +57,12 @@ export function generateMonthEndClosePdf({ company, periodLabel, close, readines
     return y;
   };
 
+  const letterheadY = await drawLetterheadIfActive(doc, 'month_end_close', { x: marginX, y: 10, maxWidth: pageWidth - marginX * 2, maxHeight: 22 });
   doc.setFontSize(16);
-  doc.text(`MONTH-END CLOSE — ${periodLabel}`, marginX, 18);
+  doc.text(`MONTH-END CLOSE — ${periodLabel}`, marginX, letterheadY != null ? letterheadY + 6 : 18);
   doc.setFontSize(9);
-  let y = 26;
-  doc.text(company?.name || '—', marginX, y); y += 5;
+  let y = letterheadY != null ? letterheadY + 14 : 26;
+  if (letterheadY == null) { doc.text(company?.name || '—', marginX, y); y += 5; }
   doc.text(`Status: ${close?.status === 'Closed' ? `Closed${close?.closed_date ? ` on ${close.closed_date}` : ''}${close?.closed_by ? ` by ${close.closed_by}` : ''}` : 'In Progress'}`, marginX, y); y += 5;
   doc.text(`Generated ${today}`, marginX, y); y += 7;
 
