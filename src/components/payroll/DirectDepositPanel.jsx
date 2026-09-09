@@ -24,7 +24,7 @@ const emptyForm = () => ({
 // never a self-service edit (EmployeeCenter.jsx only shows the masked
 // last-4 and offers a "Request Change" notification, same pattern as its
 // existing requestInfoUpdate flow).
-export default function DirectDepositPanel({ employees }) {
+export default function DirectDepositPanel({ employees, onUpdated }) {
   const { toast } = useToast();
   const { user } = useAuth();
   const identity = user?.full_name || user?.email || 'Unknown';
@@ -107,7 +107,8 @@ export default function DirectDepositPanel({ employees }) {
         await db.entities.EmployeeBankAccount.create(payload);
         toast({ title: 'Direct deposit account added' });
       }
-      await db.entities.employees.update(form.employee_id, { direct_deposit_enabled: true });
+      const updatedEmployee = await db.entities.employees.update(form.employee_id, { direct_deposit_enabled: true });
+      onUpdated?.(updatedEmployee);
 
       setShowForm(false);
       setEditId(null);
@@ -122,7 +123,8 @@ export default function DirectDepositPanel({ employees }) {
 
   const handleToggleDirectDeposit = async (row, enabled) => {
     try {
-      await db.entities.employees.update(row.employee_id, { direct_deposit_enabled: enabled });
+      const updatedEmployee = await db.entities.employees.update(row.employee_id, { direct_deposit_enabled: enabled });
+      onUpdated?.(updatedEmployee);
       toast({ title: enabled ? 'Direct deposit enabled' : 'Direct deposit disabled — this employee will receive a paper check' });
     } catch (e) {
       toast({ title: 'Unable to update direct deposit status', variant: 'destructive' });

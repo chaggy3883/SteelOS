@@ -72,6 +72,10 @@ export default function PayrollSetup() {
     }
   };
 
+  const handleEmployeeUpdated = (updated) => {
+    setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+  };
+
   if (!accessChecked || checkingModuleAccess) {
     return <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>;
   }
@@ -122,7 +126,7 @@ export default function PayrollSetup() {
         <TabsContent value="rates"><PayRatesPanel employees={employees} /></TabsContent>
         <TabsContent value="withholding"><TaxWithholdingPanel employees={employees} /></TabsContent>
         <TabsContent value="deductions"><DeductionsPanel employees={employees} /></TabsContent>
-        <TabsContent value="directdeposit"><DirectDepositPanel employees={employees} /></TabsContent>
+        <TabsContent value="directdeposit"><DirectDepositPanel employees={employees} onUpdated={handleEmployeeUpdated} /></TabsContent>
         <TabsContent value="gl"><GLMappingsPanel /></TabsContent>
         <TabsContent value="calendar"><PayPeriodCalendarPanel /></TabsContent>
         <TabsContent value="rules"><PayrollRulesPanel /></TabsContent>
