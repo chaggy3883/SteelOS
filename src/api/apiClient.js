@@ -97,6 +97,7 @@ const createLocalApi = () => ({
     Subcontract: createEntityApi('Subcontract'),
     SubcontractPayApp: createEntityApi('SubcontractPayApp'),
     TmLaborRate: createEntityApi('TmLaborRate'),
+    CostCategoryDefaultRate: createEntityApi('CostCategoryDefaultRate'),
     TmLaborEstimateLineItem: createEntityApi('TmLaborEstimateLineItem'),
     TmMaterialLineItem: createEntityApi('TmMaterialLineItem'),
     TmSubcontractorLineItem: createEntityApi('TmSubcontractorLineItem'),

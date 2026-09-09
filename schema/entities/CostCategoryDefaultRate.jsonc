@@ -1,0 +1,39 @@
+{
+  "name": "CostCategoryDefaultRate",
+  "type": "object",
+  "description": "Company-wide default hourly/shop rate for a Bid Worksheet cost category (see COST_CATEGORIES in TakeoffEngine.jsx), admin-managed at /admin/bid-worksheet-rates. Effective-dated history — never edited in place, same convention as EmployeePayRate/SalesmanCommissionRate/TmLaborRate: a rate change closes out the prior row's end_date and creates a new row. Only pre-fills a brand-new TakeoffLine's unit_cost (see loadLines in TakeoffEngine.jsx); the value stays fully editable per-line afterward and a manual edit is never overwritten by a later default change. Distinct from TmLaborRate, which is a customer T&M bill rate keyed by free-text position/trade — this is keyed by a fixed Bid Worksheet cost_category key.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "category_key": {
+      "type": "string",
+      "enum": ["field_rigging", "erection_labor_hours", "load_unload_material", "shop_priming", "structural_fabrication"],
+      "description": "Must match a COST_CATEGORIES key in TakeoffEngine.jsx exactly — that array, not this enum, is what the worksheet UI actually reads against at runtime."
+    },
+    "hourly_rate": {
+      "type": "number",
+      "default": 0
+    },
+    "effective_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Blank/absent means this is the current rate for the category."
+    },
+    "created_by": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "category_key",
+    "hourly_rate",
+    "effective_date"
+  ]
+}

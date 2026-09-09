@@ -15,6 +15,7 @@ import { getEffectiveCompany } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import { calculateDistance } from '@/lib/mileageService';
 import { calculateBondAmount, bondRateForContractValue, LEED_SURCHARGE_LEVELS, calculateLeedSurcharge, calculatePaymentPlatformFee, PAYMENT_PLATFORM_FEE_RATE } from '@/lib/bidWorksheetCalc';
+import { buildCostCategoryRateMap } from '@/lib/bidWorksheetRateEngine';
 
 const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 
@@ -23,6 +24,15 @@ const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 // and saves these categories normally, so pre-existing line data is never
 // lost; they're just not rendered in the takeoff form for that company.
 const FABRICATION_ONLY_CATEGORIES = ['structural_material', 'structural_fabrication', 'shop_priming'];
+
+// Categories whose rate field is filled from a company-configurable default
+// (CostCategoryDefaultRate, admin-managed at /admin/bid-worksheet-rates) —
+// the per-company equivalent of default_markup_pct below, kept out of
+// COST_CATEGORIES itself because the actual number is admin-editable data,
+// not a source-code constant. Only pre-fills a brand-new line's unit_cost
+// (see loadLines); the value stays fully editable per-line afterward and a
+// manual edit is never overwritten by a later default change.
+export const RATE_DEFAULT_CATEGORY_KEYS = ['field_rigging', 'erection_labor_hours', 'load_unload_material', 'shop_priming', 'structural_fabrication'];
 
 // cost_code follows the company's real Division 05 / 17 numbering scheme
 // (from the reference estimate audit); null means the category has no
@@ -245,7 +255,11 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     if (!bid?.id) return;
     setLoading(true);
     try {
-      const existing = await db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 100);
+      const [existing, categoryRateDefaults] = await Promise.all([
+        db.entities.TakeoffLine.filter({ bid_id: bid.id }, '-created_date', 100),
+        db.entities.CostCategoryDefaultRate.list('-effective_date', 500).catch(() => []),
+      ]);
+      const defaultRateByCategory = buildCostCategoryRateMap(categoryRateDefaults, RATE_DEFAULT_CATEGORY_KEYS);
       // Each category's own default_markup_pct is the DEFAULT that pre-fills
       // a brand-new line's markup_percentage; Bid.markup_percentage is only
       // the fallback for the rare category missing one. This also covers any
@@ -284,7 +298,16 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         }
         map[cat.key] = found
           ? { ...found, coverage_rate: found.coverage_rate ?? 300, markup_percentage: found.markup_percentage ?? categoryDefaultMarkupPct }
-          : { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300, markup_percentage: categoryDefaultMarkupPct, is_auto_filled: false, source: 'manual', id: null };
+          : {
+              quantity: 0,
+              unit_cost: RATE_DEFAULT_CATEGORY_KEYS.includes(cat.key) ? (defaultRateByCategory.get(cat.key) ?? 0) : 0,
+              total_cost: 0,
+              coverage_rate: 300,
+              markup_percentage: categoryDefaultMarkupPct,
+              is_auto_filled: false,
+              source: 'manual',
+              id: null,
+            };
       });
       setLines(map);
     } catch (e) {

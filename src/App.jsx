@@ -60,6 +60,7 @@ import CommissionSetup from '@/pages/CommissionSetup';
 import SalesmanRatesAdmin from '@/pages/SalesmanRatesAdmin';
 import TmLaborRatesAdmin from '@/pages/TmLaborRatesAdmin';
 import MaterialCatalogAdmin from '@/pages/MaterialCatalogAdmin';
+import CostCategoryRatesAdmin from '@/pages/CostCategoryRatesAdmin';
 import SalesDashboard from '@/pages/SalesDashboard';
 import Estimating from '@/pages/Estimating';
 import BidNew from '@/pages/BidNew';
@@ -212,6 +213,7 @@ const AuthenticatedApp = () => {
           <Route path="/admin/salesman-rates" element={<SalesmanRatesAdmin />} />
           <Route path="/admin/tm-labor-rates" element={<TmLaborRatesAdmin />} />
           <Route path="/admin/material-catalog" element={<MaterialCatalogAdmin />} />
+          <Route path="/admin/bid-worksheet-rates" element={<CostCategoryRatesAdmin />} />
           <Route path="/system-integrations" element={<SystemIntegrations />} />
           <Route path="/sales" element={<SalesDashboard />} />
           <Route path="/sales/dashboard" element={<SalesDashboard />} />

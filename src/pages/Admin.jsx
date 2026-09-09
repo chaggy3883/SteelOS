@@ -65,6 +65,10 @@ const NAV_LINKS = [
   // dropdown) — admitted alongside full admin the same way PTO/salesman
   // rates admit hr_admin/payroll_admin above.
   { path: '/admin/material-catalog', label: 'Material Catalog', icon: Package, roles: ['estimator'] },
+  // Bid Worksheet reference data (feeds TakeoffEngine's rate pre-fill) —
+  // admitted alongside full admin the same way Material Catalog admits
+  // estimator above.
+  { path: '/admin/bid-worksheet-rates', label: 'Bid Worksheet Rates', icon: DollarSign, roles: ['estimator'] },
 ];
 
 export default function Admin() {

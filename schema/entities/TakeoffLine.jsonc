@@ -55,7 +55,8 @@
     },
     "unit_cost": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "For field_rigging/erection_labor_hours/load_unload_material/shop_priming/structural_fabrication, a brand-new line pre-fills this from the company's current CostCategoryDefaultRate for that category (admin-managed at /admin/bid-worksheet-rates) instead of 0 — see RATE_DEFAULT_CATEGORY_KEYS in TakeoffEngine.jsx. Independently editable per-line afterward; a saved line's value is never overwritten by a later default change."
     },
     "total_cost": {
       "type": "number",

@@ -5,6 +5,29 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-08)
+
+- **Company-configurable default hourly rates for 5 Bid Worksheet
+  categories** (Field Rigging, Erection Labor Hours, Load/Unload Material,
+  Shop Priming, Structural Fabrication) — new `CostCategoryDefaultRate`
+  entity, effective-dated history same convention as `TmLaborRate` (not
+  reused directly — `TmLaborRate` is keyed by free-text position/trade and
+  feeds T&M actual-labor-cost matching against `employees.job_title`;
+  conflating the two would have pulled worksheet category rates into that
+  unrelated matching logic). Admin page `CostCategoryRatesAdmin.jsx` at
+  `/admin/bid-worksheet-rates` (admin/super_admin/estimator, mirrors
+  `materialCatalogAccess.js`'s role-gating convention via the new
+  `bidWorksheetRateAccess.js`) — fixed list of the 5 categories (no
+  add/remove, unlike `TmLaborRatesAdmin.jsx`'s open-ended positions), rate +
+  effective date + history per category. `TakeoffEngine.jsx`'s `loadLines`
+  now pre-fills a brand-new line's `unit_cost` from the current admin-set
+  rate for these 5 categories (`RATE_DEFAULT_CATEGORY_KEYS`, resolved via
+  the new `src/lib/bidWorksheetRateEngine.js`) instead of 0 — same
+  never-created-yet-only semantics as the existing `default_markup_pct`
+  pre-fill: a saved line's value is never overwritten by a later default
+  change, and it stays fully editable per-line. No demo seed data added,
+  matching the `TmLaborRate` precedent.
+
 ## Also Closed (2026-09-02)
 
 - **Master material catalog (shape types + sizes/grades), admin-extensible**
