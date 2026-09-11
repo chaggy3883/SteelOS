@@ -179,6 +179,7 @@ export default function RFIs() {
         file_type: 'application/pdf',
         document_type: 'delay_notice',
         status: 'uploaded',
+        is_archived: false,
       });
       // file_url above is an ephemeral blob: URL that dies on reload —
       // persist the real bytes so the generated notice stays viewable.

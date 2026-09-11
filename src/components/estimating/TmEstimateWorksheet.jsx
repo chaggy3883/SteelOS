@@ -148,6 +148,7 @@ export default function TmEstimateWorksheet({ bid, onSaved }) {
           file_name: form.newQuoteFile.name,
           file_size: form.newQuoteFile.size,
           file_type: form.newQuoteFile.type,
+          is_archived: false,
         });
         quote_document_id = doc.id;
       }

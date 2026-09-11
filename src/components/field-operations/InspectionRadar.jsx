@@ -195,6 +195,7 @@ export default function InspectionRadar({ inspections, assets, canManageFleet = 
           document_type: 'other',
           status: 'uploaded',
           ai_processing_status: 'complete',
+          is_archived: false,
           description: `${reviewForm.inspection_type.replace(/_/g, ' ')} inspection checklist scan`,
         });
         certDocumentId = document.id;

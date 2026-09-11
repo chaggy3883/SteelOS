@@ -2658,6 +2658,21 @@ const backfillMissingTenantCompanyId = (migrated) => {
   });
 };
 
+// Every Document.create() call site used to omit is_archived, leaving it
+// undefined. Documents.jsx's main list filters strictly on
+// `is_archived === false` (matchesFilters uses ===, not loose equality), so
+// every document ever created was permanently invisible there even though
+// the create calls all succeeded — Legal.jsx's own document list isn't
+// affected since it doesn't filter this way. Idempotent: only rewrites rows
+// where is_archived is still undefined.
+const backfillDocumentIsArchived = (migrated) => {
+  const rows = Array.isArray(migrated.Document) ? migrated.Document : null;
+  if (!rows || rows.length === 0) return;
+  migrated.Document = rows.map((row) => (
+    row.is_archived === undefined ? { ...row, is_archived: false } : row
+  ));
+};
+
 // Generic backfill for the shared StatusHistoryEntry log (src/lib/
 // statusHistory.js, StatusHistoryModal) — every entity below writes its
 // status changes there now instead of a bespoke per-entity history. Runs on
@@ -2924,6 +2939,7 @@ const migrateStore = (store) => {
   migrateLegacyShippingLoads(migrated);
   migrateEmployeePlatformRoles(migrated);
   backfillMissingTenantCompanyId(migrated);
+  backfillDocumentIsArchived(migrated);
   migrateRiggingLedgerFields(migrated);
   migrateRiggingInspectionAssetLinks(migrated);
   backfillStatusHistory(migrated);

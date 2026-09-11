@@ -117,6 +117,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
           document_type: documentTypeForBucket(files[i].bucket),
           status: 'uploaded',
           ai_processing_status: 'pending',
+          is_archived: false,
         });
         files[i].document_id = document.id;
         // UploadFile's file_url is an ephemeral blob: URL that dies the

@@ -818,6 +818,7 @@ export default function Accounting() {
           document_type: 'vendor_invoice',
           status: 'uploaded',
           ai_processing_status: 'complete',
+          is_archived: false,
           description: `Source vendor invoice for ${billForm.invoice_number || savedBill.id}`,
         });
         // invoiceFileUrl is an ephemeral blob: URL that dies on reload —

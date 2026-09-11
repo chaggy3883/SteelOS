@@ -132,6 +132,7 @@ export default function Legal() {
         document_type: 'contract',
         status: 'uploaded',
         ai_processing_status: 'pending',
+        is_archived: false,
       });
       // file_url above is an ephemeral blob: URL that dies on reload —
       // persist the real bytes so the contract PDF stays viewable.
@@ -221,6 +222,7 @@ export default function Legal() {
         file_type: file.type,
         document_type: notice.notice_type === 'notice_to_owner' ? 'other' : 'other',
         status: 'uploaded',
+        is_archived: false,
       });
       // file_url above is an ephemeral blob: URL that dies on reload —
       // persist the real bytes so the filed proof stays viewable.

@@ -117,6 +117,7 @@ export default function VendorPanel() {
         file_type: billFile.type,
         document_type: 'other',
         status: 'uploaded',
+        is_archived: false,
       });
       // file_url above is an ephemeral blob: URL that dies on reload —
       // persist the real bytes so the vendor bill stays viewable.

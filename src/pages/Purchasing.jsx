@@ -345,6 +345,7 @@ export default function Purchasing() {
           document_type: 'vendor_quote',
           status: 'uploaded',
           ai_processing_status: 'complete',
+          is_archived: false,
           description: `Source vendor quote for ${po.po_number}`,
         });
         // quoteFileUrl is an ephemeral blob: URL that dies on reload —

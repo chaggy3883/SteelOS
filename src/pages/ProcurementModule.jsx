@@ -249,6 +249,7 @@ export default function ProcurementModule() {
       description: 'Auto-generated QR routing payload for received material.',
       qr_payload: qrPayload,
       virtual_path: '/receiving-qr/',
+      is_archived: false,
     });
 
     setReceivingFiles([]);

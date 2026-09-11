@@ -201,6 +201,7 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
           file_size: blob.size,
           file_type: blob.type,
           status: 'uploaded',
+          is_archived: false,
           description: `Detailer import drawing matched to piece mark ${matched.piece_mark}`,
         });
         await saveDocumentFile(document.id, blob);

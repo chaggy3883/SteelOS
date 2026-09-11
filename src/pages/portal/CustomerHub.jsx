@@ -76,6 +76,7 @@ export default function CustomerHub() {
         document_type: 'other',
         virtual_path: '/field-notes/',
         status: 'uploaded',
+        is_archived: false,
       });
       // file_url above is an ephemeral blob: URL that dies on reload —
       // persist the real bytes so the field note stays viewable.

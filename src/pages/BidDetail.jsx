@@ -279,7 +279,7 @@ export default function BidDetail() {
 
     await Promise.all([
       ...documents.map(({ id: _id, created_date: _cd, updated_date: _ud, ...doc }) =>
-        db.entities.Document.create({ ...doc, project_id: project.id, bid_id: wonBid.id })),
+        db.entities.Document.create({ ...doc, is_archived: false, project_id: project.id, bid_id: wonBid.id })),
       ...takeoffLines.map(({ id: _id, created_date: _cd, updated_date: _ud, ...line }) =>
         db.entities.TakeoffLine.create({ ...line, bid_id: wonBid.id, project_id: project.id })),
     ]);

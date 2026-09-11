@@ -206,6 +206,7 @@ export default function Intelligence() {
         version: 1,
         virtual_path: uploadPath || '/',
         tags: tagsInput.split(',').map(t => t.trim()).filter(Boolean),
+        is_archived: false,
       });
       // file_url above is an ephemeral blob: URL that dies on reload —
       // persist the real bytes so this document stays viewable/analyzable.
