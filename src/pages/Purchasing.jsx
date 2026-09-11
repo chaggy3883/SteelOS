@@ -18,6 +18,7 @@ import { isAdminUser, getEffectiveCompany, isSuperAdmin, isImpersonating } from 
 import { PURCHASING_ALLOWED_ROLES } from '@/components/dashboard/widgetContent';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { saveDocumentFile } from '@/lib/documentBlobStore';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const AUTO_APPROVE_THRESHOLD = 5000;
@@ -333,7 +334,7 @@ export default function Purchasing() {
       await createPoLines(po.id, reviewValidLines);
 
       if (quoteFileUrl) {
-        await db.entities.Document.create({
+        const quoteDoc = await db.entities.Document.create({
           project_id: poForm.project_id,
           po_id: po.id,
           name: quoteFile?.name || `Quote — ${po.po_number}`,
@@ -346,6 +347,9 @@ export default function Purchasing() {
           ai_processing_status: 'complete',
           description: `Source vendor quote for ${po.po_number}`,
         });
+        // quoteFileUrl is an ephemeral blob: URL that dies on reload —
+        // persist the real bytes so the source quote stays viewable.
+        if (quoteFile) await saveDocumentFile(quoteDoc.id, quoteFile);
       }
 
       toast({ title: `PO created from quote — ${approvalStatus.replace(/_/g, ' ')}` });

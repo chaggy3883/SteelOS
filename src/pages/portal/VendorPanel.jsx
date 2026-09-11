@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { runThreeWayMatch } from '@/lib/threeWayMatch';
 import { CheckCircle2, Upload, FileWarning, Truck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { saveDocumentFile } from '@/lib/documentBlobStore';
 
 export default function VendorPanel() {
   const { toast } = useToast();
@@ -107,7 +108,7 @@ export default function VendorPanel() {
       const matchResult = runThreeWayMatch(bill, po, receivingLog);
       const updatedBill = await db.entities.VendorBill.update(bill.id, matchResult);
 
-      await db.entities.Document.create({
+      const document = await db.entities.Document.create({
         project_id: po?.project_id || '',
         name: billFile.name,
         file_url,
@@ -117,6 +118,9 @@ export default function VendorPanel() {
         document_type: 'other',
         status: 'uploaded',
       });
+      // file_url above is an ephemeral blob: URL that dies on reload —
+      // persist the real bytes so the vendor bill stays viewable.
+      await saveDocumentFile(document.id, billFile);
 
       setVendorBills((prev) => [updatedBill, ...prev]);
       setBillPoId(''); setBillInvoiceNumber(''); setBillAmount(''); setBillFile(null);

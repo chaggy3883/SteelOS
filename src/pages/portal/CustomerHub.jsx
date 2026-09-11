@@ -8,6 +8,7 @@ import FileExplorer from '@/components/documents/FileExplorer';
 import { UploadCloud, FileText, MessageSquare, ClipboardList, DollarSign, Receipt } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+import { saveDocumentFile } from '@/lib/documentBlobStore';
 
 export default function CustomerHub() {
   const { toast } = useToast();
@@ -65,7 +66,7 @@ export default function CustomerHub() {
     if (!file || !selectedProjectId) return;
     try {
       const { file_url } = await db.integrations.Core.UploadFile({ file });
-      await db.entities.Document.create({
+      const doc = await db.entities.Document.create({
         project_id: selectedProjectId,
         name: file.name,
         file_url,
@@ -76,6 +77,9 @@ export default function CustomerHub() {
         virtual_path: '/field-notes/',
         status: 'uploaded',
       });
+      // file_url above is an ephemeral blob: URL that dies on reload —
+      // persist the real bytes so the field note stays viewable.
+      await saveDocumentFile(doc.id, file);
       toast({ title: 'Field note uploaded' });
     } catch (err) {
       toast({ title: 'Upload failed', variant: 'destructive' });

@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { runThreeWayMatch } from '@/lib/threeWayMatch';
+import { saveDocumentFile } from '@/lib/documentBlobStore';
 import { calculateWIPSchedule } from '@/lib/wipCalculations';
 import { handleProcorePayWebhook, handleTexturaWebhook } from '@/lib/webhookHandlers';
 import { exportToQuickBooksCSV, exportToSage100CSV } from '@/lib/glExport';
@@ -806,7 +807,7 @@ export default function Accounting() {
       }
 
       if (invoiceFileUrl) {
-        await db.entities.Document.create({
+        const invoiceDoc = await db.entities.Document.create({
           project_id: selectedProjectId,
           vendor_bill_id: savedBill.id,
           name: invoiceFile?.name || `Invoice — ${billForm.invoice_number || savedBill.id}`,
@@ -819,6 +820,9 @@ export default function Accounting() {
           ai_processing_status: 'complete',
           description: `Source vendor invoice for ${billForm.invoice_number || savedBill.id}`,
         });
+        // invoiceFileUrl is an ephemeral blob: URL that dies on reload —
+        // persist the real bytes so the source invoice stays viewable.
+        if (invoiceFile) await saveDocumentFile(invoiceDoc.id, invoiceFile);
       }
 
       toast({ title: 'Vendor bill saved', description: po ? undefined : 'No matching PO found for match calculations.' });

@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
 import { findTaxRateForAddress } from '@/lib/taxRate';
+import { saveDocumentFile } from '@/lib/documentBlobStore';
 
 // Forces project_id to always be a valid, non-empty string before it reaches
 // any Document/Bid write, and provides the same fallback chain everywhere:
@@ -23,6 +24,10 @@ const resolveProjectId = (candidate, bid, override) => {
   if (bid?.won_project_id) return String(bid.won_project_id);
   return `TEMP-UNASSIGNED-${Date.now()}`;
 };
+
+const documentTypeForBucket = (bucket) => (
+  bucket === 'drawings' ? 'structural_drawing' : bucket === 'specs' ? 'specification' : 'other'
+);
 
 const FILE_BUCKETS = [
   { key: 'addenda', label: 'Addenda / Bulletins', color: 'text-orange-500', bg: 'bg-orange-500/10' },
@@ -72,6 +77,15 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
 
   const assignBucket = (index, bucket) => {
     setFiles(prev => prev.map((f, i) => i === index ? { ...f, bucket } : f));
+    // A file already uploaded (and its Document row already created) needs
+    // its document_type patched too — reclassifying the dropdown alone used
+    // to only update local component state, so the file's Document record
+    // silently kept whatever bucket it was uploaded under, regardless of
+    // what the reviewer picked afterward and "saved".
+    const target = files[index];
+    if (target?.document_id) {
+      db.entities.Document.update(target.document_id, { document_type: documentTypeForBucket(bucket) }).catch(() => {});
+    }
   };
 
   const removeFile = (index) => {
@@ -92,7 +106,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
         const { file_url } = await db.integrations.Core.UploadFile({ file: files[i].file });
         files[i].file_url = file_url;
         files[i].status = 'uploaded';
-        await db.entities.Document.create({
+        const document = await db.entities.Document.create({
           bid_id: bidId,
           project_id: resolveProjectId(null, bid, projectOverride),
           name: files[i].file.name,
@@ -100,10 +114,15 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
           file_name: files[i].file.name,
           file_size: files[i].file.size,
           file_type: files[i].file.type,
-          document_type: files[i].bucket === 'drawings' ? 'structural_drawing' : files[i].bucket === 'specs' ? 'specification' : 'other',
+          document_type: documentTypeForBucket(files[i].bucket),
           status: 'uploaded',
           ai_processing_status: 'pending',
         });
+        files[i].document_id = document.id;
+        // UploadFile's file_url is an ephemeral blob: URL that dies the
+        // instant this tab reloads or closes (see documentBlobStore.js) —
+        // persist the actual bytes so this Document survives a reload.
+        await saveDocumentFile(document.id, files[i].file);
       }
       setFiles([...files]);
       setParseProgress(60);

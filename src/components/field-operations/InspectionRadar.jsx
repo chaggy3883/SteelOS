@@ -17,6 +17,7 @@ import {
   computeExpirationDate,
 } from '@/lib/heavyEquipmentChecklists';
 import InspectionDetailDialog from '@/components/field-operations/InspectionDetailDialog';
+import { saveDocumentFile } from '@/lib/documentBlobStore';
 
 const DISPATCH_WINDOW_DAYS = 30;
 const INSPECTION_TYPES = ['Crane_Annual', 'DOT_Vehicle', 'Trailer_Safety', 'Rigging_Quarterly'];
@@ -46,6 +47,11 @@ const emptyReviewForm = () => ({
 export default function InspectionRadar({ inspections, assets, canManageFleet = false, onReload = async () => {} }) {
   const { toast } = useToast();
   const fileInputRef = useRef(null);
+  // The raw File scanned into reviewForm — kept separately (not in
+  // reviewForm state, which only carries its metadata + an ephemeral
+  // blob: URL) so it's still available to persist durably once the
+  // reviewer actually saves, which can happen well after the scan.
+  const pendingFileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [reviewForm, setReviewForm] = useState(emptyReviewForm());
@@ -66,6 +72,7 @@ export default function InspectionRadar({ inspections, assets, canManageFleet = 
 
   const runAIScan = async (file) => {
     setScanning(true);
+    pendingFileRef.current = file;
     try {
       const { file_url } = await db.integrations.Core.UploadFile({ file });
 
@@ -162,6 +169,7 @@ export default function InspectionRadar({ inspections, assets, canManageFleet = 
   const closeReview = () => {
     setShowReview(false);
     setReviewForm(emptyReviewForm());
+    pendingFileRef.current = null;
   };
 
   const handleSaveInspection = async () => {
@@ -190,6 +198,11 @@ export default function InspectionRadar({ inspections, assets, canManageFleet = 
           description: `${reviewForm.inspection_type.replace(/_/g, ' ')} inspection checklist scan`,
         });
         certDocumentId = document.id;
+        // reviewForm.file_url is an ephemeral blob: URL that dies on
+        // reload — persist the real bytes so the cert stays viewable.
+        if (pendingFileRef.current) {
+          await saveDocumentFile(document.id, pendingFileRef.current);
+        }
       }
 
       const cleanItems = reviewForm.checklist_items

@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { saveDocumentFile } from '@/lib/documentBlobStore';
 import { generateDelayImpactNoticePDF } from '@/lib/delayNoticePdf';
 import { useAuth } from '@/lib/AuthContext';
 import { logStatusChange } from '@/lib/statusHistory';
@@ -169,7 +170,7 @@ export default function RFIs() {
       const file = new File([blob], filename, { type: 'application/pdf' });
       const { file_url } = await db.integrations.Core.UploadFile({ file });
 
-      await db.entities.Document.create({
+      const document = await db.entities.Document.create({
         project_id: rfi.project_id,
         name: filename,
         file_url,
@@ -179,6 +180,9 @@ export default function RFIs() {
         document_type: 'delay_notice',
         status: 'uploaded',
       });
+      // file_url above is an ephemeral blob: URL that dies on reload —
+      // persist the real bytes so the generated notice stays viewable.
+      await saveDocumentFile(document.id, file);
 
       const createdChangeOrder = await db.entities.change_orders.create({
         project_id: rfi.project_id,

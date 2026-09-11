@@ -1,12 +1,13 @@
 {
   "name": "SystemAuditEvent",
   "type": "object",
-  "// note": "Meta-log for the audit trail's own housekeeping — currently only the 1-year AuditLog retention purge (see purgeExpiredAuditLogs in src/api/localData.js, run on every app load via migrateStore). Kept separate from AuditLog so the purge job's own activity doesn't get purged by itself.",
+  "// note": "Meta-log for the audit trail's own housekeeping — the 1-year AuditLog retention purge (see purgeExpiredAuditLogs in src/api/localData.js, run on every app load via migrateStore) and the one-time orphaned-document-blob scan (see reportOrphanedDocumentBlobs, run once ever via migrateStore) added alongside the Document/company_templates/CompanyProposalTerms file-persistence fix. Kept separate from AuditLog so this housekeeping's own activity doesn't get purged/audited by itself.",
   "properties": {
     "event_type": {
       "type": "string",
       "enum": [
-        "audit_log_purge"
+        "audit_log_purge",
+        "orphaned_document_blob_scan"
       ],
       "default": "audit_log_purge"
     },
@@ -16,15 +17,24 @@
     },
     "cutoff_date": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "audit_log_purge only."
     },
     "records_purged": {
-      "type": "number"
+      "type": "number",
+      "description": "audit_log_purge only."
+    },
+    "records_affected": {
+      "type": "number",
+      "description": "orphaned_document_blob_scan only — total count of Document/company_templates/CompanyProposalTerms rows found with a dead blob: URL and no recoverable file (uploaded before this store existed)."
+    },
+    "details": {
+      "type": "object",
+      "description": "orphaned_document_blob_scan only — { <entity name>: [{id, name}, ...] } breakdown of exactly which rows are affected, for a human to decide which uploads need to be redone by hand."
     }
   },
   "required": [
     "event_type",
-    "ran_at",
-    "records_purged"
+    "ran_at"
   ]
 }

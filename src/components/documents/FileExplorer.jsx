@@ -1,20 +1,33 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '@/api/apiClient';
-import { Folder, FileText, Upload, X } from 'lucide-react';
+import { Folder, FileText, Upload, X, Eye, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import StatusBadge from '@/components/ui/StatusBadge';
 import PathBreadcrumb from './PathBreadcrumb';
+import { useToast } from '@/components/ui/use-toast';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { downloadFile } from '@/lib/downloadFile';
+import { resolveDocumentUrl } from '@/lib/documentBlobStore';
+
+const isPdfName = (name) => !!name?.match(/\.pdf$/i);
 
 const PAGE_SIZE = 50;
 
+// A literal '/' input used to normalize to '//' (the template always wraps
+// in a leading+trailing slash regardless of whether any segments remain),
+// which never equals currentPath's own '/' default nor produces a truthy
+// childFolder — so any document explicitly stamped virtual_path: '/'
+// (e.g. Intelligence.jsx's upload, whose Folder field defaults to '/')
+// silently vanished from both the root file list and the folder list,
+// with no error. Root (no segments) must return exactly '/'.
 const normalizePath = (path) => {
-  if (!path) return '/';
-  const trimmed = `/${path.split('/').filter(Boolean).join('/')}/`;
-  return trimmed;
+  const segments = String(path || '').split('/').filter(Boolean);
+  return segments.length > 0 ? `/${segments.join('/')}/` : '/';
 };
 
 export default function FileExplorer({ projectId, onUpload, documentTypeFilter }) {
+  const { toast } = useToast();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState(PAGE_SIZE);
@@ -36,6 +49,16 @@ export default function FileExplorer({ projectId, onUpload, documentTypeFilter }
   }, [projectId, limit, documentTypeFilter]);
 
   const hasMore = documents.length === limit;
+
+  const openFile = async (doc) => {
+    const url = await resolveDocumentUrl(doc);
+    if (!url) {
+      toast({ title: 'File unavailable', description: 'This file was uploaded before file persistence was fixed and cannot be recovered — please re-upload it.', variant: 'destructive' });
+      return;
+    }
+    if (isPdfName(doc.file_name)) openDocumentViewer(url, doc.file_name || doc.name);
+    else downloadFile(url, doc.file_name || doc.name);
+  };
 
   const allTags = useMemo(() => {
     const set = new Set();
@@ -87,7 +110,11 @@ export default function FileExplorer({ projectId, onUpload, documentTypeFilter }
   }, [documents, currentPath, taggedFiles]);
 
   const FileRow = ({ doc }) => (
-    <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted transition-colors">
+    <button
+      type="button"
+      onClick={() => openFile(doc)}
+      className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-muted transition-colors text-left"
+    >
       <div className="flex items-center gap-3 min-w-0">
         <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
         <div className="min-w-0">
@@ -100,8 +127,11 @@ export default function FileExplorer({ projectId, onUpload, documentTypeFilter }
           </div>
         </div>
       </div>
-      <StatusBadge status={doc.ai_processing_status} label={doc.ai_processing_status} />
-    </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <StatusBadge status={doc.ai_processing_status} label={doc.ai_processing_status} />
+        {isPdfName(doc.file_name) ? <Eye className="w-4 h-4 text-muted-foreground" /> : <Download className="w-4 h-4 text-muted-foreground" />}
+      </div>
+    </button>
   );
 
   return (

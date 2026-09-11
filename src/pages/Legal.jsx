@@ -11,6 +11,7 @@ import PageHeader from '@/components/ui/PageHeader';
 import { Scale, ShieldAlert, FileText, Upload, Brain, AlertTriangle, ScrollText, Eye } from 'lucide-react';
 import { computeRiskFlags, RISK_FLAG_LABELS } from '@/lib/legalBaselines';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { saveDocumentFile, resolveDocumentUrl } from '@/lib/documentBlobStore';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
@@ -46,6 +47,15 @@ export default function Legal() {
   const [scanning, setScanning] = useState(false);
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
+
+  const openStoredDocument = async (doc) => {
+    const url = await resolveDocumentUrl(doc);
+    if (!url) {
+      toast({ title: 'File unavailable', description: 'This file was uploaded before file persistence was fixed and cannot be recovered — please re-upload it.', variant: 'destructive' });
+      return;
+    }
+    openDocumentViewer(url, doc.file_name);
+  };
 
   useEffect(() => {
     db.auth.me().then((u) => { setCurrentUser(u); setLoading(false); }).catch(() => setLoading(false));
@@ -123,6 +133,9 @@ export default function Legal() {
         status: 'uploaded',
         ai_processing_status: 'pending',
       });
+      // file_url above is an ephemeral blob: URL that dies on reload —
+      // persist the real bytes so the contract PDF stays viewable.
+      await saveDocumentFile(document.id, contractFile);
 
       const response = await db.integrations.Core.InvokeLLM({
         prompt: 'You are a construction contract review assistant. Extract from the attached General Contractor agreement: liquidated_damages_per_day (number, $ per day of delay), notice_cure_days (number, days allowed to notify of delay/extra work), rfi_response_window_days (number, contractual days for architect/engineer RFI responses), retainage_pct (decimal fraction, e.g. 0.10), retainage_release_terms (string), and a short summary. Set unknown numeric fields to 0.',
@@ -209,6 +222,9 @@ export default function Legal() {
         document_type: notice.notice_type === 'notice_to_owner' ? 'other' : 'other',
         status: 'uploaded',
       });
+      // file_url above is an ephemeral blob: URL that dies on reload —
+      // persist the real bytes so the filed proof stays viewable.
+      await saveDocumentFile(doc.id, file);
       await handleNoticeFieldSave(notice, {
         filed_status: 'filed',
         filed_document_id: doc.id,
@@ -319,7 +335,7 @@ export default function Legal() {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {isPdfDocument(contractDoc) && (
-                        <Button size="sm" variant="outline" onClick={() => openDocumentViewer(contractDoc.file_url, contractDoc.file_name)}>
+                        <Button size="sm" variant="outline" onClick={() => openStoredDocument(contractDoc)}>
                           <Eye className="w-3.5 h-3.5 mr-1.5" />Open
                         </Button>
                       )}
@@ -420,7 +436,7 @@ function LienRightsRadar({ notices, documents, projectName, onFieldSave, onFiled
                   {notice.filed_status === 'filed' && <Badge variant="secondary">Filed {notice.filed_date}</Badge>}
                   {!isExpired && !isDanger && notice.filed_status === 'pending' && <Badge variant="outline">{remaining}d left</Badge>}
                   {isPdfDocument(filedDoc) && (
-                    <Button size="sm" variant="outline" onClick={() => openDocumentViewer(filedDoc.file_url, filedDoc.file_name)}>
+                    <Button size="sm" variant="outline" onClick={() => openStoredDocument(filedDoc)}>
                       <Eye className="w-3.5 h-3.5 mr-1.5" />Open
                     </Button>
                   )}

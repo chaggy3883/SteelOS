@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import StatusBadge from '@/components/ui/StatusBadge';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
+import { saveDocumentFile, resolveDocumentUrl } from '@/lib/documentBlobStore';
 
 const REVIEW_PACKAGES = ['estimating', 'quality_assurance', 'safety', 'purchasing', 'accounting', 'executive'];
 
@@ -206,6 +207,9 @@ export default function Intelligence() {
         virtual_path: uploadPath || '/',
         tags: tagsInput.split(',').map(t => t.trim()).filter(Boolean),
       });
+      // file_url above is an ephemeral blob: URL that dies on reload —
+      // persist the real bytes so this document stays viewable/analyzable.
+      await saveDocumentFile(doc.id, file);
       setUploadedDoc(doc);
       toast({ title: 'Document uploaded', description: 'Ready to analyze with AI.' });
       loadDocuments();
@@ -222,7 +226,8 @@ export default function Intelligence() {
     try {
       await db.entities.Document.update(doc.id, { ai_processing_status: 'processing' });
 
-      const fileContent = await fetch(doc.file_url).then(r => r.text()).catch(() => '');
+      const resolvedUrl = await resolveDocumentUrl(doc);
+      const fileContent = resolvedUrl ? await fetch(resolvedUrl).then(r => r.text()).catch(() => '') : '';
       const project = projects.find(p => p.id === selectedProject);
 
       const prompt = `${STEEL_SYSTEM_PROMPT}

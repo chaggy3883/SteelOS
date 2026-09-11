@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { saveDocumentFile, resolveDocumentUrl } from '@/lib/documentBlobStore';
 
 // Company-supplied legal/boilerplate pages (standard terms & conditions,
 // warranty language, payment terms, ...) that get appended, in sort_order,
@@ -98,6 +99,9 @@ export default function ProposalTermsPanel() {
         file_url,
         sort_order: nextSortOrder,
       });
+      // file_url above is an ephemeral blob: URL that dies on reload —
+      // persist the real bytes so the terms document stays viewable.
+      await saveDocumentFile(created.id, file);
       setDocs((prev) => [...prev, created]);
       setPendingName('');
       toast({ title: 'Document uploaded', description: file.name });
@@ -110,6 +114,15 @@ export default function ProposalTermsPanel() {
   const removeDoc = async (id) => {
     await db.entities.CompanyProposalTerms.update(id, { is_active: false });
     setDocs((prev) => prev.filter((d) => d.id !== id));
+  };
+
+  const openTermsDoc = async (doc) => {
+    const url = await resolveDocumentUrl(doc);
+    if (!url) {
+      toast({ title: 'File unavailable', description: 'This file was uploaded before file persistence was fixed and cannot be recovered — please re-upload it.', variant: 'destructive' });
+      return;
+    }
+    openDocumentViewer(url, doc.document_name);
   };
 
   // Swaps this row's sort_order with its neighbor in the given direction —
@@ -215,7 +228,7 @@ export default function ProposalTermsPanel() {
                   <Button size="icon" variant="ghost" className="h-8 w-8" disabled={index === docs.length - 1 || reorderingId} onClick={() => moveDoc(index, 1)}>
                     <ArrowDown className="w-4 h-4" />
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => openDocumentViewer(doc.file_url, doc.document_name)}>
+                  <Button size="sm" variant="outline" onClick={() => openTermsDoc(doc)}>
                     <Eye className="w-3.5 h-3.5 mr-1.5" />View
                   </Button>
                   <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => removeDoc(doc.id)}><Trash2 className="w-4 h-4" /></Button>

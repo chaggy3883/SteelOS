@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Search, Upload, FolderOpen, Eye } from 'lucide-react';
+import { Search, Upload, FolderOpen, Eye, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -11,6 +11,10 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { useToast } from '@/components/ui/use-toast';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { downloadFile } from '@/lib/downloadFile';
+import { resolveDocumentUrl } from '@/lib/documentBlobStore';
 
 const DOC_TYPE_ICONS = {
   specification: '📋', contract: '📝', structural_drawing: '📐', architectural_drawing: '🏗️',
@@ -19,6 +23,7 @@ const DOC_TYPE_ICONS = {
 
 export default function Documents() {
   useDocumentTitle('SteelOS — Documents');
+  const { toast } = useToast();
   const [searchParams] = useSearchParams();
   // A Global Search hit lands here with ?doc=<id> — filters/type get reset
   // so the highlighted row can't be hidden by a stale filter, and the row
@@ -69,6 +74,24 @@ export default function Documents() {
     const matchProject = projectFilter === 'all' || d.project_id === projectFilter;
     return matchSearch && matchType && matchProject;
   });
+
+  const resolveOrWarn = async (doc) => {
+    const url = await resolveDocumentUrl(doc);
+    if (!url) {
+      toast({ title: 'File unavailable', description: 'This file was uploaded before file persistence was fixed and cannot be recovered — please re-upload it.', variant: 'destructive' });
+    }
+    return url;
+  };
+
+  const viewDoc = async (doc) => {
+    const url = await resolveOrWarn(doc);
+    if (url) openDocumentViewer(url, doc.file_name || doc.name);
+  };
+
+  const exportDoc = async (doc) => {
+    const url = await resolveOrWarn(doc);
+    if (url) downloadFile(url, doc.file_name || doc.name);
+  };
 
   const formatSize = (bytes) => {
     if (!bytes) return '—';
@@ -175,9 +198,14 @@ export default function Documents() {
                       <td className="py-3 px-4">
                         <div className="flex gap-1">
                           {doc.file_url && (
-                            <a href={doc.file_url} target="_blank" rel="noreferrer">
-                              <Button variant="ghost" size="icon" className="h-7 w-7"><Eye className="w-3.5 h-3.5" /></Button>
-                            </a>
+                            <>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="View" onClick={() => viewDoc(doc)}>
+                                <Eye className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Export" onClick={() => exportDoc(doc)}>
+                                <Download className="w-3.5 h-3.5" />
+                              </Button>
+                            </>
                           )}
                         </div>
                       </td>

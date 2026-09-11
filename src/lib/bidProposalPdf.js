@@ -6,6 +6,7 @@ import { loadImageAsDataUrl, dataUrlImageSize } from '@/lib/pdfImage';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { drawBidProposalPdf } from '@/lib/bidProposalPdfLayout';
 import { loadLetterheadImage } from '@/lib/letterheadPdf';
+import { resolveDocumentUrl } from '@/lib/documentBlobStore';
 
 export { drawBidProposalPdf };
 
@@ -56,15 +57,21 @@ export async function generateBidProposalPdf(bid) {
       return { id: termsDoc.id, name: termsDoc.document_name, kind: 'text', bodyText: termsDoc.body_text };
     }
     try {
-      const kind = await detectDocumentKind(termsDoc.file_url);
+      // termsDoc.file_url is the ephemeral blob: URL from the moment it was
+      // uploaded — dead after any reload since that tab closed. Resolve the
+      // durable IndexedDB copy first (see documentBlobStore.js); a row
+      // uploaded before that store existed has no bytes left to render.
+      const resolvedUrl = await resolveDocumentUrl(termsDoc);
+      if (!resolvedUrl) return null;
+      const kind = await detectDocumentKind(resolvedUrl);
       if (kind === 'pdf') {
-        const rawImages = await rasterizePdfPages(termsDoc.file_url);
+        const rawImages = await rasterizePdfPages(resolvedUrl);
         const images = await Promise.all(rawImages.map(async (dataUrl) => ({ dataUrl, ...(await dataUrlImageSize(dataUrl)) })));
         return { id: termsDoc.id, name: termsDoc.document_name, kind, images };
       }
       if (kind === 'image') {
-        const size = await dataUrlImageSize(termsDoc.file_url);
-        return { id: termsDoc.id, name: termsDoc.document_name, kind, image: { dataUrl: termsDoc.file_url, ...(size || {}) } };
+        const size = await dataUrlImageSize(resolvedUrl);
+        return { id: termsDoc.id, name: termsDoc.document_name, kind, image: { dataUrl: resolvedUrl, ...(size || {}) } };
       }
       return { id: termsDoc.id, name: termsDoc.document_name, kind: 'other' };
     } catch {

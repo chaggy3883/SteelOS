@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
+import { resolveDocumentUrl } from '@/lib/documentBlobStore';
 import { getPersonTierMismatch } from '@/lib/heavyEquipmentChecklists';
+import { useToast } from '@/components/ui/use-toast';
 
 const isPdfName = (name) => !!name?.match(/\.pdf$/i);
 
@@ -15,7 +17,18 @@ const isPdfName = (name) => !!name?.match(/\.pdf$/i);
 // RepairDetailDialog's shape (row click -> full record, no edit surface).
 export default function InspectionDetailDialog({ inspection, open, onOpenChange, assets = [] }) {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [certDoc, setCertDoc] = useState(null);
+
+  const openCert = async () => {
+    const url = await resolveDocumentUrl(certDoc);
+    if (!url) {
+      toast({ title: 'File unavailable', description: 'This file was uploaded before file persistence was fixed and cannot be recovered — please re-upload it.', variant: 'destructive' });
+      return;
+    }
+    if (isPdfName(certDoc.file_name)) openDocumentViewer(url, certDoc.file_name);
+    else downloadFile(url, certDoc.file_name);
+  };
 
   useEffect(() => {
     if (open && inspection?.cert_document_id) {
@@ -96,12 +109,12 @@ export default function InspectionDetailDialog({ inspection, open, onOpenChange,
             <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
             <span className="truncate flex-1">{certDoc?.file_name || 'Certificate / checklist document'}</span>
             {certDoc?.file_url && isPdfName(certDoc.file_name) && (
-              <button className="text-muted-foreground hover:text-primary" onClick={() => openDocumentViewer(certDoc.file_url, certDoc.file_name)}>
+              <button className="text-muted-foreground hover:text-primary" onClick={openCert}>
                 <Eye className="w-4 h-4" />
               </button>
             )}
             {certDoc?.file_url && !isPdfName(certDoc.file_name) && (
-              <button className="text-muted-foreground hover:text-primary" onClick={() => downloadFile(certDoc.file_url, certDoc.file_name)}>
+              <button className="text-muted-foreground hover:text-primary" onClick={openCert}>
                 <Download className="w-4 h-4" />
               </button>
             )}

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
+import { saveDocumentFile, resolveDocumentUrl } from '@/lib/documentBlobStore';
 
 const CATEGORIES = ['Proposal', 'Invoice', 'Packing_Slip', 'Spreadsheet', 'Custom'];
 const isPdfName = (name) => !!name?.match(/\.pdf$/i);
@@ -50,6 +51,9 @@ export default function TemplateVaultPanel() {
         file_name: file.name,
         layout_config_text: '',
       });
+      // file_url above is an ephemeral blob: URL that dies on reload —
+      // persist the real bytes so the template stays viewable.
+      await saveDocumentFile(created.id, file);
       setTemplates((prev) => [created, ...prev]);
       setPendingName('');
       toast({ title: 'Template uploaded', description: file.name });
@@ -62,6 +66,16 @@ export default function TemplateVaultPanel() {
   const openEditor = (template) => {
     setEditingId(template.id);
     setEditingText(template.layout_config_text || '');
+  };
+
+  const openTemplateFile = async (template) => {
+    const url = await resolveDocumentUrl(template);
+    if (!url) {
+      toast({ title: 'File unavailable', description: 'This file was uploaded before file persistence was fixed and cannot be recovered — please re-upload it.', variant: 'destructive' });
+      return;
+    }
+    if (isPdfName(template.file_name)) openDocumentViewer(url, template.file_name);
+    else downloadFile(url, template.file_name);
   };
 
   const saveLayout = async (id) => {
@@ -128,7 +142,7 @@ export default function TemplateVaultPanel() {
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {isPdfName(t.file_name) && (
-                      <Button size="sm" variant="outline" onClick={() => openDocumentViewer(t.file_url, t.file_name)}>
+                      <Button size="sm" variant="outline" onClick={() => openTemplateFile(t)}>
                         <Eye className="w-3.5 h-3.5 mr-1.5" />Open
                       </Button>
                     )}
@@ -137,7 +151,7 @@ export default function TemplateVaultPanel() {
                         size="sm"
                         variant="outline"
                         title="Open in Word/Excel to print."
-                        onClick={() => downloadFile(t.file_url, t.file_name)}
+                        onClick={() => openTemplateFile(t)}
                       >
                         <Download className="w-3.5 h-3.5 mr-1.5" />Download to Print
                       </Button>

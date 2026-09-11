@@ -28,6 +28,7 @@ import { generatePiecePayload } from '@/lib/qrSerialization';
 import { isDrawingFile } from '@/lib/detailerImportParser';
 import { getDetailerImportFileBlob } from '@/lib/detailerImportBlobStore';
 import { matchFilenameToPiece, attachFileToPiece } from '@/lib/pieceFileIntake';
+import { saveDocumentFile } from '@/lib/documentBlobStore';
 
 const PIECE_MARK_TEXT_FIELDS = ['assembly', 'material_grade', 'material_profile', 'finished_length', 'revision', 'drawing_number'];
 
@@ -173,6 +174,14 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
   // same commit just created/updated — a piece created earlier in this loop
   // is matchable by a drawing later in the same batch. Best-effort: a file
   // that fails to load or attach is skipped rather than failing the commit.
+  //
+  // attachFileToPiece only writes into that PieceMark's own drawing store
+  // (pieceMarkDocumentStore.js) — it never touched the project-wide Document
+  // entity, so a committed drawing never showed up in the project's
+  // Documents tab (FileExplorer.jsx/Documents.jsx both read db.entities
+  // .Document, not a piece's attached-file list). Creating a Document row
+  // here too, backed by the same already-fetched blob via documentBlobStore,
+  // is additive — it doesn't change what's attached to the piece.
   const drawingFiles = (batch.uploaded_files || []).filter((f) => isDrawingFile(f.file_name));
   let drawingsMatched = 0;
   if (drawingFiles.length > 0) {
@@ -184,6 +193,17 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
         const blob = await getDetailerImportFileBlob(fileEntry.file_id);
         if (!blob) continue;
         await attachFileToPiece(matched, blob);
+        const document = await db.entities.Document.create({
+          project_id: batch.project_id,
+          name: fileEntry.file_name,
+          document_type: 'structural_drawing',
+          file_name: fileEntry.file_name,
+          file_size: blob.size,
+          file_type: blob.type,
+          status: 'uploaded',
+          description: `Detailer import drawing matched to piece mark ${matched.piece_mark}`,
+        });
+        await saveDocumentFile(document.id, blob);
         drawingsMatched += 1;
       } catch (error) {
         console.error(error);

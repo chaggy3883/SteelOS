@@ -4,7 +4,7 @@
   "properties": {
     "company_id": {
       "type": "string",
-      "description": "Tenant this custom role belongs to. Added retroactively — CustomRole previously had no tenant concept at all, so any admin from any company could see and assign every other company's custom roles. Now in TENANT_SCOPED_ENTITIES (src/api/localData.js) like every other company-owned config entity; a one-time migrateCustomRoleCompanyId() backfill assigns pre-existing rows to 'company-hancock' since no other field can identify which tenant created them."
+      "description": "Tenant this custom role belongs to. Added retroactively — CustomRole previously had no tenant concept at all, so any admin from any company could see and assign every other company's custom roles. Now in TENANT_SCOPED_ENTITIES (src/api/localData.js) like every other company-owned config entity; the generic backfillMissingTenantCompanyId() migration assigns pre-existing rows to 'company-hancock' since no other field can identify which tenant created them."
     },
     "role_name": {
       "type": "string"

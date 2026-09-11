@@ -2621,23 +2621,40 @@ const migrateEmployeePlatformRoles = (migrated) => {
   });
 };
 
-// CustomRole had no tenant concept at all until the TENANT_SCOPED_ENTITIES
-// audit above — any pre-existing browser storage from before that fix may
-// already hold CustomRole rows with no company_id. There is no other field
-// on the record (no created_by, no linking entity) that identifies which
-// tenant created it, so this backfill cannot truly derive the right answer —
-// it assigns 'company-hancock' as the one documented assumption, since
-// Hancock is the only real (non-demo) tenant this app has shipped to so far
-// and every other unstamped seed row in this file already defaults there.
-// A future multi-tenant launch with other real companies already using
-// custom roles before this fix shipped would need those rows manually
-// reassigned to their correct company_id — this backfill cannot tell them
-// apart. Idempotent: only rewrites rows still missing company_id.
-const migrateCustomRoleCompanyId = (migrated) => {
-  const rows = Array.isArray(migrated.CustomRole) ? migrated.CustomRole : [];
-  migrated.CustomRole = rows.map((row) => (
-    row.company_id ? row : { ...row, company_id: 'company-hancock' }
-  ));
+// The 2026-09-11 TENANT_SCOPED_ENTITIES audit (see the array's own comment
+// above) added 63 entities plus CustomRole to real tenant scoping for the
+// first time. Several of them ship hand-authored bootstrap-store seed data
+// (PieceMark, Vendor, Customer, User, RFI, Document, station_logs,
+// qa_inspections, and more) written before tenant scoping existed for them
+// — those literal rows have no company_id at all, so the instant scoping
+// turned on, applyTenantScope's filter (record.company_id === effective
+// tenant) silently hid every one of them from every session, including a
+// super_admin impersonating the very company (Hancock) this seed data is
+// for. This is the generic fix, covering every currently- and
+// future-scoped entity in one place rather than one bespoke migration per
+// entity discovered missing it (CustomRole's fix, prior to this commit,
+// was the first instance of exactly this pattern).
+//
+// There is no field on any of these legacy rows (no created_by, no linking
+// entity) that identifies which tenant they actually belong to, so this
+// cannot truly derive the right answer — it assigns 'company-hancock' as
+// the one documented assumption, since Hancock is the only real (non-demo)
+// tenant this app has shipped to so far and every other already-scoped
+// seed row in this file already defaults there. A future multi-tenant
+// launch with other real companies whose data predates this fix would need
+// those specific rows manually reassigned — this backfill cannot tell them
+// apart from Hancock's own. Idempotent: only rewrites rows still missing
+// company_id, and only for entities in TENANT_SCOPED_ENTITIES (so a
+// genuinely global entity intentionally left off that list, like
+// login_slideshow_images, is never touched).
+const backfillMissingTenantCompanyId = (migrated) => {
+  TENANT_SCOPED_ENTITIES.forEach((entityName) => {
+    const rows = Array.isArray(migrated[entityName]) ? migrated[entityName] : null;
+    if (!rows || rows.length === 0) return;
+    migrated[entityName] = rows.map((row) => (
+      row.company_id ? row : { ...row, company_id: 'company-hancock' }
+    ));
+  });
 };
 
 // Generic backfill for the shared StatusHistoryEntry log (src/lib/
@@ -2905,12 +2922,13 @@ const migrateStore = (store) => {
 
   migrateLegacyShippingLoads(migrated);
   migrateEmployeePlatformRoles(migrated);
-  migrateCustomRoleCompanyId(migrated);
+  backfillMissingTenantCompanyId(migrated);
   migrateRiggingLedgerFields(migrated);
   migrateRiggingInspectionAssetLinks(migrated);
   backfillStatusHistory(migrated);
   backfillPieceLifecycleEvents(migrated);
   purgeExpiredAuditLogs(migrated);
+  reportOrphanedDocumentBlobs(migrated);
 
   return migrated;
 };
@@ -3078,8 +3096,12 @@ export const setAuthState = (state) => {
 // whitelist — meaning they received zero tenant filtering despite holding
 // one company's data (User, Vendor, Customer, Contract, the entire payroll
 // family, PieceMark, and more). `CustomRole` had no `company_id` concept at
-// all and has been added as a new field (see its .jsonc and the
-// `migrateCustomRoleCompanyId` backfill below) plus this entry.
+// all and has been added as a new field (see its .jsonc) plus this entry.
+// Several of these entities' hand-authored bootstrap seed data predates
+// tenant scoping and has no company_id at all — see
+// `backfillMissingTenantCompanyId` below, which fixes that generically for
+// every entity in this list rather than one-off per entity discovered
+// missing it.
 //
 // `scripts/check-tenant-scoping.mjs` (wired into `npm run build` as a
 // prebuild step) now fails the build if any registered entity gains a
@@ -3499,6 +3521,55 @@ const purgeExpiredAuditLogs = (migrated) => {
     ran_at: new Date().toISOString(),
     cutoff_date: cutoff.toISOString(),
     records_purged: purgedCount,
+  }));
+};
+
+// One-time diagnostic, added alongside the fix that moved Document/
+// company_templates/CompanyProposalTerms off db.integrations.Core
+// .UploadFile's ephemeral blob: URL onto real IndexedDB persistence (see
+// documentBlobStore.js). Any row created BEFORE this fix shipped has no
+// recoverable bytes behind it — a blob: URL is only ever valid inside the
+// browser tab that created it, so the underlying file was already gone the
+// moment that upload's tab closed or reloaded, whether or not this fix ever
+// shipped. This can't migrate that data (there's nothing left to move); it
+// only surfaces exactly which existing records are affected, once, so
+// they're a visible "please re-upload" list rather than a silently broken
+// link discovered one click at a time. Guarded to run only once ever (a
+// SystemAuditEvent with this event_type already existing means it already
+// ran) — this is a point-in-time scan of what the fix found, not an
+// ongoing health check.
+const ORPHANED_BLOB_SCAN_ENTITIES = ['Document', 'company_templates', 'CompanyProposalTerms'];
+
+const reportOrphanedDocumentBlobs = (migrated) => {
+  const alreadyRan = (migrated.SystemAuditEvent || []).some((e) => e.event_type === 'orphaned_document_blob_scan');
+  if (alreadyRan) return;
+
+  const details = {};
+  let totalAffected = 0;
+  ORPHANED_BLOB_SCAN_ENTITIES.forEach((entityName) => {
+    const rows = Array.isArray(migrated[entityName]) ? migrated[entityName] : [];
+    const affected = rows.filter((row) => typeof row.file_url === 'string' && row.file_url.startsWith('blob:'));
+    if (affected.length > 0) {
+      details[entityName] = affected.map((row) => ({ id: row.id, name: row.name || row.document_name || row.template_name || row.file_name || row.id }));
+      totalAffected += affected.length;
+    }
+  });
+
+  if (totalAffected > 0) {
+    console.warn(
+      `[reportOrphanedDocumentBlobs] Found ${totalAffected} record(s) uploaded before file persistence was fixed, ` +
+      `whose file cannot be recovered (the browser tab that held it is long gone) — see SystemAuditEvent ` +
+      `(event_type: 'orphaned_document_blob_scan') for the exact list. These need to be re-uploaded by hand:`,
+      details
+    );
+  }
+
+  if (!Array.isArray(migrated.SystemAuditEvent)) migrated.SystemAuditEvent = [];
+  migrated.SystemAuditEvent.push(normalizeRecord('SystemAuditEvent', {
+    event_type: 'orphaned_document_blob_scan',
+    ran_at: new Date().toISOString(),
+    records_affected: totalAffected,
+    details,
   }));
 };
 
