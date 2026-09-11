@@ -11,6 +11,8 @@ import { Truck, PackageCheck, Search, Eye } from 'lucide-react';
 import PurchaseOrderDetailModal, { PO_STATUS_STYLES, DEFAULT_PO_STATUS_STYLE } from '@/components/purchasing/PurchaseOrderDetailModal';
 import MtrReader from '@/components/receiving/MtrReader';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { notifyUsersByRole } from '@/lib/notifyRoles';
+import { INVOICE_APPROVAL_ROLES } from '@/components/dashboard/widgetContent';
 
 const CONDITIONS = ['Good', 'Damaged', 'Short Ship'];
 
@@ -277,10 +279,11 @@ export default function ReceivingKiosk() {
       if (allFullyReceived) {
         await postSubcontractorPoToJobCosting(updatedPo);
 
-        await db.entities.Notification.create({
+        await notifyUsersByRole(INVOICE_APPROVAL_ROLES, {
           title: 'PO Fully Received — Ready for Payment',
           message: `PO ${matchedPo.po_number} from ${matchedPo.vendor_name} has been fully received. All line items confirmed. Ready for AP to process payment.`,
-          is_read: false,
+          type: 'info',
+          link: '/purchasing/module',
         });
         toast({ title: `PO ${matchedPo.po_number} fully received — Accounting has been notified`, className: 'bg-green-600 text-white border-0' });
       } else {

@@ -16,6 +16,7 @@ import PtoPanel from '@/components/hr/PtoPanel';
 import { isCapabilityAllowed } from '@/lib/permissionCatalog';
 import { hasModule } from '@/lib/moduleEntitlement';
 import { isAdminUser } from '@/lib/tenantContext';
+import { notifyUsersByRole } from '@/lib/notifyRoles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -604,10 +605,11 @@ export default function EmployeeCenter() {
   const requestInfoUpdate = async () => {
     if (isAdminViewing) return;
     try {
-      await db.entities.Notification.create({
+      await notifyUsersByRole(['hr_admin'], {
         title: 'Employee Info Update Request',
         message: `${employee.full_name} (#${employee.employee_number}) requested a profile info update.`,
-        is_read: false,
+        type: 'info',
+        link: '/human-resources',
       });
       toast({ title: 'Request sent to HR Admin' });
     } catch (e) {
@@ -621,10 +623,11 @@ export default function EmployeeCenter() {
   const requestDirectDepositChange = async () => {
     if (isAdminViewing) return;
     try {
-      await db.entities.Notification.create({
+      await notifyUsersByRole(['hr_admin', 'payroll_admin'], {
         title: 'Direct Deposit Change Request',
         message: `${employee.full_name} (#${employee.employee_number}) requested a change to their direct deposit bank account. HR must verify the new account before updating it.`,
-        is_read: false,
+        type: 'info',
+        link: '/payroll/setup',
       });
       toast({ title: 'Request sent to HR/Payroll Admin' });
     } catch (e) {

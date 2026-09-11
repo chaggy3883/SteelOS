@@ -40,8 +40,9 @@ export default function ProcurementModule() {
   const [receivingLogs, setReceivingLogs] = useState([]);
   const [payables, setPayables] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [poForm, setPoForm] = useState({ po_number: '', vendor_id: '', material_category: 'Structural Shapes', budgeted_cost: '', actual_cost: '', payment_terms: 'Net 30' });
+  const [poForm, setPoForm] = useState({ po_number: '', vendor_id: '', project_id: '', material_category: 'Structural Shapes', budgeted_cost: '', actual_cost: '', payment_terms: 'Net 30' });
   const [reqForm, setReqForm] = useState({ job_number: '', item_description: '', required_on_site_date: '', urgency: 'Medium', requisition_total: '' });
   const [receivingForm, setReceivingForm] = useState({ po_number: '', quantity_ordered: '', quantity_received: '', material_heat_number: '', delivery_status: 'Received Complete', verified: false });
   const [receivingFiles, setReceivingFiles] = useState([]);
@@ -92,18 +93,20 @@ export default function ProcurementModule() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [poList, reqList, recvList, invoiceList, vendorList] = await Promise.all([
+      const [poList, reqList, recvList, invoiceList, vendorList, projectList] = await Promise.all([
         db.entities.purchase_orders.list('-created_date', 100),
         db.entities.purchase_requisitions.list('-created_date', 100),
         db.entities.receiving_logs.list('-created_date', 100),
         db.entities.payable_invoices.list('-created_date', 100),
         db.entities.Vendor.filter({ is_active: true }, '-created_date', 100),
+        db.entities.Project.list('-created_date', 100),
       ]);
       setPurchaseOrders(poList);
       setRequisitions(reqList);
       setReceivingLogs(recvList);
       setPayables(invoiceList);
       setVendors(vendorList);
+      setProjects(projectList);
     } catch (error) {
       console.error(error);
     } finally {
@@ -111,23 +114,55 @@ export default function ProcurementModule() {
     }
   };
 
+  // Writes the same shape /purchasing (Purchasing.jsx) and the
+  // material-optimization committer use — project_id, total_estimated_cost,
+  // approval_status, requires_signature, plus a real purchase_order_lines
+  // row — so a buyout created here can actually be received (Receiving
+  // Kiosk reads purchase_order_lines) and post to job costing (which
+  // requires project_id). See MIGRATION_ANALYSIS.md §1.13/§10.
   const createPurchaseOrder = async (event) => {
     event?.preventDefault?.();
+    if (!poForm.project_id) {
+      toast({ title: 'Select a project before creating a buyout', variant: 'destructive' });
+      return;
+    }
     const selectedVendor = vendors.find((vendor) => vendor.id === poForm.vendor_id) || vendors[0];
+    const quantityOrdered = Number(poForm.quantity_ordered || 0);
+    const budgetedCost = Number(poForm.budgeted_cost || 0);
+    const actualCost = Number(poForm.actual_cost || 0);
+    const approvalStatus = budgetedCost <= AUTO_APPROVE_THRESHOLD ? 'Auto_Approved' : 'Exec_Review';
     const created = await db.entities.purchase_orders.create({
       po_number: poForm.po_number || `PO-${String(purchaseOrders.length + 1001)}`,
       vendor_id: selectedVendor?.id || '',
       vendor_name: selectedVendor?.name || '',
+      project_id: poForm.project_id || '',
+      description: `${poForm.material_category} mill buyout`,
       material_category: poForm.material_category,
-      budgeted_cost: Number(poForm.budgeted_cost || 0),
-      actual_cost: Number(poForm.actual_cost || 0),
-      variance: Number(poForm.budgeted_cost || 0) - Number(poForm.actual_cost || 0),
-      quantity_ordered: Number(poForm.quantity_ordered || 0),
+      total_estimated_cost: budgetedCost,
+      budgeted_cost: budgetedCost,
+      actual_cost: actualCost,
+      variance: budgetedCost - actualCost,
+      quantity_ordered: quantityOrdered,
       payment_terms: poForm.payment_terms,
+      approval_status: approvalStatus,
+      requires_signature: approvalStatus === 'Exec_Review',
       status: 'Open'
     });
+    await db.entities.purchase_order_lines.create({
+      po_id: created.id,
+      line_number: 1,
+      description: `${poForm.material_category} mill buyout`,
+      material_category: poForm.material_category,
+      quantity_ordered: quantityOrdered,
+      unit_of_measure: 'ea',
+      unit_cost: quantityOrdered > 0 ? budgetedCost / quantityOrdered : budgetedCost,
+      line_total: budgetedCost,
+      quantity_received: 0,
+      quantity_remaining: quantityOrdered,
+      is_fully_received: false,
+    });
     setPurchaseOrders([created, ...purchaseOrders]);
-    setPoForm({ po_number: '', vendor_id: '', material_category: 'Structural Shapes', budgeted_cost: '', actual_cost: '', payment_terms: 'Net 30' });
+    setPoForm({ po_number: '', vendor_id: '', project_id: '', material_category: 'Structural Shapes', budgeted_cost: '', actual_cost: '', payment_terms: 'Net 30' });
     toast({ title: 'Purchase order created' });
   };
 
@@ -328,6 +363,13 @@ export default function ProcurementModule() {
                 <Label>Vendor / Mill</Label>
                 <select className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" value={poForm.vendor_id} onChange={(event) => setPoForm({ ...poForm, vendor_id: event.target.value })}>
                   {vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label>Project</Label>
+                <select className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" value={poForm.project_id} onChange={(event) => setPoForm({ ...poForm, project_id: event.target.value })}>
+                  <option value="">Select a project…</option>
+                  {projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.project_number || project.id}</option>)}
                 </select>
               </div>
               <div>
