@@ -116,12 +116,22 @@ export async function seedDemoData() {
     });
   }
 
+  // Every seed insert below passes skipAudit: true — this entire function is
+  // synthetic demo/test data, never a real user action, so logging it has
+  // zero audit value and only bloats AuditLog (same rationale already
+  // applied to the PayPeriod/PayrollRegisterLine/PayrollRun seeds further
+  // down before this pass). Confirmed by measurement: one run of this
+  // seeder against an already-seeded store added ~4,090 AuditLog rows
+  // (~2MB), 61.6% of total localStorage usage — by far the dominant driver
+  // of this app's recurring localStorage-quota crashes, not attendance_punches
+  // or any genuinely-growing business data.
+
   // 2. Login slideshow images
   await db.entities.login_slideshow_images.bulkCreate([
     { image_data_uri: svgDataUri(slideshowSvg('Structural Steel Fabrication', '#0f2444')), display_order: 0 },
     { image_data_uri: svgDataUri(slideshowSvg('Precision Estimating and Takeoff', '#b45309')), display_order: 1 },
     { image_data_uri: svgDataUri(slideshowSvg('From Bid to Erection', '#374151')), display_order: 2 },
-  ]);
+  ], { skipAudit: true });
 
   // 3. Employees — 2 Estimating, 1 PM, 2 Shop/Fab, 2 Field/Erection, 1 Accounting, 1 HR, 1 Shop Mgmt
   const employeeSeeds = [
@@ -137,7 +147,7 @@ export async function seedDemoData() {
     { employee_number: 'EMP-010', full_name: 'Thomas Wright', classification: 'Shop Manager', department: 'Shop Management', hire_date: daysFromNow(-1100), pay_type: 'salary', annual_salary_cents: 8800000, is_flsa_exempt: true },
   ].map((e) => ({ ...e, is_active: true }));
 
-  const employees = await db.entities.employees.bulkCreate(employeeSeeds);
+  const employees = await db.entities.employees.bulkCreate(employeeSeeds, { skipAudit: true });
   const [estimator1, estimator2] = employees;
 
   // 4. Bids — 5 won / 3 lost / 3 in_progress / 2 submitted / 1 draft
@@ -181,7 +191,7 @@ export async function seedDemoData() {
     };
   });
 
-  const bids = await db.entities.Bid.bulkCreate(bidPayloads);
+  const bids = await db.entities.Bid.bulkCreate(bidPayloads, { skipAudit: true });
 
   // 5. Projects — for 4 of the 5 won bids (the 5th stays won with no project)
   const wonBidsForProjects = bids.slice(0, 4);
@@ -203,7 +213,7 @@ export async function seedDemoData() {
     award_date: bid.bid_due_date,
     is_archived: false,
   }));
-  const projects = await db.entities.Project.bulkCreate(projectPayloads);
+  const projects = await db.entities.Project.bulkCreate(projectPayloads, { skipAudit: true });
 
   await Promise.all(
     wonBidsForProjects.map((bid, i) =>
@@ -225,7 +235,7 @@ export async function seedDemoData() {
       { project_id: proj.id, cost_code: 'EQP-CRANE', cost_class: 'EQP', amount: 5600 + pIdx * 400, transaction_date: daysFromNow(-15 + stagger), source_type: 'other', description: 'Crane and rigging equipment' }
     );
   });
-  await db.entities.JobCostLedgerEntry.bulkCreate(ledgerPayloads);
+  await db.entities.JobCostLedgerEntry.bulkCreate(ledgerPayloads, { skipAudit: true });
 
   // 6b. Material Takeoff Lines — real weight/area/tonnage math (not
   // hardcoded numbers) for the 3 won bids behind costProjects, via the same
@@ -269,7 +279,7 @@ export async function seedDemoData() {
       paint_area_sq_in: Math.round(paintAreaSqIn),
     };
   });
-  await db.entities.MaterialTakeoffLine.bulkCreate(takeoffLinePayloads);
+  await db.entities.MaterialTakeoffLine.bulkCreate(takeoffLinePayloads, { skipAudit: true });
 
   // Roll each bid's takeoff lines up into its (and its won project's) tonnage
   // fields instead of leaving them hardcoded/unset — real sums, not guesses.
@@ -288,7 +298,7 @@ export async function seedDemoData() {
   const [operatingAccount, payrollAccount] = await db.entities.BankAccount.bulkCreate([
     { account_name: 'Operating Checking', bank_name: 'First National Bank', account_type: 'Checking', account_number_last4: '4821', opening_balance: 150000, is_active: true },
     { account_name: 'Payroll Checking', bank_name: 'First National Bank', account_type: 'Checking', account_number_last4: '7734', opening_balance: 40000, is_active: true },
-  ]);
+  ], { skipAudit: true });
 
   // 8. Bank transactions — ~20 across both accounts, ~70% reconciled
   const operatingDeposits = [
@@ -347,7 +357,7 @@ export async function seedDemoData() {
       ...(reconciled ? { reconciled_date: daysFromNow(Math.min(t.dayOffset + 5, 0)) } : {}),
     };
   });
-  await db.entities.BankTransaction.bulkCreate(bankTransactionPayloads);
+  await db.entities.BankTransaction.bulkCreate(bankTransactionPayloads, { skipAudit: true });
 
   // 9. Month-end close — last month Closed, current month In Progress
   const now = new Date();
@@ -364,7 +374,7 @@ export async function seedDemoData() {
     status: 'Closed',
     closed_date: lastMonthClosedDate,
     closed_by: 'Linda Parker',
-  });
+  }, { skipAudit: true });
   await db.entities.CloseChecklistItem.bulkCreate(
     STANDARD_CLOSE_TASKS.map((t, i) => ({
       close_id: closedLastMonth.id,
@@ -374,13 +384,14 @@ export async function seedDemoData() {
       status: 'Complete',
       completed_date: lastMonthClosedDate,
       sort_order: i,
-    }))
+    })),
+    { skipAudit: true }
   );
 
   const inProgressCurrentMonth = await db.entities.MonthEndClose.create({
     period: currentPeriod,
     status: 'In Progress',
-  });
+  }, { skipAudit: true });
   const currentMonthStatuses = ['Complete', 'Complete', 'Complete', 'Complete', 'In Progress', 'In Progress', 'Not Started', 'Not Started', 'Not Started', 'Not Started'];
   await db.entities.CloseChecklistItem.bulkCreate(
     STANDARD_CLOSE_TASKS.map((t, i) => ({
@@ -391,7 +402,8 @@ export async function seedDemoData() {
       status: currentMonthStatuses[i],
       ...(currentMonthStatuses[i] === 'Complete' ? { completed_date: daysFromNow(-3) } : {}),
       sort_order: i,
-    }))
+    })),
+    { skipAudit: true }
   );
 
   // 10. Budget — full current-year budget, 5 categories x 12 months
@@ -402,7 +414,7 @@ export async function seedDemoData() {
       budgetPayloads.push({ fiscal_year: fiscalYear, period: periodFor(fiscalYear, m), category, budgeted_amount: monthly });
     }
   });
-  await db.entities.BudgetLine.bulkCreate(budgetPayloads);
+  await db.entities.BudgetLine.bulkCreate(budgetPayloads, { skipAudit: true });
 
   // 11. Vendors + Vendor Bills
   const [buckeyeSteel, midwestRebar, ohioValleyCrane, precisionWelding] = await db.entities.Vendor.bulkCreate([
@@ -410,7 +422,7 @@ export async function seedDemoData() {
     { name: 'Midwest Rebar & Materials', vendor_type: 'supplier', is_active: true },
     { name: 'Ohio Valley Crane Rental', vendor_type: 'equipment_rental', is_active: true },
     { name: 'Precision Welding Subcontractors', vendor_type: 'subcontractor', is_active: true },
-  ]);
+  ], { skipAudit: true });
 
   const vendorBillSeeds = [
     { vendor_id: buckeyeSteel.id, project_id: projects[0].id, invoice_number: 'INV-5001', gross_amount: 42000, status: 'Approved', dueOffset: 14, invoiceOffset: -10 },
@@ -430,7 +442,8 @@ export async function seedDemoData() {
       due_date: daysFromNow(v.dueOffset),
       gross_amount: v.gross_amount,
       status: v.status,
-    }))
+    })),
+    { skipAudit: true }
   );
 
   // 12. Invoice Receivables
@@ -455,7 +468,8 @@ export async function seedDemoData() {
         net_billing: inv.gross_amount - retainage_held,
         payment_status: inv.payment_status,
       };
-    })
+    }),
+    { skipAudit: true }
   );
 
   // 13. Review Checklist Items — Hancock Steel's actual front-end review requirements
@@ -497,7 +511,8 @@ export async function seedDemoData() {
       is_required: true,
       note_for_estimator: '',
       ...item,
-    }))
+    })),
+    { skipAudit: true }
   );
 
   // 14. Customers (CRM) — feeds CustomerPickerModal's picker list
@@ -512,7 +527,8 @@ export async function seedDemoData() {
     { name: 'Northwest Ohio Port Authority', customer_type: 'other', city: 'Toledo', state: 'OH' },
   ];
   await db.entities.Customer.bulkCreate(
-    customerSeeds.map((c) => ({ ...c, is_active: true, portal_enabled: false }))
+    customerSeeds.map((c) => ({ ...c, is_active: true, portal_enabled: false })),
+    { skipAudit: true }
   );
 
   // 15. Contracts — one per project
@@ -527,7 +543,7 @@ export async function seedDemoData() {
     notice_cure_days: 7,
     status: 'active',
   }));
-  await db.entities.Contract.bulkCreate(contractSeeds);
+  await db.entities.Contract.bulkCreate(contractSeeds, { skipAudit: true });
 
   // 16. SOV Lines — 5 per active project (complete/erection/fabrication), skip the just-awarded one
   const sovItemWeights = [
@@ -553,7 +569,7 @@ export async function seedDemoData() {
       });
     });
   });
-  await db.entities.SovLine.bulkCreate(sovPayloads);
+  await db.entities.SovLine.bulkCreate(sovPayloads, { skipAudit: true });
 
   // 17. RFIs — 4 per active project (2 answered, 1 submitted, 1 draft)
   const estimatingEmployees = employees.filter((e) => e.department === 'Estimating');
@@ -624,7 +640,7 @@ export async function seedDemoData() {
       });
     });
   });
-  await db.entities.RFI.bulkCreate(rfiPayloads);
+  await db.entities.RFI.bulkCreate(rfiPayloads, { skipAudit: true });
 
   // 18. Change Orders — 3 on complete, 3 on erection, 2 on fabrication
   const changeOrderProjectSeeds = [
@@ -668,7 +684,7 @@ export async function seedDemoData() {
       });
     });
   });
-  await db.entities.change_orders.bulkCreate(changeOrderPayloads);
+  await db.entities.change_orders.bulkCreate(changeOrderPayloads, { skipAudit: true });
 
   // 19. Submittals — 4/3/3 across the 3 active projects
   const submittalProjectSeeds = [
@@ -718,7 +734,7 @@ export async function seedDemoData() {
       });
     });
   });
-  await db.entities.Submittal.bulkCreate(submittalPayloads);
+  await db.entities.Submittal.bulkCreate(submittalPayloads, { skipAudit: true });
 
   // 20. Pieces (Shop Floor) — 15 each on the fabrication and erection projects
   // pieces has no literal "fabricated/in_fab/pending/shipped" status field —
@@ -791,8 +807,8 @@ export async function seedDemoData() {
   const { payloads: fabricationPiecePayloads, statuses: fabricationStatuses } = buildProjectPieces(costProjects[2].id, fabricationStatusPlan, fabricationPieceMarkLookup);
   const { payloads: erectionPiecePayloads } = buildProjectPieces(costProjects[1].id, erectionStatusPlan, erectionPieceMarkLookup);
 
-  const fabricationPieces = await db.entities.pieces.bulkCreate(fabricationPiecePayloads);
-  const erectionPieces = await db.entities.pieces.bulkCreate(erectionPiecePayloads);
+  const fabricationPieces = await db.entities.pieces.bulkCreate(fabricationPiecePayloads, { skipAudit: true });
+  const erectionPieces = await db.entities.pieces.bulkCreate(erectionPiecePayloads, { skipAudit: true });
 
   // 21. QA Inspections — one per piece that's fabricated or shipped
   // qa_inspections.stage only supports 1_Layout/2_Weld (no "final_fab") —
@@ -810,7 +826,7 @@ export async function seedDemoData() {
     status: i < fabricatedOnlyPieces.length && (i === 1 || i === 4) ? 'Failed' : 'Approved',
     inspected_at: isoDaysFromNow(qaDayOffsets[i % qaDayOffsets.length]),
   }));
-  await db.entities.qa_inspections.bulkCreate(qaInspectionPayloads);
+  await db.entities.qa_inspections.bulkCreate(qaInspectionPayloads, { skipAudit: true });
 
   // 22. Loads & Shipping — erection project's 15 pieces across 3 loads of 5
   const loadDefs = [
@@ -826,7 +842,7 @@ export async function seedDemoData() {
     total_weight_lbs: def.pieces.reduce((sum, p) => sum + (p.weight || 0), 0),
     created_date: isoDaysFromNow(def.dayOffset),
   }));
-  const loads = await db.entities.loads.bulkCreate(loadPayloads);
+  const loads = await db.entities.loads.bulkCreate(loadPayloads, { skipAudit: true });
 
   const loadItemPayloads = [];
   loadDefs.forEach((def, li) => {
@@ -839,7 +855,7 @@ export async function seedDemoData() {
       });
     });
   });
-  await db.entities.load_items.bulkCreate(loadItemPayloads);
+  await db.entities.load_items.bulkCreate(loadItemPayloads, { skipAudit: true });
 
   await db.entities.shipping_manifests.bulkCreate(
     loadDefs.map((def, i) => ({
@@ -847,7 +863,8 @@ export async function seedDemoData() {
       driver_name: def.driver.name,
       driver_phone: def.driver.phone,
       trailer_type: 'Flatbed',
-    }))
+    })),
+    { skipAudit: true }
   );
 
   // 23. Erection Fleet Assets
@@ -862,7 +879,7 @@ export async function seedDemoData() {
     { asset_name: 'Manitowoc 14000 Lattice Boom Crane', asset_type: 'Crane', equipment_type: 'MOBILE_CRANE', status: 'Internal_Owned', runtime_hours: 1203, project_location_id: costProjects[1].id, rental_rate_per_hour: 220, cost_rate_type: 'rented', default_cost_code: 'EQP-001' },
     { asset_name: 'Gradall XL4100 Telehandler', asset_type: 'Other', equipment_type: 'TELEHANDLER_FORKLIFT', status: 'Internal_Owned', runtime_hours: 2341 },
     { asset_name: 'JLG 600S Boom Lift', asset_type: 'Other', equipment_type: 'AERIAL_BOOM_LIFT', status: 'Internal_Owned', runtime_hours: 412, project_location_id: costProjects[1].id },
-  ]);
+  ], { skipAudit: true });
 
   // 23b. Equipment Usage Logs — Grove (owned, $185/hr) and Manitowoc (rented,
   // $220/hr) usage on the erection project over the last 3 weeks, each
@@ -890,7 +907,7 @@ export async function seedDemoData() {
       rate_used: rate,
       total_cost: totalCost,
       description,
-    });
+    }, { skipAudit: true });
     const ledgerEntry = await db.entities.JobCostLedgerEntry.create({
       project_id: costProjects[1].id,
       cost_code: seed.asset.default_cost_code,
@@ -900,7 +917,7 @@ export async function seedDemoData() {
       source_type: 'equipment',
       source_id: log.id,
       description,
-    });
+    }, { skipAudit: true });
     await db.entities.EquipmentUsageLog.update(log.id, { posted_to_job_cost: true, job_cost_entry_id: ledgerEntry.id });
   }
 
@@ -949,7 +966,7 @@ export async function seedDemoData() {
       });
     });
   });
-  await db.entities.attendance_punches.bulkCreate(attendancePayloads);
+  await db.entities.attendance_punches.bulkCreate(attendancePayloads, { skipAudit: true });
 
   // 25. Employee Certifications
   // cert_type enum has no "AWS D1.1"/"Ironworker Journeyman Card"/"PMP" —
@@ -981,7 +998,8 @@ export async function seedDemoData() {
       issued_date: daysFromNow(c.issuedOffset),
       expiration_date: daysFromNow(c.expirationOffset),
       status: c.statusOverride || 'Valid',
-    }))
+    })),
+    { skipAudit: true }
   );
 
   // Safety Meetings (toolbox talks) — weekly cadence plus one monthly
@@ -1030,7 +1048,8 @@ export async function seedDemoData() {
       content: m.content,
       attendees: m.attendees.map((e) => ({ employee_id: e.id, name: e.full_name })),
       documents: [],
-    }))
+    })),
+    { skipAudit: true }
   );
 
   // Disciplinary Actions — one fully filed (draft -> printed -> signed_filed)
@@ -1070,7 +1089,7 @@ export async function seedDemoData() {
     },
   ] : [];
   if (disciplinarySeeds.length > 0) {
-    await db.entities.DisciplinaryAction.bulkCreate(disciplinarySeeds.map((d) => ({ ...d, signed_document: null })));
+    await db.entities.DisciplinaryAction.bulkCreate(disciplinarySeeds.map((d) => ({ ...d, signed_document: null })), { skipAudit: true });
   }
 
   // 26. Credit Card Expenses
@@ -1105,7 +1124,8 @@ export async function seedDemoData() {
       expense_date: daysFromNow(e.dayOffset),
       ...(e.outOfTown ? { is_out_of_town_travel: true, per_diem_allowance_cents: Math.round((e.perDiem || 65) * 100) } : {}),
       status: 'Approved',
-    }))
+    })),
+    { skipAudit: true }
   );
 
   // 27. Historical Variance — won bids whose project is complete or in erection
@@ -1135,7 +1155,8 @@ export async function seedDemoData() {
         adjuster_suggestion_pct: Math.abs(overall_variance_pct) > 7 ? Math.round(overall_variance_pct) : 0,
         completed_date: daysFromNow(v.completedOffset),
       };
-    })
+    }),
+    { skipAudit: true }
   );
 
   // 28. Recurring Cash Items
@@ -1144,7 +1165,7 @@ export async function seedDemoData() {
     { label: 'Office & Facility Rent', amount: 4200, direction: 'Outflow', frequency: 'Monthly', next_occurrence_date: daysFromNow(12), is_active: true },
     { label: 'Equipment Lease Payment', amount: 8750, direction: 'Outflow', frequency: 'Monthly', next_occurrence_date: daysFromNow(8), is_active: true },
   ];
-  await db.entities.RecurringCashItem.bulkCreate(recurringCashSeeds);
+  await db.entities.RecurringCashItem.bulkCreate(recurringCashSeeds, { skipAudit: true });
 
   // 29. Notifications — for whoever is running the seeder (Notification is read by user_id)
   const currentUser = await db.auth.me().catch(() => null);
@@ -1164,7 +1185,8 @@ export async function seedDemoData() {
         type: n.type,
         is_read: n.is_read,
         created_date: isoDaysFromNow(n.dayOffset),
-      }))
+      })),
+      { skipAudit: true }
     );
   }
 
@@ -1180,7 +1202,7 @@ export async function seedDemoData() {
   const [midwestIronworkers, superiorPainting] = await db.entities.Vendor.bulkCreate([
     { name: 'Midwest Ironworkers LLC', vendor_type: 'subcontractor', is_active: true },
     { name: 'Superior Painting Co', vendor_type: 'subcontractor', is_active: true },
-  ]);
+  ], { skipAudit: true });
 
   const [midwestSubcontract, superiorSubcontract] = await db.entities.Subcontract.bulkCreate([
     {
@@ -1216,7 +1238,7 @@ export async function seedDemoData() {
       bonded: false,
       scope_of_work: 'painting',
     },
-  ]);
+  ], { skipAudit: true });
 
   const [midwestPayApp1, midwestPayApp2, midwestPayApp3] = await db.entities.SubcontractPayApp.bulkCreate([
     {
@@ -1264,7 +1286,7 @@ export async function seedDemoData() {
       lien_waiver_received: false,
       lien_waiver_type: 'none',
     },
-  ]);
+  ], { skipAudit: true });
 
   const superiorPayApp1 = await db.entities.SubcontractPayApp.create({
     subcontract_id: superiorSubcontract.id,
@@ -1279,7 +1301,7 @@ export async function seedDemoData() {
     date_received: daysFromNow(-3),
     lien_waiver_received: false,
     lien_waiver_type: 'none',
-  });
+  }, { skipAudit: true });
 
   const lienWaiverSeeds = [
     {
@@ -1317,7 +1339,7 @@ export async function seedDemoData() {
       status: 'received',
     },
   ];
-  await db.entities.LienWaiver.bulkCreate(lienWaiverSeeds);
+  await db.entities.LienWaiver.bulkCreate(lienWaiverSeeds, { skipAudit: true });
 
   // Mirrors what the Subcontracts page's "Mark Paid" action does automatically
   // for Pay App #1, so the demo job cost ledger already reflects it.
@@ -1330,7 +1352,7 @@ export async function seedDemoData() {
     source_type: 'subcontract',
     source_id: midwestPayApp1.id,
     description: `Midwest Ironworkers LLC Pay App #${midwestPayApp1.pay_app_number}`,
-  });
+  }, { skipAudit: true });
 
   // 31. Certified Payroll — the erection project (costProjects[1], already
   // hosting Midwest/Superior above) is flagged prevailing wage so its WH-347
@@ -1408,7 +1430,7 @@ export async function seedDemoData() {
       classifications_verified: true,
       hours_verified: true,
     },
-  ]);
+  ], { skipAudit: true });
 
   // 32. Payroll — two biweekly pay periods spanning the same ~4 work-week
   // window attendancePayloads covers (step 24). Register hours/OT are
@@ -1519,7 +1541,8 @@ export async function seedDemoData() {
       source_type: 'labor',
       source_id: postedPeriod.id,
       description: `Payroll ${postedPeriod.period_start} to ${postedPeriod.period_end}`,
-    }))
+    })),
+    { skipAudit: true }
   );
 
   const payrollEntryIdByProject = {};
