@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "check:tenant-scoping": "node scripts/check-tenant-scoping.mjs",
+    "prebuild": "npm run check:tenant-scoping",
     "build": "vite build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",

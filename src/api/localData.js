@@ -950,6 +950,7 @@ const buildSeedData = () => {
       {
         id: 'role-admin',
         role_name: 'Estimator',
+        company_id: 'company-hancock',
         is_active: true,
         is_system: false,
         created_date: now,
@@ -2620,6 +2621,25 @@ const migrateEmployeePlatformRoles = (migrated) => {
   });
 };
 
+// CustomRole had no tenant concept at all until the TENANT_SCOPED_ENTITIES
+// audit above — any pre-existing browser storage from before that fix may
+// already hold CustomRole rows with no company_id. There is no other field
+// on the record (no created_by, no linking entity) that identifies which
+// tenant created it, so this backfill cannot truly derive the right answer —
+// it assigns 'company-hancock' as the one documented assumption, since
+// Hancock is the only real (non-demo) tenant this app has shipped to so far
+// and every other unstamped seed row in this file already defaults there.
+// A future multi-tenant launch with other real companies already using
+// custom roles before this fix shipped would need those rows manually
+// reassigned to their correct company_id — this backfill cannot tell them
+// apart. Idempotent: only rewrites rows still missing company_id.
+const migrateCustomRoleCompanyId = (migrated) => {
+  const rows = Array.isArray(migrated.CustomRole) ? migrated.CustomRole : [];
+  migrated.CustomRole = rows.map((row) => (
+    row.company_id ? row : { ...row, company_id: 'company-hancock' }
+  ));
+};
+
 // Generic backfill for the shared StatusHistoryEntry log (src/lib/
 // statusHistory.js, StatusHistoryModal) — every entity below writes its
 // status changes there now instead of a bespoke per-entity history. Runs on
@@ -2885,6 +2905,7 @@ const migrateStore = (store) => {
 
   migrateLegacyShippingLoads(migrated);
   migrateEmployeePlatformRoles(migrated);
+  migrateCustomRoleCompanyId(migrated);
   migrateRiggingLedgerFields(migrated);
   migrateRiggingInspectionAssetLinks(migrated);
   backfillStatusHistory(migrated);
@@ -3050,7 +3071,188 @@ export const setAuthState = (state) => {
 // is NOT a real security boundary (devtools access to storage bypasses it
 // entirely). Only entities in this whitelist are scoped — everything else in
 // this app is unaffected.
-const TENANT_SCOPED_ENTITIES = ['Bid', 'Project', 'employees', 'pieces', 'loads', 'VendorBill', 'ai_contract_reviews', 'JobCostLedgerEntry', 'executive_metrics_snapshots', 'form_layouts', 'report_templates', 'ApiIntegrationLog', 'ApiTokenVault', 'print_label_jobs', 'erection_fleet_assets', 'heavy_equipment_inspections', 'field_hook_logs', 'attendance_punches', 'credit_card_expenses', 'fleet_repair_logs', 'rigging_inventory_ledger', 'employee_documents', 'blueprint_takeoffs', 'piece_production_logs', 'piece_timing_events', 'company_templates', 'CompanyProposalTerms', 'steel_catalog', 'BankAccount', 'BankTransaction', 'RecurringCashItem', 'MonthEndClose', 'CloseChecklistItem', 'BudgetLine', 'UserSessionLog', 'ReviewChecklistItem', 'purchase_order_lines', 'Subcontract', 'SubcontractPayApp', 'LienWaiver', 'EquipmentUsageLog', 'CertifiedPayrollSubmission', 'PayPeriod', 'PayrollRegisterLine', 'CostCode', 'DeliveryPricingTier', 'RiggingInspection', 'EquipmentService', 'ServiceSchedule', 'SafetyMeeting', 'DisciplinaryAction', 'IntelligenceRule', 'CrewAssignment', 'ProjectMeetingNote', 'Meeting', 'MeetingNoteLog', 'TurnoverMeetingRecord', 'ScopeReviewQuestion', 'StatusHistoryEntry', 'PtoPolicy', 'PtoBalance', 'PtoTransaction', 'EmployeePtoPolicy', 'safety_incidents', 'ncr_records', 'saved_kpi_dashboards', 'SalesCommissionConfig', 'SalesmanCommissionRate', 'ProjectCommission', 'ProjectCommissionPayment', 'SalesCommissionPayout', 'ProjectBulletin', 'Notification', 'AuditLog', 'FailedAccessLog', 'TmLaborRate', 'CostCategoryDefaultRate', 'TmLaborEstimateLineItem', 'TmMaterialLineItem', 'TmSubcontractorLineItem', 'TmMaterialUsage', 'BankIntegrationConfig', 'EmployeeBankAccount', 'AchOutgoing', 'AchIncoming', 'candidate_profiles', 'candidate_documents', 'employee_hiring_documents', 'Payment', 'Memo', 'DetailerImportBatch', 'DetailerImportedPiece', 'StockLengthOption', 'MaterialOptimizationRun', 'StockMaterialUnit', 'MaterialShapeType', 'MaterialSizeOption', 'MaterialGradeOption', 'CompanyLetterhead'];
+//
+// This list was regenerated from scratch (2026-09-11) after an audit found
+// 63 registered entities that declare a `company_id` property in their
+// schema/entities/*.jsonc file but had silently drifted out of this
+// whitelist — meaning they received zero tenant filtering despite holding
+// one company's data (User, Vendor, Customer, Contract, the entire payroll
+// family, PieceMark, and more). `CustomRole` had no `company_id` concept at
+// all and has been added as a new field (see its .jsonc and the
+// `migrateCustomRoleCompanyId` backfill below) plus this entry.
+//
+// `scripts/check-tenant-scoping.mjs` (wired into `npm run build` as a
+// prebuild step) now fails the build if any registered entity gains a
+// `company_id` schema field without also being added here — so this list
+// can no longer drift silently again the way it already has once.
+const TENANT_SCOPED_ENTITIES = [
+  'AIFinding',
+  'AIReviewSkill',
+  'AchIncoming',
+  'AchOutgoing',
+  'AdjustmentLog',
+  'ApiCredential',
+  'ApiIntegrationLog',
+  'ApiTokenVault',
+  'AuditLog',
+  'BankAccount',
+  'BankIntegrationConfig',
+  'BankTransaction',
+  'Bid',
+  'BidReviewReport',
+  'BudgetLine',
+  'CertifiedPayrollReport',
+  'CertifiedPayrollSubmission',
+  'CloseChecklistItem',
+  'CompanyLetterhead',
+  'CompanyProposalTerms',
+  'Contract',
+  'CostCategoryDefaultRate',
+  'CostCode',
+  'CrewAssignment',
+  'CustomRole',
+  'Customer',
+  'Deduction',
+  'DeliveryPricingTier',
+  'DetailerImportBatch',
+  'DetailerImportedPiece',
+  'DisciplinaryAction',
+  'Document',
+  'EmployeeBankAccount',
+  'EmployeePayRate',
+  'EmployeePtoPolicy',
+  'EmployerTax',
+  'EquipmentService',
+  'EquipmentUsageLog',
+  'FailedAccessLog',
+  'HistoricalVariance',
+  'IntelligenceRule',
+  'InventoryItem',
+  'InvoiceReceivable',
+  'JobCostLedgerEntry',
+  'JobLaborAllocation',
+  'LegalAuditEvent',
+  'LienWaiver',
+  'MaterialGradeOption',
+  'MaterialOptimizationRun',
+  'MaterialShapeType',
+  'MaterialSizeOption',
+  'MaterialTakeoffLine',
+  'Meeting',
+  'MeetingNoteLog',
+  'Memo',
+  'MillTestReport',
+  'MonthEndClose',
+  'Notification',
+  'PayPeriod',
+  'Payment',
+  'PayrollAdjustment',
+  'PayrollGLMapping',
+  'PayrollJournal',
+  'PayrollLiability',
+  'PayrollLine',
+  'PayrollLineDeduction',
+  'PayrollLineTax',
+  'PayrollRegisterLine',
+  'PayrollRule',
+  'PayrollRun',
+  'PieceMark',
+  'Project',
+  'ProjectBulletin',
+  'ProjectCommission',
+  'ProjectCommissionPayment',
+  'ProjectJobCostSummary',
+  'ProjectMeetingNote',
+  'ProjectSequenceArea',
+  'PtoBalance',
+  'PtoPolicy',
+  'PtoTransaction',
+  'RFI',
+  'RecurringCashItem',
+  'ReviewChecklistItem',
+  'RiggingInspection',
+  'SafetyMeeting',
+  'SalesCommissionConfig',
+  'SalesCommissionPayout',
+  'SalesmanCommissionRate',
+  'ScopeReviewQuestion',
+  'ServiceSchedule',
+  'ShopDrawing',
+  'ShopFloorZone',
+  'SovLine',
+  'StatusHistoryEntry',
+  'StatutoryNotice',
+  'StockLengthOption',
+  'StockMaterialUnit',
+  'Subcontract',
+  'SubcontractPayApp',
+  'Submittal',
+  'SystemSetting',
+  'TakeoffLine',
+  'TaxRate',
+  'TaxWithholding',
+  'TimeEntry',
+  'Timecard',
+  'TmLaborEstimateLineItem',
+  'TmLaborRate',
+  'TmMaterialLineItem',
+  'TmMaterialUsage',
+  'TmSubcontractorLineItem',
+  'TurnoverMeetingRecord',
+  'User',
+  'UserSessionLog',
+  'Vendor',
+  'VendorBill',
+  'VendorPricingLink',
+  'ai_contract_reviews',
+  'attendance_punches',
+  'blueprint_takeoffs',
+  'calendar_events',
+  'candidate_documents',
+  'candidate_profiles',
+  'company_templates',
+  'contract_exception_lines',
+  'credit_card_expenses',
+  'disciplinary_records',
+  'employee_certifications',
+  'employee_disciplinary_files',
+  'employee_documents',
+  'employee_hiring_documents',
+  'employee_portal_sessions',
+  'employees',
+  'erection_fleet_assets',
+  'executive_metrics_snapshots',
+  'field_hook_logs',
+  'fleet_repair_logs',
+  'form_layouts',
+  'frontend_contract_reviews',
+  'heavy_equipment_inspections',
+  'issued_assets',
+  'load_items',
+  'loads',
+  'manager_overrides',
+  'ncr_records',
+  'payroll_document_mappings',
+  'piece_production_logs',
+  'piece_timing_events',
+  'pieces',
+  'print_label_jobs',
+  'purchase_order_lines',
+  'purchase_requisitions',
+  'qa_inspections',
+  'quality_inspection_records',
+  'receiving_logs',
+  'remnant_inventory',
+  'report_templates',
+  'rigging_inventory_ledger',
+  'safety_incidents',
+  'saved_kpi_dashboards',
+  'shipping_manifests',
+  'shop_schedules',
+  'station_logs',
+  'steel_catalog',
+  'time_off_requests'
+];
 
 // A super_admin session NEVER falls back to its own User row's company_id —
 // even a seeded demo account holding both 'admin' and 'super_admin' plus a
