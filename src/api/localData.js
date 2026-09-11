@@ -6,6 +6,7 @@ import { SERVICE_SCHEDULE_SEEDS } from '@/lib/serviceScheduleSeedData';
 import { LEGACY_RIGGING_CATEGORY_MAP } from '@/lib/riggingAssetTypes';
 import MATERIAL_CATALOG_SEED from '@/data/materialCatalogSeed.json';
 import { HANCOCK_PROPOSAL_TERMS_TEXT } from '@/lib/hancockProposalTermsContent';
+import { createUploadedFileId, saveUploadedFile, makeUploadedFileRef } from '@/lib/uploadedFileStore';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
 const AUTH_STORAGE_KEY = 'steelos_auth_state';
@@ -3974,9 +3975,23 @@ export const createUsersApi = () => {
 
 export const createIntegrationsApi = () => ({
   Core: {
+    // Shared upload mock used by every AI-extraction and document-attach
+    // flow in the app (16+ call sites — grep `Core.UploadFile`). The
+    // returned `file_url` is a durable `steelos-upload:<id>` reference
+    // backed by IndexedDB (see uploadedFileStore.js), NOT a directly
+    // usable URL — passing it straight to <img src>, <a href>, or
+    // window.open() will not work. Code that needs to actually display or
+    // download the file must resolve it first via
+    // `resolveUploadedFileUrl` (uploadedFileStore.js). Storing this
+    // reference on an entity and reading it back later (including after a
+    // reload) is safe; treating it as a live URL synchronously is not.
     async UploadFile({ file }) {
-      const fileUrl = typeof window !== 'undefined' && file ? URL.createObjectURL(file) : '/placeholder-file';
-      return { file_url: fileUrl, name: file?.name || 'uploaded-file' };
+      if (typeof window === 'undefined' || !file) {
+        return { file_url: '/placeholder-file', name: file?.name || 'uploaded-file' };
+      }
+      const id = createUploadedFileId();
+      await saveUploadedFile(id, file);
+      return { file_url: makeUploadedFileRef(id), name: file.name };
     },
     async InvokeLLM(payload) {
       const proxyUrl = import.meta.env?.VITE_AI_PROXY_URL;

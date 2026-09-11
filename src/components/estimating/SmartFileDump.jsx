@@ -302,7 +302,12 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
                   {f.file_url && isPdfName(f.file.name) && (
                     <button
                       title="Open"
-                      onClick={(e) => { e.stopPropagation(); openDocumentViewer(f.file_url, f.file.name); }}
+                      // db.integrations.Core.UploadFile's file_url is a durable
+                      // steelos-upload: reference now, not a directly-openable
+                      // blob: URL (see uploadedFileStore.js) — the raw File is
+                      // still held in this queue, so build a fresh session-local
+                      // blob: URL from it for this same-session preview instead.
+                      onClick={(e) => { e.stopPropagation(); openDocumentViewer(URL.createObjectURL(f.file), f.file.name); }}
                       className="text-muted-foreground hover:text-primary flex-shrink-0"
                     >
                       <Eye className="w-4 h-4" />
@@ -311,7 +316,7 @@ export default function SmartFileDump({ bidId, bid, onParseComplete }) {
                   {f.file_url && isOfficeDocName(f.file.name) && (
                     <button
                       title="Download to Print — Open in Word/Excel to print."
-                      onClick={(e) => { e.stopPropagation(); downloadFile(f.file_url, f.file.name); }}
+                      onClick={(e) => { e.stopPropagation(); downloadFile(URL.createObjectURL(f.file), f.file.name); }}
                       className="text-muted-foreground hover:text-primary flex-shrink-0"
                     >
                       <Download className="w-4 h-4" />

@@ -4,16 +4,21 @@
 // disciplinaryDocumentStore.js, shopDrawingBlobStore.js, cncFileStore.js).
 //
 // Added 2026-09-11: these three entities previously relied on
-// db.integrations.Core.UploadFile's blob: URL directly, which is never
-// persisted anywhere durable (see localData.js's UploadFile comment) — the
-// URL string was stored on the entity, but the bytes behind it die the
-// moment the tab reloads or closes. This store gives them the same durable,
-// keyed-by-the-owning-record's-own-id pattern every other working upload
-// flow in this app already uses.
+// db.integrations.Core.UploadFile's blob: URL directly, which was never
+// persisted anywhere durable — the URL string was stored on the entity, but
+// the bytes behind it died the moment the tab reloaded or closed. This
+// store gives them the same durable, keyed-by-the-owning-record's-own-id
+// pattern every other working upload flow in this app already uses.
+// UploadFile itself was later fixed the same day to also persist durably
+// (see uploadedFileStore.js) — resolveDocumentUrl below falls back to that
+// store so a record whose own IndexedDB copy is missing still resolves
+// correctly instead of returning an unusable reference as if it were a URL.
 //
 // HONESTY NOTE: no backend — this is per-browser storage. Clearing site data
 // clears every uploaded file; that's an accepted dev/demo limitation, same as
 // every other blob store in this app.
+import { resolveUploadedFileUrl } from '@/lib/uploadedFileStore';
+
 const DB_NAME = 'steelos_uploaded_documents';
 const STORE_NAME = 'documents';
 
@@ -115,15 +120,16 @@ export const deleteDocumentFile = async (documentId) => {
 };
 
 // Resolves the best available URL for a {id, file_url} record: the durable
-// IndexedDB copy if one was saved (works after any reload), else the raw
-// file_url ONLY if it isn't a dead ephemeral blob: URL (a data: URI or a
-// real hosted URL is still safe to use as-is). Returns null when the file is
-// genuinely unrecoverable — a record created before this store existed,
-// whose blob: URL died the moment its tab closed.
+// IndexedDB copy if one was saved (works after any reload), else whatever
+// db.integrations.Core.UploadFile's file_url resolves to (a durable
+// `steelos-upload:` reference resolves via uploadedFileStore.js; a data:
+// URI or real hosted URL passes through unchanged; a dead legacy blob: URL
+// resolves to null). Returns null when the file is genuinely unrecoverable
+// — a record created before either store existed, whose blob: URL died the
+// moment its tab closed.
 export const resolveDocumentUrl = async (record) => {
   if (!record) return null;
   const stored = await getDocumentFileUrl(record.id);
   if (stored) return stored;
-  if (record.file_url && !record.file_url.startsWith('blob:')) return record.file_url;
-  return null;
+  return resolveUploadedFileUrl(record.file_url);
 };
