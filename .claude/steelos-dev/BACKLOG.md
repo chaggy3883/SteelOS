@@ -5,6 +5,42 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-12)
+
+- **Bid Worksheet default rate demo data + mileage calculator debounce fix**
+  — two unrelated fixes. (1) The 5 `CostCategoryDefaultRate` categories
+  (Field Rigging, Erection Labor Hours, Load/Unload Material, Shop Priming,
+  Structural Fabrication) closed 2026-09-08 below were deliberately left
+  unseeded, matching the `TmLaborRate` precedent — but that meant every new
+  Bid Worksheet line for these categories pre-filled at $0.00 in the demo
+  environment with nothing configured to demonstrate the auto-populate
+  feature actually working. Seeded reasonable Hancock demo rates in
+  `buildSeedData()` (`src/api/localData.js`): field_rigging $92/hr,
+  erection_labor_hours $85/hr, load_unload_material $68/hr, shop_priming
+  $72/hr, structural_fabrication $78/hr — real companies still edit these
+  at `/admin/bid-worksheet-rates`, unaffected. Confirmed the admin page is
+  already correctly reachable (`Admin.jsx` NAV_LINKS `roles: ['estimator']`
+  combines with `isAdmin` in `hasTabAccess`, same pattern as Material
+  Catalog) — not a hunting problem, no change needed there.
+  (2) Mileage calculator (`mileageService.js`'s Nominatim geocode + OSRM
+  route, called from `TakeoffEngine.jsx`) traced by hand end-to-end with
+  the real Hancock company address (813 E Bigelow Avenue, Findlay, OH
+  45840) against a real complete job address — both geocoded correctly and
+  OSRM returned the correct real-world driving distance (~44.3 mi to
+  downtown Toledo), so the calculation/geocoding logic itself was not the
+  bug. Root cause traced to `BidDetail.jsx`'s `liveTaxBid` (built
+  intentionally so tax calc reacts instantly to Base Information address
+  edits) also feeding `TakeoffEngine`'s mileage `useEffect` with a new
+  address on every keystroke, since Base Information is rendered above the
+  tabs and stays mounted alongside the BID Worksheet tab — firing a live
+  Nominatim geocode + OSRM call per keystroke, well past Nominatim's public
+  ~1 req/sec limit, so the address the user actually finished typing would
+  often surface a rate-limit/geocode error from the pile-up of stale
+  in-flight lookups for partial addresses typed a moment earlier. Fixed by
+  debouncing the calculation 800ms after the address stops changing;
+  `mileageService.js` itself was not touched since it traced as correct.
+  Verified `npm run build && npm run lint` clean after both fixes.
+
 ## Also Closed (2026-09-08)
 
 - **Company-configurable default hourly rates for 5 Bid Worksheet

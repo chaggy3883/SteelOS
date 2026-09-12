@@ -1414,6 +1414,65 @@ const buildSeedData = () => {
       }
     ],
     TakeoffLine: [],
+    // Demo default rates for the 5 Bid Worksheet cost categories (see
+    // bidWorksheetRateEngine.js / CostCategoryDefaultRate.jsonc) — without
+    // these, every new worksheet line for these categories pre-fills at $0,
+    // making the auto-populate feature look broken rather than merely
+    // unconfigured. Real companies edit these at /admin/bid-worksheet-rates;
+    // effective-dated the same as SalesmanCommissionRate above (open-ended,
+    // no end_date).
+    CostCategoryDefaultRate: [
+      {
+        id: 'cost-category-rate-field-rigging',
+        company_id: 'company-hancock',
+        category_key: 'field_rigging',
+        hourly_rate: 92,
+        effective_date: '2026-01-01',
+        end_date: null,
+        created_by: 'admin',
+        created_date: now,
+      },
+      {
+        id: 'cost-category-rate-erection-labor-hours',
+        company_id: 'company-hancock',
+        category_key: 'erection_labor_hours',
+        hourly_rate: 85,
+        effective_date: '2026-01-01',
+        end_date: null,
+        created_by: 'admin',
+        created_date: now,
+      },
+      {
+        id: 'cost-category-rate-load-unload-material',
+        company_id: 'company-hancock',
+        category_key: 'load_unload_material',
+        hourly_rate: 68,
+        effective_date: '2026-01-01',
+        end_date: null,
+        created_by: 'admin',
+        created_date: now,
+      },
+      {
+        id: 'cost-category-rate-shop-priming',
+        company_id: 'company-hancock',
+        category_key: 'shop_priming',
+        hourly_rate: 72,
+        effective_date: '2026-01-01',
+        end_date: null,
+        created_by: 'admin',
+        created_date: now,
+      },
+      {
+        id: 'cost-category-rate-structural-fabrication',
+        company_id: 'company-hancock',
+        category_key: 'structural_fabrication',
+        hourly_rate: 78,
+        effective_date: '2026-01-01',
+        end_date: null,
+        created_by: 'admin',
+        created_date: now,
+      },
+    ],
     report_templates: [
       {
         id: 'report-template-proposal-1',

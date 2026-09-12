@@ -161,25 +161,36 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
 
   useEffect(() => {
     let cancelled = false;
-    const run = async () => {
-      setFreightDistance(null);
-      setFreightError('');
-      if (!jobsiteAddress || !companyAddress) {
-        setFreightError('Enter a jobsite address above and your company address in Settings to calculate mileage automatically.');
-        return;
-      }
-      setFreightLoading(true);
-      try {
-        const miles = await calculateDistance(companyAddress, jobsiteAddress);
-        if (!cancelled) setFreightDistance(miles);
-      } catch (e) {
-        if (!cancelled) setFreightError(e?.message || 'Unable to calculate mileage — look up the tier manually.');
-      } finally {
-        if (!cancelled) setFreightLoading(false);
-      }
-    };
-    run();
-    return () => { cancelled = true; };
+    setFreightDistance(null);
+    setFreightError('');
+    if (!jobsiteAddress || !companyAddress) {
+      setFreightError('Enter a jobsite address above and your company address in Settings to calculate mileage automatically.');
+      return () => { cancelled = true; };
+    }
+    // liveTaxBid (BidDetail.jsx) overlays the Base Information address fields
+    // onto `bid` on every keystroke so tax calc can react instantly — this
+    // effect's deps ride along with that. Without a debounce, this fired a
+    // live Nominatim geocode + OSRM route request on every single keystroke
+    // while a user typed the job address, hammering Nominatim's ~1req/sec
+    // public-instance limit and frequently surfacing a rate-limit/geocode
+    // error for the finished address because of the burst of stale,
+    // in-flight lookups for partial addresses typed a moment earlier. Wait
+    // for typing to pause before firing.
+    const timer = setTimeout(() => {
+      const run = async () => {
+        setFreightLoading(true);
+        try {
+          const miles = await calculateDistance(companyAddress, jobsiteAddress);
+          if (!cancelled) setFreightDistance(miles);
+        } catch (e) {
+          if (!cancelled) setFreightError(e?.message || 'Unable to calculate mileage — look up the tier manually.');
+        } finally {
+          if (!cancelled) setFreightLoading(false);
+        }
+      };
+      run();
+    }, 800);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [jobsiteAddress, companyAddress]);
 
   const matchedFreightTier = freightDistance != null
