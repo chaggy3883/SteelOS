@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { validateBatchRows } from '@/lib/detailerImportValidation';
 import { commitBatch, detectRevisions } from '@/lib/detailerImportCommit';
@@ -19,7 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, CheckCircle2, FileText, Eye, FileDown, FileSpreadsheet } from 'lucide-react';
+import { Loader2, CheckCircle2, FileText, Eye, FileDown, FileSpreadsheet, Layers } from 'lucide-react';
 
 // Column definitions shared by both export formats — a plain {key, label,
 // width?} list, same generic shape requisitionPdfExport.js's {columns, rows}
@@ -73,6 +74,7 @@ function EditableCell({ value, onSave, disabled, type = 'text', placeholder, cla
 // non-error rows onto real PieceMark records via commitBatch.
 export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [committing, setCommitting] = useState(false);
@@ -229,6 +231,19 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  // Hands this batch's committed pieces off to the Material Optimization
+  // page (Layers icon matches that page's own header) rather than building a
+  // second, parallel "check inventory / group by shape+grade / cut plan"
+  // system here — MaterialOptimizationGroupPanel.jsx already does exactly
+  // that (remnant-inventory match surfaced first, nothing consumed until an
+  // explicit "Commit Plan" click, grouped by materialGroupKey per distinct
+  // PieceMark row — never collapsed by assembly). ?batch= tells that page to
+  // scope its piece list to just this batch instead of the whole project.
+  const goToOrderList = () => {
+    navigate(`/material-optimization?project=${batch.project_id}&batch=${batch.id}`);
+    onClose();
   };
 
   const runValidation = async () => {
@@ -537,6 +552,11 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Close</Button>
+          {committedCount > 0 && (
+            <Button variant="outline" className="gap-1.5" onClick={goToOrderList}>
+              <Layers className="w-4 h-4" /> Build Order List ({committedCount})
+            </Button>
+          )}
           <Button
             onClick={handleCommit}
             disabled={loading || committing || checkingRevisions || committableCount === 0}

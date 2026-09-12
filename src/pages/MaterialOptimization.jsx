@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { groupPiecesByMaterial } from '@/lib/materialOptimizer';
 import MaterialOptimizationGroupPanel from '@/components/material-optimization/MaterialOptimizationGroupPanel';
 import MaterialOptimizationReportPanel from '@/components/material-optimization/MaterialOptimizationReportPanel';
 import PageHeader from '@/components/ui/PageHeader';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
-import { Layers } from 'lucide-react';
+import { Layers, PackageSearch, X } from 'lucide-react';
 
 // STAGE 5: pick a project, group its PieceMark rows by shape+grade
 // (groupPiecesByMaterial — never shape alone, different grades aren't
@@ -18,8 +20,16 @@ import { Layers } from 'lucide-react';
 // (MaterialOptimizationReportPanel), never a second planning surface.
 // Clicking a material row there switches back to Groups and expands that
 // exact group, matching the standing drill-down rule.
+//
+// Detailer Import integration: arriving with ?project=&batch= (from
+// BatchReviewModal.jsx's "Build Order List" button) scopes the piece list to
+// just that DetailerImportBatch's committed pieces instead of the whole
+// project's PieceMark pool — everything downstream (grouping, remnant
+// matching, cut-plan commit) is the exact same code either way, since a
+// batch-scoped piece list is still just an array of PieceMark rows.
 export default function MaterialOptimization() {
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [pieces, setPieces] = useState([]);
@@ -27,16 +37,21 @@ export default function MaterialOptimization() {
   const [loadingPieces, setLoadingPieces] = useState(false);
   const [expandedGroupKey, setExpandedGroupKey] = useState(null);
   const [activeTab, setActiveTab] = useState('groups');
+  const [scopedBatch, setScopedBatch] = useState(null); // DetailerImportBatch | null — null means "whole project"
+
+  const batchParam = searchParams.get('batch');
 
   useEffect(() => { loadProjects(); }, []);
-  useEffect(() => { if (selectedProjectId) loadPieces(selectedProjectId); }, [selectedProjectId]);
+  useEffect(() => { if (selectedProjectId) loadPieces(selectedProjectId, batchParam); }, [selectedProjectId, batchParam]);
 
   const loadProjects = async () => {
     setLoading(true);
     try {
       const list = await db.entities.Project.list('name', 500);
       setProjects(list || []);
-      if (list?.length) setSelectedProjectId(list[0].id);
+      const projectParam = searchParams.get('project');
+      const initialProjectId = (projectParam && list?.some((p) => p.id === projectParam)) ? projectParam : list?.[0]?.id;
+      if (initialProjectId) setSelectedProjectId(initialProjectId);
     } catch (e) {
       toast({ title: 'Unable to load projects', variant: 'destructive' });
     } finally {
@@ -44,17 +59,42 @@ export default function MaterialOptimization() {
     }
   };
 
-  const loadPieces = async (projectId) => {
+  // batchId scopes the piece list to one DetailerImportBatch: its committed
+  // DetailerImportedPiece rows each carry a piece_mark_id (set at commit
+  // time — see detailerImportCommit.js), so the batch's own PieceMark rows
+  // are exactly { id ∈ those piece_mark_ids } within the project's full
+  // list. One row per distinct piece_mark either way (never rolled up by
+  // assembly — see commitBatch), so groupPiecesByMaterial below counts raw
+  // material per distinct piece, not per assembly, with no extra code needed
+  // for that here.
+  const loadPieces = async (projectId, batchId) => {
     setLoadingPieces(true);
     setExpandedGroupKey(null);
     try {
       const list = await db.entities.PieceMark.filter({ project_id: projectId }, 'piece_mark', 5000);
-      setPieces(list || []);
+      if (!batchId) {
+        setPieces(list || []);
+        setScopedBatch(null);
+        return;
+      }
+      const [batch, stagedRows] = await Promise.all([
+        db.entities.DetailerImportBatch.get(batchId).catch(() => null),
+        db.entities.DetailerImportedPiece.filter({ batch_id: batchId, committed: true }, 'piece_mark', 2000),
+      ]);
+      const pieceMarkIds = new Set(stagedRows.map((r) => r.piece_mark_id).filter(Boolean));
+      setPieces((list || []).filter((p) => pieceMarkIds.has(p.id)));
+      setScopedBatch(batch);
     } catch (e) {
       toast({ title: 'Unable to load pieces for this project', variant: 'destructive' });
     } finally {
       setLoadingPieces(false);
     }
+  };
+
+  const clearBatchScope = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('batch');
+    setSearchParams(next);
   };
 
   const groups = useMemo(() => groupPiecesByMaterial(pieces), [pieces]);
@@ -75,12 +115,31 @@ export default function MaterialOptimization() {
         <select
           className="mt-2 w-full max-w-md rounded-lg border border-border bg-background px-3 py-2 text-sm"
           value={selectedProjectId}
-          onChange={(event) => setSelectedProjectId(event.target.value)}
+          onChange={(event) => {
+            // Switching projects away from a batch-scoped view invalidates
+            // that scope (the batch's piece_mark_ids belong to a different
+            // project's PieceMark rows) — clear it rather than silently
+            // showing an empty/wrong-looking group list.
+            if (batchParam) clearBatchScope();
+            setSelectedProjectId(event.target.value);
+          }}
         >
           <option value="">Select a project…</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </div>
+
+      {scopedBatch && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 mb-6 text-sm">
+          <p className="flex items-center gap-2">
+            <PackageSearch className="w-4 h-4 text-primary flex-shrink-0" />
+            Showing pieces from Detailer Import batch <span className="font-medium">{scopedBatch.detailer_name}</span> only.
+          </p>
+          <Button variant="ghost" size="sm" className="gap-1" onClick={clearBatchScope}>
+            <X className="w-3.5 h-3.5" /> Show all project pieces
+          </Button>
+        </div>
+      )}
 
       {!selectedProjectId ? (
         <p className="text-sm text-muted-foreground">Select a project to see its material groups.</p>
