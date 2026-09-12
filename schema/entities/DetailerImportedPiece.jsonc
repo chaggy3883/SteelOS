@@ -27,6 +27,10 @@
       "type": "string",
       "description": "Shape/size designation as reported by the detailer (e.g. \"W12x26\"). Free text — not validated against the steel_catalog entity."
     },
+    "shape": {
+      "type": "string",
+      "description": "Shape code broken out of material_profile (e.g. \"W\", \"HSS\", \"C\", \"L\", \"PL\") — parsed at parse time via deriveShapeFromProfile (src/lib/materialProfileMatch.js) when not supplied directly by the source file, and editable during Review & Commit like the other fields. Kept as its own field (rather than re-derived on every render) since shape is what groups pieces for material optimization."
+    },
     "material_grade": {
       "type": "string"
     },
@@ -78,6 +82,10 @@
     "sequence_area_id": {
       "type": "string",
       "description": "Links to ProjectSequenceArea, assignable during Review & Commit (BatchReviewModal.jsx) before the row is promoted onto a real PieceMark. Nullable — left unassigned means \"Unassigned\", same convention as PieceMark.sequence_area_id. Carried onto the committed PieceMark's own sequence_area_id by detailerImportCommit.js only when set here, so leaving it blank on a row that matches an EXISTING PieceMark never clobbers that piece's current assignment."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-text reviewer note on this staged row, editable during Review & Commit (BatchReviewModal.jsx). Distinct from validation_warnings, which are system-generated. Populated from the source file's own notes field when the parser finds one (KISS detail-line Notes field; Tekla BOM's assembly finish note, e.g. \"GALV.\")."
     }
   },
   "required": [

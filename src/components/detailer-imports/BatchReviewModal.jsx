@@ -3,15 +3,38 @@ import { db } from '@/api/apiClient';
 import { validateBatchRows } from '@/lib/detailerImportValidation';
 import { commitBatch, detectRevisions } from '@/lib/detailerImportCommit';
 import { isDrawingFile } from '@/lib/detailerImportParser';
+import { deriveShapeFromProfile } from '@/lib/materialProfileMatch';
 import { getDetailerImportFileUrl } from '@/lib/detailerImportBlobStore';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import RevisionCompareModal from '@/components/detailer-imports/RevisionCompareModal';
 import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, CheckCircle2, FileText, Eye } from 'lucide-react';
+
+// Save-on-blur text/number cell shared by every editable column below —
+// uncontrolled (defaultValue, not value) so typing isn't fought by the
+// row's own re-render on every other cell's blur, same idiom as the Yield
+// Tracking table in Production.jsx. A committed row renders as plain text
+// instead: its fields have already been promoted onto a real PieceMark, so
+// editing here would silently diverge from that record instead of fixing it.
+function EditableCell({ value, onSave, disabled, type = 'text', placeholder, className = '' }) {
+  if (disabled) {
+    return <span className="block px-1 py-1 truncate">{(value ?? '') === '' ? '—' : value}</span>;
+  }
+  return (
+    <Input
+      type={type}
+      defaultValue={value ?? ''}
+      placeholder={placeholder}
+      onBlur={(event) => onSave(type === 'number' ? event.target.value : event.target.value.trim())}
+      className={`h-7 text-xs ${className}`}
+    />
+  );
+}
 
 // STAGE 3: opens against one DetailerImportBatch, re-validates every staged
 // DetailerImportedPiece row batch-wide (duplicate piece marks, missing
@@ -70,6 +93,22 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
     } catch (error) {
       console.error(error);
       toast({ title: 'Unable to save sequence/area', variant: 'destructive' });
+    }
+  };
+
+  // Backing store for every inline-editable cell below (piece mark, shape,
+  // material, grade, length, quantity, notes) — same save-on-blur idiom as
+  // handleRowSequenceAreaChange, just generalized to any field. Doesn't
+  // re-run batch-wide validation itself; a corrected row picks up its new
+  // validation_status the next time this modal opens (runValidation) or via
+  // its own "Re-validate" action, same as before this field became editable.
+  const handleRowFieldChange = async (row, field, value) => {
+    try {
+      const updated = await db.entities.DetailerImportedPiece.update(row.id, { [field]: value });
+      setRows((current) => current.map((r) => (r.id === row.id ? updated : r)));
+    } catch (error) {
+      console.error(error);
+      toast({ title: `Unable to save ${field.replace(/_/g, ' ')}`, variant: 'destructive' });
     }
   };
 
@@ -171,7 +210,7 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
   return (
     <>
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-4xl">
+      <DialogContent className="sm:max-w-[95vw] w-full max-h-[90vh]">
         <DialogHeader>
           <DialogTitle>Review &amp; Commit — {batch.detailer_name}</DialogTitle>
           <DialogDescription>
@@ -201,25 +240,52 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
                   <tr>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Piece Mark</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Assembly</th>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Shape</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Material</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Grade</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Length</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Qty</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Sequence/Area</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status</th>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Validation</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Notes</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Committed</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
+                  {rows.map((row) => {
+                    const locked = row.committed;
+                    return (
                     <tr key={row.id} className="border-b border-border/50 last:border-0">
-                      <td className="px-3 py-2 font-medium">{row.piece_mark || '—'}</td>
+                      <td className="px-3 py-2 font-medium">
+                        <EditableCell value={row.piece_mark} disabled={locked} onSave={(v) => handleRowFieldChange(row, 'piece_mark', v)} />
+                      </td>
                       <td className="px-3 py-2">{row.assembly || '—'}</td>
-                      <td className="px-3 py-2">{row.material_profile || '—'}</td>
-                      <td className="px-3 py-2">{row.material_grade || '—'}</td>
-                      <td className="px-3 py-2">{row.finished_length || '—'}</td>
-                      <td className="px-3 py-2">{row.quantity ?? '—'}</td>
+                      <td className="px-3 py-2">
+                        <EditableCell
+                          value={row.shape || deriveShapeFromProfile(row.material_profile)}
+                          disabled={locked}
+                          onSave={(v) => handleRowFieldChange(row, 'shape', v)}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <EditableCell value={row.material_profile} disabled={locked} onSave={(v) => handleRowFieldChange(row, 'material_profile', v)} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <EditableCell value={row.material_grade} disabled={locked} onSave={(v) => handleRowFieldChange(row, 'material_grade', v)} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <EditableCell value={row.finished_length} disabled={locked} onSave={(v) => handleRowFieldChange(row, 'finished_length', v)} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <EditableCell
+                          type="number"
+                          value={row.quantity ?? ''}
+                          disabled={locked}
+                          className="w-16"
+                          onSave={(v) => handleRowFieldChange(row, 'quantity', v === '' ? null : Number(v))}
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <SequenceAreaSelect
                           projectId={batch.project_id}
@@ -235,10 +301,14 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
                         {[...(row.validation_errors || []), ...(row.validation_warnings || [])].join('; ') || '—'}
                       </td>
                       <td className="px-3 py-2">
+                        <EditableCell value={row.notes} disabled={locked} placeholder="Add note…" className="w-36" onSave={(v) => handleRowFieldChange(row, 'notes', v)} />
+                      </td>
+                      <td className="px-3 py-2">
                         {row.committed ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : '—'}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -11,6 +11,7 @@
 // parser below, by contrast, is built directly against a real exported
 // report's structure. Nothing here writes to PieceMark directly — every
 // parser only produces staged rows for review.
+import { deriveShapeFromProfile } from '@/lib/materialProfileMatch';
 
 const parseCsvText = (text) => {
   const rows = [];
@@ -53,6 +54,7 @@ const CSV_HEADER_ALIASES = {
   quantity: ['quantity', 'qty'],
   weight: ['weight', 'weight_lbs', 'weight_lb'],
   finished_length: ['finished_length', 'length', 'finished_length_ft'],
+  notes: ['notes', 'note', 'comments', 'comment'],
 };
 
 const validateStagedRow = ({ piece_mark, quantity, weight }) => {
@@ -108,6 +110,7 @@ export const parseDetailerCsvFile = (text) => {
       headers.forEach((h, i) => { raw_row_data[h || `column_${i + 1}`] = cells[i] ?? ''; });
 
       const piece_mark = get(cells, 'piece_mark');
+      const material_profile = get(cells, 'material_profile');
       const { quantityValue, weightValue, errors } = validateStagedRow({
         piece_mark, quantity: get(cells, 'quantity'), weight: get(cells, 'weight'),
       });
@@ -115,13 +118,15 @@ export const parseDetailerCsvFile = (text) => {
       return {
         piece_mark,
         assembly: get(cells, 'assembly'),
-        material_profile: get(cells, 'material_profile'),
+        material_profile,
+        shape: deriveShapeFromProfile(material_profile),
         material_grade: get(cells, 'material_grade'),
         finished_length: get(cells, 'finished_length'),
         quantity: quantityValue,
         weight: weightValue,
         drawing_number: get(cells, 'drawing_number'),
         revision: get(cells, 'revision'),
+        notes: get(cells, 'notes'),
         raw_row_data,
         validation_status: errors.length ? 'error' : 'valid',
         validation_errors: errors,
@@ -165,6 +170,7 @@ export const parseDetailerKssFile = (text) => {
     KSS_DETAIL_FIELDS.forEach((field, idx) => { raw_row_data[field] = cells[idx] ?? ''; });
 
     const piece_mark = cells[4] || '';
+    const material_profile = cells[7] || cells[6] || '';
     const { quantityValue, weightValue, errors } = validateStagedRow({
       piece_mark, quantity: cells[5], weight: undefined,
     });
@@ -172,13 +178,15 @@ export const parseDetailerKssFile = (text) => {
     rows.push({
       piece_mark,
       assembly: cells[3] || '',
-      material_profile: cells[7] || cells[6] || '',
+      material_profile,
+      shape: deriveShapeFromProfile(material_profile),
       material_grade: cells[8] || '',
       finished_length: cells[9] || '',
       quantity: quantityValue,
       weight: weightValue,
       drawing_number: cells[1] || '',
       revision: cells[2] || '',
+      notes: cells[11] || '',
       raw_row_data,
       validation_status: errors.length ? 'error' : 'valid',
       validation_errors: errors,
@@ -338,12 +346,17 @@ export const parseDetailerTeklaBomFile = (text) => {
         piece_mark: record.piece_mark,
         assembly: currentAssembly,
         material_profile: record.profile,
+        shape: deriveShapeFromProfile(record.profile),
         material_grade: '',
         finished_length: record.length,
         quantity: quantityValue,
         weight: weightValue,
         drawing_number: '',
         revision: '',
+        // Finish note (e.g. "(GALV.)") is the only per-assembly annotation this
+        // report carries — see the block comment above for why it's kept out
+        // of material_grade/material_profile; notes is its natural home.
+        notes: currentAssemblyMeta?.finish_note || '',
         raw_row_data,
         validation_status: errors.length ? 'error' : 'valid',
         validation_errors: errors,
