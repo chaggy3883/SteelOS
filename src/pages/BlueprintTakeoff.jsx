@@ -19,7 +19,7 @@ import {
   Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
   MousePointer2, MousePointerClick, Wrench, ChevronDown, ChevronUp,
   Shapes, ScanSearch, Check, X, Link2, ExternalLink, ListChecks, Grid3x3,
-  Maximize2, HelpCircle, GripVertical, StickyNote, Save,
+  Maximize2, HelpCircle, GripVertical, StickyNote, Save, Hexagon,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
@@ -35,6 +35,10 @@ import MarkupsList from '@/components/estimating/MarkupsList';
 import SteelCatalogEditor from '@/components/estimating/SteelCatalogEditor';
 import AreaNameModal from '@/components/estimating/AreaNameModal';
 import MeasurementConfirmationModal from '@/components/estimating/MeasurementConfirmationModal';
+import CountSetupModal from '@/components/estimating/CountSetupModal';
+import CountColorPickerModal from '@/components/estimating/CountColorPickerModal';
+import CountTallyPanel from '@/components/estimating/CountTallyPanel';
+import CountMarkerSwatch from '@/components/estimating/CountMarkerSwatch';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
@@ -321,6 +325,30 @@ export default function BlueprintTakeoff() {
   const [newPresetTool, setNewPresetTool] = useState('count');
   const [newPresetColor, setNewPresetColor] = useState('#ef4444');
 
+  // Count/Bolt Count click-to-mark tally engine. One shared session model
+  // for both — `kind` ('beam'|'bolt') only decides which setup fields were
+  // asked for. countSetup drives the Shape/Size/Length (or Size/Type/Grade)
+  // step; pendingCountFields holds that step's result while the color/symbol
+  // step runs; countSession is the live, uncommitted click-to-mark session
+  // (points/color/symbol + which row, if any, is being resumed via "Add
+  // Pieces"). Nothing reaches `rows` until handleSaveCountSession.
+  const [countSetup, setCountSetup] = useState(null); // { kind, editingRowKey }
+  const [countSetupModalOpen, setCountSetupModalOpen] = useState(false);
+  const [pendingCountFields, setPendingCountFields] = useState(null); // { kind, editingRowKey, fields }
+  const [countColorModalOpen, setCountColorModalOpen] = useState(false);
+  const [countSession, setCountSession] = useState(null);
+  // { kind, editingRowKey, fields, color, symbol, points, page_number }
+
+  // Master material catalog, split by category — Structural Steel etc. for
+  // the beam Count setup, Bolts/Fasteners for the Bolt Count setup. Same
+  // MaterialShapeType/MaterialSizeOption/MaterialGradeOption entities Full
+  // Takeoff's Grade dropdown already reads from, not the narrow legacy
+  // steel_catalog.
+  const [beamShapeTypes, setBeamShapeTypes] = useState([]);
+  const [boltShapeTypes, setBoltShapeTypes] = useState([]);
+  const [materialSizesByShapeId, setMaterialSizesByShapeId] = useState({});
+  const [materialGradesByShapeId, setMaterialGradesByShapeId] = useState({});
+
   // VisualSearch — a Count row's marker gets cropped, sent to the local VLM
   // alongside the full page, and candidate matches come back as transient
   // review markers. Nothing here ever reaches `rows`/persist until the
@@ -342,6 +370,41 @@ export default function BlueprintTakeoff() {
 
   useEffect(() => {
     db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
+  }, []);
+
+  // Count/Bolt Count setup catalog — loaded once, split by category so the
+  // beam setup step never shows a bolt/fastener shape type and vice versa.
+  useEffect(() => {
+    (async () => {
+      try {
+        const shapeTypes = await db.entities.MaterialShapeType.filter({ is_active: true }, 'shape_code', 1000);
+        setBeamShapeTypes(shapeTypes.filter((s) => s.category !== 'Bolts/Fasteners'));
+        setBoltShapeTypes(shapeTypes.filter((s) => s.category === 'Bolts/Fasteners'));
+
+        const [sizes, grades] = await Promise.all([
+          db.entities.MaterialSizeOption.list('sort_order', 20000),
+          db.entities.MaterialGradeOption.list('sort_order', 20000),
+        ]);
+        const sizesByShape = {};
+        sizes.forEach((s) => {
+          if (s.is_active === false) return;
+          (sizesByShape[s.shape_type_id] ||= []).push(s.size_value);
+        });
+        setMaterialSizesByShapeId(sizesByShape);
+        const gradesByShape = {};
+        grades.forEach((g) => {
+          if (g.is_active === false) return;
+          (gradesByShape[g.shape_type_id] ||= []).push(g.grade_value);
+        });
+        setMaterialGradesByShapeId(gradesByShape);
+      } catch (e) {
+        console.error('Failed to load material catalog for Count tool', e);
+        setBeamShapeTypes([]);
+        setBoltShapeTypes([]);
+        setMaterialSizesByShapeId({});
+        setMaterialGradesByShapeId({});
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -578,6 +641,11 @@ export default function BlueprintTakeoff() {
     setMarkupWeights({});
     setPageNotes({});
     setPageInfo({ pageNum: 1, numPages: 1 });
+    setCountSetup(null);
+    setCountSetupModalOpen(false);
+    setPendingCountFields(null);
+    setCountColorModalOpen(false);
+    setCountSession(null);
   };
 
   const openSession = async (takeoff) => {
@@ -609,6 +677,11 @@ export default function BlueprintTakeoff() {
     setCandidateSourceRow(null);
     setVisualSearchLoading(false);
     setVisualSearchError(null);
+    setCountSetup(null);
+    setCountSetupModalOpen(false);
+    setPendingCountFields(null);
+    setCountColorModalOpen(false);
+    setCountSession(null);
     setSessionBidId(takeoff.bid_id || null);
     setSessionProjectId(takeoff.bid_id ? null : (takeoff.project_id || null));
     setWorkspaceLinkDraft('');
@@ -636,6 +709,7 @@ export default function BlueprintTakeoff() {
   };
 
   const handleBackToSessions = () => {
+    if (!confirmDiscardActiveCountSession()) return;
     resetWorkspaceState();
     setTakeoffName('');
     setHasStoredPdf(false);
@@ -716,6 +790,11 @@ export default function BlueprintTakeoff() {
       setCandidateSourceRow(null);
       setVisualSearchLoading(false);
       setVisualSearchError(null);
+      setCountSetup(null);
+      setCountSetupModalOpen(false);
+      setPendingCountFields(null);
+      setCountColorModalOpen(false);
+      setCountSession(null);
       setSessionBidId(created.bid_id || null);
       setSessionProjectId(created.bid_id ? null : (created.project_id || null));
       setWorkspaceLinkDraft('');
@@ -858,12 +937,39 @@ export default function BlueprintTakeoff() {
     }
   };
 
+  // Clears every piece of Count/Bolt Count engine state — used whenever the
+  // estimator switches to a different tool (or Escape) mid-setup or
+  // mid-session, same as the other tools already reset lengthPoints/
+  // areaPoints/pendingMeasurement on a switch. A live session's marks only
+  // ever exist in countSession.points until Save, so this never touches an
+  // already-saved row.
+  const resetCountEngine = () => {
+    setCountSetup(null);
+    setCountSetupModalOpen(false);
+    setPendingCountFields(null);
+    setCountColorModalOpen(false);
+    setCountSession(null);
+  };
+
+  // A live count session's dots only ever live in countSession.points until
+  // Save writes them into `rows` — switching tools/presets, hitting Escape,
+  // or re-clicking Count would otherwise silently throw away every unsaved
+  // mark. Returns true (safe to proceed) when there's nothing to lose, or
+  // once the estimator explicitly confirms discarding it.
+  const confirmDiscardActiveCountSession = () => {
+    const tally = countSession?.points?.length || 0;
+    if (tally === 0) return true;
+    return window.confirm(`Discard ${tally} unsaved mark${tally === 1 ? '' : 's'} from the current count session? Click Cancel to go back and Save first.`);
+  };
+
   const handleSelectTool = () => {
+    if (!confirmDiscardActiveCountSession()) return;
     setActiveTool(null);
     setLengthPoints([]);
     setAreaPoints([]);
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
+    resetCountEngine();
   };
 
   // Gate every tool activation behind calibration — Count/Length/Area
@@ -876,22 +982,198 @@ export default function BlueprintTakeoff() {
       toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
       return;
     }
+    if (!confirmDiscardActiveCountSession()) return;
     setCalibrationMode(false);
     setCalibrationPoints([]);
     setLengthPoints([]);
     setAreaPoints([]);
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
+    resetCountEngine();
     setActiveTool(tool);
   };
 
-  const handleMeasurementClick = ({ tool, pdfX, pdfY, isClosingClick }) => {
-    if (tool === 'count') {
-      setPendingMeasurement({ tool: 'count', pdfX, pdfY });
-      setMeasurementModalOpen(true);
+  // Step 1 — opens CountSetupModal for a fresh beam ('count') or bolt
+  // ('bolt_count') tally. activeTool stays null until the color/symbol step
+  // also completes (handleConfirmCountColor), so the canvas never enters
+  // click-to-mark mode with an incomplete session.
+  const handleStartCountSetup = (kind) => {
+    if (pxPerFt == null) {
+      toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
       return;
     }
+    if (!confirmDiscardActiveCountSession()) return;
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setLengthPoints([]);
+    setAreaPoints([]);
+    setMeasurementModalOpen(false);
+    setPendingMeasurement(null);
+    setActiveTool(null);
+    setCountSession(null);
+    setCountSetup({ kind, editingRowKey: null });
+    setCountSetupModalOpen(true);
+  };
 
+  // Step 2 — Shape/Size/Length (or Type/Size/Grade) collected, now pick a
+  // color (or symbol, once this page's 20-color palette is exhausted).
+  const handleConfirmCountSetup = (fields) => {
+    setCountSetupModalOpen(false);
+    setPendingCountFields({ kind: countSetup.kind, editingRowKey: countSetup.editingRowKey, fields });
+    setCountColorModalOpen(true);
+  };
+
+  const handleCancelCountSetup = () => {
+    setCountSetupModalOpen(false);
+    setCountSetup(null);
+  };
+
+  // Step 3 — color/symbol chosen, the click-to-mark session goes live.
+  const handleConfirmCountColor = (choice) => {
+    if (!pendingCountFields) return;
+    const { kind, editingRowKey, fields } = pendingCountFields;
+    const tool = kind === 'bolt' ? 'bolt_count' : 'count';
+    const existingRow = editingRowKey ? rows.find((r) => r._key === editingRowKey) : null;
+    const initialPoints = existingRow
+      ? (existingRow.points?.length ? existingRow.points.slice() : (existingRow.pdfX != null ? [{ pdfX: existingRow.pdfX, pdfY: existingRow.pdfY }] : []))
+      : [];
+    const pageNumber = existingRow ? (existingRow.page_number || 1) : pageInfo.pageNum;
+
+    setCountSession({
+      kind,
+      editingRowKey,
+      fields,
+      color: choice.color || null,
+      symbol: choice.symbol || null,
+      points: initialPoints,
+      page_number: pageNumber,
+    });
+    setCountColorModalOpen(false);
+    setPendingCountFields(null);
+    setCountSetup(null);
+    setActiveTool(tool);
+    if (existingRow) canvasRef.current?.goToPage(pageNumber);
+  };
+
+  const handleCancelCountColor = () => {
+    setCountColorModalOpen(false);
+    setPendingCountFields(null);
+    setCountSetup(null);
+  };
+
+  // "Add Pieces" — resumes an already-saved count/bolt_count row's session
+  // directly, pre-loaded with its existing shape/size/length(-or-grade),
+  // color/symbol, and dots, skipping the setup/color steps entirely since
+  // that context already exists. Saving updates this same row instead of
+  // creating a new one (see handleSaveCountSession).
+  const handleResumeCount = (row) => {
+    if (pxPerFt == null) {
+      toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
+      return;
+    }
+    if (!confirmDiscardActiveCountSession()) return;
+    const kind = row.tool === 'bolt_count' ? 'bolt' : 'beam';
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setLengthPoints([]);
+    setAreaPoints([]);
+    setMeasurementModalOpen(false);
+    setPendingMeasurement(null);
+    setCountSetupModalOpen(false);
+    setCountColorModalOpen(false);
+    setPendingCountFields(null);
+    setCountSetup(null);
+
+    const fields = kind === 'bolt'
+      ? { shape_type: row.shape_type, size_designation: row.size_designation, grade: row.grade || '' }
+      : { shape_type: row.shape_type, size_designation: row.size_designation, length_ft: row.length_ft || 0 };
+    const pageNumber = row.page_number || 1;
+
+    setCountSession({
+      kind,
+      editingRowKey: row._key,
+      fields,
+      color: row.color || null,
+      symbol: row.symbol || null,
+      points: row.points?.length ? row.points.slice() : (row.pdfX != null ? [{ pdfX: row.pdfX, pdfY: row.pdfY }] : []),
+      page_number: pageNumber,
+    });
+    setActiveTool(kind === 'bolt' ? 'bolt_count' : 'count');
+    canvasRef.current?.goToPage(pageNumber);
+  };
+
+  // Click-to-mark — drops a dot and grows the running tally. Nothing is
+  // written to `rows` here; the session lives entirely in countSession until
+  // Save (handleSaveCountSession).
+  const handleCountMark = ({ pdfX, pdfY }) => {
+    setCountSession((prev) => (prev ? { ...prev, points: [...prev.points, { pdfX, pdfY }] } : prev));
+  };
+
+  // Right-click on an existing dot — removes it and decrements the tally.
+  const handleCountDotRemove = (pointIndex) => {
+    setCountSession((prev) => (prev ? { ...prev, points: prev.points.filter((_, i) => i !== pointIndex) } : prev));
+  };
+
+  const handleCancelCountSession = () => {
+    setCountSession(null);
+    setActiveTool(null);
+  };
+
+  // Commits the tally as this session's quantity — updating the resumed row
+  // in place (editingRowKey set) or creating a new takeoff line item.
+  const handleSaveCountSession = () => {
+    if (!countSession) return;
+    const qty = countSession.points.length;
+    if (qty === 0) {
+      toast({ title: 'Mark at least one piece before saving.', variant: 'destructive' });
+      return;
+    }
+    const { kind, editingRowKey, fields, color, symbol, points, page_number } = countSession;
+    const tool = kind === 'bolt' ? 'bolt_count' : 'count';
+
+    let updated;
+    if (editingRowKey) {
+      updated = rows.map((r) => (r._key === editingRowKey ? {
+        ...r,
+        shape_type: fields.shape_type,
+        size_designation: fields.size_designation,
+        ...(kind === 'beam' ? { length_ft: fields.length_ft || 0 } : { grade: fields.grade || '' }),
+        color,
+        symbol,
+        points,
+        quantity: qty,
+        label: [fields.shape_type, fields.size_designation].filter(Boolean).join(' '),
+      } : r));
+    } else {
+      const newRow = {
+        _key: crypto.randomUUID(),
+        id: crypto.randomUUID(),
+        source: 'measurement',
+        tool,
+        page_number,
+        shape_type: fields.shape_type,
+        size_designation: fields.size_designation,
+        label: [fields.shape_type, fields.size_designation].filter(Boolean).join(' ') || (kind === 'bolt' ? 'Bolt Count' : 'Count'),
+        color,
+        symbol,
+        points,
+        quantity: qty,
+        length_ft: kind === 'beam' ? (fields.length_ft || 0) : 0,
+        grade: kind === 'bolt' ? (fields.grade || '') : undefined,
+        unit_weight_lbs_per_ft: 0,
+        notes: '',
+        is_saved: true,
+        is_accepted: true,
+      };
+      updated = [...rows, newRow];
+    }
+    setRows(updated);
+    persist(updated);
+    setCountSession(null);
+    setActiveTool(null);
+  };
+
+  const handleMeasurementClick = ({ tool, pdfX, pdfY, isClosingClick }) => {
     if (tool === 'length') {
       if (lengthPoints.length === 0) {
         setLengthPoints([{ pdfX, pdfY }]);
@@ -1076,16 +1358,27 @@ export default function BlueprintTakeoff() {
 
   const handleSelectPreset = (preset) => {
     setSelectedPresetId(preset.id);
+    // A saved 'count' preset predates the click-to-mark tally engine — its
+    // shape/size fields are the old 5-class enum, not a material catalog
+    // shape_type_id, so there's no clean bridge into the new setup step.
+    // Route it into a fresh Count setup instead of silently activating a
+    // tool with no session behind it (which would make every click a no-op).
+    if (preset.tool === 'count') {
+      handleStartCountSetup('beam');
+      return;
+    }
     if (pxPerFt == null) {
       toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
       return;
     }
+    if (!confirmDiscardActiveCountSession()) return;
     setCalibrationMode(false);
     setCalibrationPoints([]);
     setLengthPoints([]);
     setAreaPoints([]);
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
+    resetCountEngine();
     setActiveTool(preset.tool);
   };
 
@@ -1196,16 +1489,22 @@ export default function BlueprintTakeoff() {
   useEffect(() => {
     if (mode !== 'workspace') return;
     const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.repeat) {
+        if (!confirmDiscardActiveCountSession()) return;
         setActiveTool(null);
         setLengthPoints([]);
         setAreaPoints([]);
         setIsFullscreen(false);
+        resetCountEngine();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [mode]);
+    // countSession is read (via confirmDiscardActiveCountSession) inside
+    // onKeyDown — it must be a dependency or this listener's closure goes
+    // stale and would always see the session as it was when `mode` last
+    // changed (effectively never prompting before discarding it).
+  }, [mode, countSession]);
 
   // Live catalog lookup — the "Available Size" dropdown no longer reads the
   // hardcoded SHAPE_CLASSES.sizes array, it reads whatever sizes are
@@ -1450,7 +1749,40 @@ export default function BlueprintTakeoff() {
       : pendingMeasurement.tool === 'length' ? { point1: pendingMeasurement.point1, point2: pendingMeasurement.point2 }
       : { pdfX: pendingMeasurement.centroid.pdfX, pdfY: pendingMeasurement.centroid.pdfY }),
   } : null;
-  const measurementItemsForCanvas = pendingMeasurementMarker ? [...rows, pendingMeasurementMarker] : rows;
+  // While a count/bolt_count session is resuming an existing row
+  // (editingRowKey), that row's own saved dots are excluded here — the live
+  // countSession (passed to BlueprintCanvas as activeCountSession, below)
+  // already carries a copy of them, and drawing both would double every dot.
+  const rowsForCanvas = countSession?.editingRowKey
+    ? rows.filter((r) => r._key !== countSession.editingRowKey)
+    : rows;
+  const measurementItemsForCanvas = pendingMeasurementMarker ? [...rowsForCanvas, pendingMeasurementMarker] : rowsForCanvas;
+
+  // Colors already spoken for by another count/bolt_count group on the
+  // CURRENT page — the color step only ever runs for a brand-new session
+  // (an "Add Pieces" resume skips straight to the click-to-mark session with
+  // its row's existing color/symbol already set), so "current page" here is
+  // always the right scope.
+  const countUsedColorsOnPage = new Set(
+    rows
+      .filter((r) => r.source === 'measurement' && (r.tool === 'count' || r.tool === 'bolt_count') && (r.page_number || 1) === pageInfo.pageNum && r.color)
+      .map((r) => r.color)
+  );
+  // Same per-page scoping as colors, for the symbol fallback grid once the
+  // 20-color palette is exhausted — without this, a second/third symbol
+  // group would have no signal that it's about to collide with an already-
+  // used symbol on this page.
+  const countUsedSymbolsOnPage = new Set(
+    rows
+      .filter((r) => r.source === 'measurement' && (r.tool === 'count' || r.tool === 'bolt_count') && (r.page_number || 1) === pageInfo.pageNum && r.symbol)
+      .map((r) => r.symbol)
+  );
+
+  const countSessionLabel = countSession ? (
+    countSession.kind === 'bolt'
+      ? [countSession.fields.shape_type, countSession.fields.size_designation, countSession.fields.grade].filter(Boolean).join(' · ')
+      : [countSession.fields.shape_type, countSession.fields.size_designation, countSession.fields.length_ft ? `${countSession.fields.length_ft.toFixed(2)} ft` : null].filter(Boolean).join(' · ')
+  ) : '';
 
   // Confirmed Measurements table — every row the confirmation modal has
   // ever added (green or red; never the ephemeral blue pending marker,
@@ -1589,8 +1921,11 @@ export default function BlueprintTakeoff() {
       <Button size="sm" variant={activeTool === null && !calibrationMode ? 'default' : 'ghost'} onClick={handleSelectTool}>
         <MousePointer2 className="w-3.5 h-3.5 mr-1.5" />Select
       </Button>
-      <Button size="sm" variant={activeTool === 'count' ? 'default' : 'ghost'} onClick={() => handleActivateTool('count')} disabled={!fileUrl}>
+      <Button size="sm" variant={activeTool === 'count' ? 'default' : 'ghost'} onClick={() => handleStartCountSetup('beam')} disabled={!fileUrl}>
         <MousePointerClick className="w-3.5 h-3.5 mr-1.5" />Count
+      </Button>
+      <Button size="sm" variant={activeTool === 'bolt_count' ? 'default' : 'ghost'} onClick={() => handleStartCountSetup('bolt')} disabled={!fileUrl}>
+        <Hexagon className="w-3.5 h-3.5 mr-1.5" />Bolt Count
       </Button>
       <Button size="sm" variant={activeTool === 'length' ? 'default' : 'ghost'} onClick={() => handleActivateTool('length')} disabled={!fileUrl}>
         <Ruler className="w-3.5 h-3.5 mr-1.5" />Length
@@ -1864,6 +2199,9 @@ export default function BlueprintTakeoff() {
                     fillHeight={isFullscreen}
                     steelCatalog={steelCatalog}
                     areas={areas}
+                    activeCountSession={countSession}
+                    onCountMark={handleCountMark}
+                    onCountDotRemove={handleCountDotRemove}
                   />
                 </div>
               )}
@@ -2166,7 +2504,7 @@ export default function BlueprintTakeoff() {
                           <td className="p-2"><Input type="number" min={0} value={r.unit_weight_lbs_per_ft} onChange={(e) => updateRow(r._key, 'unit_weight_lbs_per_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2"><Input type="number" min={0} value={r.length_ft} onChange={(e) => updateRow(r._key, 'length_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2 text-xs text-muted-foreground">
-                            {r.tool === 'count' || r.tool === 'area' ? '—' : `${Math.floor(r.length_ft || 0)}'-${Math.round(((r.length_ft || 0) % 1) * 12)}"`}
+                            {r.tool === 'area' || r.tool === 'bolt_count' ? '—' : `${Math.floor(r.length_ft || 0)}'-${Math.round(((r.length_ft || 0) % 1) * 12)}"`}
                           </td>
                           <td className="p-2 text-xs text-muted-foreground">
                             {r.tool === 'area' ? r.area_sq_ft?.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
@@ -2174,7 +2512,7 @@ export default function BlueprintTakeoff() {
                           <td className="p-2 text-xs font-medium">{rowWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                           <td className="p-2">
                             <div className="flex items-center gap-1 justify-end">
-                              {r.source === 'measurement' && r.tool === 'count' && (
+                              {r.source === 'measurement' && r.tool === 'count' && r.pdfX != null && (
                                 <Button
                                   size="icon"
                                   variant="ghost"
@@ -2184,6 +2522,17 @@ export default function BlueprintTakeoff() {
                                   disabled={visualSearchLoading}
                                 >
                                   <ScanSearch className="w-3.5 h-3.5" />
+                                </Button>
+                              )}
+                              {r.source === 'measurement' && (r.tool === 'count' || r.tool === 'bolt_count') && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7"
+                                  title="Add Pieces"
+                                  onClick={() => handleResumeCount(r)}
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
                                 </Button>
                               )}
                               <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeRow(r._key)}><Trash2 className="w-3.5 h-3.5" /></Button>
@@ -2274,13 +2623,16 @@ export default function BlueprintTakeoff() {
                               {col.label}{measurementSort.field === col.key && (measurementSort.dir === 'asc' ? ' ▲' : ' ▼')}
                             </th>
                           ))}
+                          <th className="p-2 font-medium">Grade</th>
                           <th className="p-2 font-medium">Notes</th>
                           <th className="p-2 font-medium w-20 text-center">Status</th>
-                          <th className="p-2 font-medium w-12"></th>
+                          <th className="p-2 font-medium w-24"></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleMeasurementRows.map((r) => (
+                        {visibleMeasurementRows.map((r) => {
+                          const isCountRow = r.tool === 'count' || r.tool === 'bolt_count';
+                          return (
                           <tr
                             key={r._key}
                             className={`border-t cursor-pointer hover:bg-muted/40 transition-colors ${highlightedRowKey === r._key ? 'bg-amber-500/10' : ''}`}
@@ -2291,6 +2643,7 @@ export default function BlueprintTakeoff() {
                             <td className="p-2">{r.size_designation || '—'}</td>
                             <td className="p-2">{r.quantity || 0}</td>
                             <td className="p-2">{r.phase || r.area || '—'}</td>
+                            <td className="p-2">{r.tool === 'bolt_count' ? (r.grade || '—') : '—'}</td>
                             <td className="p-2" onClick={(e) => e.stopPropagation()}>
                               <Input
                                 value={r.notes || ''}
@@ -2300,24 +2653,42 @@ export default function BlueprintTakeoff() {
                               />
                             </td>
                             <td className="p-2 text-center">
-                              <span
-                                className="inline-block w-3 h-3 rounded-full border border-black/10"
-                                style={{ backgroundColor: MARKER_COLOR_HEX[r.marker_color] || MARKER_COLOR_HEX.blue }}
-                                title={r.marker_color || 'blue'}
-                              />
+                              {isCountRow ? (
+                                <CountMarkerSwatch color={r.color} symbol={r.symbol} size={18} />
+                              ) : (
+                                <span
+                                  className="inline-block w-3 h-3 rounded-full border border-black/10"
+                                  style={{ backgroundColor: MARKER_COLOR_HEX[r.marker_color] || MARKER_COLOR_HEX.blue }}
+                                  title={r.marker_color || 'blue'}
+                                />
+                              )}
                             </td>
                             <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 text-destructive"
-                                onClick={() => handleDeleteMeasurementRow(r)}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
+                              <div className="flex items-center justify-center gap-1">
+                                {isCountRow && (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-7 w-7"
+                                    title="Add Pieces"
+                                    onClick={() => handleResumeCount(r)}
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-destructive"
+                                  onClick={() => handleDeleteMeasurementRow(r)}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -2348,6 +2719,28 @@ export default function BlueprintTakeoff() {
         onMergeDuplicate={handleMergeDuplicate}
         onKeepSeparate={handleKeepSeparateMeasurement}
         onCancel={handleCancelMeasurement}
+      />
+      <CountSetupModal
+        open={countSetupModalOpen}
+        kind={countSetup?.kind}
+        shapeTypes={countSetup?.kind === 'bolt' ? boltShapeTypes : beamShapeTypes}
+        sizesByShapeId={materialSizesByShapeId}
+        gradesByShapeId={materialGradesByShapeId}
+        onConfirm={handleConfirmCountSetup}
+        onCancel={handleCancelCountSetup}
+      />
+      <CountColorPickerModal
+        open={countColorModalOpen}
+        usedColors={countUsedColorsOnPage}
+        usedSymbols={countUsedSymbolsOnPage}
+        onConfirm={handleConfirmCountColor}
+        onCancel={handleCancelCountColor}
+      />
+      <CountTallyPanel
+        session={activeTool === 'count' || activeTool === 'bolt_count' ? countSession : null}
+        label={countSessionLabel}
+        onSave={handleSaveCountSession}
+        onCancel={handleCancelCountSession}
       />
     </div>
   );

@@ -130,16 +130,39 @@
           },
           "tool": {
             "type": "string",
-            "enum": ["count", "length", "area"]
+            "enum": ["count", "bolt_count", "length", "area"],
+            "description": "'count' (beams/shapes) and 'bolt_count' (bolts/fasteners) share the same click-to-mark tally engine — see `points`/`color`/`symbol` below — parameterized only by which setup fields they prompt for (Shape/Size/Length vs. Size/Type/Grade)."
           },
           "label": {
             "type": "string"
           },
           "color": {
-            "type": "string"
+            "type": "string",
+            "description": "Hex color assigned to this count/bolt_count group's dots, picked from a ~20-color palette that resets per PDF page. Length/Area rows don't use this — they use `marker_color`'s green/blue/red status scheme instead."
+          },
+          "symbol": {
+            "type": "string",
+            "enum": ["square", "triangle", "diamond", "star", "pentagon", "hexagon", "cross"],
+            "description": "count/bolt_count only — fallback dot shape used once a page's 20-color palette is exhausted (more than 20 distinct shape/size/length or bolt groups counted on one page)."
+          },
+          "grade": {
+            "type": "string",
+            "description": "bolt_count only — the bolt grade captured during setup (e.g. A325), alongside shape_type ('Type') and size_designation ('Size')."
+          },
+          "points": {
+            "type": "array",
+            "description": "count/bolt_count only — every individual click-to-mark dot placed for this tally session, in PDF space. `quantity` is always `points.length`. Resuming via \"Add Pieces\" reloads this array so more dots can be added to (or removed from) the same line item instead of creating a new one.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pdfX": { "type": "number" },
+                "pdfY": { "type": "number" }
+              }
+            }
           },
           "pdfX": {
-            "type": "number"
+            "type": "number",
+            "description": "Legacy single-click count row (pre-tally-engine) or Area centroid. New count/bolt_count rows use `points` instead."
           },
           "pdfY": {
             "type": "number"

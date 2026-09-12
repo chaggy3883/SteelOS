@@ -4,10 +4,22 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCanvasTransform } from '@/hooks/useCanvasTransform';
+import { drawCountMarker } from '@/lib/countMarkerShapes';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href;
 
 const VIEWPORT_HEIGHT = 640;
+
+// Count and Bolt Count share the exact same click-to-mark/pan mechanics —
+// only their setup fields differ (see CountSetupModal). A plain click drops
+// a dot; a click-and-hold drag (no Space needed) pans instead, distinguished
+// by whether the pointer moved more than this many px between down and up.
+const CLICK_DRAG_TOOLS = ['count', 'bolt_count'];
+const MARK_DRAG_THRESHOLD_PX = 5;
+// Same hit-test radius used for hovering an existing marker (see
+// handleOverlayMouseMove) — right-clicking within this many px of a dot
+// removes it.
+const DOT_HIT_RADIUS_PX = 11;
 
 // Status color for a measurement marker — green once it's a saved takeoff
 // row, blue while its confirmation modal is still open (see
@@ -28,6 +40,9 @@ const itemScreenAnchor = (item, scale) => {
       x: ((item.point1.pdfX + item.point2.pdfX) / 2) * scale,
       y: ((item.point1.pdfY + item.point2.pdfY) / 2) * scale - 26,
     };
+  }
+  if ((item.tool === 'count' || item.tool === 'bolt_count') && item.points?.length) {
+    return { x: item.points[0].pdfX * scale, y: item.points[0].pdfY * scale };
   }
   if (item.pdfX != null && item.pdfY != null) return { x: item.pdfX * scale, y: item.pdfY * scale };
   return null;
@@ -63,6 +78,15 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   pxPerFt = null,
   candidateMarkers = [],
   onCandidateToggle,
+  // Count/Bolt Count only — the active, not-yet-saved tally session's dots
+  // (BlueprintTakeoff's countSession), drawn distinctly from committed
+  // measurementItems rows since they don't exist in `rows` until Save.
+  // onCountMark fires on a genuine (non-drag) click while a click-to-mark
+  // tool is active; onCountDotRemove fires on a right-click hit against one
+  // of activeCountSession's own points (by index).
+  activeCountSession = null,
+  onCountMark,
+  onCountDotRemove,
   fillHeight = false,
   // steelCatalog — reserved for a future size-aware area tool; accepted here
   // so BlueprintTakeoff can start threading it through without this
@@ -451,10 +475,14 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     };
 
     measurementItems.filter((item) => item.source === 'measurement').forEach((item) => {
-      if (item.tool === 'count' && item.pdfX != null && item.pdfY != null) {
-        const x = item.pdfX * scale, y = item.pdfY * scale;
-        drawStatusMarker(x, y, item);
-        if (isHighlighted(item)) drawHighlightRing(x, y);
+      if (item.tool === 'count' || item.tool === 'bolt_count') {
+        // New-style rows carry one dot per click in `points`; a legacy
+        // single-click count row (pre-tally-engine) only ever had a bare
+        // pdfX/pdfY — fall back to treating that as a one-point group so it
+        // still renders after this redesign.
+        const pts = item.points?.length ? item.points : (item.pdfX != null && item.pdfY != null ? [{ pdfX: item.pdfX, pdfY: item.pdfY }] : []);
+        pts.forEach((p) => drawCountMarker(ctx, p.pdfX * scale, p.pdfY * scale, { color: item.color, symbol: item.symbol }));
+        if (isHighlighted(item) && pts[0]) drawHighlightRing(pts[0].pdfX * scale, pts[0].pdfY * scale);
       } else if (item.tool === 'length' && item.point1 && item.point2) {
         const p1 = { x: item.point1.pdfX * scale, y: item.point1.pdfY * scale };
         const p2 = { x: item.point2.pdfX * scale, y: item.point2.pdfY * scale };
@@ -498,7 +526,16 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         if (isHighlighted(item)) drawHighlightRing(x, y);
       }
     });
-  }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems, areaPoints, areas, pageNum, highlightedItemKey]);
+
+    // The active, not-yet-saved Count/Bolt Count session's own dots — kept
+    // separate from measurementItems since nothing here is a committed
+    // takeoff row until the tally panel's Save is clicked.
+    if (activeCountSession?.points?.length) {
+      activeCountSession.points.forEach((p) => {
+        drawCountMarker(ctx, p.pdfX * scale, p.pdfY * scale, { color: activeCountSession.color, symbol: activeCountSession.symbol });
+      });
+    }
+  }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems, areaPoints, areas, pageNum, highlightedItemKey, activeCountSession]);
 
   const handleOverlayClick = (e) => {
     // React's SyntheticEvent doesn't carry offsetX/offsetY (they're not in
@@ -519,7 +556,13 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       return;
     }
 
-    if (activeTool === 'count' || activeTool === 'length') {
+    // Count/Bolt Count no longer mark on this event — a click-to-mark tool's
+    // pointer is always captured on mousedown (see handlePointerDown), which
+    // redirects the click event to the viewport and marks from
+    // handlePointerUp instead, so it can tell a real click apart from a
+    // click-and-hold pan. This branch only ever ran for those tools before
+    // the tally engine existed.
+    if (activeTool === 'length') {
       if (pxPerFt == null) return;
       onMeasurementClick?.({ tool: activeTool, pdfX, pdfY });
     }
@@ -531,6 +574,29 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       lastAreaClickAtRef.current = now;
       onMeasurementClick?.({ tool: 'area', pdfX, pdfY, isClosingClick });
     }
+  };
+
+  // Right-click removes an existing dot from the active Count/Bolt Count
+  // session (decrementing the tally) — only meaningful while that session is
+  // live, so this no-ops entirely for every other tool/mode, including a
+  // right-click over an already-saved (non-active) count row's dots.
+  const handleOverlayContextMenu = (e) => {
+    if (!CLICK_DRAG_TOOLS.includes(activeTool) || !activeCountSession?.points?.length) return;
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+
+    let hitIndex = -1;
+    let hitDist = Infinity;
+    activeCountSession.points.forEach((p, i) => {
+      const d = Math.hypot(offsetX - p.pdfX * scale, offsetY - p.pdfY * scale);
+      if (d <= DOT_HIT_RADIUS_PX && d < hitDist) {
+        hitDist = d;
+        hitIndex = i;
+      }
+    });
+    if (hitIndex >= 0) onCountDotRemove?.(hitIndex);
   };
 
   // Hover tooltip for whichever marker (if any) is under the cursor right
@@ -569,6 +635,19 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     // to the viewport div, so the overlay canvas's own onClick never fires —
     // this is what keeps a Space-held pan from also registering as a tool
     // click once the pointer comes back up.
+    //
+    // Count/Bolt Count are a special case: they always capture the pointer
+    // (no Space needed) so a click-and-hold can pan, but whether this
+    // gesture ends up being a pan or a mark isn't known until pointerup —
+    // see handlePointerMove/handlePointerUp's `moved` tracking below.
+    if (CLICK_DRAG_TOOLS.includes(activeTool)) {
+      // Right-click is handled entirely by handleOverlayContextMenu (remove
+      // a dot) — don't also start a mark/pan gesture for it.
+      if (e.button !== 0) return;
+      dragRef.current = { startX: e.clientX, startY: e.clientY, startPan: pan, pointerId: e.pointerId, isMarkTool: true, moved: false };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
     if (!panAllowedNow) return;
     dragRef.current = { startX: e.clientX, startY: e.clientY, startPan: pan, pointerId: e.pointerId, viaSpace: activeTool != null };
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -577,12 +656,29 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   const handlePointerMove = (e) => {
     if (!dragRef.current) return;
     const { startX, startY, startPan } = dragRef.current;
+    if (dragRef.current.isMarkTool && !dragRef.current.moved) {
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) <= MARK_DRAG_THRESHOLD_PX) return;
+      dragRef.current.moved = true;
+    }
     setPan({ x: startPan.x + (e.clientX - startX), y: startPan.y + (e.clientY - startY) });
   };
 
   const handlePointerUp = (e) => {
+    const drag = dragRef.current;
     dragRef.current = null;
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+
+    // The pointer never moved past the drag threshold — this was a mark
+    // click, not a pan. Compute pdfX/pdfY off the overlay canvas's own rect
+    // (not the viewport, which is where pointer capture retargeted this
+    // event) so it lines up with every other click-to-PDF-space conversion
+    // in this file.
+    if (drag?.isMarkTool && !drag.moved) {
+      if (pxPerFt == null) return;
+      const rect = overlayCanvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      onCountMark?.({ tool: activeTool, pdfX: (e.clientX - rect.left) / scale, pdfY: (e.clientY - rect.top) / scale });
+    }
   };
 
   const viewportCenter = () => {
@@ -699,9 +795,9 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
             {lengthPoints.length === 0 ? 'Click the start of the run' : 'Click the end of the run'}
           </div>
         )}
-        {!calibrationMode && activeTool === 'count' && (
+        {!calibrationMode && (activeTool === 'count' || activeTool === 'bolt_count') && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-red-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
-            Click each piece to count it
+            Click to mark · click-and-hold to pan · right-click a dot to remove it
           </div>
         )}
         {!calibrationMode && activeTool === 'area' && (
@@ -723,6 +819,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
             // change click behavior, only which mode hover works in.
             className={`absolute inset-0 pointer-events-auto ${(calibrationMode || activeTool != null) ? 'cursor-crosshair' : ''}`}
             onClick={handleOverlayClick}
+            onContextMenu={handleOverlayContextMenu}
             onMouseMove={handleOverlayMouseMove}
             onMouseLeave={handleOverlayMouseLeave}
           />
