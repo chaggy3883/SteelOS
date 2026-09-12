@@ -4,6 +4,8 @@ import { validateBatchRows } from '@/lib/detailerImportValidation';
 import { commitBatch, detectRevisions } from '@/lib/detailerImportCommit';
 import { isDrawingFile } from '@/lib/detailerImportParser';
 import { deriveShapeFromProfile } from '@/lib/materialProfileMatch';
+import { calculateUnitWeight, calculateAssemblyTotalWeights, isAssemblyMainPiece } from '@/lib/detailerImportWeight';
+import { normalizeScanValue } from '@/lib/pieceScan';
 import { getDetailerImportFileUrl } from '@/lib/detailerImportBlobStore';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import RevisionCompareModal from '@/components/detailer-imports/RevisionCompareModal';
@@ -52,6 +54,7 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [sequenceAreas, setSequenceAreas] = useState([]);
   const [viewingFileId, setViewingFileId] = useState(null);
+  const [catalogRows, setCatalogRows] = useState([]);
 
   useEffect(() => { runValidation(); }, [batch.id]);
   useEffect(() => { db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null)); }, []);
@@ -119,23 +122,36 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
         db.entities.DetailerImportedPiece.filter({ batch_id: batch.id }, 'piece_mark', 2000),
         db.entities.steel_catalog.list('size_designation', 5000),
       ]);
+      setCatalogRows(catalog);
 
       const validated = validateBatchRows(stagedRows, catalog.map((c) => c.size_designation));
-      await Promise.all(validated.map((row, index) => {
+      // A row whose source file didn't supply its own weight (KISS/Tekla
+      // detail lines commonly don't — see detailerImportParser.js) gets one
+      // filled in here from the shape's weight-per-ft reference data, same
+      // as validation_status is (re)computed every time this screen opens.
+      // Never overwrites a weight the file DID provide — that's real data
+      // and outranks this estimate.
+      const withWeights = validated.map((row) => (
+        row.weight != null ? row : { ...row, weight: calculateUnitWeight(row, catalog) }
+      ));
+
+      await Promise.all(withWeights.map((row, index) => {
         const original = stagedRows[index];
         const changed = row.validation_status !== original.validation_status
           || JSON.stringify(row.validation_errors) !== JSON.stringify(original.validation_errors || [])
-          || JSON.stringify(row.validation_warnings) !== JSON.stringify(original.validation_warnings || []);
+          || JSON.stringify(row.validation_warnings) !== JSON.stringify(original.validation_warnings || [])
+          || (row.weight ?? null) !== (original.weight ?? null);
         return changed
           ? db.entities.DetailerImportedPiece.update(row.id, {
             validation_status: row.validation_status,
             validation_errors: row.validation_errors,
             validation_warnings: row.validation_warnings,
+            weight: row.weight ?? null,
           })
           : Promise.resolve(row);
       }));
 
-      setRows(validated);
+      setRows(withWeights);
 
       if (batch.import_status === 'parsed') {
         const updatedBatch = await db.entities.DetailerImportBatch.update(batch.id, { import_status: 'validated' });
@@ -207,6 +223,12 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
   const committedCount = rows.filter((r) => r.committed).length;
   const committableCount = rows.filter((r) => !r.committed && r.validation_status !== 'error').length;
 
+  // Keyed by normalized assembly value -> summed lbs across every row sharing
+  // it (main piece + minor/welded-on parts) — recomputed straight from the
+  // live `rows` state so an in-progress weight/quantity/length edit is
+  // reflected immediately, without waiting for the next validation pass.
+  const assemblyWeights = calculateAssemblyTotalWeights(rows, catalogRows);
+
   return (
     <>
     <Dialog open onOpenChange={onClose}>
@@ -245,6 +267,8 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Grade</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Length</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Qty</th>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Weight</th>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Assembly Total</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Sequence/Area</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Validation</th>
@@ -285,6 +309,23 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
                           className="w-16"
                           onSave={(v) => handleRowFieldChange(row, 'quantity', v === '' ? null : Number(v))}
                         />
+                      </td>
+                      <td className="px-3 py-2">
+                        <EditableCell
+                          type="number"
+                          value={row.weight ?? ''}
+                          disabled={locked}
+                          className="w-16"
+                          placeholder="lbs"
+                          onSave={(v) => handleRowFieldChange(row, 'weight', v === '' ? null : Number(v))}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {(() => {
+                          if (!isAssemblyMainPiece(row)) return '—';
+                          const total = assemblyWeights.get(normalizeScanValue(row.assembly));
+                          return total != null ? `${Math.round(total).toLocaleString()} lbs` : '—';
+                        })()}
                       </td>
                       <td className="px-3 py-2">
                         <SequenceAreaSelect

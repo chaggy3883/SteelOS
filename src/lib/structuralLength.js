@@ -23,7 +23,17 @@ export function parseStructuralLength(raw) {
   if (/^-?\d+(\.\d+)?$/.test(str)) return parseFloat(str);
 
   const feetMatch = str.match(/(-?\d+(?:\.\d+)?)\s*'/);
-  const afterFeet = feetMatch ? str.slice(feetMatch.index + feetMatch[0].length) : str;
+  let afterFeet = feetMatch ? str.slice(feetMatch.index + feetMatch[0].length) : str;
+  // A feet value is sometimes followed directly by "-" as a bare
+  // concatenation separator (e.g. "17'-7.5\"", "39'-4 3/8\"" — this is
+  // exactly what detailerImportParser.js's Tekla BOM parser produces), not a
+  // negative sign or the whole/fraction separator (that one only ever
+  // appears mid-token, e.g. "6-1/2", never immediately after the feet
+  // quote). Left unstripped, parseInchesToken below reads it as a negative
+  // inches value and drops any trailing fraction (parseFloat("-4 3/8") stops
+  // at "-4"), silently underestimating every such length by ~2x the inches
+  // component.
+  if (feetMatch && afterFeet.startsWith('-')) afterFeet = afterFeet.slice(1);
   const inchMatch = afterFeet.match(/([\d./\s-]+)"/) || (!feetMatch ? afterFeet.match(/^([\d./\s-]+)$/) : null);
 
   if (!feetMatch && !inchMatch) return null;
