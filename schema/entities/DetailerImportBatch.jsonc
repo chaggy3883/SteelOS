@@ -23,6 +23,10 @@
     },
     "created_by": {
       "type": "string"
+    },
+    "created_by_email": {
+      "type": "string",
+      "description": "The uploading user's email address, captured separately from created_by (which prefers full_name for display and only falls back to email when a full_name isn't set) — export cover sheets (detailerImportBatchReviewPdf.js/detailerImportBatchReviewXlsx.js) need the real address specifically, not whichever display string created_by happened to resolve to. Blank on any batch uploaded before this field existed."
     }
   },
   "required": [

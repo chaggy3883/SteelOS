@@ -121,6 +121,7 @@ export default function DetailerImports() {
         uploaded_files,
         import_status: 'uploaded',
         created_by: user?.full_name || user?.email || 'System',
+        created_by_email: user?.email || '',
       });
 
       setBatches((current) => [record, ...current]);

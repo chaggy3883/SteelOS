@@ -20,7 +20,7 @@
         "enum": [
           "bid_proposal", "bid_internal_breakdown", "material_requisition", "delay_impact_notice",
           "bol", "certified_payroll_wh347",
-          "turnover_review", "scope_review", "material_optimization_report",
+          "turnover_review", "scope_review", "material_optimization_report", "detailer_import_batch_review",
           "customer_statement", "job_cost_detail_project", "job_cost_detail_company_wide", "job_costing_summary",
           "vendor_bills", "cash_reconciliation", "cash_forecast", "incoming_ach", "unapplied_cash",
           "month_end_close", "budget", "ar_billing", "wip_report", "ai_financial_flags",

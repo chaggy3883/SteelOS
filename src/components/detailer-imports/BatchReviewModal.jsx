@@ -8,14 +8,41 @@ import { calculateUnitWeight, calculateAssemblyTotalWeights, isAssemblyMainPiece
 import { normalizeScanValue } from '@/lib/pieceScan';
 import { getDetailerImportFileUrl } from '@/lib/detailerImportBlobStore';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { generateDetailerImportBatchReviewPdf } from '@/lib/detailerImportBatchReviewPdf';
+import { generateDetailerImportBatchReviewXlsx } from '@/lib/detailerImportBatchReviewXlsx';
 import RevisionCompareModal from '@/components/detailer-imports/RevisionCompareModal';
 import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, CheckCircle2, FileText, Eye } from 'lucide-react';
+import { Loader2, CheckCircle2, FileText, Eye, FileDown, FileSpreadsheet } from 'lucide-react';
+
+// Column definitions shared by both export formats — a plain {key, label,
+// width?} list, same generic shape requisitionPdfExport.js's {columns, rows}
+// already uses, so detailerImportBatchReviewPdf.js/detailerImportBatchReviewXlsx.js
+// stay entirely agnostic of what a DetailerImportedPiece is. `width` is a
+// relative weight the PDF generator turns into an actual column width; the
+// Excel generator ignores it (a spreadsheet's columns are user-resizable).
+const EXPORT_COLUMNS = [
+  { key: 'piece_mark', label: 'Piece Mark', width: 1 },
+  { key: 'assembly', label: 'Assembly', width: 1 },
+  { key: 'shape', label: 'Shape', width: 0.7 },
+  { key: 'material_profile', label: 'Material', width: 1.2 },
+  { key: 'material_grade', label: 'Grade', width: 0.8 },
+  { key: 'finished_length', label: 'Length', width: 1 },
+  { key: 'quantity', label: 'Qty', width: 0.6 },
+  { key: 'weight', label: 'Weight (lbs)', width: 0.9 },
+  { key: 'assembly_total_weight', label: 'Assembly Total (lbs)', width: 1.2 },
+  { key: 'sequence_area', label: 'Sequence/Area', width: 1.1 },
+  { key: 'status', label: 'Status', width: 0.8 },
+  { key: 'validation', label: 'Validation', width: 2.2 },
+  { key: 'notes', label: 'Notes', width: 1.6 },
+  { key: 'committed', label: 'Committed', width: 0.7 },
+];
 
 // Save-on-blur text/number cell shared by every editable column below —
 // uncontrolled (defaultValue, not value) so typing isn't fought by the
@@ -55,6 +82,9 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
   const [sequenceAreas, setSequenceAreas] = useState([]);
   const [viewingFileId, setViewingFileId] = useState(null);
   const [catalogRows, setCatalogRows] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   useEffect(() => { runValidation(); }, [batch.id]);
   useEffect(() => { db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null)); }, []);
@@ -112,6 +142,92 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
     } catch (error) {
       console.error(error);
       toast({ title: `Unable to save ${field.replace(/_/g, ' ')}`, variant: 'destructive' });
+    }
+  };
+
+  // Set of DetailerImportedPiece ids, same idiom as the app's other bulk
+  // row-selection queues (QrExportQueue.jsx, AdminEmployees.jsx) — a Set
+  // rather than an array so toggling one row is an O(1) has/add/delete
+  // rather than an array scan. Committed rows stay selectable here even
+  // though they're no longer inline-editable — exporting a paper record of
+  // an already-committed batch is a normal, legitimate use case, unlike
+  // editing it.
+  const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r.id));
+  const toggleRowSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => (allSelected ? new Set() : new Set(rows.map((r) => r.id))));
+  };
+
+  // Flattens a staged row into the plain, column-key-addressable shape both
+  // export generators expect (see EXPORT_COLUMNS above) — resolving
+  // sequence_area_id to its display name and the assembly-total figure here
+  // so the export files never need their own copy of that lookup/weight
+  // logic. assembly_total_weight is computed against the FULL batch's rows
+  // (not just the selected ones) via calculateAssemblyTotalWeights, since a
+  // minor part's contribution to its assembly's true total doesn't depend on
+  // whether that minor part row itself happens to be checked.
+  const buildExportRows = (selectedRows) => {
+    const assemblyWeights = calculateAssemblyTotalWeights(rows, catalogRows);
+    return selectedRows.map((row) => {
+      const total = isAssemblyMainPiece(row) ? assemblyWeights.get(normalizeScanValue(row.assembly)) : null;
+      const sequenceArea = sequenceAreas.find((a) => a.id === row.sequence_area_id);
+      return {
+        piece_mark: row.piece_mark || '',
+        assembly: row.assembly || '',
+        shape: row.shape || deriveShapeFromProfile(row.material_profile) || '',
+        material_profile: row.material_profile || '',
+        material_grade: row.material_grade || '',
+        finished_length: row.finished_length || '',
+        quantity: row.quantity ?? '',
+        weight: row.weight ?? '',
+        assembly_total_weight: total != null ? Math.round(total) : '',
+        sequence_area: sequenceArea?.name || '',
+        status: row.validation_status || '',
+        validation: [...(row.validation_errors || []), ...(row.validation_warnings || [])].join('; '),
+        notes: row.notes || '',
+        committed: row.committed ? 'Yes' : 'No',
+      };
+    });
+  };
+
+  // Shared by both "Export Selected to PDF"/"Export Selected to Excel"
+  // buttons — only the checked rows go out, never the full batch. Company
+  // info + the uploading user's email (batch.created_by_email — distinct
+  // from currentUser, who is whoever is exporting right now, possibly a
+  // different person than whoever uploaded the batch) are resolved here
+  // once and passed to whichever generator ran.
+  const handleExport = async (format) => {
+    const selectedRows = rows.filter((r) => selectedIds.has(r.id));
+    if (selectedRows.length === 0) return;
+    const setBusy = format === 'pdf' ? setExportingPdf : setExportingExcel;
+    setBusy(true);
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      const generatedBy = currentUser?.full_name || currentUser?.email || 'Unknown';
+      const exportArgs = {
+        company,
+        batch,
+        uploaderEmail: batch.created_by_email || '',
+        generatedBy,
+        columns: EXPORT_COLUMNS,
+        rows: buildExportRows(selectedRows),
+      };
+      if (format === 'pdf') {
+        await generateDetailerImportBatchReviewPdf(exportArgs);
+      } else {
+        generateDetailerImportBatchReviewXlsx(exportArgs);
+      }
+    } catch (error) {
+      console.error(error);
+      toast({ title: `Unable to export to ${format === 'pdf' ? 'PDF' : 'Excel'}`, variant: 'destructive' });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -244,22 +360,50 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
           <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>{rows.length} row{rows.length === 1 ? '' : 's'}</span>
-              <span>•</span>
-              <span className="text-green-500">{validCount} valid</span>
-              <span>•</span>
-              <span className="text-yellow-600">{warningCount} warning</span>
-              <span>•</span>
-              <span className="text-red-500">{errorCount} error</span>
-              <span>•</span>
-              <span>{committedCount} committed</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>{rows.length} row{rows.length === 1 ? '' : 's'}</span>
+                <span>•</span>
+                <span className="text-green-500">{validCount} valid</span>
+                <span>•</span>
+                <span className="text-yellow-600">{warningCount} warning</span>
+                <span>•</span>
+                <span className="text-red-500">{errorCount} error</span>
+                <span>•</span>
+                <span>{committedCount} committed</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">{selectedIds.size} selected</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={selectedIds.size === 0 || exportingPdf}
+                  onClick={() => handleExport('pdf')}
+                >
+                  <FileDown className="w-3.5 h-3.5" /> {exportingPdf ? 'Exporting…' : 'Export Selected to PDF'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={selectedIds.size === 0 || exportingExcel}
+                  onClick={() => handleExport('excel')}
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" /> {exportingExcel ? 'Exporting…' : 'Export Selected to Excel'}
+                </Button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-auto border border-border rounded-lg">
               <table className="w-full text-xs">
                 <thead className="bg-muted/50 border-b border-border sticky top-0">
                   <tr>
+                    <th className="px-3 py-2 w-8">
+                      <Checkbox checked={allSelected} onCheckedChange={toggleSelectAll} aria-label="Select all rows" />
+                    </th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Piece Mark</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Assembly</th>
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">Shape</th>
@@ -281,6 +425,9 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
                     const locked = row.committed;
                     return (
                     <tr key={row.id} className="border-b border-border/50 last:border-0">
+                      <td className="px-3 py-2">
+                        <Checkbox checked={selectedIds.has(row.id)} onCheckedChange={() => toggleRowSelected(row.id)} aria-label={`Select row ${row.piece_mark || ''}`} />
+                      </td>
                       <td className="px-3 py-2 font-medium">
                         <EditableCell value={row.piece_mark} disabled={locked} onSave={(v) => handleRowFieldChange(row, 'piece_mark', v)} />
                       </td>

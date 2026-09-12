@@ -30,6 +30,7 @@ export const LETTERHEAD_DOCUMENT_TYPES = [
   { key: 'turnover_review', label: 'Turnover Review', category: 'Project Reviews', mechanism: 'document', source: 'turnoverReviewPdf.js' },
   { key: 'scope_review', label: 'Scope Review', category: 'Project Reviews', mechanism: 'document', source: 'scopeReviewPdf.js' },
   { key: 'material_optimization_report', label: 'Material Optimization Report', category: 'Project Reviews', mechanism: 'snapshot', source: 'MaterialOptimizationReportPanel.jsx' },
+  { key: 'detailer_import_batch_review', label: 'Detailer Import Batch Review', category: 'Project Reviews', mechanism: 'document', source: 'detailerImportBatchReviewPdf.js' },
 
   // Accounting & financial reports
   { key: 'customer_statement', label: 'Customer Statement', category: 'Accounting Reports', mechanism: 'document', source: 'customerStatementPdf.js' },
