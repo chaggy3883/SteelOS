@@ -27,6 +27,10 @@
     "created_by_email": {
       "type": "string",
       "description": "The uploading user's email address, captured separately from created_by (which prefers full_name for display and only falls back to email when a full_name isn't set) — export cover sheets (detailerImportBatchReviewPdf.js/detailerImportBatchReviewXlsx.js) need the real address specifically, not whichever display string created_by happened to resolve to. Blank on any batch uploaded before this field existed."
+    },
+    "sequence_area_id": {
+      "type": "string",
+      "description": "Links to ProjectSequenceArea — the sequence/area this whole batch's upload was for, chosen once at upload time (DetailerImports.jsx prompts for it immediately after project selection, only when the project has any ProjectSequenceArea rows defined). Nullable — either the project has no sequence/area structure at all, or the user explicitly chose \"Unassigned\" in that prompt. Carried onto every DetailerImportedPiece row staged from this batch's files as their default sequence_area_id (parseFile in DetailerImports.jsx), which the reviewer can still override per row on the Review & Commit screen (BatchReviewModal.jsx) exactly like before this field existed — this is only a batch-level default, never a per-row lock."
     }
   },
   "required": [

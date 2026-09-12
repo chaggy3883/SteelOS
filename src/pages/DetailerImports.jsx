@@ -8,6 +8,7 @@ import { parseDetailerImportFile, isParsableDetailerFile, isCncFile } from '@/li
 import { saveCncFile } from '@/lib/cncFileStore';
 import { scanValueMatches } from '@/lib/pieceScan';
 import BatchReviewModal from '@/components/detailer-imports/BatchReviewModal';
+import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
 import { useAuth } from '@/lib/AuthContext';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -15,8 +16,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { FileStack, Upload, Trash2, Eye, FolderOpen, FileScan, ChevronDown, ChevronRight, ClipboardCheck, AlertTriangle, Cpu } from 'lucide-react';
+import { FileStack, Upload, Trash2, Eye, FolderOpen, FileScan, ChevronDown, ChevronRight, ClipboardCheck, AlertTriangle, Cpu, MapPin } from 'lucide-react';
 
 // CNC fabrication files (NC1, DXF) are shop-floor hand-off files, not
 // row-data to parse — see isCncFile in detailerImportParser.js for the
@@ -62,6 +64,17 @@ export default function DetailerImports() {
   const [cncPieceMarksByProject, setCncPieceMarksByProject] = useState({});
   const fileObjectUrls = useRef({});
 
+  // Sequence/Area gate: a project with any ProjectSequenceArea rows defined
+  // must have one picked (explicitly, even if that pick is "Unassigned")
+  // before its upload area unlocks — see sequencePromptOpen below. A project
+  // with none defined never shows this prompt at all (sequenceAreaAnswered
+  // starts true for that case).
+  const [projectSequenceAreas, setProjectSequenceAreas] = useState([]);
+  const [batchSequenceAreaId, setBatchSequenceAreaId] = useState(null);
+  const [pendingSequenceAreaId, setPendingSequenceAreaId] = useState(null);
+  const [sequenceAreaAnswered, setSequenceAreaAnswered] = useState(true);
+  const [sequencePromptOpen, setSequencePromptOpen] = useState(false);
+
   useEffect(() => () => {
     Object.values(fileObjectUrls.current).forEach((url) => URL.revokeObjectURL(url));
   }, []);
@@ -69,6 +82,42 @@ export default function DetailerImports() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Re-checked every time the project changes (not just once) — switching
+  // projects on this same form is a new upload target, so it needs its own
+  // answer even if the previous project was already resolved this session.
+  useEffect(() => {
+    setBatchSequenceAreaId(null);
+    setPendingSequenceAreaId(null);
+    setSequencePromptOpen(false);
+    if (!selectedProjectId) {
+      setProjectSequenceAreas([]);
+      setSequenceAreaAnswered(true);
+      return;
+    }
+    setSequenceAreaAnswered(false);
+    db.entities.ProjectSequenceArea.filter({ project_id: selectedProjectId }, 'sort_order', 200)
+      .then((areas) => {
+        setProjectSequenceAreas(areas || []);
+        if (!areas || areas.length === 0) {
+          setSequenceAreaAnswered(true);
+        } else {
+          setSequencePromptOpen(true);
+        }
+      })
+      .catch(() => {
+        setProjectSequenceAreas([]);
+        setSequenceAreaAnswered(true);
+      });
+  }, [selectedProjectId]);
+
+  const confirmSequencePrompt = () => {
+    setBatchSequenceAreaId(pendingSequenceAreaId);
+    setSequenceAreaAnswered(true);
+    setSequencePromptOpen(false);
+  };
+
+  const uploadLocked = !!selectedProjectId && !sequenceAreaAnswered;
 
   const loadData = async () => {
     setLoading(true);
@@ -104,6 +153,10 @@ export default function DetailerImports() {
       toast({ title: 'Select a project before uploading', variant: 'destructive' });
       return;
     }
+    if (uploadLocked) {
+      toast({ title: 'Answer the sequence/area prompt before uploading', variant: 'destructive' });
+      return;
+    }
 
     setUploading(true);
     try {
@@ -122,6 +175,7 @@ export default function DetailerImports() {
         import_status: 'uploaded',
         created_by: user?.full_name || user?.email || 'System',
         created_by_email: user?.email || '',
+        sequence_area_id: batchSequenceAreaId || null,
       });
 
       setBatches((current) => [record, ...current]);
@@ -275,6 +329,11 @@ export default function DetailerImports() {
           batch_id: batch.id,
           file_id: fileEntry.file_id,
           project_id: batch.project_id,
+          // Pre-fills from the batch-level sequence/area chosen at upload
+          // time (see the sequence prompt above) — still freely editable per
+          // row on the Review & Commit screen (BatchReviewModal.jsx), same
+          // as any row whose sequence/area was never set at all.
+          sequence_area_id: batch.sequence_area_id || null,
         })));
       }
 
@@ -361,20 +420,41 @@ export default function DetailerImports() {
           </div>
         </div>
 
+        {selectedProjectId && projectSequenceAreas.length > 0 && (
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+            <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+            <span className="text-xs text-muted-foreground">This upload is for:</span>
+            <SequenceAreaSelect
+              projectId={selectedProjectId}
+              sequenceAreas={projectSequenceAreas}
+              value={batchSequenceAreaId}
+              onChange={(v) => setBatchSequenceAreaId(v)}
+              onCreated={(created) => setProjectSequenceAreas((prev) => [...prev, created])}
+              triggerClassName="h-7 w-48 text-xs"
+            />
+          </div>
+        )}
+
         <div
-          onDragOver={(event) => { event.preventDefault(); setDragActive(true); }}
+          onDragOver={(event) => { event.preventDefault(); if (!uploadLocked) setDragActive(true); }}
           onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
-          className={`flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-8 text-center text-sm ${dragActive ? 'border-primary bg-primary/5' : 'border-border'}`}
+          onDrop={(event) => { if (!uploadLocked) handleDrop(event); else event.preventDefault(); }}
+          className={`flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-8 text-center text-sm ${uploadLocked ? 'border-border opacity-50' : dragActive ? 'border-primary bg-primary/5' : 'border-border'}`}
         >
           <Upload className="w-6 h-6 text-muted-foreground" />
-          <p className="text-muted-foreground">Drag files here, or</p>
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted/50">
-            <Upload className="w-4 h-4" />
-            {uploading ? 'Uploading…' : 'Browse files'}
-            <input type="file" multiple className="hidden" onChange={(event) => handleFiles(event.target.files)} disabled={uploading} />
-          </label>
-          <p className="text-xs text-muted-foreground">Any file type — CSV, KSS, PDF, NC1, DXF, etc. CSV/KSS/BOM text files parse into staged rows below; NC1/DXF files auto-match to a piece mark by filename.</p>
+          {uploadLocked ? (
+            <p className="text-muted-foreground">Answer the sequence/area prompt above before uploading files.</p>
+          ) : (
+            <>
+              <p className="text-muted-foreground">Drag files here, or</p>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted/50">
+                <Upload className="w-4 h-4" />
+                {uploading ? 'Uploading…' : 'Browse files'}
+                <input type="file" multiple className="hidden" onChange={(event) => handleFiles(event.target.files)} disabled={uploading} />
+              </label>
+              <p className="text-xs text-muted-foreground">Any file type — CSV, KSS, PDF, NC1, DXF, etc. CSV/KSS/BOM text files parse into staged rows below; NC1/DXF files auto-match to a piece mark by filename.</p>
+            </>
+          )}
         </div>
 
         {unmatchedCncFiles.length > 0 && (
@@ -586,6 +666,34 @@ export default function DetailerImports() {
           }}
         />
       )}
+
+      {/* Mandatory gate for a project with sequence/area structure — no
+          close button and onOpenChange is a no-op, same "must answer, can't
+          dismiss" convention as UnsavedChangesModal.jsx/ConflictResolutionModal.jsx.
+          Skipped entirely for a project with no ProjectSequenceArea rows at
+          all (sequenceAreaAnswered starts true for that case, so this never
+          opens). */}
+      <Dialog open={sequencePromptOpen} onOpenChange={() => {}}>
+        <DialogContent className="max-w-sm [&>button]:hidden" resizable={false}>
+          <DialogHeader>
+            <DialogTitle>Which sequence/area is this upload for?</DialogTitle>
+            <DialogDescription>
+              This project has sequence/areas defined. Every piece staged from this batch's files will default to whichever one you pick — still editable per piece on the Review &amp; Commit screen.
+            </DialogDescription>
+          </DialogHeader>
+          <SequenceAreaSelect
+            projectId={selectedProjectId}
+            sequenceAreas={projectSequenceAreas}
+            value={pendingSequenceAreaId}
+            onChange={(v) => setPendingSequenceAreaId(v)}
+            onCreated={(created) => setProjectSequenceAreas((prev) => [...prev, created])}
+            triggerClassName="h-9 w-full text-sm"
+          />
+          <DialogFooter>
+            <Button onClick={confirmSequencePrompt} className="steel-gradient text-white border-0">Continue</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
