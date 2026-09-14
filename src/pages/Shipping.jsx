@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
-import { Truck, Package, CheckCircle2, FileCheck, PauseCircle, PlayCircle } from 'lucide-react';
+import { Truck, Package, CheckCircle2, FileCheck, PauseCircle, PlayCircle, PackagePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import LoadBuilder from '@/components/shipping/LoadBuilder';
@@ -11,11 +12,16 @@ import YardScanning from '@/components/shipping/YardScanning';
 import LoadDetailModal from '@/components/shipping/LoadDetailModal';
 import PieceDetailModal from '@/components/shipping/PieceDetailModal';
 import ManifestDetailModal from '@/components/shipping/ManifestDetailModal';
+import AdHocShipmentModal from '@/components/shipping/AdHocShipmentModal';
+import AdHocShipmentDetailModal from '@/components/shipping/AdHocShipmentDetailModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/lib/AuthContext';
+import { logStatusChange } from '@/lib/statusHistory';
 
 // Loads that have finished Load Builder (Load Complete) and are ready,
 // inspected, or already moving — the main Shipping List. Draft/Staged
@@ -23,8 +29,19 @@ import ModuleLocked from '@/components/shared/ModuleLocked';
 // tab; Partial_Loaded gets its own section below it instead.
 const SHIPPING_LIST_STATUSES = ['Loaded', 'Inspected', 'In_Transit', 'Delivered', 'Field_Issue'];
 
+// Statuses freely changeable directly from the Shipping List via a quick
+// per-row dropdown — deliberately excludes 'Loaded', since Loaded -> Inspected
+// must keep going through Yard Scanning's Call Inspection flow (the physical
+// scan-verification gate this pipeline was built around). Any of these four
+// can move to any other, covering both the normal forward chain and manual
+// corrections (e.g. a load marked In_Transit that actually needs Field_Issue).
+const STATUS_QUICK_OPTIONS = ['Inspected', 'In_Transit', 'Delivered', 'Field_Issue'];
+
 export default function Shipping() {
   useDocumentTitle('SteelOS — Shipping');
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const changedBy = user?.full_name || user?.email || 'Unknown';
   const [activeTab, setActiveTab] = useState('list');
 
   // Drill-down targets, shared across the Shipping List tab and the
@@ -33,6 +50,8 @@ export default function Shipping() {
   const [viewingLoadId, setViewingLoadId] = useState(null);
   const [viewingPiece, setViewingPiece] = useState(null); // { pieceMarkId } | { pieceId }
   const [viewingManifestId, setViewingManifestId] = useState(null);
+  const [viewingAdHocShipmentId, setViewingAdHocShipmentId] = useState(null);
+  const [showAdHocShipmentModal, setShowAdHocShipmentModal] = useState(false);
 
   // Set when "Resume" is clicked on a Partial Load — tells LoadBuilder which
   // load to focus once the Load Builder tab is active, then gets cleared.
@@ -56,6 +75,7 @@ export default function Shipping() {
   const [manifests, setManifests] = useState([]);
   const [carriers, setCarriers] = useState([]);
   const [pieceMarks, setPieceMarks] = useState([]);
+  const [adHocShipments, setAdHocShipments] = useState([]);
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
@@ -71,13 +91,14 @@ export default function Shipping() {
 
   const loadLogisticsData = async () => {
     try {
-      const [pieceData, loadsData, itemsData, manifestData, carrierData, pieceMarkData] = await Promise.all([
+      const [pieceData, loadsData, itemsData, manifestData, carrierData, pieceMarkData, adHocData] = await Promise.all([
         db.entities.pieces.list('-created_date', 200),
         db.entities.loads.list('-created_date', 100),
         db.entities.load_items.list('-created_date', 500),
         db.entities.shipping_manifests.list('-created_date', 100),
         db.entities.Vendor.filter({ vendor_type: 'carrier', is_active: true }, 'name', 50),
         db.entities.PieceMark.list('-created_date', 500),
+        db.entities.AdHocShipment.list('-created_date', 100),
       ]);
       setShopPieces(pieceData);
       setLoads(loadsData);
@@ -85,6 +106,7 @@ export default function Shipping() {
       setManifests(manifestData);
       setCarriers(carrierData);
       setPieceMarks(pieceMarkData);
+      setAdHocShipments(adHocData);
     } catch (e) {}
   };
 
@@ -119,6 +141,49 @@ export default function Shipping() {
     setActiveTab('load-builder');
   };
 
+  // Quick per-row status flip from the Shipping List — only ever offered for
+  // STATUS_QUICK_OPTIONS statuses (never 'Loaded'), so Loaded -> Inspected
+  // still requires Yard Scanning's Call Inspection scan-verification gate.
+  // Mirrors YardScanning.jsx's handleMasterReceiptScan side effect (marking
+  // non-rejected load_items' pieces On_Site) when the target is Delivered, so
+  // a load's downstream field_status is consistent regardless of which path
+  // (master QR scan vs. this manual correction) delivered it.
+  const handleQuickStatusChange = async (load, newStatus) => {
+    if (!newStatus || newStatus === load.status) return;
+    try {
+      await db.entities.loads.update(load.id, { status: newStatus });
+      await logStatusChange({
+        entityType: 'loads',
+        entityId: load.id,
+        fieldName: 'status',
+        fromValue: load.status,
+        toValue: newStatus,
+        changedBy,
+        note: 'Changed from the Shipping List.',
+      });
+      if (newStatus === 'Delivered') {
+        const deliveredItems = loadItems.filter((li) => li.load_id === load.id && li.status !== 'Field_Rejected');
+        await Promise.all(deliveredItems.map((li) => db.entities.pieces.update(li.piece_id, { field_status: 'On_Site' })));
+        await Promise.all(deliveredItems.map((li) => {
+          const piece = shopPieces.find((p) => p.id === li.piece_id);
+          return logStatusChange({
+            entityType: 'pieces',
+            entityId: li.piece_id,
+            fieldName: 'field_status',
+            fromValue: piece?.field_status,
+            toValue: 'On_Site',
+            changedBy,
+            note: `Delivered on load ${load.load_number_id} (status changed from Shipping List).`,
+          });
+        }));
+      }
+      await loadLogisticsData();
+      toast({ title: `${load.load_number_id} marked ${newStatus.replace(/_/g, ' ')}` });
+    } catch (e) {
+      toast({ title: 'Unable to update status', variant: 'destructive' });
+    }
+  };
+
   const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
   const showModule = moduleAllowed || isPlatformOperatorView;
 
@@ -137,7 +202,12 @@ export default function Shipping() {
       <PageHeader
         title="Shipping & Delivery"
         subtitle="Build loads, inspect, and track shipments through delivery"
-        actions={<Button className="steel-gradient text-white border-0" onClick={() => setActiveTab('load-builder')}><Truck className="w-4 h-4 mr-2" />Load Builder</Button>}
+        actions={(
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setActiveTab('adhoc-shipments')}><PackagePlus className="w-4 h-4 mr-2" />Ad-Hoc Shipment</Button>
+            <Button className="steel-gradient text-white border-0" onClick={() => setActiveTab('load-builder')}><Truck className="w-4 h-4 mr-2" />Load Builder</Button>
+          </div>
+        )}
       />
 
       <div className="grid grid-cols-3 gap-4 mb-6">
@@ -163,6 +233,7 @@ export default function Shipping() {
           <TabsTrigger value="list">Shipping List</TabsTrigger>
           <TabsTrigger value="load-builder">Load Builder</TabsTrigger>
           <TabsTrigger value="yard-scanning">Yard Scanning</TabsTrigger>
+          <TabsTrigger value="adhoc-shipments">Ad-Hoc Shipments</TabsTrigger>
         </TabsList>
 
         <TabsContent value="list" className="space-y-6">
@@ -235,9 +306,23 @@ export default function Shipping() {
                         <td className="py-3 px-4">{load.trailer_number || '—'}</td>
                         <td className="py-3 px-4">{carrierLabel(load)}</td>
                         <td className="py-3 px-4">
-                          <button onClick={(e) => { e.stopPropagation(); setViewingLoadId(load.id); }}>
-                            <StatusBadge status={load.status} label={(load.status || '').replace(/_/g, ' ')} />
-                          </button>
+                          <div className="flex flex-col items-start gap-1.5">
+                            <button onClick={(e) => { e.stopPropagation(); setViewingLoadId(load.id); }}>
+                              <StatusBadge status={load.status} label={(load.status || '').replace(/_/g, ' ')} />
+                            </button>
+                            {STATUS_QUICK_OPTIONS.includes(load.status) && (
+                              <Select value={load.status} onValueChange={(v) => handleQuickStatusChange(load, v)}>
+                                <SelectTrigger className="h-7 w-36 text-xs" onClick={(e) => e.stopPropagation()}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent onClick={(e) => e.stopPropagation()}>
+                                  {STATUS_QUICK_OPTIONS.map((s) => (
+                                    <SelectItem key={s} value={s}>{s.replace(/_/g, ' ')}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-right">
                           {load.bol_pdf_data_uri ? (
@@ -287,6 +372,59 @@ export default function Shipping() {
             onViewManifest={setViewingManifestId}
           />
         </TabsContent>
+
+        <TabsContent value="adhoc-shipments" className="space-y-4">
+          <div className="flex justify-end">
+            <Button className="steel-gradient text-white border-0" onClick={() => setShowAdHocShipmentModal(true)}>
+              <PackagePlus className="w-4 h-4 mr-2" />New Ad-Hoc Shipment
+            </Button>
+          </div>
+          <div className="steel-card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left py-3 px-4">Shipment #</th>
+                    <th className="text-left py-3 px-4">Project / Destination</th>
+                    <th className="text-left py-3 px-4">Carrier</th>
+                    <th className="text-left py-3 px-4">Vehicle</th>
+                    <th className="text-left py-3 px-4">Ship Date</th>
+                    <th className="text-right py-3 px-4">BOL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adHocShipments.length === 0 ? (
+                    <tr><td colSpan={6} className="py-16 text-center">
+                      <PackagePlus className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                      <p className="text-sm text-muted-foreground">No ad-hoc shipments yet — use New Ad-Hoc Shipment to build a quick BOL without a formal load.</p>
+                    </td></tr>
+                  ) : (
+                    adHocShipments.map((shipment) => (
+                      <tr key={shipment.id} onClick={() => setViewingAdHocShipmentId(shipment.id)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
+                        <td className="py-3 px-4 font-mono font-bold text-primary">{shipment.shipment_number_id}</td>
+                        <td className="py-3 px-4 text-muted-foreground">{shipment.project_id ? jobName(shipment.project_id) : shipment.destination_address}</td>
+                        <td className="py-3 px-4">{shipment.carrier || '—'}</td>
+                        <td className="py-3 px-4">{(shipment.vehicle_type || '').replace(/_/g, ' ')}</td>
+                        <td className="py-3 px-4">{shipment.ship_date || '—'}</td>
+                        <td className="py-3 px-4 text-right">
+                          {shipment.bol_pdf_data_uri ? (
+                            <button
+                              title="View / Print BOL"
+                              onClick={(e) => { e.stopPropagation(); openDocumentViewer(shipment.bol_pdf_data_uri, `BOL-${shipment.shipment_number_id || ''}.pdf`); }}
+                              className="text-muted-foreground hover:text-primary inline-flex"
+                            >
+                              <FileCheck className="w-4 h-4" />
+                            </button>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </TabsContent>
       </Tabs>
 
       <LoadDetailModal
@@ -310,6 +448,21 @@ export default function Shipping() {
         onOpenChange={(open) => !open && setViewingManifestId(null)}
         manifestId={viewingManifestId}
         onViewLoad={(loadId) => { setViewingManifestId(null); setViewingLoadId(loadId); }}
+      />
+
+      <AdHocShipmentModal
+        open={showAdHocShipmentModal}
+        onOpenChange={setShowAdHocShipmentModal}
+        projects={projects}
+        pieces={shopPieces}
+        shipments={adHocShipments}
+        onCreated={loadLogisticsData}
+      />
+
+      <AdHocShipmentDetailModal
+        open={!!viewingAdHocShipmentId}
+        onOpenChange={(open) => !open && setViewingAdHocShipmentId(null)}
+        shipmentId={viewingAdHocShipmentId}
       />
 
       <Dialog open={!!statusDialog} onOpenChange={(o) => !o && setStatusDialog(null)}>

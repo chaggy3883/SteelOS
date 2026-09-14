@@ -1,0 +1,56 @@
+{
+  "name": "AdHocShipment",
+  "type": "object",
+  "// note": "Lightweight, single-step BOL tool for shipments that never went through the formal Load Builder pipeline (loads/load_items) — e.g. breaking a partial quantity out of an existing pallet to send to a jobsite ad hoc, where there's no piece/load record behind what's being shipped. Deliberately has no status progression (Draft/Staged/Loaded/Inspected/etc.) — a shipment is built and its BOL generated in one action via AdHocShipmentModal.jsx. Reuses generateBolPdf (src/lib/bolPdf.js) for the PDF itself rather than a second layout.",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Optional — an ad-hoc shipment is not always tied to a specific project."
+    },
+    "shipment_number_id": {
+      "type": "string",
+      "description": "Freeform sequential label (e.g. AH-001), mirrors loads.load_number_id."
+    },
+    "ship_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "carrier": {
+      "type": "string",
+      "description": "Freeform carrier name, required before the BOL can be generated — mirrors loads.carrier_name."
+    },
+    "vehicle_type": {
+      "type": "string",
+      "enum": ["pickup_truck", "flatbed", "other"],
+      "default": "flatbed"
+    },
+    "destination_address": {
+      "type": "string"
+    },
+    "line_items": {
+      "type": "array",
+      "description": "One entry per shipped item: { description, quantity, unit, source_qr_payload }. description is free text (e.g. '50 of 200 — 3/4in A325 Bolts'); source_qr_payload is the scanned pieces.qr_payload_string when the line was pulled in from a known tracked item (auto-fills description from that piece), null for a fully manual line — a shipment can mix both kinds of lines."
+    },
+    "notes": {
+      "type": "string"
+    },
+    "created_by": {
+      "type": "string",
+      "description": "Display name/email of whoever built this shipment."
+    },
+    "bol_pdf_data_uri": {
+      "type": "string",
+      "description": "Generated Bill of Lading PDF (data URI), attached at creation time and viewed/printed later from the Ad-Hoc Shipments list — same generateBolPdf template used for formal loads."
+    },
+    "bol_generated_date": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "destination_address",
+    "line_items"
+  ]
+}

@@ -89,6 +89,7 @@ const createLocalApi = () => ({
     loads: createEntityApi('loads'),
     load_items: createEntityApi('load_items'),
     shipping_manifests: createEntityApi('shipping_manifests'),
+    AdHocShipment: createEntityApi('AdHocShipment'),
     shop_schedules: createEntityApi('shop_schedules'),
     remnant_inventory: createEntityApi('remnant_inventory'),
     manager_overrides: createEntityApi('manager_overrides'),

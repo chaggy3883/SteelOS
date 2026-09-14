@@ -3188,6 +3188,7 @@ const TENANT_SCOPED_ENTITIES = [
   'AIReviewSkill',
   'AchIncoming',
   'AchOutgoing',
+  'AdHocShipment',
   'AdjustmentLog',
   'ApiCredential',
   'ApiIntegrationLog',

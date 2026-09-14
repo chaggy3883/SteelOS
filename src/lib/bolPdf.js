@@ -51,7 +51,18 @@ function imageToDataUrl(img) {
 
 const addressLines = (addr) => [addr?.address, [addr?.city, addr?.state, addr?.zip].filter(Boolean).join(', ')].filter(Boolean);
 
-export async function generateBolPdf({ company, load, project, carrierLabel, trailerNumber, items }) {
+export async function generateBolPdf({
+  company, load, project, carrierLabel, trailerNumber, items,
+  // Overridable so this same layout can serve the ad-hoc shipment BOL
+  // (src/components/shipping/AdHocShipmentModal.jsx) without a second
+  // PDF-drawing implementation — defaults reproduce the original
+  // load-BOL wording/columns exactly, so every existing call site is
+  // unaffected.
+  loadNumberLabel = 'Load #:',
+  secondColumnLabel = 'TRAILER #',
+  showWeightColumn = true,
+  itemsCountLabel = 'Total Pieces',
+}) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: PDF_PAGE_FORMAT });
   const today = new Date().toISOString().slice(0, 10);
 
@@ -92,7 +103,7 @@ export async function generateBolPdf({ company, load, project, carrierLabel, tra
   doc.text('BILL OF LADING', CONTENT_RIGHT, titleY, { align: 'right' });
   doc.setFont(undefined, 'normal');
   doc.setFontSize(9);
-  doc.text(`Load #: ${load?.load_number_id || '—'}`, CONTENT_RIGHT, titleY + 6, { align: 'right' });
+  doc.text(`${loadNumberLabel} ${load?.load_number_id || '—'}`, CONTENT_RIGHT, titleY + 6, { align: 'right' });
   doc.text(`Ship Date: ${today}`, CONTENT_RIGHT, titleY + 10.5, { align: 'right' });
 
   const ruleY = letterheadY != null ? titleY + 14 : 29;
@@ -105,7 +116,7 @@ export async function generateBolPdf({ company, load, project, carrierLabel, tra
   doc.setFontSize(7.5);
   doc.setTextColor(110);
   doc.text('CARRIER', MARGIN, y);
-  doc.text('TRAILER #', MARGIN + 95, y);
+  doc.text(secondColumnLabel, MARGIN + 95, y);
   doc.setTextColor(20);
   doc.setFontSize(10.5);
   doc.setFont(undefined, 'bold');
@@ -153,6 +164,10 @@ export async function generateBolPdf({ company, load, project, carrierLabel, tra
   const colDescX = MARGIN + 42;
   const colQtyRightX = CONTENT_RIGHT - 28;
   const colWeightRightX = CONTENT_RIGHT;
+  // Ad-hoc shipment lines have a real quantity/unit but no piece weight to
+  // total — dropping the WEIGHT column (rather than printing a misleading
+  // "0 lbs") also frees the QTY column to sit at the far right.
+  const colQtyX = showWeightColumn ? colQtyRightX : colWeightRightX;
 
   const drawTableHeader = () => {
     doc.setFontSize(7.5);
@@ -161,8 +176,8 @@ export async function generateBolPdf({ company, load, project, carrierLabel, tra
     doc.text('SEQ', colSeqX, y);
     doc.text('PIECE MARK', colMarkX, y);
     doc.text('DESCRIPTION', colDescX, y);
-    doc.text('QTY', colQtyRightX, y, { align: 'right' });
-    doc.text('WEIGHT (LBS)', colWeightRightX, y, { align: 'right' });
+    doc.text('QTY', colQtyX, y, { align: 'right' });
+    if (showWeightColumn) doc.text('WEIGHT (LBS)', colWeightRightX, y, { align: 'right' });
     doc.setFont(undefined, 'normal');
     doc.setTextColor(20);
     y += 2;
@@ -182,14 +197,15 @@ export async function generateBolPdf({ company, load, project, carrierLabel, tra
       drawTableHeader();
       doc.setFontSize(8.5);
     }
-    const weight = item.piece?.weight || 0;
+    const weight = item.piece?.weight ?? item.weight ?? 0;
     totalWeight += weight;
-    const description = [item.piece?.material_shape, item.piece?.dimensions].filter(Boolean).join(' — ') || '—';
+    const description = [item.piece?.material_shape, item.piece?.dimensions].filter(Boolean).join(' — ') || item.description || '—';
+    const qtyText = `${item.quantity ?? 1}${item.unit ? ' ' + item.unit : ''}`;
     doc.text(String(item.sequence_number ?? ''), colSeqX, y);
-    doc.text(item.piece?.piece_mark || '—', colMarkX, y);
-    doc.text(doc.splitTextToSize(description, colQtyRightX - colDescX - 4)[0] || '—', colDescX, y);
-    doc.text('1', colQtyRightX, y, { align: 'right' });
-    doc.text(weight.toLocaleString(), colWeightRightX, y, { align: 'right' });
+    doc.text(item.piece?.piece_mark || item.mark || '—', colMarkX, y);
+    doc.text(doc.splitTextToSize(description, colQtyX - colDescX - 4)[0] || '—', colDescX, y);
+    doc.text(qtyText, colQtyX, y, { align: 'right' });
+    if (showWeightColumn) doc.text(weight.toLocaleString(), colWeightRightX, y, { align: 'right' });
     y += 5.2;
   });
 
@@ -199,8 +215,8 @@ export async function generateBolPdf({ company, load, project, carrierLabel, tra
   y += 6;
   doc.setFontSize(9.5);
   doc.setFont(undefined, 'bold');
-  doc.text(`Total Pieces: ${(items || []).length}`, MARGIN, y);
-  doc.text(`Total Weight: ${totalWeight.toLocaleString()} lbs`, CONTENT_RIGHT, y, { align: 'right' });
+  doc.text(`${itemsCountLabel}: ${(items || []).length}`, MARGIN, y);
+  if (showWeightColumn) doc.text(`Total Weight: ${totalWeight.toLocaleString()} lbs`, CONTENT_RIGHT, y, { align: 'right' });
   doc.setFont(undefined, 'normal');
 
   // Signature lines — pinned near the bottom so short loads don't leave the
