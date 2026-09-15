@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2, Clipboard, Scale, FileDown, Printer, ListChecks, FileSpreadsheet } from 'lucide-react';
 import { getShapeClass } from '@/data/steelShapeSelector';
 import { SHAPE_CATALOG } from '@/data/steelShapes';
+import { shapeCodeToShapeClass, buildCompactShapeProfile } from '@/lib/countShapeProfile';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 import { exportRowsToCsv } from '@/lib/csvExport';
@@ -73,7 +74,10 @@ function buildGroups(rows) {
           label: r.label || 'Untitled',
           color: r.color || '#94a3b8',
           shape_type: r.shape_type || 'Custom',
+          shape_code: r.shape_code || '',
           size_designation: r.size_designation || '',
+          grade: r.grade || '',
+          width_ft: r.width_ft || 0,
           phase,
           rows: [],
         });
@@ -93,12 +97,22 @@ function buildGroups(rows) {
 }
 
 const defaultSettingFor = (group) => {
-  const catalogWeight = lookupCatalogWeightPerFt(group.size_designation);
+  // IRONSIGHT now resolves a Count row's own weight-per-ft at save time
+  // (BlueprintTakeoff.jsx's handleSaveCountSession, via the master catalog +
+  // steel_catalog) — prefer that already-resolved figure over re-guessing
+  // from SHAPE_CATALOG's separate hardcoded size list, which the master
+  // catalog's spaced size format ("12 x 26") rarely matches anyway.
+  const rowWeight = group.rows.find((r) => r.unit_weight_lbs_per_ft > 0)?.unit_weight_lbs_per_ft;
+  const compactProfile = buildCompactShapeProfile({ shapeCode: group.shape_code, sizeDesignation: group.size_designation, widthFt: group.width_ft });
+  const catalogWeight = rowWeight ?? lookupCatalogWeightPerFt(compactProfile || group.size_designation);
   return {
     multiplier: 1,
     unitWeight: catalogWeight ?? '',
     weightSource: catalogWeight != null ? 'aisc' : 'manual',
-    typicalLengthFt: 0,
+    // Count's own per-piece length is now actually captured (Count Setup's
+    // Length field) — default the assumed length from it instead of 0, but
+    // keep this editable so an estimator can still override it.
+    typicalLengthFt: group.tool === 'count' ? (group.rows[0]?.length_ft || 0) : 0,
   };
 };
 
@@ -245,10 +259,17 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
   const buildPayload = (group, linkOverride) => {
     const effectiveBidId = linkOverride ? linkOverride.bidId : bidId;
     const effectiveProjectId = linkOverride ? linkOverride.projectId : projectId;
-    const { multiplier } = getSetting(group);
+    const { multiplier, typicalLengthFt } = getSetting(group);
     const { finalQuantity, weight, estTons } = calcGroup(group);
-    const shapeClass = group.shape_type || 'Custom';
+    // Bridge the master catalog's shape_code (e.g. "W") to MaterialTakeoffLine's
+    // own 5-value shape_class enum when this group came from a real IRONSIGHT
+    // catalog shape — group.shape_type is the catalog's free-text description
+    // ("Wideflange Beams"), which isn't a valid enum value and would silently
+    // corrupt the pushed line's shape/size dropdowns in the Bid Worksheet.
+    const shapeClass = shapeCodeToShapeClass(group.shape_code) || group.shape_type || 'Custom';
     const materialType = getShapeClass(shapeClass).label || shapeClass;
+    const compactProfile = buildCompactShapeProfile({ shapeCode: group.shape_code, sizeDesignation: group.size_designation, widthFt: group.width_ft });
+    const materialSize = (compactProfile || group.size_designation || '').toUpperCase();
     const noteBase = `From IRONSIGHT takeoff: ${takeoffName || fileName || 'Untitled takeoff'}`;
 
     const base = {
@@ -256,7 +277,8 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
       project_id: effectiveBidId ? undefined : (effectiveProjectId || undefined),
       material_type: materialType,
       shape_class: shapeClass,
-      material_size: group.size_designation || '',
+      material_size: materialSize,
+      grade: group.grade || undefined,
       coating_type: 'No Coating',
       source: 'ironsight',
       pushed_from_takeoff_id: takeoffId,
@@ -286,7 +308,10 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
     return {
       ...base,
       quantity: finalQuantity,
-      length_ft: 0,
+      // The per-piece length actually captured during Count Setup (via the
+      // "Typical length" setting, defaulted from it above) — this used to be
+      // hardcoded to 0, silently dropping every counted beam's real length.
+      length_ft: Number(typicalLengthFt) || 0,
       tons_per_piece: finalQuantity ? estTons / finalQuantity : 0,
       total_tons: estTons,
       notes: `${noteBase} — Count group "${group.label}": ${group.totalCount} pieces × ${multiplier} multiplier`,

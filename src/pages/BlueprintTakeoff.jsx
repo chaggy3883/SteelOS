@@ -23,6 +23,9 @@ import {
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
+import { FRACTION_OPTIONS, formatFeetInchesFraction } from '@/lib/fractionInches';
+import { buildCompactShapeProfile } from '@/lib/countShapeProfile';
+import { resolveWeightPerFt } from '@/lib/detailerImportWeight';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 import { writeBidRecapCells, downloadWorkbook } from '@/lib/bidRecapXlsxExport';
@@ -42,28 +45,6 @@ import CountTallyPanel from '@/components/estimating/CountTallyPanel';
 import CountMarkerSwatch from '@/components/estimating/CountMarkerSwatch';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
-
-// The 16ths commonly used when reading structural steel dimensions off a
-// drawing — calibration distance entry mirrors that feet-inches-fraction
-// convention instead of a plain decimal + unit toggle.
-const FRACTION_OPTIONS = [
-  { value: '0', label: '0' },
-  { value: '0.0625', label: '1/16' },
-  { value: '0.125', label: '1/8' },
-  { value: '0.1875', label: '3/16' },
-  { value: '0.25', label: '1/4' },
-  { value: '0.3125', label: '5/16' },
-  { value: '0.375', label: '3/8' },
-  { value: '0.4375', label: '7/16' },
-  { value: '0.5', label: '1/2' },
-  { value: '0.5625', label: '9/16' },
-  { value: '0.625', label: '5/8' },
-  { value: '0.6875', label: '11/16' },
-  { value: '0.75', label: '3/4' },
-  { value: '0.8125', label: '13/16' },
-  { value: '0.875', label: '7/8' },
-  { value: '0.9375', label: '15/16' },
-];
 
 const emptyRow = (overrides = {}) => ({
   _key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -1086,8 +1067,8 @@ export default function BlueprintTakeoff() {
     setCountSetup(null);
 
     const fields = kind === 'bolt'
-      ? { shape_type: row.shape_type, size_designation: row.size_designation, grade: row.grade || '' }
-      : { shape_type: row.shape_type, size_designation: row.size_designation, length_ft: row.length_ft || 0 };
+      ? { shape_type: row.shape_type, shape_code: row.shape_code || '', size_designation: row.size_designation, grade: row.grade || '' }
+      : { shape_type: row.shape_type, shape_code: row.shape_code || '', size_designation: row.size_designation, length_ft: row.length_ft || 0, width_ft: row.width_ft || 0, grade: row.grade || '' };
     const pageNumber = row.page_number || 1;
 
     setCountSession({
@@ -1132,17 +1113,34 @@ export default function BlueprintTakeoff() {
     const { kind, editingRowKey, fields, color, symbol, points, page_number } = countSession;
     const tool = kind === 'bolt' ? 'bolt_count' : 'count';
 
+    // Weight-per-ft — same catalog-match-then-estimate resolution Detailer
+    // Import already uses (resolveWeightPerFt), just fed a compact AISC-style
+    // profile bridged from the master catalog's shape_code + size_designation
+    // (see countShapeProfile.js). Bolt counts aren't weighed by length.
+    const weightPerFt = kind === 'beam'
+      ? (resolveWeightPerFt(
+          {
+            material_profile: buildCompactShapeProfile({ shapeCode: fields.shape_code, sizeDesignation: fields.size_designation, widthFt: fields.width_ft }),
+            shape: fields.shape_code,
+          },
+          catalog,
+        ) || 0)
+      : 0;
+
     let updated;
     if (editingRowKey) {
       updated = rows.map((r) => (r._key === editingRowKey ? {
         ...r,
         shape_type: fields.shape_type,
+        shape_code: fields.shape_code || '',
         size_designation: fields.size_designation,
-        ...(kind === 'beam' ? { length_ft: fields.length_ft || 0 } : { grade: fields.grade || '' }),
+        grade: fields.grade || '',
+        ...(kind === 'beam' ? { length_ft: fields.length_ft || 0, width_ft: fields.width_ft || 0 } : {}),
         color,
         symbol,
         points,
         quantity: qty,
+        unit_weight_lbs_per_ft: weightPerFt,
         label: [fields.shape_type, fields.size_designation].filter(Boolean).join(' '),
       } : r));
     } else {
@@ -1153,6 +1151,7 @@ export default function BlueprintTakeoff() {
         tool,
         page_number,
         shape_type: fields.shape_type,
+        shape_code: fields.shape_code || '',
         size_designation: fields.size_designation,
         label: [fields.shape_type, fields.size_designation].filter(Boolean).join(' ') || (kind === 'bolt' ? 'Bolt Count' : 'Count'),
         color,
@@ -1160,8 +1159,9 @@ export default function BlueprintTakeoff() {
         points,
         quantity: qty,
         length_ft: kind === 'beam' ? (fields.length_ft || 0) : 0,
-        grade: kind === 'bolt' ? (fields.grade || '') : undefined,
-        unit_weight_lbs_per_ft: 0,
+        width_ft: kind === 'beam' ? (fields.width_ft || 0) : 0,
+        grade: fields.grade || '',
+        unit_weight_lbs_per_ft: weightPerFt,
         notes: '',
         is_saved: true,
         is_accepted: true,
@@ -2464,7 +2464,7 @@ export default function BlueprintTakeoff() {
                       <th className="p-2 font-medium w-20">Qty</th>
                       <th className="p-2 font-medium w-24">Wt (lb/ft)</th>
                       <th className="p-2 font-medium w-20">Length (ft)</th>
-                      <th className="p-2 font-medium w-20">Length</th>
+                      <th className="p-2 font-medium min-w-24 w-auto whitespace-nowrap">Length</th>
                       <th className="p-2 font-medium w-24">Area (sq ft)</th>
                       <th className="p-2 font-medium w-24">Total Wt (lb)</th>
                       <th className="p-2 font-medium w-28"></th>
@@ -2524,8 +2524,8 @@ export default function BlueprintTakeoff() {
                           <td className="p-2"><Input type="number" min={0} value={r.quantity} onChange={(e) => updateRow(r._key, 'quantity', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2"><Input type="number" min={0} value={r.unit_weight_lbs_per_ft} onChange={(e) => updateRow(r._key, 'unit_weight_lbs_per_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2"><Input type="number" min={0} value={r.length_ft} onChange={(e) => updateRow(r._key, 'length_ft', Number(e.target.value) || 0)} className="h-8" /></td>
-                          <td className="p-2 text-xs text-muted-foreground">
-                            {r.tool === 'area' || r.tool === 'bolt_count' ? '—' : `${Math.floor(r.length_ft || 0)}'-${Math.round(((r.length_ft || 0) % 1) * 12)}"`}
+                          <td className="p-2 text-xs text-muted-foreground whitespace-nowrap">
+                            {r.tool === 'area' || r.tool === 'bolt_count' ? '—' : formatFeetInchesFraction(r.length_ft || 0)}
                           </td>
                           <td className="p-2 text-xs text-muted-foreground">
                             {r.tool === 'area' ? r.area_sq_ft?.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
@@ -2664,7 +2664,7 @@ export default function BlueprintTakeoff() {
                             <td className="p-2">{r.size_designation || '—'}</td>
                             <td className="p-2">{r.quantity || 0}</td>
                             <td className="p-2">{r.phase || r.area || '—'}</td>
-                            <td className="p-2">{r.tool === 'bolt_count' ? (r.grade || '—') : '—'}</td>
+                            <td className="p-2">{isCountRow ? (r.grade || '—') : '—'}</td>
                             <td className="p-2" onClick={(e) => e.stopPropagation()}>
                               <Input
                                 value={r.notes || ''}

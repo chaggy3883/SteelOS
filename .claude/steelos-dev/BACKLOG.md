@@ -5,6 +5,82 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-15) — IRONSIGHT Count tool: fraction precision, Plate dims, push-to-estimate field loss, weight calc
+
+- **Five related fixes to the Count/Bolt Count engine, all traced by hand
+  against a concrete W12x26 example before/after.**
+  (1) **1/16" fraction precision**: `CountSetupModal.jsx`'s Length field was
+  whole-number feet/inches only. New shared `src/lib/fractionInches.js`
+  (`FRACTION_OPTIONS`, `feetInchesFractionToDecimal`,
+  `decimalFeetToFeetInchesFraction`, `formatFeetInchesFraction`) extracted
+  from `BlueprintTakeoff.jsx`'s pre-existing Set Scale calibration pattern —
+  that screen now imports from the shared lib instead of defining its own
+  copy — and reused verbatim in `CountSetupModal.jsx`'s new `DimensionFields`
+  sub-component (feet Input + inches Input + fraction Select), applied to
+  both Length and the new Width field.
+  (2) **Plate Length + Width**: Plate's material requirement depends on all
+  three dimensions, not thickness (the existing Size dropdown) alone. Added
+  a Width field (same 1/16" `DimensionFields`), shown only when the selected
+  shape's `shape_code` is `PL`/`PLGA` — new `width_ft` on the saved row
+  (`schema/entities/blueprint_takeoffs.jsonc`).
+  (3) **Push-to-estimate field loss (confirmed bug)** — root cause was in
+  `MarkupsList.jsx`'s `buildPayload`/`buildGroups`
+  (`handleSaveCountSession` itself was already correct), not one bug but
+  three: `length_ft` was hardcoded to `0` for every Count group regardless
+  of the real length captured in Count Setup; `grade` was never read at all
+  (and Count Setup never captured a grade for beam counts to begin with —
+  only bolt counts had a Grade field); and `shape_class` was written
+  directly from the master catalog's free-text description (e.g.
+  "Wideflange Beams") instead of `MaterialTakeoffLine`'s real 5-value enum
+  (`W-Beam`/`HSS Tube`/`C-Channel`/`L-Angle`/`PL-Plate`) — an invalid enum
+  value that would have made the Bid Worksheet's Shape/Size Selects and its
+  own independent weight estimator silently blank/zero after push. Fixed by
+  capturing `shape_code` (the catalog's short code) on every Count/Bolt
+  Count row alongside the existing `shape_type` description, adding a Grade
+  field to Count Setup for beam counts too (not just bolts), and a new
+  shared `src/lib/countShapeProfile.js` (`shapeCodeToShapeClass`,
+  `buildCompactShapeProfile`) that bridges `shape_code` to the real enum and
+  builds a compact AISC-style profile string (e.g. "W12X26") from the
+  master catalog's spaced size format ("12 x 26") — used for both the
+  pushed `shape_class`/`material_size` and IRONSIGHT's own weight lookup
+  (see below), not two divergent implementations.
+  `MarkupsList.jsx`'s count-group `length_ft` now comes from the "Typical
+  length" setting, whose default is fixed to seed from the group's real
+  captured length instead of `0` (still editable/overridable, unchanged
+  UI).
+  (4) **Takeoff grid Length column truncation**: same `min-w`-instead-of-
+  fixed-`w` fix already applied to the Bid Worksheet's cell sizing earlier
+  this session, applied to the grid's read-only Length column/cell
+  (`BlueprintTakeoff.jsx`), which also now renders the real fraction
+  (`formatFeetInchesFraction`) instead of rounding to the nearest whole
+  inch.
+  (5) **No weight calculation for counted items (confirmed gap)** — Count
+  rows always hardcoded `unit_weight_lbs_per_ft: 0`. Fixed by computing it
+  at save time (`handleSaveCountSession`) via the exact same
+  weight-resolution Detailer Import already uses
+  (`detailerImportWeight.js`'s `resolveWeightPerFt`, now exporting its
+  `SHAPE_CODE_TO_CATALOG_CLASS` map so it's one shared table, not a second
+  copy) — catalog match first (`steel_catalog`), geometric estimate
+  fallback (`estimateWeightPerFt`) otherwise, fed the compact profile string
+  from `countShapeProfile.js`. The existing takeoff-grid weight/tonnage
+  math (`unit_weight_lbs_per_ft × length_ft × quantity`) already displayed
+  this once populated — no second total-weight calculation added.
+  `MarkupsList.jsx`'s own weight-settings panel now also prefers this
+  already-resolved row weight over its separate (and format-mismatched)
+  `SHAPE_CATALOG` guess.
+  Verified by full hand-trace (no browser-automation tool in this project —
+  per standing feedback, code trace + build/lint first): a W12x26 beam count
+  at 20'-6 3/16" (→ 20.515625 ft) marked 5 times resolves
+  `unit_weight_lbs_per_ft` to 26 (AISC self-encoded W-beam weight, matched
+  both via `estimateWeightPerFt`'s regex and, if seeded, `steel_catalog`),
+  giving a grid Total Wt of ≈2,667 lb; pushed to the Bid Worksheet, the
+  `MaterialTakeoffLine` lands with `shape_class: 'W-Beam'` (valid enum,
+  bridged from `shape_code: 'W'`), `material_size: 'W12X26'`,
+  `length_ft: 20.515625`, `quantity: 5`, `weight_per_ft: 26` — shape, size,
+  and length all confirmed arriving correctly (previously `length_ft` would
+  have landed as `0` and `shape_class` as the invalid string "Wideflange
+  Beams"). `npm run build && npm run lint` clean.
+
 ## Also Closed (2026-09-15) — Excel export for tabular report PDFs
 
 - **Excel (.xlsx) export added alongside "Export PDF" across 25 report

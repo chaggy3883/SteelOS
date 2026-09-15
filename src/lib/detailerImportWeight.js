@@ -19,12 +19,13 @@ import { estimateWeightPerFt } from '@/data/steelShapeSelector';
 // so a matching catalog row can be looked up. WT/MC/MT/ST have no shape_class
 // counterpart — the enum only covers the 5 SHAPE_CLASSES families — so those
 // fall straight through to the estimate below instead of a catalog lookup.
-const SHAPE_CODE_TO_CATALOG_CLASS = {
+export const SHAPE_CODE_TO_CATALOG_CLASS = {
   W: 'W-Beam',
   HSS: 'HSS Tube',
   C: 'C-Channel',
   L: 'L-Angle',
   PL: 'PL-Plate',
+  PLGA: 'PL-Plate',
 };
 
 // weight_per_ft is only ever populated on a steel_catalog row once a company

@@ -87,8 +87,17 @@
           "shape_type": {
             "type": "string"
           },
+          "shape_code": {
+            "type": "string",
+            "description": "count/bolt_count only — the master catalog's short shape code (MaterialShapeType.shape_code, e.g. \"W\", \"HSS\", \"PL\") behind shape_type's human description. Needed to bridge into MaterialTakeoffLine's 5-value shape_class enum and to resolve weight-per-ft on push/save (see countShapeProfile.js) — shape_type alone (a free-text catalog description like \"Wideflange Beams\") doesn't match that enum."
+          },
           "size_designation": {
             "type": "string"
+          },
+          "width_ft": {
+            "type": "number",
+            "default": 0,
+            "description": "count only, Plate shape only — a plate's material requirement depends on length AND width, not thickness (size_designation) alone. Captured to 1/16\" precision alongside length_ft in Count Setup."
           },
           "bbox": {
             "type": "array",
@@ -147,7 +156,7 @@
           },
           "grade": {
             "type": "string",
-            "description": "bolt_count only — the bolt grade captured during setup (e.g. A325), alongside shape_type ('Type') and size_designation ('Size')."
+            "description": "count/bolt_count — the material grade captured during setup (e.g. A992 for a beam, A325 for a bolt), alongside shape_type/shape_code and size_designation."
           },
           "points": {
             "type": "array",
