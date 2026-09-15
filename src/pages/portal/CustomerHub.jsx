@@ -153,7 +153,7 @@ export default function CustomerHub() {
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {submittals.map((s) => (
                 <div key={s.id} className="flex items-center justify-between p-2 rounded bg-muted/50 text-xs">
-                  <div className="min-w-0"><p className="font-mono font-bold">{s.submittal_number || s.id.slice(0, 8)}</p><p className="truncate text-muted-foreground" title={s.title}>{s.title}</p></div>
+                  <div className="min-w-0"><p className="font-mono font-bold">{s.submittal_number || s.id.slice(0, 8)}{s.revision_number ? ` Rev ${s.revision_number}` : ''}</p><p className="truncate text-muted-foreground" title={s.submittal_description}>{s.submittal_description}</p></div>
                   <StatusBadge status={s.status} />
                 </div>
               ))}

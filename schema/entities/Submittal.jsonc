@@ -8,13 +8,61 @@
     "project_id": {
       "type": "string"
     },
-    "submittal_number": {
-      "type": "string"
+    "bid_id": {
+      "type": "string",
+      "description": "Optional link to the estimate/Bid this submittal traces back to — same carry-forward pattern as RFI.bid_id, set via the Estimate/Bid picker in the create form."
     },
-    "title": {
-      "type": "string"
+    "submittal_number": {
+      "type": "string",
+      "description": "Auto-generated per project on creation, e.g. \"SUB-001\" — same numbering convention as RFI.rfi_number. Stays fixed across every revision of the same submittal; see revision_number for the resubmission counter."
+    },
+    "revision_number": {
+      "type": "number",
+      "description": "Null/absent for the original submission. Incremented (1, 2, ...) each time a 'revise_and_resubmit' outcome is followed by a resubmission under this SAME submittal_number — never a new record. Set by the Create Revision & Resubmit action."
     },
     "spec_section": {
+      "type": "string",
+      "description": "CSI spec section, e.g. \"05 51 00\" — same naming convention as RFI.csi_section."
+    },
+    "submittal_description": {
+      "type": "string",
+      "description": "What the submittal covers, e.g. \"Miscellaneous Detail & Erection Shop Drawings\"."
+    },
+    "submitted_by_company": {
+      "type": "string"
+    },
+    "submitted_by_contact_name": {
+      "type": "string"
+    },
+    "submitted_by_contact_title": {
+      "type": "string"
+    },
+    "reviewer_company": {
+      "type": "string",
+      "description": "The GC/CM (or engineer) performing the review."
+    },
+    "reviewer_contact_name": {
+      "type": "string"
+    },
+    "date_submitted": {
+      "type": "string",
+      "format": "date"
+    },
+    "date_reviewed": {
+      "type": "string",
+      "format": "date",
+      "description": "Nullable until the reviewer records an outcome."
+    },
+    "review_outcome": {
+      "type": "string",
+      "enum": [
+        "reviewed",
+        "reviewed_as_noted",
+        "revise_and_resubmit"
+      ],
+      "description": "Null until the GC/CM records a review outcome. 'reviewed' and 'reviewed_as_noted' both resolve status to 'approved' — matching how the real folder structure files both dispositions under Approved."
+    },
+    "reviewer_initials": {
       "type": "string"
     },
     "status": {
@@ -24,29 +72,43 @@
         "submitted",
         "under_review",
         "approved",
-        "approved_as_noted",
-        "rejected"
+        "revise_and_resubmit",
+        "closed"
       ],
-      "default": "draft"
+      "default": "draft",
+      "description": "Workflow state, mirroring RFI.status's draft->submitted->[under_review]->resolved->closed shape. 'approved' is written automatically when review_outcome is 'reviewed' or 'reviewed_as_noted'; 'revise_and_resubmit' is written automatically when review_outcome is 'revise_and_resubmit'."
     },
-    "date_submitted": {
-      "type": "string",
-      "format": "date"
-    },
-    "date_required": {
-      "type": "string",
-      "format": "date"
-    },
-    "date_returned": {
-      "type": "string",
-      "format": "date"
+    "is_third_party": {
+      "type": "boolean",
+      "default": false,
+      "description": "True for a submittal originating from or belonging to another GC/trade — logged here for visibility only, not owned by this company's own review cycle. Drives the 'Other GC Submittals' category in the Submittals list (see src/pages/Submittals.jsx's getSubmittalCategory)."
     },
     "notes": {
+      "type": "string"
+    },
+    "attached_shop_drawing_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "FKs to existing ShopDrawing records — selected via search/select in the Submittals create/edit form rather than re-uploading the same drawing file a second time."
+    },
+    "other_attachment_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "FKs to existing Document records for non-drawing submittal content (product data, calculations, etc.) — same search/select-existing-record convention as attached_shop_drawing_ids."
+    },
+    "created_by": {
       "type": "string"
     }
   },
   "required": [
     "project_id",
-    "title"
+    "submittal_number",
+    "submittal_description"
   ]
 }

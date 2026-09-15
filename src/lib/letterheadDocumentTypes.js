@@ -22,6 +22,7 @@ export const LETTERHEAD_DOCUMENT_TYPES = [
   { key: 'bid_internal_breakdown', label: 'Bid Internal Breakdown', category: 'Bids & Proposals', mechanism: 'document', source: 'bidInternalBreakdownPdf.js' },
   { key: 'material_requisition', label: 'Material Takeoff Requisition', category: 'Bids & Proposals', mechanism: 'document', source: 'requisitionPdfExport.js' },
   { key: 'delay_impact_notice', label: 'Delay Impact Notice', category: 'Bids & Proposals', mechanism: 'document', source: 'delayNoticePdf.js' },
+  { key: 'submittal_transmittal', label: 'Submittal Transmittal', category: 'Bids & Proposals', mechanism: 'document', source: 'submittalTransmittalPdf.js' },
 
   // Shipping & field paperwork
   { key: 'bol', label: 'Bill of Lading (BOL)', category: 'Shipping & Field', mechanism: 'document', source: 'bolPdf.js' },

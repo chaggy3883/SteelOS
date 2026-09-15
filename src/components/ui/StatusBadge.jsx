@@ -42,6 +42,9 @@ const statusConfig = {
   answered: { label: 'Answered', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
   closed: { label: 'Closed', class: 'bg-gray-500/10 text-gray-600 border-gray-500/20' },
   void: { label: 'Void', class: 'bg-red-500/10 text-red-500 border-red-500/20' },
+  // Submittal statuses
+  approved: { label: 'Approved', class: 'bg-green-500/10 text-green-500 border-green-500/20' },
+  revise_and_resubmit: { label: 'Revise & Resubmit', class: 'bg-orange-500/10 text-orange-500 border-orange-500/20' },
   // DetailerImportBatch statuses
   uploaded: { label: 'Uploaded', class: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
   parsed: { label: 'Parsed', class: 'bg-purple-500/10 text-purple-500 border-purple-500/20' },

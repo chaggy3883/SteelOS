@@ -686,32 +686,37 @@ export async function seedDemoData() {
   });
   await db.entities.change_orders.bulkCreate(changeOrderPayloads, { skipAudit: true });
 
-  // 19. Submittals — 4/3/3 across the 3 active projects
+  // 19. Submittals — 4/3/3 across the 3 active projects. review_outcome
+  // 'reviewed'/'reviewed_as_noted' both resolve status to 'approved'
+  // (matching how the real folder structure files both dispositions under
+  // Approved); 'revise_and_resubmit' is a real status/outcome value now, not
+  // approximated with the closest unrelated enum value.
   const submittalProjectSeeds = [
     {
       project: costProjects[0],
       items: [
-        { title: 'Structural Steel Shop Drawings', spec_section: '05 12 00 Structural Steel Framing', status: 'approved', submittedOffset: -28, returnedOffset: -18 },
-        { title: 'Mill Certifications / MTRs', spec_section: '05 12 00 Structural Steel Framing', status: 'approved', submittedOffset: -25, returnedOffset: -15 },
-        { title: 'Paint System Data Sheets', spec_section: '09 91 13 Exterior Painting', status: 'approved', submittedOffset: -20, returnedOffset: -10 },
-        { title: 'Anchor Bolt Layout Plan', spec_section: '03 15 00 Anchor Bolts', status: 'approved', submittedOffset: -30, returnedOffset: -22 },
+        { submittal_description: 'Structural Steel Shop Drawings', spec_section: '05 12 00 Structural Steel Framing', status: 'approved', review_outcome: 'reviewed', reviewer_initials: 'JJK', submittedOffset: -28, reviewedOffset: -18 },
+        { submittal_description: 'Mill Certifications / MTRs', spec_section: '05 12 00 Structural Steel Framing', status: 'approved', review_outcome: 'reviewed', reviewer_initials: 'JJK', submittedOffset: -25, reviewedOffset: -15 },
+        { submittal_description: 'Paint System Data Sheets', spec_section: '09 91 13 Exterior Painting', status: 'approved', review_outcome: 'reviewed_as_noted', reviewer_initials: 'JJK', submittedOffset: -20, reviewedOffset: -10 },
+        { submittal_description: 'Anchor Bolt Layout Plan', spec_section: '03 15 00 Anchor Bolts', status: 'approved', review_outcome: 'reviewed', reviewer_initials: 'JJK', submittedOffset: -30, reviewedOffset: -22 },
       ],
     },
     {
       project: costProjects[1],
       items: [
-        { title: 'Structural Steel Shop Drawings', spec_section: '05 12 00 Structural Steel Framing', status: 'approved', submittedOffset: -26, returnedOffset: -16 },
-        // Schema has no "Revise and Resubmit" status — 'rejected' is the closest real value; the note preserves the actual disposition.
-        { title: 'Connection Design Calculations', spec_section: '05 50 00 Metal Fabrications', status: 'rejected', submittedOffset: -18, returnedOffset: -10, notes: 'Revise and resubmit — see reviewer comments.' },
-        { title: 'Paint System Data Sheets', spec_section: '09 91 13 Exterior Painting', status: 'under_review', submittedOffset: -10, requiredOffset: 4 },
+        { submittal_description: 'Structural Steel Shop Drawings', spec_section: '05 12 00 Structural Steel Framing', status: 'approved', review_outcome: 'reviewed', reviewer_initials: 'MTB', submittedOffset: -26, reviewedOffset: -16 },
+        { submittal_description: 'Connection Design Calculations', spec_section: '05 50 00 Metal Fabrications', status: 'revise_and_resubmit', review_outcome: 'revise_and_resubmit', reviewer_initials: 'MTB', submittedOffset: -18, reviewedOffset: -10, notes: 'Revise and resubmit — see reviewer comments.' },
+        { submittal_description: 'Paint System Data Sheets', spec_section: '09 91 13 Exterior Painting', status: 'under_review', submittedOffset: -10 },
+        // Logged for visibility only — this submittal belongs to the Misc. Metals subcontractor's own review cycle, not ours.
+        { submittal_description: 'Stair & Rail Shop Drawings (Misc. Metals Sub)', spec_section: '05 52 00 Metal Railings', status: 'submitted', submittedOffset: -6, is_third_party: true },
       ],
     },
     {
       project: costProjects[2],
       items: [
-        { title: 'Mill Certifications / MTRs', spec_section: '05 12 00 Structural Steel Framing', status: 'under_review', submittedOffset: -8, requiredOffset: 6 },
-        { title: 'Anchor Bolt Layout Plan', spec_section: '03 15 00 Anchor Bolts', status: 'approved', submittedOffset: -22, returnedOffset: -14 },
-        { title: 'Connection Design Calculations', spec_section: '05 50 00 Metal Fabrications', status: 'draft' },
+        { submittal_description: 'Mill Certifications / MTRs', spec_section: '05 12 00 Structural Steel Framing', status: 'under_review', submittedOffset: -8 },
+        { submittal_description: 'Anchor Bolt Layout Plan', spec_section: '03 15 00 Anchor Bolts', status: 'approved', review_outcome: 'reviewed', reviewer_initials: 'DRP', submittedOffset: -22, reviewedOffset: -14 },
+        { submittal_description: 'Connection Design Calculations', spec_section: '05 50 00 Metal Fabrications', status: 'draft' },
       ],
     },
   ];
@@ -724,12 +729,16 @@ export async function seedDemoData() {
       submittalPayloads.push({
         project_id: project.id,
         submittal_number: `SUB-${String(submittalCounter).padStart(3, '0')}`,
-        title: item.title,
+        submittal_description: item.submittal_description,
         spec_section: item.spec_section,
         status: item.status,
+        submitted_by_company: company?.name || 'Hancock Structural Steel LLC',
+        reviewer_company: 'Project GC/CM',
+        ...(item.is_third_party ? { is_third_party: true } : {}),
+        ...(item.review_outcome ? { review_outcome: item.review_outcome } : {}),
+        ...(item.reviewer_initials ? { reviewer_initials: item.reviewer_initials } : {}),
         ...(item.submittedOffset != null ? { date_submitted: daysFromNow(item.submittedOffset) } : {}),
-        ...(item.requiredOffset != null ? { date_required: daysFromNow(item.requiredOffset) } : {}),
-        ...(item.returnedOffset != null ? { date_returned: daysFromNow(item.returnedOffset) } : {}),
+        ...(item.reviewedOffset != null ? { date_reviewed: daysFromNow(item.reviewedOffset) } : {}),
         ...(item.notes ? { notes: item.notes } : {}),
       });
     });

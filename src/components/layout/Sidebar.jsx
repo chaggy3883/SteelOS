@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderKanban, Brain, Users, ShoppingCart,
   Package, Factory, CheckSquare, Truck, DollarSign, BarChart3,
   Settings, ChevronLeft, ChevronRight, Zap, Building2,
-  FileText, Shield, MessageSquare, Layers, Calculator, ShieldCheck, Wrench, UserCog, Gauge, KeyRound, HardHat, Monitor, Radar, FileStack, Scissors
+  FileText, Shield, MessageSquare, Layers, Calculator, ShieldCheck, Wrench, UserCog, Gauge, KeyRound, HardHat, Monitor, Radar, FileStack, Scissors, ClipboardList
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { db } from '@/api/apiClient';
@@ -20,6 +20,7 @@ const navGroups = [
       { icon: Calculator, label: 'Estimating', path: '/estimating' },
       { icon: FolderKanban, label: 'Projects', path: '/projects' },
       { icon: MessageSquare, label: 'RFIs', path: '/rfis' },
+      { icon: ClipboardList, label: 'Submittals', path: '/submittals' },
       { icon: Brain, label: 'Intelligence', path: '/intelligence' },
       { icon: Radar, label: 'Intelligence Signals', path: '/intelligence-signals' },
     ]

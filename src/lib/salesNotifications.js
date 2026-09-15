@@ -33,6 +33,9 @@ const RFI_ROUTES = {
 
 const CHANGE_ORDER_ROUTES = ['pm', 'estimating'];
 const BULLETIN_ROUTES = ['pm', 'shop', 'salesman'];
+const SUBMITTAL_ROUTES = ['pm', 'estimating'];
+
+const SUBMITTAL_REVIEW_OUTCOME_LABELS = { reviewed: 'Reviewed', reviewed_as_noted: 'Reviewed as Noted', revise_and_resubmit: 'Revise & Resubmit' };
 
 const TARGET_TO_PROJECT_FIELD = { pm: 'project_manager_id', estimating: 'estimator_id', salesman: 'salesman_id' };
 const TARGET_TO_BROADCAST_ROLE = { qa: 'inspector', shop: 'shop_manager' };
@@ -98,6 +101,31 @@ export async function dispatchChangeOrderNotification(co, project, creatorEmploy
     link: `/projects/change-orders?open=${co.id}`,
     entityType: 'ChangeOrder',
     entityId: co.id,
+    creatorId: creatorEmployeeId,
+  });
+  return userIds.length;
+}
+
+// Called on a Submittal creation/review/resubmission event (src/pages/Submittals.jsx)
+// — reuses the same resolveRecipientUserIds/createNotifications plumbing as
+// dispatchRfiNotification/dispatchChangeOrderNotification rather than a third
+// notification mechanism. eventType is one of 'created' | 'reviewed' | 'resubmitted'.
+export async function dispatchSubmittalNotification(submittal, project, eventType, creatorEmployeeId, creatorName) {
+  const userIds = await resolveRecipientUserIds(project, SUBMITTAL_ROUTES, creatorEmployeeId);
+  const revLabel = submittal.revision_number ? ` Rev ${submittal.revision_number}` : '';
+  const messages = {
+    created: `${creatorName || 'Someone'} submitted ${submittal.submittal_number}${revLabel} for review: ${submittal.submittal_description}`,
+    reviewed: `${submittal.submittal_number}${revLabel} was reviewed: ${SUBMITTAL_REVIEW_OUTCOME_LABELS[submittal.review_outcome] || submittal.review_outcome}${submittal.review_outcome === 'revise_and_resubmit' ? ' — a new revision is needed.' : '.'}`,
+    resubmitted: `${submittal.submittal_number} Revision ${submittal.revision_number} was resubmitted for review.`,
+  };
+  await createNotifications(userIds, {
+    title: `Submittal update on ${project?.name || 'a project'}`,
+    message: messages[eventType] || `${submittal.submittal_number} was updated.`,
+    type: 'submittal_update',
+    projectId: submittal.project_id,
+    link: `/submittals?open=${submittal.id}`,
+    entityType: 'Submittal',
+    entityId: submittal.id,
     creatorId: creatorEmployeeId,
   });
   return userIds.length;

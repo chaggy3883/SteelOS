@@ -80,6 +80,14 @@ export const LINKED_DOCUMENT_CATEGORIES = [
     linkFor: (r) => ({ type: 'route', to: `/rfis?open=${r.id}` }),
   },
   {
+    key: 'submittals',
+    label: 'Submittals',
+    documentType: 'submittal',
+    query: (projectId) => db.entities.Submittal.filter({ project_id: projectId }, '-created_date', 100),
+    titleOf: (r) => `${r.submittal_number || ''}${r.revision_number ? ` Rev ${r.revision_number}` : ''}${r.submittal_description ? ` — ${r.submittal_description}` : ''}`,
+    linkFor: (r) => ({ type: 'route', to: `/submittals?open=${r.id}` }),
+  },
+  {
     key: 'purchase_orders',
     label: 'Purchase Orders',
     documentType: null,

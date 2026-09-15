@@ -38,6 +38,7 @@ import QualityKpiBuilder from '@/pages/QualityKpiBuilder';
 import Safety from '@/pages/Safety';
 import Shipping from '@/pages/Shipping';
 import RFIs from '@/pages/RFIs';
+import Submittals from '@/pages/Submittals';
 import Documents from '@/pages/Documents';
 import CRM from '@/pages/CRM';
 import CrmDirectories from '@/pages/CrmDirectories';
@@ -164,6 +165,7 @@ const AuthenticatedApp = () => {
           <Route path="/field-operations/rigging-inspection" element={<RiggingInspectionForm />} />
           <Route path="/field-operations/equipment-service" element={<EquipmentServiceForm />} />
           <Route path="/rfis" element={<RFIs />} />
+          <Route path="/submittals" element={<Submittals />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/crm" element={<CRM />} />
           <Route path="/crm/directory" element={<CrmDirectories />} />
