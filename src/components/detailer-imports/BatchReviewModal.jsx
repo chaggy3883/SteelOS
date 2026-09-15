@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { validateBatchRows } from '@/lib/detailerImportValidation';
-import { commitBatch, detectRevisions } from '@/lib/detailerImportCommit';
+import { commitBatch, detectRevisions, findInventoryMatches } from '@/lib/detailerImportCommit';
 import { isDrawingFile } from '@/lib/detailerImportParser';
 import { deriveShapeFromProfile } from '@/lib/materialProfileMatch';
 import { calculateUnitWeight, calculateAssemblyTotalWeights, isAssemblyMainPiece } from '@/lib/detailerImportWeight';
@@ -13,6 +13,7 @@ import { getEffectiveCompany } from '@/lib/tenantContext';
 import { generateDetailerImportBatchReviewPdf } from '@/lib/detailerImportBatchReviewPdf';
 import { generateDetailerImportBatchReviewXlsx } from '@/lib/detailerImportBatchReviewXlsx';
 import RevisionCompareModal from '@/components/detailer-imports/RevisionCompareModal';
+import InventoryMatchModal from '@/components/detailer-imports/InventoryMatchModal';
 import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -80,6 +81,7 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
   const [committing, setCommitting] = useState(false);
   const [checkingRevisions, setCheckingRevisions] = useState(false);
   const [pendingRevisions, setPendingRevisions] = useState(null); // [{row, pieceMark, changes}] | null
+  const [pendingInventoryMatches, setPendingInventoryMatches] = useState(null); // {matches: [{row, remnant}], skipRowIds} | null
   const [currentUser, setCurrentUser] = useState(null);
   const [sequenceAreas, setSequenceAreas] = useState([]);
   const [viewingFileId, setViewingFileId] = useState(null);
@@ -297,7 +299,7 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
   };
 
   // Stage 11: detect changed-existing-piece rows before touching anything.
-  // No revisions found -> commit exactly as before (unaffected fast path).
+  // No revisions found -> proceed straight to the inventory-match check.
   // Revisions found -> open RevisionCompareModal and wait for an explicit
   // per-piece choice; nothing commits until that modal's own action fires.
   const handleCommit = async () => {
@@ -305,7 +307,7 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
     try {
       const revisions = await detectRevisions(batch, rows);
       if (revisions.length === 0) {
-        await runCommit(new Set());
+        await checkInventoryMatches(new Set());
       } else {
         setPendingRevisions(revisions);
       }
@@ -317,14 +319,43 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
     }
   };
 
-  const runCommit = async (confirmedRowIds) => {
+  // QR lifecycle: runs once revisions are resolved (none found, or the user
+  // confirmed which to apply) and before anything actually commits — checks
+  // brand-new pieces in this batch against on-hand unassigned remnant_inventory
+  // rows (detailerImportCommit.js's findInventoryMatches). No matches ->
+  // commit exactly as before this feature existed (unaffected fast path).
+  // Matches found -> open InventoryMatchModal; unlike revisions, declining
+  // every match still commits everything, just with freshly generated QRs.
+  const checkInventoryMatches = async (confirmedRevisionRowIds) => {
+    const skipRowIds = pendingRevisions
+      ? new Set(pendingRevisions.map((r) => r.row.id).filter((id) => !confirmedRevisionRowIds.has(id)))
+      : new Set();
+    // Revisions are fully resolved as of this call (there were none, or the
+    // user just confirmed which apply) — close RevisionCompareModal now
+    // rather than leaving it open behind/underneath InventoryMatchModal if a
+    // match turns up next.
+    setPendingRevisions(null);
+    setCheckingRevisions(true);
+    try {
+      const matches = await findInventoryMatches(batch, rows, skipRowIds);
+      if (matches.length > 0) {
+        setPendingInventoryMatches({ matches, skipRowIds });
+      } else {
+        await runCommit(skipRowIds, new Map());
+      }
+    } catch (error) {
+      console.error(error);
+      toast({ title: 'Unable to check inventory for matches', variant: 'destructive' });
+    } finally {
+      setCheckingRevisions(false);
+    }
+  };
+
+  const runCommit = async (skipRowIds, inventoryMatchesMap) => {
     setCommitting(true);
     try {
-      const skipRowIds = pendingRevisions
-        ? new Set(pendingRevisions.map((r) => r.row.id).filter((id) => !confirmedRowIds.has(id)))
-        : new Set();
       const changedBy = currentUser?.full_name || currentUser?.email || 'Unknown';
-      const result = await commitBatch(batch, rows, { skipRowIds, changedBy });
+      const result = await commitBatch(batch, rows, { skipRowIds, changedBy, inventoryMatches: inventoryMatchesMap });
       setRows((current) => current.map((row) => (
         row.committed || row.validation_status === 'error' || skipRowIds.has(row.id)
           ? row
@@ -332,12 +363,14 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
       )));
       onBatchUpdated(result.batch);
       setPendingRevisions(null);
+      setPendingInventoryMatches(null);
       toast({
         title: `Committed batch: ${result.created} created, ${result.updated} updated`,
         description: [
           result.skipped > 0 ? `${result.skipped} row${result.skipped === 1 ? '' : 's'} skipped due to errors.` : null,
           result.revisionsSkipped > 0 ? `${result.revisionsSkipped} revision${result.revisionsSkipped === 1 ? '' : 's'} left unconfirmed — not applied.` : null,
           result.drawingsMatched > 0 ? `${result.drawingsMatched} drawing${result.drawingsMatched === 1 ? '' : 's'} matched and attached by filename.` : null,
+          result.inventoryMatchesApplied > 0 ? `${result.inventoryMatchesApplied} piece${result.inventoryMatchesApplied === 1 ? '' : 's'} reused an on-hand leftover's QR instead of generating a new one.` : null,
         ].filter(Boolean).join(' ') || undefined,
       });
     } catch (error) {
@@ -572,9 +605,24 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
     <RevisionCompareModal
       open={!!pendingRevisions}
       revisions={pendingRevisions || []}
-      committing={committing}
+      committing={committing || checkingRevisions}
       onCancel={() => setPendingRevisions(null)}
-      onConfirm={(confirmedRowIds) => runCommit(confirmedRowIds)}
+      onConfirm={(confirmedRowIds) => checkInventoryMatches(confirmedRowIds)}
+    />
+
+    <InventoryMatchModal
+      open={!!pendingInventoryMatches}
+      matches={pendingInventoryMatches?.matches || []}
+      committing={committing}
+      onSkipAll={() => runCommit(pendingInventoryMatches.skipRowIds, new Map())}
+      onConfirm={(checkedRowIds) => {
+        const acceptedMatches = new Map(
+          pendingInventoryMatches.matches
+            .filter((m) => checkedRowIds.has(m.row.id))
+            .map((m) => [m.row.id, m.remnant.id])
+        );
+        runCommit(pendingInventoryMatches.skipRowIds, acceptedMatches);
+      }}
     />
     </>
   );

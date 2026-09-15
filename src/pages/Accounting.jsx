@@ -240,6 +240,7 @@ export default function Accounting() {
 
   // --- AR / Billings ---
   const [sovLines, setSovLines] = useState([]);
+  const [sovAreas, setSovAreas] = useState([]);
   const [invoiceReceivables, setInvoiceReceivables] = useState([]);
   const [editingSov, setEditingSov] = useState(null);
   const [sovForm, setSovForm] = useState(emptySovForm());
@@ -359,20 +360,22 @@ export default function Accounting() {
 
   const loadSovAndLedger = async (projectId) => {
     try {
-      const [sovData, invoiceData, ledgerData, laborData, expenseData] = await Promise.all([
+      const [sovData, invoiceData, ledgerData, laborData, expenseData, areaData] = await Promise.all([
         db.entities.SovLine.filter({ project_id: projectId }, '-created_date', 200),
         db.entities.InvoiceReceivable.filter({ project_id: projectId }, '-created_date', 200),
         db.entities.JobCostLedgerEntry.filter({ project_id: projectId }, '-created_date', 500),
         db.entities.JobLaborAllocation.filter({ project_id: projectId }, '-created_date', 2000),
         db.entities.credit_card_expenses.filter({ project_id: projectId }, '-expense_date', 500),
+        db.entities.ProjectSequenceArea.filter({ project_id: projectId }, 'production_priority', 200),
       ]);
       setSovLines(sovData);
       setInvoiceReceivables(invoiceData);
       setLedgerEntries(ledgerData);
       setLaborAllocations(laborData);
       setProjectExpenses(expenseData);
+      setSovAreas(areaData);
     } catch (e) {
-      setSovLines([]); setInvoiceReceivables([]); setLedgerEntries([]); setLaborAllocations([]); setProjectExpenses([]);
+      setSovLines([]); setInvoiceReceivables([]); setLedgerEntries([]); setLaborAllocations([]); setProjectExpenses([]); setSovAreas([]);
     }
   };
 
@@ -694,8 +697,8 @@ export default function Accounting() {
   };
 
   // Same InvokeLLM call shape (upload first, single structured-extraction
-  // call, identical try/catch) as SmartFileDump.jsx's runAIParse. Extraction
-  // only — nothing here approves or matches anything.
+  // call, identical try/catch) as Intelligence.jsx's document AI-analysis
+  // flow. Extraction only — nothing here approves or matches anything.
   const runInvoiceParse = async () => {
     if (!invoiceFile) return;
     setParsingInvoice(true);
@@ -1659,6 +1662,7 @@ export default function Accounting() {
                         <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">No SOV lines for this project yet.</td></tr>
                       ) : sovLines.map(line => {
                         const codeEntries = line.cost_code ? ledgerEntries.filter(e => e.cost_code === line.cost_code) : [];
+                        const sourceArea = line.area_id ? sovAreas.find(a => a.id === line.area_id) : null;
                         const openLineLedger = (e) => {
                           e.stopPropagation();
                           if (!line.cost_code) { openLedgerDrilldown('Job Cost Ledger', [], 'This SOV line has no cost code assigned, so there is nothing to match against the job cost ledger.'); return; }
@@ -1669,6 +1673,7 @@ export default function Accounting() {
                             <td className="py-3 px-4">
                               {line.item_description}
                               {line.cost_code && <button onClick={openLineLedger} className="block text-xs text-muted-foreground hover:underline">{line.cost_code}</button>}
+                              {sourceArea && <span className="block text-xs text-muted-foreground">↳ Area: {sourceArea.name}{sourceArea.contract_value_pct != null ? ` (${sourceArea.contract_value_pct}%)` : ''}</span>}
                             </td>
                             <td className="py-3 px-4 text-right font-mono">${(line.original_scheduled_value || 0).toLocaleString()}</td>
                             <td className="py-3 px-4 text-right font-mono">{line.completion_percentage || 0}%</td>

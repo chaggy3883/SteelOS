@@ -8,6 +8,10 @@
     "project_id": {
       "type": "string"
     },
+    "area_id": {
+      "type": "string",
+      "description": "The originating ProjectSequenceArea, when this line was auto-generated on bid win (createProjectFromWonBid in BidDetail.jsx). Null for a manually-created SOV line not tied to an Area. Lets a canceled Area's %/value be looked up directly instead of re-derived by hand."
+    },
     "item_description": {
       "type": "string"
     },

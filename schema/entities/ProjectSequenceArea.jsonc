@@ -4,8 +4,13 @@
     "company_id": {
       "type": "string"
     },
+    "bid_id": {
+      "type": "string",
+      "description": "Set when this Area is created during estimating, before a bid is won. Exactly one of bid_id/project_id is expected before win; createProjectFromWonBid (BidDetail.jsx) sets project_id on this same record on win, so both are set afterward — it is never recreated as a new record."
+    },
     "project_id": {
-      "type": "string"
+      "type": "string",
+      "description": "Populated when a bid carrying this Area is won (createProjectFromWonBid in BidDetail.jsx). Null for a bid-stage Area not yet won."
     },
     "name": {
       "type": "string",
@@ -14,10 +19,19 @@
     "sort_order": {
       "type": "number",
       "default": 0
+    },
+    "contract_value_pct": {
+      "type": "number",
+      "default": 0,
+      "description": "Estimator-entered % of the bid's total contract value this Area represents (0-100). Drives SovLine.original_scheduled_value on bid win. Never shown to shop/production roles — see src/lib/areaVisibility.js."
+    },
+    "production_priority": {
+      "type": "number",
+      "default": 0,
+      "description": "Explicit, freely user-reorderable shop production sequence (lower = worked first). Distinct from sort_order, which ProjectManagement.jsx's Shop Drawing grouping already uses for an unrelated display order."
     }
   },
   "required": [
-    "project_id",
     "name"
   ],
   "name": "ProjectSequenceArea"

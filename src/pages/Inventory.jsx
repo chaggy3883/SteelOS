@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
-import { Package, Plus, Search, Warehouse, List, AlertTriangle } from 'lucide-react';
+import { Package, Plus, Search, Warehouse, List, AlertTriangle, Recycle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +14,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import InventoryItemDetailModal from '@/components/inventory/InventoryItemDetailModal';
+import LeftoverInventoryPanel from '@/components/inventory/LeftoverInventoryPanel';
 
 const CATEGORIES = ['wide_flange', 'hss', 'angle', 'channel', 'plate', 'rebar', 'bolt', 'weld_material', 'paint', 'other'];
 
@@ -35,6 +37,7 @@ export default function Inventory() {
   const [itemForm, setItemForm] = useState(emptyItemForm());
   const [savingItem, setSavingItem] = useState(false);
   const [shopFloorZones, setShopFloorZones] = useState([]);
+  const [viewingItemId, setViewingItemId] = useState(null);
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
@@ -107,6 +110,11 @@ export default function Inventory() {
     (!zoneFilter || i.warehouse_zone === zoneFilter)
   );
 
+  const viewingItem = items.find((i) => i.id === viewingItemId) || null;
+  const handleItemUpdated = (updated) => {
+    setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+  };
+
   const lowStock = items.filter(i => i.reorder_point && i.quantity_available <= i.reorder_point);
   const totalValue = items.reduce((sum, i) => sum + ((i.quantity_on_hand || 0) * (i.unit_cost || 0)), 0);
 
@@ -167,6 +175,7 @@ export default function Inventory() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="list" className="gap-2"><List className="w-4 h-4" /> Inventory List</TabsTrigger>
+          <TabsTrigger value="leftover" className="gap-2"><Recycle className="w-4 h-4" /> Leftover Material</TabsTrigger>
           <TabsTrigger value="warehouse" className="gap-2"><Warehouse className="w-4 h-4" /> 3D Warehouse</TabsTrigger>
         </TabsList>
 
@@ -212,7 +221,7 @@ export default function Inventory() {
                     </td></tr>
                   ) : (
                     filtered.map(item => (
-                      <tr key={item.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                      <tr key={item.id} onClick={() => setViewingItemId(item.id)} className="border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
                         <td className="py-3 px-4">
                           <p className="font-medium">{item.description}</p>
                           <p className="text-xs text-muted-foreground font-mono">{item.item_number}</p>
@@ -242,10 +251,22 @@ export default function Inventory() {
           </div>
         </TabsContent>
 
+        <TabsContent value="leftover">
+          <LeftoverInventoryPanel shopFloorZones={shopFloorZones} />
+        </TabsContent>
+
         <TabsContent value="warehouse">
           <Warehouse3D items={items} onViewZoneItems={(zoneId) => { setZoneFilter(zoneId); setStockFilter(null); setActiveTab('list'); }} />
         </TabsContent>
       </Tabs>
+
+      <InventoryItemDetailModal
+        item={viewingItem}
+        open={!!viewingItem}
+        onOpenChange={(o) => !o && setViewingItemId(null)}
+        shopFloorZones={shopFloorZones}
+        onUpdated={handleItemUpdated}
+      />
 
       <Dialog open={showAddItem} onOpenChange={setShowAddItem}>
         <DialogContent>

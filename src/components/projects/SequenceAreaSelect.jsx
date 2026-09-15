@@ -36,6 +36,8 @@ export default function SequenceAreaSelect({ projectId, sequenceAreas, value, on
         project_id: projectId,
         name: newName.trim(),
         sort_order: sequenceAreas.length,
+        production_priority: sequenceAreas.length,
+        contract_value_pct: 0,
       });
       onCreated?.(created);
       onChange(created.id);

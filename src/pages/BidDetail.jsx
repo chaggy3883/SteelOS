@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Download, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat, Send, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Download, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat, Send, ShieldAlert, Layers } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import { generateBidProposalPdf } from '@/lib/bidProposalPdf';
 import { generateBidInternalBreakdownPdf } from '@/lib/bidInternalBreakdownPdf';
@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
-import SmartFileDump from '@/components/estimating/SmartFileDump';
+import DocumentsPanel from '@/components/documents/DocumentsPanel';
 import AIContractReviewPanel from '@/components/estimating/AIContractReviewPanel';
 import DNBReasonModal from '@/components/estimating/DNBReasonModal';
 import TakeoffEngine from '@/components/estimating/TakeoffEngine';
@@ -24,6 +24,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Switch } from '@/components/ui/switch';
 import FullTakeoff from '@/components/estimating/FullTakeoff';
 import TmEstimateWorksheet from '@/components/estimating/TmEstimateWorksheet';
+import BidAreaManager from '@/components/estimating/BidAreaManager';
 import { computeEffectiveTaxRate, buildTaxRateInput, HANCOCK_COUNTY_TAX_RATE, TAX_RATE_PATTERN, formatTaxRatePercent, sanitizeTaxRateInput } from '@/lib/taxRate';
 import { runBidReviewSkill } from '@/lib/aiReviewSkills';
 import { getEffectiveCompany } from '@/lib/tenantContext';
@@ -64,7 +65,7 @@ export default function BidDetail() {
   // opened via window.open() (see Estimating.jsx's openBid) is a fresh
   // browsing context with no router state, so it passes the same hint as a
   // ?tab= query param instead — check that as the fallback.
-  const [activeTab, setActiveTab] = useState(location.state?.tab || searchParams.get('tab') || 'files');
+  const [activeTab, setActiveTab] = useState(location.state?.tab || searchParams.get('tab') || 'documents');
   const [showLossForm, setShowLossForm] = useState(false);
   const [showDnbModal, setShowDnbModal] = useState(false);
   const [lossForm, setLossForm] = useState({ reason: '', notes: '', competitor: '' });
@@ -242,9 +243,10 @@ export default function BidDetail() {
 
   const createProjectFromWonBid = async (wonBid) => {
     const project_number = await getNextProjectNumber();
-    const [takeoffLines, documents] = await Promise.all([
+    const [takeoffLines, documents, bidAreas] = await Promise.all([
       db.entities.TakeoffLine.filter({ bid_id: wonBid.id }, '-created_date', 200),
       db.entities.Document.filter({ bid_id: wonBid.id }, '-created_date', 200),
+      db.entities.ProjectSequenceArea.filter({ bid_id: wonBid.id }, 'production_priority', 200),
     ]);
 
     const project = await db.entities.Project.create({
@@ -283,6 +285,22 @@ export default function BidDetail() {
       ...takeoffLines.map(({ id: _id, created_date: _cd, updated_date: _ud, ...line }) =>
         db.entities.TakeoffLine.create({ ...line, bid_id: wonBid.id, project_id: project.id })),
     ]);
+
+    // Carry each bid-stage Area forward onto the new project (same record,
+    // same id — matches the pricing_type/is_prevailing_wage carryover
+    // above) and auto-generate its linked SOV line, reusing the existing
+    // SovLine entity so Accounting's SOV system stays the single source.
+    // A bid with no Areas (the common case) creates zero SOV lines here —
+    // SOV stays fully manual for it, exactly as before this feature.
+    await Promise.all(bidAreas.map((area) => Promise.all([
+      db.entities.ProjectSequenceArea.update(area.id, { project_id: project.id }),
+      db.entities.SovLine.create({
+        project_id: project.id,
+        area_id: area.id,
+        item_description: area.name,
+        original_scheduled_value: (project.contract_value || 0) * ((Number(area.contract_value_pct) || 0) / 100),
+      }),
+    ])));
 
     await db.entities.Bid.update(wonBid.id, { won_project_id: project.id, project_id: project.id });
 
@@ -795,7 +813,8 @@ export default function BidDetail() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-6">
-          <TabsTrigger value="files"><Upload className="w-4 h-4 mr-1.5" />Smart File Dump</TabsTrigger>
+          <TabsTrigger value="documents"><Upload className="w-4 h-4 mr-1.5" />Documents</TabsTrigger>
+          <TabsTrigger value="areas"><Layers className="w-4 h-4 mr-1.5" />Areas</TabsTrigger>
           {bid.pricing_type === 'time_and_material' ? (
             <TabsTrigger value="tm"><HardHat className="w-4 h-4 mr-1.5" />T&M Estimate</TabsTrigger>
           ) : (
@@ -810,8 +829,12 @@ export default function BidDetail() {
           <TabsTrigger value="contract-review"><ScanSearch className="w-4 h-4 mr-1.5" />AI Contract Review</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="files">
-          <SmartFileDump bidId={bid.id} bid={bid} onParseComplete={() => loadBid()} />
+        <TabsContent value="documents">
+          <DocumentsPanel bidId={bid.id} />
+        </TabsContent>
+
+        <TabsContent value="areas">
+          <BidAreaManager bid={bid} onSaved={() => loadBid()} />
         </TabsContent>
 
         {bid.pricing_type === 'time_and_material' ? (

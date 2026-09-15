@@ -49,6 +49,27 @@
     "consumed_date": {
       "type": "string",
       "format": "date-time"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Condition/notes captured when this leftover was logged (e.g. 'Add Leftover to Inventory' manual entry on Inventory.jsx) — separate from heat_number_string, which is metallurgical, not descriptive."
+    },
+    "qr_payload_string": {
+      "type": "string",
+      "description": "QR lifecycle: generated via generatePiecePayload() (qrSerialization.js) the moment this remnant is logged, while it's still unassigned — this is the SAME payload that ends up on a PieceMark if this remnant is later whole-piece-matched to a new piece (see PieceMark.qr_payload_string's description and detailerImportCommit.js's commitBatch), never regenerated. The physical label printed for this remnant (reuses the barcode-printing pipeline's Material_Stock label type) never changes even after that transfer — only which record 'owns' the payload moves. Blank on remnants logged before this field existed or via the older Stage 10 'Log Remnant' action — those are cut-plan stock only, never offered as a whole-piece match (see findWholePieceRemnantMatches in materialOptimizer.js)."
+    },
+    "is_assigned": {
+      "type": "boolean",
+      "default": false,
+      "description": "QR lifecycle: false while this remnant sits in inventory, searchable/matchable against a new project's Detailer Import batch. Set true the moment it's whole-piece-matched and consumed by a new PieceMark (commitBatch in detailerImportCommit.js) — status is set to 'consumed' at the same time so it also drops out of the older Stage 10 cut-plan remnant search (findMatchingRemnants), since the physical piece no longer exists as raw stock either way."
+    },
+    "assigned_project_id": {
+      "type": "string",
+      "description": "FK to Project — set alongside is_assigned:true, the project whose Detailer Import batch consumed this remnant. Null while unassigned. Distinct from source_project_id, which is where the leftover material ORIGINALLY came from."
+    },
+    "assigned_piece_mark_id": {
+      "type": "string",
+      "description": "FK to PieceMark — the specific new piece that received this remnant's qr_payload_string, set alongside is_assigned:true. Null while unassigned."
     }
   },
   "required": [

@@ -16,7 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import StatusBadge from '@/components/ui/StatusBadge';
 import StatsCard from '@/components/ui/StatsCard';
-import FileExplorer from '@/components/documents/FileExplorer';
+import DocumentsPanel from '@/components/documents/DocumentsPanel';
 import { useToast } from '@/components/ui/use-toast';
 import { getStatutoryDeadline } from '@/lib/lienStatutes';
 import { getOpenActionItems, isOverdue } from '@/lib/meetingNotes';
@@ -37,6 +37,7 @@ import UnsavedChangesModal from '@/components/meeting-mode/UnsavedChangesModal';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { pieceDocumentsKey, getDocumentRecords } from '@/lib/pieceMarkDocumentStore';
+import { canSeeAreaPricing } from '@/lib/areaVisibility';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal', 'Lintel'];
 const emptyPartForm = () => ({
@@ -72,6 +73,7 @@ export default function ProjectDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
+  const canSeeAreaDollarFigures = canSeeAreaPricing(user?.roles);
   const [showStatusHistory, setShowStatusHistory] = useState(false);
   const [project, setProject] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
@@ -227,7 +229,7 @@ export default function ProjectDetail() {
         db.entities.employees.filter({ is_active: true }, 'full_name', 500),
         db.entities.employee_certifications.list('-created_date', 2000),
         db.entities.User.list('-created_date', 200),
-        db.entities.ProjectSequenceArea.filter({ project_id: id }, 'sort_order', 200),
+        db.entities.ProjectSequenceArea.filter({ project_id: id }, 'production_priority', 200),
       ]);
       setProject(proj);
       setFindings(finds);
@@ -873,10 +875,7 @@ export default function ProjectDetail() {
         {/* Documents */}
         <TabsContent value="documents">
           <div className="steel-card p-5">
-            <FileExplorer
-              projectId={id}
-              onUpload={(path) => navigate(`/intelligence?project=${id}&path=${encodeURIComponent(path)}`)}
-            />
+            <DocumentsPanel projectId={id} onOpenHandoffTab={() => setActiveTab('handoff')} />
           </div>
         </TabsContent>
 
@@ -1079,14 +1078,19 @@ export default function ProjectDetail() {
                   )}
 
                   <div className="space-y-3">
-                    {seqGroupEntries.map(([groupKey, rows]) => {
+                    {seqGroupEntries.map(([groupKey, rows], groupIdx) => {
                       const allSelected = rows.length > 0 && rows.every((r) => selectedSeqPieceIds.has(r.id));
-                      const groupName = groupKey === 'unassigned' ? 'Unassigned' : sequenceAreasById.get(groupKey)?.name;
+                      const groupArea = groupKey === 'unassigned' ? null : sequenceAreasById.get(groupKey);
+                      const groupName = groupArea ? groupArea.name : 'Unassigned';
                       return (
                         <div key={groupKey} className="rounded-lg border border-border overflow-hidden">
                           <div className="p-3 border-b border-border flex items-center gap-2 bg-muted/20">
                             <Checkbox checked={allSelected} onCheckedChange={(c) => toggleSelectAllInSeqGroup(rows, c)} disabled={rows.length === 0} />
+                            {groupArea && <span className="text-xs font-mono text-muted-foreground">#{groupIdx + 1}</span>}
                             <span className="font-medium text-sm">{groupName}</span>
+                            {groupArea && canSeeAreaDollarFigures && groupArea.contract_value_pct != null && (
+                              <span className="text-xs font-mono text-muted-foreground">({groupArea.contract_value_pct}%)</span>
+                            )}
                             <span className="text-xs text-muted-foreground">{rows.length} piece{rows.length === 1 ? '' : 's'}</span>
                           </div>
                           {rows.length === 0 ? (

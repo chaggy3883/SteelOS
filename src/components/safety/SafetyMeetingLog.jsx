@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { ClipboardList, Plus, Users, UserX, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -30,8 +31,18 @@ export default function SafetyMeetingLog() {
   const [projectFilter, setProjectFilter] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
   const [viewingMeeting, setViewingMeeting] = useState(null);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => { loadAll(); }, []);
+
+  // Deep link from the Documents panel's linked "Safety" category
+  // ('/safety?open=<id>' — Safety.jsx defaults to this meetings tab already).
+  useEffect(() => {
+    const openId = searchParams.get('open');
+    if (!openId || meetings.length === 0) return;
+    const match = meetings.find((m) => m.id === openId);
+    if (match) setViewingMeeting(match);
+  }, [searchParams, meetings]);
 
   const loadAll = async () => {
     setLoading(true);

@@ -5,6 +5,201 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-15) — Documents rebuild, Smart File Dump removed
+
+- **Unified Documents system on both Project and Bid pages, drag-drop +
+  confirmed manual type selection, much larger category list, filter/search,
+  link-don't-duplicate for categories with a real dedicated system.**
+  `Document.document_type` grew from 24 to 40 values
+  (`schema/entities/Document.jsonc`) — added `accounting`, `legal_general`,
+  `close_out`, `contract_review_aisc`, `drawing_joist_deck`, `leed`,
+  `notice_of_commencement`, `notice_of_furnishing`, `photo`,
+  `request_for_change`, `safety`, `schedule`, `vendor_pricing`,
+  `front_end_review`, `previous_recap_proposal`, `bulletin`; every value in
+  the requested 29-category cross-reference list maps to one (several
+  many-to-one, e.g. "Plans & Specifications"/"Specs" both → `specification`).
+  Deliberately no document_type value exists for Change Orders, Purchase
+  Orders, or Certified Payroll — those three have no manual-upload path at
+  all, by design, so a disconnected duplicate record can never be created for
+  them. `required` relaxed from `[project_id, name, document_type]` to
+  `[name, document_type]` since a bid-stage Document has `bid_id` instead
+  (schema files are documentation only, not runtime-enforced, so this is a
+  doc-accuracy fix).
+  New `src/lib/documentCategories.js` — single source of truth
+  (`DOCUMENT_TYPE_OPTIONS`, all 40 human-labeled) fixing two pre-existing enum
+  drift bugs found while exploring (`Documents.jsx`'s stale 10-value list,
+  `Intelligence.jsx`'s stale 8-value list — both now import the shared list),
+  plus `LINKED_DOCUMENT_CATEGORIES` (7 entries: Change Orders, RFI, Purchase
+  Orders, Certified Payroll, Schedule, Safety, Contract Review Records AISC)
+  each mapping to the real owning entity/query/detail-link. New
+  `src/components/documents/DocumentsPanel.jsx`: drag-drop (the established
+  window-level preventDefault backstop from `PieceMarkPdfIntake.jsx`, applied
+  from the start rather than re-discovering the browser's native file-open
+  fallback bug) opens a confirm-type modal per dropped file — Add stays
+  disabled until every file has an explicit, manually-picked type (never
+  auto-detected) — plus a document_type filter and name/description search.
+  Selecting one of the 7 linked categories queries that system's real records
+  instead of a disconnected upload bucket (only when that category is
+  active, not merged into the default view) — Change Orders/RFI already had
+  a `?open=<id>` deep-link convention (`ChangeOrders.jsx`, `RFIs.jsx`), added
+  the same to `ProcurementModule.jsx` (wired to existing `setDetailPoId`/
+  `setDetailOpen`), `CertifiedPayroll.jsx` (existing `selectedSubmission`),
+  and `SafetyMeetingLog.jsx` (existing `setViewingMeeting`); Contract Review
+  AISC switches to `ProjectDetail.jsx`'s own Handoff tab in-page (no route —
+  `TurnoverReviewPanel` lives there); Schedule links to `/shop-fabrication`
+  at the page level only since no per-record detail view exists anywhere for
+  `shop_schedules` today (a real, stated limitation, not fabricated).
+  Mounted on `ProjectDetail.jsx`'s Documents tab (`projectId`, replacing
+  `FileExplorer.jsx` there only — `FileExplorer.jsx`/`PathBreadcrumb.jsx`
+  stay in place for `CustomerHub.jsx`'s customer-portal view, untouched) and
+  on `BidDetail.jsx`'s first tab (`bidId`, renamed `'files'` → `'documents'`
+  including the `activeTab` default fallback — confirmed no deep link
+  anywhere targeted `tab=files`).
+  **Smart File Dump eliminated**: deleted `SmartFileDump.jsx` entirely —
+  both its Document-creation side and its independent AI-parse-to-
+  cost-breakdown/TakeoffLine-bulk-create flow, per explicit instruction; not
+  preserved elsewhere. Removed its `BidDetail.jsx` import/mount; updated the
+  3 comment-only mentions elsewhere (`MtrReader.jsx`, `Accounting.jsx`,
+  `Purchasing.jsx`) plus `downloadFile.js`'s caller-list comment and
+  `docs/entity-inventory.md`'s call-site lists to stop pointing at a deleted
+  file; repointed the two `steelos-context`/`steelos-architecture` skill docs'
+  "AI extraction reference implementation" citation to `Intelligence.jsx`
+  (still alive, same UploadFile→InvokeLLM→human-review shape) so a future
+  session isn't guided toward a file that no longer exists.
+  **Bid → Project carryover**: verified, not changed — `createProjectFromWonBid`
+  (`BidDetail.jsx`) already copies every Document with the bid's `bid_id`
+  onto the new project (re-created with both `project_id` and `bid_id` set),
+  predating this task; traced by hand that file resolution still works after
+  the copy despite the new copy getting a fresh `id` — `documentBlobStore`'s
+  IndexedDB entry stays keyed by the *original* Document's id, but
+  `resolveDocumentUrl` falls back to `uploadedFileStore` via the `file_url`
+  string (which carries UploadFile's own generated id, independent of the
+  Document record's id), so the copy still resolves correctly. Not changed:
+  the pre-existing copy-not-move tradeoff (original bid-stage rows stay
+  visible if the bid page is revisited post-win) — same accepted tradeoff
+  already in place for `TakeoffLine` copying, not new here.
+  `npm run build && npm run lint` clean. No Playwright run (per standing
+  feedback — code trace + build/lint first, browser verification only on
+  request).
+
+## Also Closed (2026-09-15) — Build Areas (Bid → SOV → Project)
+
+- **Build Areas as a first-class concept spanning Bid → SOV → Project** —
+  extended the existing `ProjectSequenceArea` entity (piece-assignment/Shop-
+  Drawing-grouping, added weeks earlier — not created this pass) rather than
+  building a second parallel system. Added `bid_id` (nullable FK, set during
+  estimating before a bid is won), `contract_value_pct` (estimator-entered %
+  of total contract value), and `production_priority` (explicit, freely
+  reorderable shop sequence — deliberately a new field, not a reuse of the
+  existing `sort_order`, since `sort_order` already drives an unrelated
+  display order in `ProjectManagement.jsx`'s Shop Drawing grouping).
+  New **Areas** tab on `BidDetail.jsx` (`BidAreaManager.jsx`): estimator
+  creates/names Areas, sets `contract_value_pct` against a running-total
+  banner (green at 100%, amber/red flag otherwise — non-blocking), and
+  reorders `production_priority` via adjacent-swap Up/Down buttons (same
+  pattern as `MaterialShapeTypeDetailModal.jsx`'s `sort_order` swap).
+  `createProjectFromWonBid` (`BidDetail.jsx`) now carries each Area forward
+  onto the won project **in place** (same record/id, `project_id` set —
+  matching the existing `pricing_type`/`is_prevailing_wage` carryover
+  convention) and auto-generates one linked `SovLine` per Area
+  (`area_id` × `contract_value_pct` × `project.contract_value`), reusing the
+  existing SOV entity/Accounting system rather than a parallel one. A bid
+  with zero Areas (every pre-existing bid) creates zero SOV lines
+  automatically — SOV stays fully manual for it, exactly as before.
+  Accounting's SOV table (`Accounting.jsx`) now shows a traceback line
+  ("↳ Area: Monumental Stairs (25%)") under any SOV line with an `area_id`.
+  **Role-gated visibility**: new `src/lib/areaVisibility.js`
+  (`canSeeAreaPricing`, self-validated against `BUILTIN_ROLES`, mirrors
+  `financeAccess.js`'s pattern) — `contract_value_pct` and any $ figure
+  derived from it is conditionally rendered (not CSS-hidden) for
+  admin/super_admin/estimator/project_manager/controller/finance_department
+  only. `ProjectDetail.jsx`'s Pieces-tab Sequence/Area Assignment section
+  (the shop-facing production view) now loads/sorts Areas by
+  `production_priority` instead of `sort_order`, shows each Area's ordinal
+  position (`#1`, `#2`...) to everyone, and shows the `%` badge only when
+  `canSeeAreaPricing` passes. Audited every other place Areas render —
+  `ProjectManagement.jsx`'s Lifecycle Sequence/Area section (Shop Drawing
+  grouping) and `Production.jsx` show no Area $ figures today, so neither
+  needed a gate. **Note on this session's BACKLOG.md**: the "Queued" section
+  below previously said Project phasing was "NOT yet actually built" — that
+  was stale; ground-truth verification (git history + live code read) before
+  starting this pass confirmed `ProjectSequenceArea`, the Phasing/Sequence-
+  Area piece-assignment UI, the `pricing_type`/`is_prevailing_wage`
+  carryover, the consolidated `Project.contract_value`, and the SOV system
+  all already existed (landed 2026-08-05 through 2026-09-12) — corrected
+  below.
+  Verified by full hand-trace (no browser-automation tool in this project):
+  traced 3-Area reorder (Up-arrow swaps landing Monumental Stairs/A1/A2 in
+  the requested 1/2/3 order), traced `createProjectFromWonBid` against a
+  concrete $100,000 contract value (25%/40%/35% → $25,000/$40,000/$35,000,
+  summing exactly to contract value since the Areas summed to 100%), traced
+  `canSeeAreaPricing(['shop_manager'])` → `false` (badge renders `null`) vs.
+  `project_manager`/`estimator`/etc. → `true`, and confirmed carried-forward
+  Areas keep their original `id` so any future piece-to-area assignment
+  resolves against the same records (no PieceMark rows exist pre-win, so
+  there was nothing to reconcile). `npm run build && npm run lint` clean.
+
+## Also Closed (2026-09-15) — Inventory QR lifecycle
+
+- **Full inventory QR lifecycle: unassigned → searchable → transferred on
+  consumption, never regenerated.** Extended `remnant_inventory` (not a new
+  entity — it already modeled shape/grade/length/source-project leftover
+  tracking for Stage 10 cut-plan matching) with `qr_payload_string`,
+  `is_assigned` (default false), `assigned_project_id`,
+  `assigned_piece_mark_id`, `notes`. New **Leftover Material** tab on
+  `Inventory.jsx` (`LeftoverInventoryPanel.jsx`): "Add Leftover to
+  Inventory" (`AddLeftoverDialog.jsx`) captures shape/grade/length-or-
+  dimensions/heat/source project/condition-notes, generates a real QR via
+  `generatePiecePayload()` while the leftover is still unassigned, and opens
+  the print sheet immediately (reuses `PrintableLabelSheet`/`buildZplPayload`/
+  `print_label_jobs`, the same pipeline `LabelPrintingPanel.jsx` uses,
+  scoped here to `remnant_inventory` records under the `Material_Stock`
+  label type that already existed but had nothing wired to trigger it).
+  Existing `InventoryItem` list rows on `Inventory.jsx` gained click-to-detail
+  (`InventoryItemDetailModal.jsx`) — location/quantity/notes edit, "move" =
+  changing warehouse zone/rack/bin — closing the standing-rule-1 gap noted
+  in this feature's own prompt (no select/edit path existed at all before).
+  **QR transfer on consumption**: `materialOptimizer.js` gained
+  `findWholePieceRemnantMatches` — reuses `findMatchingRemnants` (the #9D
+  shape+grade search already driving cut-plan remnant matching) plus a
+  length window (remnant ≥ needed length, ≤ needed + 3", since steel can't
+  be stretched and a bigger excess belongs in the cut-plan system instead)
+  and a `qr_payload_string`-present guard (a remnant with no QR, e.g. logged
+  through the older "Log Remnant" action, is cut-plan stock only, never a
+  whole-piece candidate). `detailerImportCommit.js` gained
+  `findInventoryMatches` (greedy, one remnant never offered to two rows in
+  the same batch) and `commitBatch` now checks it for every BRAND-NEW piece
+  before calling `generatePiecePayload` — an accepted match transfers the
+  remnant's existing `qr_payload_string` onto the new `PieceMark` instead of
+  minting a new one, flips the remnant to `is_assigned: true` / `status:
+  'consumed'` (dropping it out of the older cut-plan search too) with
+  `assigned_project_id`/`assigned_piece_mark_id` for traceability, and
+  propagates the remnant's heat number the same way a cut-plan-consumed
+  remnant already does (`propagateHeatNumberToPieces`). New
+  `InventoryMatchModal.jsx` mirrors `RevisionCompareModal.jsx`'s per-row
+  explicit-accept pattern (Stage 11) and sits in the same commit pipeline
+  in `BatchReviewModal.jsx`, right after revisions are resolved — but unlike
+  a revision, declining every match never blocks the commit; an unmatched or
+  declined piece just gets a normal freshly generated QR exactly as before.
+  Fixed a sequencing bug caught during this pass: `RevisionCompareModal` now
+  explicitly closes (`setPendingRevisions(null)`) the instant its own
+  revisions are resolved, before the inventory-match check runs — it
+  previously stayed mounted/open underneath `InventoryMatchModal` whenever
+  both modals had something to show in the same commit.
+  **Verified by full hand-trace** (no browser-automation tool in this
+  project — see `browser-testing` skill; per standing feedback, code trace +
+  build/lint first, browser verification only on request): traced
+  add-leftover → QR generation → print-sheet-opens-immediately; traced
+  Detailer Import commit for a second project with a compatible-length same-
+  shape/grade piece → `findInventoryMatches` correctly surfaces the
+  candidate → accepted → `commitBatch`'s new-piece branch takes the
+  `matchedRemnant.qr_payload_string` branch (never calls
+  `generatePiecePayload` for that row) → remnant flips to
+  assigned/consumed; traced the no-match path (empty `matches` array) to
+  confirm it falls straight through to `runCommit` with an empty Map,
+  producing the exact same `generatePiecePayload(...)` call as before this
+  feature existed. `npm run build && npm run lint` clean.
+
 ## Also Closed (2026-09-15)
 
 - **Distinct company/work email field on employees** — new `company_email`
@@ -464,9 +659,6 @@ closed:
 
 ## Queued
 
-- **Project phasing (Sequence vs. Area)** — prompt drafted/ready, NOT yet
-  actually built despite misleading commit `89832c6` title (that commit's
-  message says phasing but its diff is subcontract-management work)
 - **Meeting Mode** (Manpower + Executive) — blocked on 2 open questions:
   (a) does the manpower meeting include scheduling specific crews to
   jobs, or just workload/sequence, (b) should job cost be visible in the

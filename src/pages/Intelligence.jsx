@@ -14,6 +14,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import { saveDocumentFile, resolveDocumentUrl } from '@/lib/documentBlobStore';
+import { DOCUMENT_TYPE_OPTIONS } from '@/lib/documentCategories';
 
 const REVIEW_PACKAGES = ['estimating', 'quality_assurance', 'safety', 'purchasing', 'accounting', 'executive'];
 
@@ -379,9 +380,9 @@ Generate at least 15-20 realistic findings covering different risk areas.`;
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      {['specification','contract','general_conditions','addendum','structural_drawing','bid_form','scope_letter','other'].map(t => (
-                        <SelectItem key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</SelectItem>
+                    <SelectContent className="max-h-96">
+                      {DOCUMENT_TYPE_OPTIONS.map(t => (
+                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

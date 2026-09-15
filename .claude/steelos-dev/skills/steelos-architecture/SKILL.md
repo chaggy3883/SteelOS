@@ -33,8 +33,10 @@ structured fields, drafting response text a human will edit): AI is the
 right tool, because there's no deterministic way to parse an arbitrary
 vendor quote layout or draft prose. Use the established pattern —
 `InvokeLLM` with a `response_json_schema`, followed by mandatory human
-review before any write. Reference: `src/components/estimating/
-SmartFileDump.jsx`.
+review before any write. Reference: `src/pages/Intelligence.jsx`'s document
+upload-and-analyze flow (`SmartFileDump.jsx`, the prior reference
+implementation, was removed 2026-09-15 when the Documents system was
+rebuilt — see BACKLOG.md).
 
 If a request sounds like "have AI watch X and tell me when something's
 wrong," decompose it: what specific conditions should trigger a flag?

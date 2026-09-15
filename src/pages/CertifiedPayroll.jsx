@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
   FileCheck2, Plus, AlertTriangle, CheckCircle2, XCircle, ClipboardList, ShieldAlert, FileDown,
@@ -158,6 +159,16 @@ export default function CertifiedPayroll() {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [savingEdit, setSavingEdit] = useState(false);
+  const [searchParams] = useSearchParams();
+
+  // Deep link from the Documents panel's linked "Certified Payroll" category
+  // ('/certified-payroll?open=<id>').
+  useEffect(() => {
+    const openId = searchParams.get('open');
+    if (!openId || submissions.length === 0) return;
+    const match = submissions.find((s) => s.id === openId);
+    if (match) { setSelectedSubmission(match); setEditing(false); }
+  }, [searchParams, submissions]);
 
   const subcontractorNames = Array.from(new Set(subcontracts.map((s) => s.subcontractor_name))).sort();
   const formSubcontracts = subcontracts.filter((s) => !form.project_id || s.project_id === form.project_id);

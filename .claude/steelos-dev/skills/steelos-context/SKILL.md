@@ -62,9 +62,11 @@ entity.
 - **AI document extraction**: upload → `db.integrations.Core.UploadFile` →
   `db.integrations.Core.InvokeLLM` with a `response_json_schema` → human
   reviews/edits in a table → explicit approve action writes the records.
-  Reference implementation: `src/components/estimating/SmartFileDump.jsx`.
-  Follow this shape exactly for any new AI-extraction feature rather than
-  inventing a different flow.
+  Reference implementation: `src/pages/Intelligence.jsx`'s document
+  upload-and-analyze flow (`SmartFileDump.jsx` was the prior reference, removed
+  2026-09-15 when the Documents system was rebuilt — see BACKLOG.md). Follow
+  this shape exactly for any new AI-extraction feature rather than inventing a
+  different flow.
 - **Job cost posting**: creating a `JobCostLedgerEntry` with `cost_class`,
   `cost_code`, `amount`, `transaction_date`, `source_type`, `source_id`,
   `description`. Reference: `src/components/field-operations/

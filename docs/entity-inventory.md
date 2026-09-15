@@ -244,7 +244,7 @@ disciplinary consolidation above.
 | `DeliveryPricingTier` | PascalCase | src/components/estimating/TakeoffEngine.jsx, src/pages/DeliveryPricingAdmin.jsx |
 | `demo_requests` | snake_case | *(none found — orphaned)* |
 | `disciplinary_records` | snake_case | *(none found — orphaned)* |
-| `Document` | PascalCase | src/components/documents/FileExplorer.jsx, src/components/estimating/SmartFileDump.jsx, src/components/estimating/TakeoffEngine.jsx |
+| `Document` | PascalCase | src/components/documents/FileExplorer.jsx, src/components/documents/DocumentsPanel.jsx, src/components/estimating/TakeoffEngine.jsx |
 | `EmployeePayRate` | PascalCase | src/components/payroll/PayRatesPanel.jsx, src/components/payroll/PayrollRunPanel.jsx, src/components/payroll/TimecardsPanel.jsx |
 | `employees` | snake_case | src/components/hr/EmergencyContactPanel.jsx, src/components/hr/SystemAccessPortal.jsx, src/components/layout/NavBar.jsx |
 | `employee_certifications` | snake_case | src/lib/demoDataSeeder.js, src/lib/intelligenceRuleEngine.js, src/lib/manpowerData.js |
@@ -325,7 +325,7 @@ disciplinary consolidation above.
 | `Subcontract` | PascalCase | src/lib/demoDataSeeder.js, src/lib/meetingModeData.js, src/pages/CertifiedPayroll.jsx |
 | `Submittal` | PascalCase | src/lib/demoDataSeeder.js, src/pages/portal/CustomerHub.jsx |
 | `SystemSetting` | PascalCase | src/components/admin/CostVariables.jsx, src/lib/burdenedLabor.js, src/lib/legalBaselines.js |
-| `TakeoffLine` | PascalCase | src/components/estimating/BidProposalPrintView.jsx, src/components/estimating/SmartFileDump.jsx, src/components/estimating/TakeoffEngine.jsx |
+| `TakeoffLine` | PascalCase | src/components/estimating/BidProposalPrintView.jsx, src/components/estimating/TakeoffEngine.jsx |
 | `TaxRate` | PascalCase | src/components/admin/TaxZoneLookup.jsx |
 | `TaxWithholding` | PascalCase | src/components/payroll/PayrollRunPanel.jsx, src/components/payroll/TaxWithholdingPanel.jsx, src/pages/CertifiedPayroll.jsx |
 | `Timecard` | PascalCase | src/components/payroll/PayrollRunPanel.jsx, src/components/payroll/TimecardsPanel.jsx |

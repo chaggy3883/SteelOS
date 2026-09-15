@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,6 +36,7 @@ const urgencyLevels = ['Low', 'Medium', 'Critical'];
 export default function ProcurementModule() {
   useDocumentTitle('SteelOS — Procurement Module');
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [requisitions, setRequisitions] = useState([]);
   const [receivingLogs, setReceivingLogs] = useState([]);
@@ -89,6 +91,17 @@ export default function ProcurementModule() {
   }, []);
 
   useEffect(() => { if (accessChecked && pageAllowed) loadData(); }, [accessChecked, pageAllowed]);
+
+  // Deep link from the Documents panel's linked "Purchase Orders" category
+  // ('/purchasing/module?open=<id>').
+  useEffect(() => {
+    const openId = searchParams.get('open');
+    if (!openId || purchaseOrders.length === 0) return;
+    if (purchaseOrders.some((po) => po.id === openId)) {
+      setDetailPoId(openId);
+      setDetailOpen(true);
+    }
+  }, [searchParams, purchaseOrders]);
 
   const loadData = async () => {
     setLoading(true);

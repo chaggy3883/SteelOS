@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
 import { resolveDocumentUrl } from '@/lib/documentBlobStore';
+import { DOCUMENT_TYPE_OPTIONS, documentTypeLabel } from '@/lib/documentCategories';
 
 const DOC_TYPE_ICONS = {
   specification: '📋', contract: '📝', structural_drawing: '📐', architectural_drawing: '🏗️',
@@ -100,8 +101,6 @@ export default function Documents() {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   };
 
-  const DOC_TYPES = ['specification','contract','general_conditions','structural_drawing','architectural_drawing','addendum','bid_form','rfi','submittal','other'];
-
   const isPlatformOperatorView = isSuperAdmin(currentUser) && !isImpersonating();
   const showModule = moduleAllowed || isPlatformOperatorView;
 
@@ -130,7 +129,7 @@ export default function Documents() {
           <SelectTrigger className="w-52"><SelectValue placeholder="All Types" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
-            {DOC_TYPES.map(t => <SelectItem key={t} value={t}>{t.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</SelectItem>)}
+            {DOCUMENT_TYPE_OPTIONS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={projectFilter} onValueChange={setProjectFilter}>
@@ -188,7 +187,7 @@ export default function Documents() {
                       <td className="py-3 px-4 text-xs text-muted-foreground">{proj ? `${proj.project_number}` : '—'}</td>
                       <td className="py-3 px-4">
                         <span className="text-xs bg-muted px-2 py-0.5 rounded">
-                          {doc.document_type?.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
+                          {documentTypeLabel(doc.document_type)}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-center font-mono text-sm">v{doc.version || 1}{doc.revision ? `.${doc.revision}` : ''}</td>

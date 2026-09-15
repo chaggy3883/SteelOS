@@ -236,8 +236,9 @@ export default function Purchasing() {
     setQuoteParseError('');
   };
 
-  // Same InvokeLLM prompt/schema/error-handling shape as SmartFileDump.jsx's
-  // runAIParse — upload first, then a single structured-extraction call.
+  // Same InvokeLLM prompt/schema/error-handling shape as Intelligence.jsx's
+  // document AI-analysis flow — upload first, then a single structured-
+  // extraction call.
   const runQuoteParse = async () => {
     if (!quoteFile) return;
     setParsingQuote(true);

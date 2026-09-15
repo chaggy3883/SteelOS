@@ -29,6 +29,8 @@ import { isDrawingFile } from '@/lib/detailerImportParser';
 import { getDetailerImportFileBlob } from '@/lib/detailerImportBlobStore';
 import { matchFilenameToPiece, attachFileToPiece } from '@/lib/pieceFileIntake';
 import { saveDocumentFile } from '@/lib/documentBlobStore';
+import { findWholePieceRemnantMatches } from '@/lib/materialOptimizer';
+import { propagateHeatNumberToPieces } from '@/lib/heatPropagation';
 
 const PIECE_MARK_TEXT_FIELDS = ['assembly', 'material_grade', 'material_profile', 'finished_length', 'revision', 'drawing_number'];
 
@@ -90,6 +92,37 @@ export const detectRevisions = async (batch, stagedRows) => {
   return revisions;
 };
 
+// QR lifecycle: for every staged row that's about to become a BRAND-NEW
+// PieceMark (an existing-mark update never needs this — it already has a
+// QR), check whether an on-hand unassigned remnant_inventory row is a close
+// enough whole-piece match (materialOptimizer.js's findWholePieceRemnantMatches
+// — shape+grade+length, reusing the same search this app already built for
+// cut-plan remnant matching). Returns one candidate per matchable row —
+// never two rows offered the same remnant — for BatchReviewModal.jsx to
+// surface and let the reviewer accept or decline per piece before anything
+// commits. skipRowIds (declined revisions) are excluded up front since those
+// rows won't be committed at all this pass.
+export const findInventoryMatches = async (batch, stagedRows, skipRowIds = new Set()) => {
+  const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
+  const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
+  const remnants = await db.entities.remnant_inventory.filter({ status: 'available' }, '-created_date', 1000);
+
+  const claimed = new Set();
+  const matches = [];
+  stagedRows.forEach((row) => {
+    if (row.committed || row.validation_status === 'error' || skipRowIds.has(row.id)) return;
+    if (existingByMark.has(normalizeScanValue(row.piece_mark))) return; // updates to an existing piece already have a QR
+
+    const candidates = findWholePieceRemnantMatches(row, remnants.filter((r) => !claimed.has(r.id)));
+    const best = candidates[0];
+    if (best) {
+      claimed.add(best.id);
+      matches.push({ row, remnant: best });
+    }
+  });
+  return matches;
+};
+
 // Commits every row in stagedRows that isn't already committed and isn't
 // validation_status 'error' (those are skipped — left for the source file to
 // be fixed and re-parsed). Safe to call repeatedly on the same batch: already
@@ -104,8 +137,16 @@ export const detectRevisions = async (batch, stagedRows) => {
 // an existing PieceMark (new PieceMark creates aren't "changes" and don't log
 // one) — the automatic per-field AuditLog entry from PieceMark.update() still
 // fires regardless, unconditionally, same as everywhere else in this app.
+// options.inventoryMatches (QR lifecycle): Map<DetailerImportedPiece.id,
+// remnant_inventory.id> of matches from findInventoryMatches above that the
+// reviewer explicitly accepted (BatchReviewModal.jsx's InventoryMatchModal).
+// A row present here never calls generatePiecePayload — its new PieceMark
+// inherits the remnant's existing qr_payload_string instead, and the remnant
+// is flipped to assigned/consumed. A row absent here (no match found, or a
+// match was found but declined) gets a normal freshly generated QR exactly
+// as before this feature existed.
 export const commitBatch = async (batch, stagedRows, options = {}) => {
-  const { skipRowIds = new Set(), changedBy = 'Detailer Import' } = options;
+  const { skipRowIds = new Set(), changedBy = 'Detailer Import', inventoryMatches = new Map() } = options;
   const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
   const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
   // generatePiecePayload's projectLabel prefers project_number over a raw id
@@ -118,6 +159,7 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
   let updated = 0;
   let skipped = 0;
   let revisionsSkipped = 0;
+  let inventoryMatchesApplied = 0;
 
   for (const row of stagedRows) {
     if (row.committed) continue;
@@ -150,16 +192,49 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
         note: `Revised via detailer import batch — ${batch.detailer_name || batch.id}`,
       })));
     } else {
+      const matchedRemnantId = inventoryMatches.get(row.id);
+      const matchedRemnant = matchedRemnantId ? await db.entities.remnant_inventory.get(matchedRemnantId).catch(() => null) : null;
+
       pieceMark = await db.entities.PieceMark.create({
         project_id: batch.project_id,
         piece_mark: row.piece_mark,
         // Globally unique independent of piece_mark (which repeats across
         // projects by design) — see generatePiecePayload in qrSerialization.js.
-        qr_payload_string: generatePiecePayload(projectLabel, row.piece_mark),
+        // QR lifecycle: an accepted inventory match means this physical piece
+        // already exists (it's the matched remnant) and already has a label
+        // on it — carry that same payload forward instead of generating a
+        // new one, which would leave two QR codes claiming the same steel.
+        qr_payload_string: matchedRemnant ? matchedRemnant.qr_payload_string : generatePiecePayload(projectLabel, row.piece_mark),
         ...fields,
       });
       existingByMark.set(key, pieceMark);
       created += 1;
+
+      if (matchedRemnant) {
+        await db.entities.remnant_inventory.update(matchedRemnant.id, {
+          is_assigned: true,
+          assigned_project_id: batch.project_id,
+          assigned_piece_mark_id: pieceMark.id,
+          // Reuses the same 'consumed' status the older Stage 10 cut-plan
+          // flow sets (materialOptimizationCommit.js) so this remnant drops
+          // out of BOTH search paths at once — consumed_by_material_optimization_run_id
+          // stays null here since no cut-plan run consumed it, is_assigned
+          // is what distinguishes a whole-piece reuse from a cut-plan one.
+          status: 'consumed',
+          consumed_date: new Date().toISOString(),
+        });
+        // Same heat-propagation this remnant would get if a cut-plan run had
+        // consumed it instead (materialOptimizationCommit.js) — its heat is
+        // already known from when it was logged, unlike a freshly fabricated
+        // piece whose heat isn't known until received/welded.
+        if (matchedRemnant.heat_number_string) {
+          await propagateHeatNumberToPieces([pieceMark.id], matchedRemnant.heat_number_string, {
+            changedBy,
+            source: { label: `inventory match — remnant ${matchedRemnant.id}` },
+          });
+        }
+        inventoryMatchesApplied += 1;
+      }
     }
 
     await db.entities.DetailerImportedPiece.update(row.id, { committed: true, piece_mark_id: pieceMark.id });
@@ -214,5 +289,5 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
 
   const updatedBatch = await db.entities.DetailerImportBatch.update(batch.id, { import_status: 'committed' });
 
-  return { created, updated, skipped, revisionsSkipped, drawingsMatched, batch: updatedBatch };
+  return { created, updated, skipped, revisionsSkipped, drawingsMatched, inventoryMatchesApplied, batch: updatedBatch };
 };

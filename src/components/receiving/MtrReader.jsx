@@ -81,7 +81,7 @@ const toNumberOrNull = (v) => {
 const isImageFile = (file) => !!file?.type?.startsWith('image/');
 
 // Upload -> InvokeLLM -> human review table -> explicit Approve -> write —
-// same shape as SmartFileDump.jsx's AI extraction pattern. Nothing under
+// same shape as Intelligence.jsx's document AI-analysis pattern. Nothing under
 // db.entities is ever touched before Approve; only the in-memory preview
 // (a plain object URL off the File the user picked) exists before then. The
 // source blob itself only reaches IndexedDB (mtrDocumentStore.js) at Approve

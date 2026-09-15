@@ -239,6 +239,31 @@ export function packPiecesIntoRemnants(piecesInGroup, availableRemnants, kerfAll
   return { bins, unpackablePieces, remainingPieces, totals: computeTotals(bins, kerfAllowanceIn) };
 }
 
+// QR lifecycle (Detailer Import commit — see detailerImportCommit.js's
+// commitBatch): unlike packPiecesIntoRemnants above (cuts a longer remnant
+// down into one or more pieces), this is a WHOLE-PIECE substitution — an
+// unassigned leftover close enough in length to a brand-new piece's own
+// finished_length is reused AS-IS, physical QR label and all, instead of
+// fabricating a new piece at all. Reuses findMatchingRemnants' shape+grade
+// key (the same search this app already built for cut-plan remnant
+// matching) then adds a length window: the remnant must be at least as long
+// as needed (steel can't be stretched) and no more than toleranceIn over —
+// a bigger excess belongs in the normal cut-plan/remnant system instead of
+// being "wasted" as a direct swap. Only remnants that already carry their
+// own qr_payload_string are eligible — one with none (an older row, or one
+// logged through the separate Stage 10 "Log Remnant" action, both of which
+// predate/bypass this field) has no label to transfer and stays cut-plan
+// stock only. Sorted closest-length-first so a greedy caller claims the
+// tightest fit.
+export function findWholePieceRemnantMatches(pieceSpec, remnants, toleranceIn = 3) {
+  const neededLength = getPieceLengthInches(pieceSpec);
+  if (neededLength == null) return [];
+  return findMatchingRemnants(remnants, { material_profile: pieceSpec.material_profile, material_grade: pieceSpec.material_grade })
+    .filter((r) => !r.is_assigned && r.qr_payload_string && Number.isFinite(r.length_in))
+    .filter((r) => r.length_in >= neededLength && r.length_in <= neededLength + toleranceIn)
+    .sort((a, b) => (a.length_in - neededLength) - (b.length_in - neededLength));
+}
+
 // Flattens optimizeCutPlan's bins into the MaterialOptimizationRun.pieces_assigned
 // shape: position_in_stock is the 1-based index of WHICH physical stock bar a
 // piece is cut from (bar 2 of 5, etc.); cut_order restarts at 1 for each bar

@@ -5,11 +5,12 @@
       "type": "string"
     },
     "project_id": {
-      "type": "string"
+      "type": "string",
+      "description": "Required once this Document is tied to a project. Bid-stage uploads (before a project exists) use bid_id instead — one of project_id/bid_id is expected, not both required."
     },
     "bid_id": {
       "type": "string",
-      "description": "Links to Bid — used for documents attached at the estimating stage before a project exists (e.g. SmartFileDump uploads, T&M subcontractor quote attachments via TmSubcontractorLineItem.quote_document_id)."
+      "description": "Links to Bid — used for documents attached at the estimating stage before a project exists (the Bid page's Documents tab, T&M subcontractor quote attachments via TmSubcontractorLineItem.quote_document_id). Carried forward alongside a new project_id when the bid is won (see createProjectFromWonBid in BidDetail.jsx)."
     },
     "po_id": {
       "type": "string",
@@ -52,6 +53,22 @@
         "vendor_quote",
         "vendor_invoice",
         "mtr",
+        "accounting",
+        "legal_general",
+        "close_out",
+        "contract_review_aisc",
+        "drawing_joist_deck",
+        "leed",
+        "notice_of_commencement",
+        "notice_of_furnishing",
+        "photo",
+        "request_for_change",
+        "safety",
+        "schedule",
+        "vendor_pricing",
+        "front_end_review",
+        "previous_recap_proposal",
+        "bulletin",
         "other"
       ]
     },
@@ -133,7 +150,6 @@
     }
   },
   "required": [
-    "project_id",
     "name",
     "document_type"
   ],
