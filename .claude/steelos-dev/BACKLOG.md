@@ -5,6 +5,76 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-15) — Excel export for tabular report PDFs
+
+- **Excel (.xlsx) export added alongside "Export PDF" across 25 report
+  files** (24 named tabular-data reports plus `monthEndClosePdf`, a
+  judgment-call inclusion — the close checklist is tabular enough to be
+  worth tracking completion across cycles in a spreadsheet). Every new
+  `<name>Xlsx.js` reuses the exact `detailerImportBatchReviewXlsx.js`
+  pattern (array-of-arrays → `XLSX.utils.aoa_to_sheet` → `book_new` →
+  `book_append_sheet` → `XLSX.write(..., {type:'array', bookType:'xlsx'})`),
+  downloaded via the shared `downloadWorkbook` helper
+  (`bidRecapXlsxExport.js`). No letterhead image (SheetJS community build
+  can't embed images) — company name/address/phone written as plain text
+  header rows instead, matching the existing precedent. Money/numeric
+  columns are written as real JS numbers, not the PDF's formatted
+  `$1,234.56` strings, so the export is actually usable in Excel (sum/sort).
+  Every Excel function takes the identical parameter object as its PDF
+  sibling and is called with the same already-fetched data the PDF button
+  uses — no requerying, so the two exports can never disagree.
+  `aiFinancialFlagsPdf`'s Excel version deliberately excludes the narrative
+  fields the PDF renders as cards (`ai_explanation`, `quoted_text`,
+  `recommendation`, `review_notes`) and exports only a lightweight
+  structured table (finding ID, project, severity/`risk_level`,
+  `created_date`, `status`) — narrative text doesn't belong in a
+  spreadsheet cell.
+  New lib files (`src/lib/`): `aiFinancialFlagsXlsx`, `arBillingXlsx`,
+  `bidInternalBreakdownXlsx`, `budgetXlsx`, `cashForecastXlsx`,
+  `cashReconciliationXlsx`, `customerStatementXlsx`,
+  `estimatingActiveBidsXlsx`, `estimatingBidHistoryXlsx`,
+  `estimatingDidNotBidXlsx`, `estimatingShopHoursVarianceXlsx`,
+  `execArApAgingXlsx`, `execBidWinLossXlsx`, `execCashPositionXlsx`,
+  `execQuarterlyTaxExposureXlsx`, `incomingAchXlsx`, `jobCostDetailXlsx`
+  (covers both `generateProjectJobCostPdf` and
+  `generateCompanyWideJobCostPdf`), `jobCostingSummaryXlsx`,
+  `materialOptimizationReportXlsx`, `monthEndCloseXlsx`,
+  `qualityKpiReportXlsx`, `requisitionXlsxExport` (mirrors
+  `requisitionPdfExport.js`'s `exportXToPdf` naming, not `generateXXlsx`;
+  wired into all 3 of its callers — `BlueprintTakeoff.jsx`,
+  `MarkupsList.jsx`, `FullTakeoff.jsx`), `unappliedCashXlsx`,
+  `vendorBillsXlsx`, `wipOverUnderBillingXlsx`, `wipRadarXlsx`,
+  `wipReportXlsx`. UI buttons added next to each existing "Export PDF"
+  button (`FileSpreadsheet` icon from lucide-react, same busy-state/
+  try-catch/toast pattern as the adjacent PDF handler) across
+  `Accounting.jsx`, `ExecutiveAnalytics.jsx`, `Estimating.jsx`,
+  `EstimatingAnalytics.jsx`, `BidDetail.jsx`, `QualityKpiBuilder.jsx`,
+  `BlueprintTakeoff.jsx`, `MarkupsList.jsx`, `FullTakeoff.jsx`, and 6
+  standalone accounting panels (`BudgetPanel`, `UnappliedCashPanel`,
+  `IncomingAchPanel`, `CashManagementPanel`, `CashForecastPanel`,
+  `MonthEndClosePanel`).
+  **Deliberately excluded** (per explicit scope): document/legal/
+  signature-bearing PDFs (`bolPdf`, `bidProposalPdf`,
+  `submittalTransmittalPdf`, `scopeReviewPdf`, `delayNoticePdf`,
+  `candidateApplicationPdf`, `proposalTermsPdfMerge`,
+  `certifiedPayrollReportPdf`, `turnoverReviewPdf`) and 4 ambiguous
+  flat-KPI executive cards (`execEstimatingPerformancePdf`,
+  `execHeadcountPdf`, `execShopProductionPdf`,
+  `execSalesPipelineCommissionPdf`) — confirmed none of these gained an
+  Xlsx sibling or button.
+  Built via 5 parallel subagents, each owning a disjoint set of
+  page/component files to avoid concurrent-edit conflicts (one hit the
+  session's rate limit right after finishing its wiring, before its own
+  build/lint self-check — verified directly afterward instead).
+  Verified by full hand-trace + spot-reading 6 of the new lib files across
+  Accounting, Estimating, Executive Analytics, and Quality (data shape
+  matches each PDF sibling's fields, numeric cells are real numbers, AI
+  Financial Flags export correctly drops narrative columns) — no
+  Playwright/browser-automation tool in this project (see
+  `browser-testing` skill; per standing feedback, code trace + build/lint
+  first, browser verification only on request). `npm run build && npm run
+  lint` clean across the full repo (4052 modules, 0 lint errors).
+
 ## Also Closed (2026-09-15) — Documents rebuild, Smart File Dump removed
 
 - **Unified Documents system on both Project and Bid pages, drag-drop +

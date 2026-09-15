@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
-import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Target, Percent, Clock3, Download } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, Target, Percent, Clock3, Download, FileSpreadsheet } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { flagCostCodeOverruns } from '@/lib/jobCostAnalysis';
 import { generateEstimatingShopHoursVariancePdf } from '@/lib/estimatingShopHoursVariancePdf';
+import { generateEstimatingShopHoursVarianceXlsx } from '@/lib/estimatingShopHoursVarianceXlsx';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -151,6 +152,16 @@ export default function EstimatingAnalytics() {
     }
   };
 
+  const handleExportShopHoursExcel = async () => {
+    const projectLabel = shopHoursProjectId === 'all' ? 'All Projects' : (shopHoursProjectOptions.find(p => p.id === shopHoursProjectId)?.label || shopHoursProjectId);
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateEstimatingShopHoursVarianceXlsx({ company, projectLabel, stationVariances });
+    } catch (e) {
+      toast({ title: 'Unable to generate Estimated vs. Shop Hours Excel', variant: 'destructive' });
+    }
+  };
+
   return (
     <div className="p-6 animate-fade-in">
       <PageHeader title="Historic Cost Analytics" subtitle="Estimating vs. Actuals loop, win/loss post-mortem" />
@@ -226,6 +237,9 @@ export default function EstimatingAnalytics() {
             </Select>
             <Button size="sm" variant="outline" onClick={handleExportShopHoursPdf} disabled={stationVariances.length === 0}>
               <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleExportShopHoursExcel} disabled={stationVariances.length === 0}>
+              <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5" />Export to Excel
             </Button>
           </div>
         </div>

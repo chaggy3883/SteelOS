@@ -19,11 +19,12 @@ import {
   Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
   MousePointer2, MousePointerClick, Wrench, ChevronDown, ChevronUp,
   Shapes, ScanSearch, Check, X, Link2, ExternalLink, ListChecks, Grid3x3,
-  Maximize2, HelpCircle, GripVertical, StickyNote, Save, Hexagon,
+  Maximize2, HelpCircle, GripVertical, StickyNote, Save, Hexagon, FileSpreadsheet,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
+import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 import { writeBidRecapCells, downloadWorkbook } from '@/lib/bidRecapXlsxExport';
 import { buildBidRecapWrites } from '@/lib/bidRecapMapping';
 import { exportRowsToCsv } from '@/lib/csvExport';
@@ -1591,6 +1592,25 @@ export default function BlueprintTakeoff() {
     });
   };
 
+  const handleExportRequisitionXlsx = async () => {
+    await exportRequisitionToXlsx({
+      title: 'Blueprint Takeoff Requisition',
+      subtitle: `${fileName || 'Untitled document'} — unpriced, for supplier quoting`,
+      columns: ['Shape Type', 'Selected Size', 'Length (ft)', 'Weight (lb/ft)', 'Qty', 'Coating', 'Calculated Metrics'],
+      rows: acceptedRows.map((r) => [
+        r.shape_type || '—',
+        r.size_designation,
+        r.length_ft,
+        r.unit_weight_lbs_per_ft,
+        r.quantity,
+        r.coating_type,
+        r.coating_type === 'Paint' ? rowPaintAreaSqIn(r, catalog)
+          : r.coating_type === 'Galvanized' ? rowGalvanizedTons(r)
+          : '—',
+      ]),
+    });
+  };
+
   // Fills the company's uploaded Bid Proposal template (company_templates,
   // category "Spreadsheet") rather than a template baked into this repo —
   // that's the existing mechanism every other file-backed feature in this
@@ -2384,6 +2404,7 @@ export default function BlueprintTakeoff() {
                 </h3>
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="outline" onClick={handleExportRequisitionPdf}><FileDown className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO PDF</Button>
+                  <Button size="sm" variant="outline" onClick={handleExportRequisitionXlsx}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO EXCEL</Button>
                   <Button size="sm" variant="outline" onClick={handleExportExcelTemplate} disabled={exportingExcel}>
                     {exportingExcel ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <FileDown className="w-3.5 h-3.5 mr-1" />}
                     EXPORT TO EXCEL TEMPLATE

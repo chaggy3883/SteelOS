@@ -1,6 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Calculator, Gauge, Clock3, Save, Plus, Trash2, Minus, Download, FileDown } from 'lucide-react';
+import { Calculator, Gauge, Clock3, Save, Plus, Trash2, Minus, Download, FileDown, FileSpreadsheet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { SHAPE_CLASSES, getShapeClass, estimateWeightPerFt } from '@/data/steelShapeSelector';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
+import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
@@ -255,6 +256,25 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     });
   };
 
+  const handleExportRequisitionXlsx = async () => {
+    await exportRequisitionToXlsx({
+      title: 'Material Takeoff Requisition',
+      subtitle: `${bid?.bid_number || 'Bid TBD'} — ${bid?.job_name || ''} — unpriced, for supplier quoting`,
+      columns: ['Shape Type', 'Selected Size', 'Length (ft)', 'Weight (lb/ft)', 'Qty', 'Coating', 'Calculated Metrics'],
+      rows: rows.map((row, i) => [
+        getShapeClass(row.shape_class).label,
+        row.material_size,
+        row.length_ft || 0,
+        calcs[i].weightPerFt || 0,
+        row.quantity || 0,
+        row.coating_type || 'No Coating',
+        row.coating_type === 'Paint' ? calcs[i].paintAreaSqIn
+          : row.coating_type === 'Galvanized' ? calcs[i].totalTons
+          : '—',
+      ]),
+    });
+  };
+
   if (loading) return <div className="h-64 bg-muted rounded-xl animate-pulse" />;
 
   return (
@@ -268,6 +288,9 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleExportRequisitionPdf}>
               <FileDown className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportRequisitionXlsx}>
+              <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO EXCEL
             </Button>
             <Button variant="outline" size="sm" onClick={handleExportUnpricedCsv}>
               <Download className="w-3.5 h-3.5 mr-1" />Export Unpriced Supplier CSV

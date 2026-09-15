@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Brain, BarChart3, Plus, Pencil, Trash2, Receipt, FileText, Gauge, Download, FileSpreadsheet, Webhook, Landmark, ListChecks, ClipboardList, UploadCloud, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { isAdminUser, getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
@@ -43,13 +43,20 @@ import BalanceDrilldownModal from '@/components/accounting/BalanceDrilldownModal
 import { computeCustomerBalances, computeVendorBalances } from '@/lib/balancesReport';
 import { computeArAging, computeApAging, AGING_BUCKETS, AGING_BUCKET_LABELS } from '@/lib/agingReport';
 import { generateCustomerStatementPdf } from '@/lib/customerStatementPdf';
+import { generateCustomerStatementXlsx } from '@/lib/customerStatementXlsx';
 import { buildProjectJobCostRows, buildCompanyWideJobCostRollup, sumProjectJobCostTotals, expenseAsLedgerRow, isRealizedExpense } from '@/lib/jobCostEngine';
 import { generateProjectJobCostPdf, generateCompanyWideJobCostPdf } from '@/lib/jobCostDetailPdf';
+import { generateProjectJobCostXlsx, generateCompanyWideJobCostXlsx } from '@/lib/jobCostDetailXlsx';
 import { generateJobCostingSummaryPdf } from '@/lib/jobCostingSummaryPdf';
+import { generateJobCostingSummaryXlsx } from '@/lib/jobCostingSummaryXlsx';
 import { generateVendorBillsPdf } from '@/lib/vendorBillsPdf';
+import { generateVendorBillsXlsx } from '@/lib/vendorBillsXlsx';
 import { generateArBillingPdf } from '@/lib/arBillingPdf';
+import { generateArBillingXlsx } from '@/lib/arBillingXlsx';
 import { generateWipReportPdf } from '@/lib/wipReportPdf';
+import { generateWipReportXlsx } from '@/lib/wipReportXlsx';
 import { generateAiFinancialFlagsPdf } from '@/lib/aiFinancialFlagsPdf';
+import { generateAiFinancialFlagsXlsx } from '@/lib/aiFinancialFlagsXlsx';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const COST_CLASSES = ['LAB', 'MAT', 'SUB', 'DEB', 'OTH', 'FRT', 'OFB'];
@@ -431,6 +438,19 @@ export default function Accounting() {
     }
   };
 
+  const handleGenerateStatementExcel = async (row) => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      const invoiceIds = new Set(row.invoices.map(({ invoice }) => invoice.id));
+      const customerPayments = payments.filter((p) => p.related_entity_type === 'InvoiceReceivable' && invoiceIds.has(p.related_entity_id));
+      const customerMemos = memos.filter((m) => m.related_entity_type === 'InvoiceReceivable' && invoiceIds.has(m.related_entity_id));
+      generateCustomerStatementXlsx({ customer: row.customer, company, invoiceRows: row.invoices, payments: customerPayments, memos: customerMemos });
+      toast({ title: 'Statement Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate statement Excel', variant: 'destructive' });
+    }
+  };
+
   const openCustomerBalanceDrilldown = (row) => {
     setBalanceDrilldown({
       title: `${row.customer?.name || 'Unknown Customer'} — Balance`,
@@ -569,6 +589,16 @@ export default function Accounting() {
     }
   };
 
+  const handleExportProjectJobCostExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateProjectJobCostXlsx({ project: selectedProject, company, rows: projectJobCostRows });
+      toast({ title: 'Job Cost Detail Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Job Cost Detail Excel', variant: 'destructive' });
+    }
+  };
+
   const handleExportCompanyJobCostPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
@@ -579,6 +609,16 @@ export default function Accounting() {
     }
   };
 
+  const handleExportCompanyJobCostExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateCompanyWideJobCostXlsx({ company, rows: companyRollupRows, dateFrom: companyDateFrom, dateTo: companyDateTo });
+      toast({ title: 'Company-wide Job Cost Rollup Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate rollup Excel', variant: 'destructive' });
+    }
+  };
+
   const handleExportJobCostingSummaryPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
@@ -586,6 +626,16 @@ export default function Accounting() {
       toast({ title: 'Job Costing Summary PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Job Costing Summary PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportJobCostingSummaryExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateJobCostingSummaryXlsx({ company, projects: jobsRiskFilter ? projects.filter(p => p.financial_risk > 0) : projects, riskFilterActive: jobsRiskFilter });
+      toast({ title: 'Job Costing Summary Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Job Costing Summary Excel', variant: 'destructive' });
     }
   };
 
@@ -604,6 +654,21 @@ export default function Accounting() {
     }
   };
 
+  const handleExportVendorBillsExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      const rows = vendorBills.map(bill => ({
+        ...bill,
+        vendor_name: vendors.find(v => v.id === bill.vendor_id)?.name,
+        po_number: purchaseOrders.find(p => p.id === bill.po_id)?.po_number,
+      }));
+      generateVendorBillsXlsx({ company, rows });
+      toast({ title: 'Vendor Bills Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Vendor Bills Excel', variant: 'destructive' });
+    }
+  };
+
   const handleExportArBillingPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
@@ -611,6 +676,16 @@ export default function Accounting() {
       toast({ title: 'AR & Billings PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate AR & Billings PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportArBillingExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateArBillingXlsx({ project: selectedProject, company, sovLines, invoiceReceivables });
+      toast({ title: 'AR & Billings Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate AR & Billings Excel', variant: 'destructive' });
     }
   };
 
@@ -624,6 +699,16 @@ export default function Accounting() {
     }
   };
 
+  const handleExportWipReportExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateWipReportXlsx({ project: selectedProject, company, wip, ledgerEntries, changeOrderMargin });
+      toast({ title: 'WIP Report Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate WIP Report Excel', variant: 'destructive' });
+    }
+  };
+
   const handleExportAiFindingsPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
@@ -633,6 +718,18 @@ export default function Accounting() {
       toast({ title: 'AI Financial Flags PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate AI Financial Flags PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportAiFindingsExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      const visibleFindings = findingsProjectFilter ? findings.filter(f => f.project_id === findingsProjectFilter) : findings;
+      const projectFilterLabel = findingsProjectFilter ? (projects.find(p => p.id === findingsProjectFilter)?.name || 'selected project') : '';
+      generateAiFinancialFlagsXlsx({ company, findings: visibleFindings, projectFilterLabel, projects });
+      toast({ title: 'AI Financial Flags Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate AI Financial Flags Excel', variant: 'destructive' });
     }
   };
 
@@ -1223,6 +1320,7 @@ export default function Accounting() {
           )}
           <div className="flex justify-end mb-3">
             <Button size="sm" variant="outline" onClick={handleExportJobCostingSummaryPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+            <Button size="sm" variant="outline" onClick={handleExportJobCostingSummaryExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
           </div>
           <div className="steel-card overflow-hidden">
             <div className="overflow-x-auto">
@@ -1322,6 +1420,7 @@ export default function Accounting() {
                   <h3 className="font-semibold">Job Cost by Cost Code</h3>
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={handleExportProjectJobCostPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                    <Button size="sm" variant="outline" onClick={handleExportProjectJobCostExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
                     <Button size="sm" onClick={startAddRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Cost Code</Button>
                   </div>
                 </div>
@@ -1432,6 +1531,7 @@ export default function Accounting() {
                     <Input type="date" value={companyDateTo} onChange={(e) => setCompanyDateTo(e.target.value)} className="mt-1 h-8" />
                   </div>
                   <Button size="sm" variant="outline" onClick={handleExportCompanyJobCostPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                  <Button size="sm" variant="outline" onClick={handleExportCompanyJobCostExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -1532,6 +1632,7 @@ export default function Accounting() {
               <h3 className="font-semibold">Vendor Bills — 3-Way Match Queue</h3>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={handleExportVendorBillsPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                <Button size="sm" variant="outline" onClick={handleExportVendorBillsExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
                 <Button size="sm" onClick={startAddBill}><Plus className="w-3.5 h-3.5 mr-1" />Add Vendor Bill</Button>
               </div>
             </div>
@@ -1642,6 +1743,7 @@ export default function Accounting() {
                   <h3 className="font-semibold">Schedule of Values (SOV)</h3>
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={handleExportArBillingPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                    <Button size="sm" variant="outline" onClick={handleExportArBillingExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
                     <Button size="sm" onClick={startAddSov}><Plus className="w-3.5 h-3.5 mr-1" />Add SOV Line</Button>
                   </div>
                 </div>
@@ -1804,6 +1906,9 @@ export default function Accounting() {
                         <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleGenerateStatement(row); }}>
                           <Download className="w-3.5 h-3.5 mr-1" />Generate Statement
                         </Button>
+                        <Button size="sm" variant="outline" className="ml-2" onClick={(e) => { e.stopPropagation(); handleGenerateStatementExcel(row); }}>
+                          <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Excel
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -1935,6 +2040,7 @@ export default function Accounting() {
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold">WIP Schedule — {selectedProject?.name}</h3>
                   <Button size="sm" variant="outline" onClick={handleExportWipReportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                  <Button size="sm" variant="outline" onClick={handleExportWipReportExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
                 </div>
                 {wip ? (
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2048,6 +2154,7 @@ export default function Accounting() {
           )}
           <div className="flex justify-end mb-3">
             <Button size="sm" variant="outline" onClick={handleExportAiFindingsPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+            <Button size="sm" variant="outline" onClick={handleExportAiFindingsExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
           </div>
           {(() => {
             const visibleFindings = findingsProjectFilter ? findings.filter(f => f.project_id === findingsProjectFilter) : findings;

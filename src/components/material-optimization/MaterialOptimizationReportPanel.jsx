@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { buildMaterialOptimizationReport } from '@/lib/materialOptimizationReport';
 import { generateMaterialOptimizationReportPdf } from '@/lib/materialOptimizationReportPdf';
+import { generateMaterialOptimizationReportXlsx } from '@/lib/materialOptimizationReportXlsx';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { Download, Loader2, Package, Boxes, Recycle, Scale, Percent } from 'lucide-react';
+import { Download, Loader2, Package, Boxes, Recycle, Scale, Percent, FileSpreadsheet } from 'lucide-react';
 
 const money = (n) => (n === null || n === undefined ? '—' : `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const pct = (n) => (n === null || n === undefined ? '—' : `${n}%`);
@@ -56,6 +57,15 @@ export default function MaterialOptimizationReportPanel({ projectId, projectName
     }
   };
 
+  const handleExportExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateMaterialOptimizationReportXlsx({ company, projectName, report });
+    } catch (e) {
+      toast({ title: 'Unable to generate Material Optimization Report Excel file', variant: 'destructive' });
+    }
+  };
+
   if (loading) {
     return <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>;
   }
@@ -70,6 +80,7 @@ export default function MaterialOptimizationReportPanel({ projectId, projectName
     <div className="space-y-6">
       <div className="flex justify-end">
         <Button variant="outline" size="sm" onClick={handleExport} className="gap-1.5"><Download className="w-3.5 h-3.5" />Export to PDF</Button>
+        <Button variant="outline" size="sm" onClick={handleExportExcel} className="gap-1.5"><FileSpreadsheet className="w-3.5 h-3.5" />Export to Excel</Button>
       </div>
 
       <div ref={reportRef} className="space-y-6 bg-background p-1">

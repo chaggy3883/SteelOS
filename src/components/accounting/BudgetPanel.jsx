@@ -4,10 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, ClipboardList, Scale, Download } from 'lucide-react';
+import { Loader2, ClipboardList, Scale, Download, FileSpreadsheet } from 'lucide-react';
 import LedgerDrilldownModal from '@/components/accounting/LedgerDrilldownModal';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { generateBudgetPdf } from '@/lib/budgetPdf';
+import { generateBudgetXlsx } from '@/lib/budgetXlsx';
 
 // Company-wide annual budgeting with budget-vs-actual variance. This does
 // NOT create new cost tracking — actuals are read straight from data that
@@ -171,37 +172,53 @@ export default function BudgetPanel() {
     return isBad ? 'text-red-500' : 'text-green-500';
   };
 
+  const buildBudgetExportData = () => {
+    const budgetRows = CATEGORIES.map((category) => ({
+      category,
+      months: MONTHS.map((m) => budgetedForCategoryPeriod(category, periodFor(fiscalYear, m))),
+      total: rowTotal(category),
+    }));
+    const columnTotals = MONTHS.map((m) => columnTotal(m));
+    const varianceRows = CATEGORIES.map((category) => {
+      const ytdActual = ytdMonths.reduce((sum, m) => sum + actualForCategoryPeriod(category, periodFor(fiscalYear, m)), 0);
+      const ytdBudgeted = ytdMonths.reduce((sum, m) => sum + budgetedForCategoryPeriod(category, periodFor(fiscalYear, m)), 0);
+      const ytdVariance = ytdActual - ytdBudgeted;
+      return {
+        category,
+        monthVariancePct: MONTHS.map((m) => {
+          const period = periodFor(fiscalYear, m);
+          const actual = actualForCategoryPeriod(category, period);
+          const budgeted = budgetedForCategoryPeriod(category, period);
+          return budgeted !== 0 ? (actual - budgeted) / budgeted : null;
+        }),
+        ytdActual,
+        ytdBudgeted,
+        ytdVariance,
+        ytdVariancePct: ytdBudgeted !== 0 ? ytdVariance / ytdBudgeted : null,
+      };
+    });
+    return { budgetRows, columnTotals, varianceRows };
+  };
+
   const handleExportPdf = async () => {
     try {
       const company = await getEffectiveCompany().catch(() => null);
-      const budgetRows = CATEGORIES.map((category) => ({
-        category,
-        months: MONTHS.map((m) => budgetedForCategoryPeriod(category, periodFor(fiscalYear, m))),
-        total: rowTotal(category),
-      }));
-      const columnTotals = MONTHS.map((m) => columnTotal(m));
-      const varianceRows = CATEGORIES.map((category) => {
-        const ytdActual = ytdMonths.reduce((sum, m) => sum + actualForCategoryPeriod(category, periodFor(fiscalYear, m)), 0);
-        const ytdBudgeted = ytdMonths.reduce((sum, m) => sum + budgetedForCategoryPeriod(category, periodFor(fiscalYear, m)), 0);
-        const ytdVariance = ytdActual - ytdBudgeted;
-        return {
-          category,
-          monthVariancePct: MONTHS.map((m) => {
-            const period = periodFor(fiscalYear, m);
-            const actual = actualForCategoryPeriod(category, period);
-            const budgeted = budgetedForCategoryPeriod(category, period);
-            return budgeted !== 0 ? (actual - budgeted) / budgeted : null;
-          }),
-          ytdActual,
-          ytdBudgeted,
-          ytdVariance,
-          ytdVariancePct: ytdBudgeted !== 0 ? ytdVariance / ytdBudgeted : null,
-        };
-      });
+      const { budgetRows, columnTotals, varianceRows } = buildBudgetExportData();
       await generateBudgetPdf({ company, fiscalYear, monthLabels: MONTH_LABELS, budgetRows, columnTotals, grandTotal, varianceRows, ytdThroughLabel: MONTH_LABELS[ytdMonthCount - 1] });
       toast({ title: 'Budget PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Budget PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      const { budgetRows, columnTotals, varianceRows } = buildBudgetExportData();
+      await generateBudgetXlsx({ company, fiscalYear, monthLabels: MONTH_LABELS, budgetRows, columnTotals, grandTotal, varianceRows, ytdThroughLabel: MONTH_LABELS[ytdMonthCount - 1] });
+      toast({ title: 'Budget Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Budget Excel', variant: 'destructive' });
     }
   };
 
@@ -287,7 +304,10 @@ export default function BudgetPanel() {
                   For LAB/MAT/SUB/EQP, over budget is red. For Revenue, under budget is red.
                 </p>
               </div>
-              <Button size="sm" variant="outline" onClick={handleExportPdf} className="flex-shrink-0"><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                <Button size="sm" variant="outline" onClick={handleExportExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
+              </div>
             </div>
             {loadingActuals ? (
               <div className="p-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>

@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
-import { Loader2, TrendingUp, Download } from 'lucide-react';
+import { Loader2, TrendingUp, Download, FileSpreadsheet } from 'lucide-react';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { generateCashForecastPdf } from '@/lib/cashForecastPdf';
+import { generateCashForecastXlsx } from '@/lib/cashForecastXlsx';
 import { loadCashForecastData, computeCashForecastBuckets } from '@/lib/cashForecastEngine';
 import LedgerDrilldownModal from '@/components/accounting/LedgerDrilldownModal';
 
@@ -61,6 +62,16 @@ export default function CashForecastPanel() {
     }
   };
 
+  const handleExportExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateCashForecastXlsx({ company, startingBalance, buckets });
+      toast({ title: 'Cash Forecast Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Cash Forecast Excel', variant: 'destructive' });
+    }
+  };
+
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
   const willGoNegative = buckets.some((b) => b.runningBalance < 0);
@@ -70,7 +81,10 @@ export default function CashForecastPanel() {
       <div className="steel-card p-6">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" />90-Day Cash Forecast</h3>
-          <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+            <Button size="sm" variant="outline" onClick={handleExportExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
+          </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <button type="button" onClick={() => navigate('/accounting?tab=cash')} className="text-left hover:bg-muted/50 rounded p-1 -m-1 transition-colors">

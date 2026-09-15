@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Landmark, Plus, Loader2, AlertTriangle, Download } from 'lucide-react';
+import { Landmark, Plus, Loader2, AlertTriangle, Download, FileSpreadsheet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,7 @@ import { matchIncomingAchToPurchaseOrder, notifyArUnmatchedAch } from '@/lib/ach
 import { exportRowsToCsv } from '@/lib/csvExport';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { generateIncomingAchPdf } from '@/lib/incomingAchPdf';
+import { generateIncomingAchXlsx } from '@/lib/incomingAchXlsx';
 import { cn } from '@/lib/utils';
 import { recordInvoiceReceivablePayment } from '@/lib/paymentEngine';
 import { memoTotalFromList } from '@/lib/memoEngine';
@@ -238,6 +239,19 @@ export default function IncomingAchPanel() {
     }
   };
 
+  const handleExportExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateIncomingAchXlsx({
+        company,
+        rows: sorted.map((a) => ({ ...a, bank_account: bankAccountLabel(a.bank_account_id), status: titleCase(a.status), applied_to: describeMatch(a) })),
+      });
+      toast({ title: 'Incoming ACH Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Incoming ACH Excel', variant: 'destructive' });
+    }
+  };
+
   const targetOptions = () => {
     if (assignForm.target_type === 'PO') return purchaseOrders.map((p) => ({ value: p.id, label: `${p.po_number} — ${p.vendor_name}` }));
     if (assignForm.target_type === 'Invoice') return invoices.map((i) => ({ value: i.id, label: `${i.billing_period} — ${money(i.gross_amount)}` }));
@@ -303,6 +317,9 @@ export default function IncomingAchPanel() {
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={handleExportPdf} className="gap-1.5">
               <Download className="w-3.5 h-3.5" />Export PDF
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleExportExcel} className="gap-1.5">
+              <FileSpreadsheet className="w-3.5 h-3.5" />Export Excel
             </Button>
             <Button size="sm" variant="outline" onClick={handleExportCsv} disabled={sorted.length === 0} className="gap-1.5">
               <Download className="w-3.5 h-3.5" />Export CSV

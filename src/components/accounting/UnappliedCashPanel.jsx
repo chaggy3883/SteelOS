@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Wallet, Loader2, Download } from 'lucide-react';
+import { Wallet, Loader2, Download, FileSpreadsheet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -10,6 +10,7 @@ import { applyUnappliedCash, appliedTotalFromList, outstandingFor } from '@/lib/
 import { memoTotalFromList } from '@/lib/memoEngine';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { generateUnappliedCashPdf } from '@/lib/unappliedCashPdf';
+import { generateUnappliedCashXlsx } from '@/lib/unappliedCashXlsx';
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -136,6 +137,16 @@ export default function UnappliedCashPanel() {
     }
   };
 
+  const handleExportExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateUnappliedCashXlsx({ company, rows: unapplied.map((p) => ({ source: sourceLabel(p), date: p.payment_date, amount: p.unapplied_amount })) });
+      toast({ title: 'Unapplied Cash Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Unapplied Cash Excel', variant: 'destructive' });
+    }
+  };
+
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
   return (
@@ -143,7 +154,10 @@ export default function UnappliedCashPanel() {
       <div className="steel-card p-6">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold flex items-center gap-2"><Wallet className="w-4 h-4 text-primary" />Unapplied Cash</h3>
-          <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+            <Button size="sm" variant="outline" onClick={handleExportExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground mt-1">
           Payments recorded against an invoice or bill for more than was owed — the excess sits here until it's applied to a different open invoice/bill.

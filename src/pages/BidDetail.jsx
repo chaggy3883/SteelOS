@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Download, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat, Send, ShieldAlert, Layers } from 'lucide-react';
+import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Download, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat, Send, ShieldAlert, Layers, FileSpreadsheet } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import { generateBidProposalPdf } from '@/lib/bidProposalPdf';
 import { generateBidInternalBreakdownPdf } from '@/lib/bidInternalBreakdownPdf';
+import { generateBidInternalBreakdownXlsx } from '@/lib/bidInternalBreakdownXlsx';
 import InternalBreakdownExportDialog from '@/components/estimating/InternalBreakdownExportDialog';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { Button } from '@/components/ui/button';
@@ -60,7 +61,9 @@ export default function BidDetail() {
   const [showStatusHistory, setShowStatusHistory] = useState(false);
   const [exportingProposal, setExportingProposal] = useState(false);
   const [exportingBreakdown, setExportingBreakdown] = useState(false);
+  const [exportingBreakdownExcel, setExportingBreakdownExcel] = useState(false);
   const [showBreakdownConfirm, setShowBreakdownConfirm] = useState(false);
+  const [breakdownExportFormat, setBreakdownExportFormat] = useState('pdf');
   // location.state carries the tab hint for an in-app navigate(); a bid
   // opened via window.open() (see Estimating.jsx's openBid) is a fresh
   // browsing context with no router state, so it passes the same hint as a
@@ -141,6 +144,17 @@ export default function BidDetail() {
 
   const confirmInternalBreakdownExport = async () => {
     setShowBreakdownConfirm(false);
+    if (breakdownExportFormat === 'excel') {
+      setExportingBreakdownExcel(true);
+      try {
+        await generateBidInternalBreakdownXlsx(bid);
+      } catch (e) {
+        toast({ title: 'Unable to generate internal breakdown Excel', description: e?.message || 'Please retry.', variant: 'destructive' });
+      } finally {
+        setExportingBreakdownExcel(false);
+      }
+      return;
+    }
     setExportingBreakdown(true);
     try {
       await generateBidInternalBreakdownPdf(bid);
@@ -539,8 +553,11 @@ export default function BidDetail() {
             <Button size="sm" variant="outline" onClick={exportProposalPdf} disabled={exportingProposal}>
               <Download className="w-3.5 h-3.5 mr-1" />{exportingProposal ? 'Generating…' : 'Export Proposal PDF'}
             </Button>
-            <Button size="sm" variant="outline" className="text-red-600 border-red-500/30 hover:bg-red-500/10" onClick={() => setShowBreakdownConfirm(true)} disabled={exportingBreakdown}>
+            <Button size="sm" variant="outline" className="text-red-600 border-red-500/30 hover:bg-red-500/10" onClick={() => { setBreakdownExportFormat('pdf'); setShowBreakdownConfirm(true); }} disabled={exportingBreakdown}>
               <ShieldAlert className="w-3.5 h-3.5 mr-1" />{exportingBreakdown ? 'Generating…' : 'Full Breakdown (Internal)'}
+            </Button>
+            <Button size="sm" variant="outline" className="text-red-600 border-red-500/30 hover:bg-red-500/10" onClick={() => { setBreakdownExportFormat('excel'); setShowBreakdownConfirm(true); }} disabled={exportingBreakdownExcel}>
+              <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />{exportingBreakdownExcel ? 'Generating…' : 'Full Breakdown Excel (Internal)'}
             </Button>
             <Button size="sm" variant="outline" onClick={() => navigate(`/estimating/blueprint-takeoff/${bid.id}`)}>
               <ScanLine className="w-3.5 h-3.5 mr-1" />Blueprint Takeoff

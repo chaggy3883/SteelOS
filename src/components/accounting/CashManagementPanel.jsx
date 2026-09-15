@@ -6,10 +6,11 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Plus, Landmark, Scale, UploadCloud, Download } from 'lucide-react';
+import { Loader2, Plus, Landmark, Scale, UploadCloud, Download, FileSpreadsheet } from 'lucide-react';
 import { computeAccountBalance } from '@/lib/cashBalance';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { generateCashReconciliationPdf } from '@/lib/cashReconciliationPdf';
+import { generateCashReconciliationXlsx } from '@/lib/cashReconciliationXlsx';
 
 const ACCOUNT_TYPES = ['Checking', 'Savings', 'Line of Credit'];
 const TRANSACTION_TYPES = ['Deposit', 'Withdrawal', 'Transfer', 'Fee', 'Interest'];
@@ -221,6 +222,24 @@ export default function CashManagementPanel() {
       toast({ title: 'Cash Reconciliation PDF generated' });
     } catch (e) {
       toast({ title: 'Unable to generate Cash Reconciliation PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateCashReconciliationXlsx({
+        company,
+        account: selectedAccount,
+        transactions: transactionsSortedDesc.map((t) => ({ ...t, balance: runningBalanceById[t.id] })),
+        currentBalance,
+        reconciledBalance,
+        statementBalance,
+        reconciliationDifference,
+      });
+      toast({ title: 'Cash Reconciliation Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Cash Reconciliation Excel', variant: 'destructive' });
     }
   };
 
@@ -444,7 +463,10 @@ export default function CashManagementPanel() {
           <div className="steel-card p-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold flex items-center gap-2"><Scale className="w-4 h-4 text-primary" />Reconciliation — {selectedAccount.account_name}</h3>
-              <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={handleExportPdf}><Download className="w-3.5 h-3.5 mr-1" />Export PDF</Button>
+                <Button size="sm" variant="outline" onClick={handleExportExcel}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Export Excel</Button>
+              </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 items-end">
               <div>

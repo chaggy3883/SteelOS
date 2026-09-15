@@ -8,10 +8,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { ToastAction } from '@/components/ui/toast';
 import { useToast } from '@/components/ui/use-toast';
-import { CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2, Clipboard, Scale, FileDown, Printer, ListChecks } from 'lucide-react';
+import { CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2, Clipboard, Scale, FileDown, Printer, ListChecks, FileSpreadsheet } from 'lucide-react';
 import { getShapeClass } from '@/data/steelShapeSelector';
 import { SHAPE_CATALOG } from '@/data/steelShapes';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
+import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 import { exportRowsToCsv } from '@/lib/csvExport';
 
 const TOOL_META = {
@@ -474,6 +475,24 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
     });
   };
 
+  const handleExportSpreadsheetXlsx = async () => {
+    await exportRequisitionToXlsx({
+      title: 'IRONSIGHT Takeoff Spreadsheet',
+      subtitle: `${takeoffName || fileName || 'Untitled takeoff'}${linkedJobLabel ? ` — ${linkedJobLabel}` : ''}`,
+      columns: ['Phase', '% of Project', 'Shape', 'Size', 'Qty', 'Metric', 'Est. Weight (lbs)', 'Est. Tons'],
+      rows: spreadsheetRows.map((r) => [
+        r.phase,
+        phasePctOfProject(r.phase),
+        categoryFor(r.shape_type),
+        r.size_designation || '—',
+        r.qty,
+        METRIC_LABELS[r.tool] || r.tool,
+        r.estLbs,
+        r.estTons,
+      ]),
+    });
+  };
+
   const bidTons = linkedBid?.total_weight_tons;
   const variance = (bidTons != null && bidTons > 0)
     ? (() => {
@@ -558,6 +577,7 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" onClick={handleExportSpreadsheetCsv}><FileDown className="w-3.5 h-3.5 mr-1.5" />Export CSV</Button>
               <Button size="sm" variant="outline" onClick={handlePrintSpreadsheet}><Printer className="w-3.5 h-3.5 mr-1.5" />Print</Button>
+              <Button size="sm" variant="outline" onClick={handleExportSpreadsheetXlsx}><FileSpreadsheet className="w-3.5 h-3.5 mr-1.5" />Export Excel</Button>
             </div>
           </div>
 

@@ -25,6 +25,12 @@ import { generateExecShopProductionPdf } from '@/lib/execShopProductionPdf';
 import { generateExecHeadcountPdf } from '@/lib/execHeadcountPdf';
 import { generateExecSalesPipelineCommissionPdf } from '@/lib/execSalesPipelineCommissionPdf';
 import { generateExecQuarterlyTaxExposurePdf } from '@/lib/execQuarterlyTaxExposurePdf';
+import { generateWipRadarXlsx } from '@/lib/wipRadarXlsx';
+import { generateWipOverUnderBillingXlsx } from '@/lib/wipOverUnderBillingXlsx';
+import { generateExecArApAgingXlsx } from '@/lib/execArApAgingXlsx';
+import { generateExecCashPositionXlsx } from '@/lib/execCashPositionXlsx';
+import { generateExecBidWinLossXlsx } from '@/lib/execBidWinLossXlsx';
+import { generateExecQuarterlyTaxExposureXlsx } from '@/lib/execQuarterlyTaxExposureXlsx';
 import { loadCashForecastData, computeCashForecastBuckets } from '@/lib/cashForecastEngine';
 import CashForecastPanel from '@/components/accounting/CashForecastPanel';
 import {
@@ -35,7 +41,7 @@ import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Save, Gauge, TrendingUp, Landmark, Loader2, Download, ExternalLink, Scale, Wallet,
-  Factory, Users, HandCoins, Percent, Boxes,
+  Factory, Users, HandCoins, Percent, Boxes, FileSpreadsheet,
 } from 'lucide-react';
 
 const fmtMoney = (n) => `$${Math.round(n || 0).toLocaleString()}`;
@@ -64,7 +70,7 @@ const REASON_LABELS = {
 // per-card PDF export — per the standing rule that every metric on this page
 // must click through to its source, and every card exports independently
 // rather than sharing one whole-page export.
-function SectionHeader({ icon: Icon, title, subtitle, onExport, detailPath, detailLabel = 'View Detail', navigate }) {
+function SectionHeader({ icon: Icon, title, subtitle, onExport, onExportExcel, detailPath, detailLabel = 'View Detail', navigate }) {
   return (
     <div className="flex items-start justify-between flex-wrap gap-3 mb-1">
       <div>
@@ -80,6 +86,11 @@ function SectionHeader({ icon: Icon, title, subtitle, onExport, detailPath, deta
         <Button size="sm" variant="outline" onClick={onExport} className="gap-1.5">
           <Download className="w-3.5 h-3.5" />Export to PDF
         </Button>
+        {onExportExcel && (
+          <Button size="sm" variant="outline" onClick={onExportExcel} className="gap-1.5">
+            <FileSpreadsheet className="w-3.5 h-3.5" />Export to Excel
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -325,10 +336,16 @@ export default function ExecutiveAnalytics() {
   };
 
   const handleExportWipRadar = () => exportWithToast(() => generateWipRadarPdf({ company, wipRadar }), 'Unable to generate WIP Radar PDF');
+  const handleExportWipRadarExcel = () => exportWithToast(() => generateWipRadarXlsx({ company, wipRadar }), 'Unable to generate WIP Radar Excel file');
   const handleExportWipSummary = () => exportWithToast(() => generateWipOverUnderBillingPdf({ company, wipSummary }), 'Unable to generate WIP Overbilling/Underbilling PDF');
+  const handleExportWipSummaryExcel = () => exportWithToast(() => generateWipOverUnderBillingXlsx({ company, wipSummary }), 'Unable to generate WIP Overbilling/Underbilling Excel file');
   const handleExportAging = () => exportWithToast(
     () => generateExecArApAgingPdf({ company, arAgingTotals, apAgingTotals, arTotalOutstanding, apTotalOutstanding, arPastDuePct }),
     'Unable to generate AR/AP Aging PDF'
+  );
+  const handleExportAgingExcel = () => exportWithToast(
+    () => generateExecArApAgingXlsx({ company, arAgingTotals, apAgingTotals, arTotalOutstanding, apTotalOutstanding, arPastDuePct }),
+    'Unable to generate AR/AP Aging Excel file'
   );
   const handleExportCashPosition = () => exportWithToast(async () => {
     const data = await loadCashForecastData();
@@ -336,12 +353,24 @@ export default function ExecutiveAnalytics() {
     const buckets = computeCashForecastBuckets({ ...data, todayIso });
     await generateExecCashPositionPdf({ company, startingBalance: data.startingBalance, buckets });
   }, 'Unable to generate Cash Position PDF');
+  const handleExportCashPositionExcel = () => exportWithToast(async () => {
+    const data = await loadCashForecastData();
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const buckets = computeCashForecastBuckets({ ...data, todayIso });
+    generateExecCashPositionXlsx({ company, startingBalance: data.startingBalance, buckets });
+  }, 'Unable to generate Cash Position Excel file');
   const handleExportWinLoss = () => exportWithToast(() => generateExecBidWinLossPdf({
     company,
     winLoss,
     topLossReasons: winLoss.topLossReasons.map((r) => ({ label: REASON_LABELS[r.reason] || r.reason, count: r.count })),
     topDnbReasons: winLoss.topDnbReasons.map((r) => ({ label: REASON_LABELS[r.reason] || r.reason, count: r.count })),
   }), 'Unable to generate Bid Win/Loss PDF');
+  const handleExportWinLossExcel = () => exportWithToast(() => generateExecBidWinLossXlsx({
+    company,
+    winLoss,
+    topLossReasons: winLoss.topLossReasons.map((r) => ({ label: REASON_LABELS[r.reason] || r.reason, count: r.count })),
+    topDnbReasons: winLoss.topDnbReasons.map((r) => ({ label: REASON_LABELS[r.reason] || r.reason, count: r.count })),
+  }), 'Unable to generate Bid Win/Loss Excel file');
   const handleExportEstimatingPerformance = () => exportWithToast(
     () => generateExecEstimatingPerformancePdf({ company, winLoss, bidVolumeStats }),
     'Unable to generate Estimating Performance PDF'
@@ -354,6 +383,7 @@ export default function ExecutiveAnalytics() {
     company, pipelineValue, pipelineCount, commissionTotals, canViewCommission,
   }), 'Unable to generate Sales Pipeline & Commission PDF');
   const handleExportTaxExposure = () => exportWithToast(() => generateExecQuarterlyTaxExposurePdf({ company, taxRows }), 'Unable to generate Quarterly Tax Exposure PDF');
+  const handleExportTaxExposureExcel = () => exportWithToast(() => generateExecQuarterlyTaxExposureXlsx({ company, taxRows }), 'Unable to generate Quarterly Tax Exposure Excel file');
 
   const handleSaveSnapshot = async () => {
     setSavingSnapshot(true);
@@ -402,6 +432,7 @@ export default function ExecutiveAnalytics() {
           icon={Gauge} title="Financial WIP Radar"
           subtitle="Total contract value vs. actual job-to-date cost recognized (from the job cost ledger), per active project."
           onExport={handleExportWipRadar}
+          onExportExcel={handleExportWipRadarExcel}
           detailPath="/accounting?tab=wip" navigate={navigate}
         />
         {wipRadar.length === 0 ? (
@@ -432,6 +463,7 @@ export default function ExecutiveAnalytics() {
           icon={Scale} title="WIP Overbilling / Underbilling Summary"
           subtitle="Billed vs. earned revenue per active project (calculateWIPSchedule), rolled up company-wide."
           onExport={handleExportWipSummary}
+          onExportExcel={handleExportWipSummaryExcel}
           detailPath="/accounting?tab=wip" navigate={navigate}
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 mb-4">
@@ -472,6 +504,7 @@ export default function ExecutiveAnalytics() {
           icon={Percent} title="AR / AP Aging Summary"
           subtitle="Outstanding receivables and payables bucketed by days past due (agingReport.js), same buckets as Accounting's AR/AP Aging tabs."
           onExport={handleExportAging}
+          onExportExcel={handleExportAgingExcel}
           navigate={navigate}
         />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
@@ -516,6 +549,7 @@ export default function ExecutiveAnalytics() {
           icon={Wallet} title="Cash Position"
           subtitle="90-day cash forecast — starting balance, weekly net change, and projected balance (CashForecastPanel's own logic, embedded so the math is never duplicated)."
           onExport={handleExportCashPosition}
+          onExportExcel={handleExportCashPositionExcel}
           detailPath="/accounting?tab=cash" navigate={navigate}
         />
         <div className="mt-3">
@@ -531,6 +565,7 @@ export default function ExecutiveAnalytics() {
           icon={TrendingUp} title="Commercial Bid Win/Loss"
           subtitle="Won/Lost/Did-Not-Bid are parallel outcomes, not funnel stages — shown as a categorical comparison rather than a funnel."
           onExport={handleExportWinLoss}
+          onExportExcel={handleExportWinLossExcel}
           detailPath="/estimating" navigate={navigate}
         />
         <div className="grid grid-cols-1 md:grid-cols-[1fr_200px] gap-4 mt-4">
@@ -680,6 +715,7 @@ export default function ExecutiveAnalytics() {
             icon={Landmark} title="Quarterly Tax Exposure Grid"
             subtitle="Hancock County structural tax vs. Joist & Deck jobsite tax overrides, by billing quarter, across all bids."
             onExport={handleExportTaxExposure}
+            onExportExcel={handleExportTaxExposureExcel}
             detailPath="/estimating" navigate={navigate}
           />
         </div>

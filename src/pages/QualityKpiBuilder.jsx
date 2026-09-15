@@ -5,6 +5,7 @@ import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenant
 import { hasModule } from '@/lib/moduleEntitlement';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
 import { generateQualityKpiReportPdf } from '@/lib/qualityKpiReportPdf';
+import { generateQualityKpiReportXlsx } from '@/lib/qualityKpiReportXlsx';
 import {
   AREAS, CHART_TYPES, AGGREGATION_LEVELS, DATE_RANGE_OPTIONS, KPI_SOURCE_ENTITIES,
   metricsForArea, getMetric, resolveDateRange, computeMetricSeries, pieValueForSeries,
@@ -27,7 +28,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useToast } from '@/components/ui/use-toast';
 import {
   Printer, Download, Save, FolderOpen, Trash2, Share2, Plus, X, Info,
-  Loader2, ChevronUp, ChevronDown, BarChart3,
+  Loader2, ChevronUp, ChevronDown, BarChart3, FileSpreadsheet,
 } from 'lucide-react';
 
 const COLORS = ['#1d7ed8', '#f97316', '#22c55e', '#a855f7', '#ef4444', '#eab308', '#14b8a6'];
@@ -394,6 +395,18 @@ export default function QualityKpiBuilder() {
     }
   };
 
+  const handleExportExcel = async () => {
+    if (!chartModel) return;
+    const dr = resolveDateRange({ date_range_type: config.dateRangeType, custom_start_date: config.customStart, custom_end_date: config.customEnd });
+    const title = loadedDashboard?.dashboard_name || `${AREAS.find((a) => a.value === config.area)?.label} KPIs`;
+    const dateRangeLabel = `${dr.start.toLocaleDateString()} – ${dr.end.toLocaleDateString()} · ${effectiveCompany?.name || 'Company'}`;
+    try {
+      await generateQualityKpiReportXlsx({ company: effectiveCompany, currentUser, title, dateRangeLabel, chartModel, sortedRows });
+    } catch (e) {
+      toast({ title: 'Unable to generate KPI Report Excel', variant: 'destructive' });
+    }
+  };
+
   if (checkingAccess) {
     return <div className="p-4 md:p-6"><div className="h-96 bg-muted rounded-xl animate-pulse" /></div>;
   }
@@ -577,6 +590,7 @@ export default function QualityKpiBuilder() {
           <div className="flex justify-end gap-2 mb-3 print:hidden">
             <Button variant="outline" size="sm" className="gap-1.5" onClick={handlePrint} disabled={!chartModel}><Printer className="w-3.5 h-3.5" />Print</Button>
             <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExportPdf} disabled={!chartModel}><Download className="w-3.5 h-3.5" />Export to PDF</Button>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExportExcel} disabled={!chartModel}><FileSpreadsheet className="w-3.5 h-3.5" />Export to Excel</Button>
           </div>
 
           <div ref={exportRef}>
