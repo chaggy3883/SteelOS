@@ -16,6 +16,64 @@ import EmployeeBankingPanel from '@/components/hr/EmployeeBankingPanel';
 import { canManageDisciplinaryActions } from '@/lib/disciplinaryAccess';
 import { hasFullEmployeeAccess } from '@/lib/employeesApi';
 import { GRANULAR_ACTIONS, hasGranularPermission } from '@/lib/permissionCatalog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/use-toast';
+import { AlertTriangle, Save } from 'lucide-react';
+
+// Distinct from personal_email (emergency-contact purpose, never used on
+// generated documents) — this is the work email printed as the estimator
+// sign-off on bid proposals (bidProposalPdf.js). Employees provisioned
+// before this field existed have it blank; flagged here so HR notices and
+// backfills it rather than a proposal silently going out with no email.
+function CompanyEmailField({ employee, roles, onUpdated }) {
+  const { toast } = useToast();
+  const canEdit = hasFullEmployeeAccess(roles);
+  const [value, setValue] = useState(employee.company_email || '');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setValue(employee.company_email || ''); }, [employee.id, employee.company_email]);
+
+  const dirty = value !== (employee.company_email || '');
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const updated = await db.entities.employees.update(employee.id, { company_email: value.trim() });
+      onUpdated(updated);
+      toast({ title: 'Company email updated' });
+    } catch (e) {
+      toast({ title: 'Unable to save company email', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-4">
+      <Label className="text-xs">Company Email</Label>
+      {canEdit ? (
+        <div className="flex items-center gap-2 mt-1">
+          <Input type="email" value={value} onChange={(e) => setValue(e.target.value)} placeholder="name@hancocksteel.com" className="max-w-xs" />
+          {dirty && (
+            <Button size="sm" onClick={handleSave} disabled={saving} className="gap-1.5 steel-gradient text-white border-0">
+              <Save className="w-3.5 h-3.5" />{saving ? 'Saving…' : 'Save'}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <p className="mt-1 text-sm">{employee.company_email || '—'}</p>
+      )}
+      {!employee.company_email && (
+        <p className="mt-1 text-[11px] text-amber-600 flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+          No company email on file — bid proposals will omit the estimator email line until this is set.
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function EmployeeProfileDialog({ employee, employees = [], roles, granularPermissions, open, onOpenChange, onEmployeeUpdated }) {
   const [current, setCurrent] = useState(employee);
@@ -56,6 +114,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
             {current.position || current.classification} • Hired {current.hire_date || '—'}
           </DialogDescription>
         </DialogHeader>
+        <CompanyEmailField employee={current} roles={roles} onUpdated={handleUpdated} />
         <Tabs defaultValue="access">
           <TabsList className="mb-4">
             <TabsTrigger value="access">System Access</TabsTrigger>

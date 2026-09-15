@@ -14,7 +14,7 @@ const STEP_LABELS = ['Personal Info', 'Job Info', 'Documents', 'Review'];
 
 const emptyForm = (positions, jobTitles) => ({
   full_name: '', dob: '', address_street: '', address_city: '', address_state: '', address_zip: '',
-  phone: '', personal_email: '', ssn_last4: '',
+  phone: '', personal_email: '', company_email: '', ssn_last4: '',
   emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '',
   job_title: jobTitles[0] || '', classification: positions[0] || '', hire_date: new Date().toISOString().slice(0, 10),
   pay_type: 'hourly', pay_rate_cents: '', annual_salary_cents: '',
@@ -53,6 +53,10 @@ export default function AddEmployeeWizard({ positions, jobTitles, allRoles, onEm
   const goNext = () => {
     if (step === 1 && !form.full_name.trim()) {
       toast({ title: 'Full name is required', variant: 'destructive' });
+      return;
+    }
+    if (step === 1 && !form.company_email.trim()) {
+      toast({ title: 'Company email is required', variant: 'destructive' });
       return;
     }
     setStep((s) => Math.min(s + 1, 4));
@@ -137,6 +141,10 @@ export default function AddEmployeeWizard({ positions, jobTitles, allRoles, onEm
           <div>
             <Label>Personal Email</Label>
             <Input type="email" value={form.personal_email} onChange={setInput('personal_email')} className="mt-1" />
+          </div>
+          <div>
+            <Label>Company Email <span className="text-red-500">*</span></Label>
+            <Input type="email" value={form.company_email} onChange={setInput('company_email')} className="mt-1" />
           </div>
           <div>
             <Label>SSN (last 4)</Label>
@@ -259,7 +267,8 @@ export default function AddEmployeeWizard({ positions, jobTitles, allRoles, onEm
               <p><span className="text-muted-foreground">Name:</span> {form.full_name || '—'}</p>
               <p><span className="text-muted-foreground">DOB:</span> {form.dob || '—'}</p>
               <p><span className="text-muted-foreground">Phone:</span> {form.phone || '—'}</p>
-              <p><span className="text-muted-foreground">Email:</span> {form.personal_email || '—'}</p>
+              <p><span className="text-muted-foreground">Personal Email:</span> {form.personal_email || '—'}</p>
+              <p><span className="text-muted-foreground">Company Email:</span> {form.company_email || '—'}</p>
               <p className="col-span-2"><span className="text-muted-foreground">Address:</span> {[form.address_street, form.address_city, form.address_state, form.address_zip].filter(Boolean).join(', ') || '—'}</p>
               <p><span className="text-muted-foreground">SSN (last 4):</span> {form.ssn_last4 || '—'}</p>
               <p><span className="text-muted-foreground">Emergency Contact:</span> {form.emergency_contact_name || '—'} {form.emergency_contact_relationship ? `(${form.emergency_contact_relationship})` : ''} {form.emergency_contact_phone}</p>

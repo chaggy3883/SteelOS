@@ -164,6 +164,10 @@
     "personal_email": {
       "type": "string"
     },
+    "company_email": {
+      "type": "string",
+      "description": "Work/company email — distinct from personal_email, which stays emergency-contact-only. Prompted at onboarding (AddEmployeeWizard.jsx); used as the estimator sign-off email on generated bid proposals (bidProposalPdf.js) instead of personal_email. Existing employees provisioned before this field existed have it blank until HR fills it in on the profile."
+    },
     "emergency_contact_name": {
       "type": "string"
     },

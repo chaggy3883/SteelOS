@@ -84,7 +84,7 @@ export async function generateBidProposalPdf(bid) {
     companyName: company?.name || '',
     company,
     estimatorName: estimator?.full_name || '',
-    estimatorEmail: estimator?.personal_email || '',
+    estimatorEmail: estimator?.company_email || '',
     logo,
     aiscBadge,
     letterheadImage,

@@ -5,6 +5,24 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-15)
+
+- **Distinct company/work email field on employees** — new `company_email`
+  (`schema/entities/employees.jsonc`), separate from `personal_email` which
+  stays emergency-contact-only. `bidProposalPdf.js`'s `estimatorEmail` now
+  reads `estimator?.company_email` instead of `personal_email`;
+  `bidProposalPdfLayout.js`'s `drawSincerelyBlock` already omitted any blank
+  line gracefully (no code change needed there — confirmed by reading it,
+  not assumed). Required and prompted in the HR "Add Employee" wizard
+  (`AddEmployeeWizard.jsx`, same step-1 validation pattern as `full_name`)
+  and persisted via `provisionEmployee` (`employeesApi.js`). Existing
+  employees (all of them, pre-dating this field) get a visible, amber-
+  flagged empty `company_email` field with inline edit-and-save directly on
+  the HR profile (`EmployeeProfileDialog.jsx`'s new `CompanyEmailField`,
+  gated by the same `hasFullEmployeeAccess` edit permission as the other
+  profile panels) — not fabricated, left blank until HR fills it in.
+  `npm run build && npm run lint` clean.
+
 ## Also Closed (2026-09-12)
 
 - **Bid Worksheet default rate demo data + mileage calculator debounce fix**

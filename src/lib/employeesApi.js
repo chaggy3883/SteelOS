@@ -216,6 +216,7 @@ export async function provisionEmployee(formData) {
     address_zip: formData.address_zip,
     phone: formData.phone,
     personal_email: formData.personal_email,
+    company_email: formData.company_email,
     ssn_last4,
     emergency_contact_name: formData.emergency_contact_name,
     emergency_contact_phone: formData.emergency_contact_phone,
