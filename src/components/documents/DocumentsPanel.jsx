@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { UploadCloud, FileText, Search, Eye, Download, ExternalLink, X } from 'lucide-react';
+import { UploadCloud, FileText, Search, Eye, Download, ExternalLink, X, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,8 @@ import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
 import { resolveDocumentUrl, saveDocumentFile } from '@/lib/documentBlobStore';
 import { DOCUMENT_TYPE_OPTIONS, LINKED_DOCUMENT_CATEGORIES, documentTypeLabel } from '@/lib/documentCategories';
+import { archiveDocument } from '@/lib/documentArchive';
+import RemoveDocumentDialog from '@/components/documents/RemoveDocumentDialog';
 
 const isPdfName = (name) => !!name?.match(/\.pdf$/i);
 
@@ -43,6 +45,7 @@ export default function DocumentsPanel({ projectId, bidId, onOpenHandoffTab }) {
   const [saving, setSaving] = useState(false);
   const [linkedRecords, setLinkedRecords] = useState([]);
   const [linkedLoading, setLinkedLoading] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState(null);
 
   const scopeFilter = projectId ? { project_id: projectId } : { bid_id: bidId };
 
@@ -154,6 +157,14 @@ export default function DocumentsPanel({ projectId, bidId, onOpenHandoffTab }) {
     else downloadFile(url, doc.file_name || doc.name);
   };
 
+  const confirmRemove = async () => {
+    if (!removeTarget) return;
+    await archiveDocument(removeTarget);
+    setRemoveTarget(null);
+    toast({ title: 'Document removed' });
+    loadDocuments();
+  };
+
   const openLinkedRecord = (category, record) => {
     const link = category.linkFor(record);
     if (link.type === 'tab') onOpenHandoffTab?.();
@@ -242,7 +253,7 @@ export default function DocumentsPanel({ projectId, bidId, onOpenHandoffTab }) {
           {filteredDocuments.length > 0 && (
             <>
               <p className="text-xs text-muted-foreground pt-3 border-t border-border">Uploaded files tagged "{activeLinkedCategory.label}":</p>
-              <DocumentRows docs={filteredDocuments} onOpen={openFile} />
+              <DocumentRows docs={filteredDocuments} onOpen={openFile} onRemove={setRemoveTarget} />
             </>
           )}
         </div>
@@ -254,7 +265,7 @@ export default function DocumentsPanel({ projectId, bidId, onOpenHandoffTab }) {
           <p className="text-sm text-muted-foreground">No documents found</p>
         </div>
       ) : (
-        <DocumentRows docs={filteredDocuments} onOpen={openFile} />
+        <DocumentRows docs={filteredDocuments} onOpen={openFile} onRemove={setRemoveTarget} />
       )}
 
       <Dialog open={!!pendingFiles} onOpenChange={(open) => !open && cancelUpload()}>
@@ -300,32 +311,49 @@ export default function DocumentsPanel({ projectId, bidId, onOpenHandoffTab }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RemoveDocumentDialog
+        open={!!removeTarget}
+        onOpenChange={(o) => !o && setRemoveTarget(null)}
+        onConfirm={confirmRemove}
+      />
     </div>
   );
 }
 
-function DocumentRows({ docs, onOpen }) {
+function DocumentRows({ docs, onOpen, onRemove }) {
   return (
     <div className="space-y-1">
       {docs.map((doc) => (
-        <button
+        <div
           key={doc.id}
-          type="button"
-          onClick={() => onOpen(doc)}
-          className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-muted transition-colors text-left"
+          className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-muted transition-colors"
         >
-          <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => onOpen(doc)}
+            className="flex items-center gap-3 min-w-0 flex-1 text-left"
+          >
             <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
             <div className="min-w-0">
               <p className="text-sm font-medium truncate" title={doc.name}>{doc.name}</p>
               <p className="text-xs text-muted-foreground">{documentTypeLabel(doc.document_type)} • v{doc.version || 1}</p>
             </div>
-          </div>
+          </button>
           <div className="flex items-center gap-2 flex-shrink-0">
             <StatusBadge status={doc.ai_processing_status} label={doc.ai_processing_status} />
             {isPdfName(doc.file_name) ? <Eye className="w-4 h-4 text-muted-foreground" /> : <Download className="w-4 h-4 text-muted-foreground" />}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-destructive"
+              title="Remove"
+              onClick={() => onRemove(doc)}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
           </div>
-        </button>
+        </div>
       ))}
     </div>
   );

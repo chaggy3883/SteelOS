@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { resolveActorRole, dispatchSubmittalNotification } from '@/lib/salesNotifications';
 import { getEffectiveCompany } from '@/lib/tenantContext';
-import { ClipboardList, Plus, Search, Paperclip, FileText, Download, RefreshCw } from 'lucide-react';
+import { ClipboardList, Plus, Search, Paperclip, FileText, Download, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -23,6 +23,8 @@ import { generateSubmittalTransmittalPdf } from '@/lib/submittalTransmittalPdf';
 import { useAuth } from '@/lib/AuthContext';
 import { logStatusChange } from '@/lib/statusHistory';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
+import { archiveDocument } from '@/lib/documentArchive';
+import RemoveDocumentDialog from '@/components/documents/RemoveDocumentDialog';
 
 // Submittal workflow mirrors RFI's (RFIs.jsx): draft -> submitted ->
 // [under_review] -> resolved -> closed, plus a Revise & Resubmit branch that
@@ -157,6 +159,7 @@ export default function Submittals() {
   const [savingStatusChange, setSavingStatusChange] = useState(false);
   const [historySubmittal, setHistorySubmittal] = useState(null);
   const [generatingPdfId, setGeneratingPdfId] = useState(null);
+  const [removeAttachmentTarget, setRemoveAttachmentTarget] = useState(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -377,6 +380,19 @@ export default function Submittals() {
     if (!url) return;
     if (/\.pdf$/i.test(docRecord.file_name || '')) openDocumentViewer(url, docRecord.file_name || docRecord.name);
     else downloadFile(url, docRecord.file_name || docRecord.name);
+  };
+
+  // archiveDocument already strips the id from this (and any other)
+  // Submittal's other_attachment_ids in the database — this just mirrors
+  // that onto the two pieces of local state that render it.
+  const confirmRemoveAttachment = async () => {
+    if (!removeAttachmentTarget || !selectedSubmittal) return;
+    await archiveDocument(removeAttachmentTarget);
+    const updatedIds = (selectedSubmittal.other_attachment_ids || []).filter((id) => id !== removeAttachmentTarget.id);
+    setSelectedSubmittal((prev) => (prev ? { ...prev, other_attachment_ids: updatedIds } : prev));
+    setSubmittals((prev) => prev.map((s) => (s.id === selectedSubmittal.id ? { ...s, other_attachment_ids: updatedIds } : s)));
+    setRemoveAttachmentTarget(null);
+    toast({ title: 'Document removed' });
   };
 
   const handleGenerateTransmittal = async (submittal) => {
@@ -636,7 +652,7 @@ export default function Submittals() {
                 {(selectedSubmittal.other_attachment_ids || []).length === 0 ? (
                   <p className="text-sm text-muted-foreground">None attached</p>
                 ) : (
-                  <SubmittalAttachedDocuments ids={selectedSubmittal.other_attachment_ids} projectId={selectedSubmittal.project_id} onOpen={openOtherDocument} />
+                  <SubmittalAttachedDocuments ids={selectedSubmittal.other_attachment_ids} projectId={selectedSubmittal.project_id} onOpen={openOtherDocument} onRemove={setRemoveAttachmentTarget} />
                 )}
               </div>
 
@@ -814,6 +830,12 @@ export default function Submittals() {
         fieldName="status"
         title={historySubmittal ? `${historySubmittal.submittal_number} — Status History` : 'Status History'}
       />
+
+      <RemoveDocumentDialog
+        open={!!removeAttachmentTarget}
+        onOpenChange={(o) => !o && setRemoveAttachmentTarget(null)}
+        onConfirm={confirmRemoveAttachment}
+      />
     </div>
   );
 }
@@ -841,21 +863,26 @@ function SubmittalAttachedDrawings({ ids, projectId, onOpen }) {
   );
 }
 
-function SubmittalAttachedDocuments({ ids, projectId, onOpen }) {
+function SubmittalAttachedDocuments({ ids, projectId, onOpen, onRemove }) {
   const [rows, setRows] = useState([]);
   useEffect(() => {
     let cancelled = false;
     db.entities.Document.filter({ project_id: projectId }, '-created_date', 300)
-      .then((all) => { if (!cancelled) setRows(all.filter((d) => ids.includes(d.id))); })
+      .then((all) => { if (!cancelled) setRows(all.filter((d) => ids.includes(d.id) && !d.is_archived)); })
       .catch(() => { if (!cancelled) setRows([]); });
     return () => { cancelled = true; };
   }, [ids, projectId]);
   return (
     <div className="space-y-1.5">
       {rows.map((d) => (
-        <button key={d.id} type="button" onClick={() => onOpen(d)} className="flex items-center gap-2 text-sm text-primary hover:underline">
-          <FileText className="w-3.5 h-3.5" />{d.name || d.file_name}
-        </button>
+        <div key={d.id} className="flex items-center gap-2">
+          <button type="button" onClick={() => onOpen(d)} className="flex items-center gap-2 text-sm text-primary hover:underline flex-1 min-w-0">
+            <FileText className="w-3.5 h-3.5 shrink-0" /><span className="truncate">{d.name || d.file_name}</span>
+          </button>
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive shrink-0" title="Remove" onClick={() => onRemove(d)}>
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       ))}
     </div>
   );

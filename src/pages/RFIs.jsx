@@ -3,7 +3,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { resolveActorRole, dispatchRfiNotification } from '@/lib/salesNotifications';
-import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2, FileWarning, Sparkles, UploadCloud, Paperclip, Eye, Download } from 'lucide-react';
+import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2, FileWarning, Sparkles, UploadCloud, Paperclip, Eye, Download, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -21,6 +21,8 @@ import { useAuth } from '@/lib/AuthContext';
 import { logStatusChange } from '@/lib/statusHistory';
 import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import { syncProjectChangeOrderMetrics } from '@/lib/changeOrderMetrics';
+import { archiveDocument } from '@/lib/documentArchive';
+import RemoveDocumentDialog from '@/components/documents/RemoveDocumentDialog';
 
 // RFI status lifecycle: draft -> submitted -> answered -> closed, with a
 // void branch reachable from any active state and a reopen path back out of
@@ -131,6 +133,7 @@ export default function RFIs() {
   const [rfiAttachments, setRfiAttachments] = useState([]);
   const [attachingFiles, setAttachingFiles] = useState(false);
   const [rfiDragging, setRfiDragging] = useState(false);
+  const [removeAttachmentTarget, setRemoveAttachmentTarget] = useState(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -215,6 +218,14 @@ export default function RFIs() {
     }
     if (/\.pdf$/i.test(doc.file_name || '')) openDocumentViewer(url, doc.file_name || doc.name);
     else downloadFile(url, doc.file_name || doc.name);
+  };
+
+  const confirmRemoveAttachment = async () => {
+    if (!removeAttachmentTarget) return;
+    await archiveDocument(removeAttachmentTarget);
+    setRfiAttachments((prev) => prev.filter((d) => d.id !== removeAttachmentTarget.id));
+    setRemoveAttachmentTarget(null);
+    toast({ title: 'Document removed' });
   };
 
   const loadData = async () => {
@@ -773,16 +784,20 @@ Draft the response now.`;
                 {rfiAttachments.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {rfiAttachments.map((doc) => (
-                      <button
-                        key={doc.id}
-                        type="button"
-                        onClick={() => openRfiAttachment(doc)}
-                        className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-muted/50 text-left text-sm"
-                      >
-                        <Paperclip className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                        <span className="flex-1 truncate">{doc.name}</span>
-                        {/\.pdf$/i.test(doc.file_name || '') ? <Eye className="w-3.5 h-3.5 text-muted-foreground" /> : <Download className="w-3.5 h-3.5 text-muted-foreground" />}
-                      </button>
+                      <div key={doc.id} className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-muted/50 text-sm">
+                        <button
+                          type="button"
+                          onClick={() => openRfiAttachment(doc)}
+                          className="flex-1 flex items-center gap-2 min-w-0 text-left"
+                        >
+                          <Paperclip className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className="flex-1 truncate">{doc.name}</span>
+                          {/\.pdf$/i.test(doc.file_name || '') ? <Eye className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <Download className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                        </button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive shrink-0" title="Remove" onClick={() => setRemoveAttachmentTarget(doc)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -988,6 +1003,12 @@ Draft the response now.`;
         entityId={historyRfi?.id}
         fieldName="status"
         title={historyRfi ? `${historyRfi.rfi_number} — Status History` : 'Status History'}
+      />
+
+      <RemoveDocumentDialog
+        open={!!removeAttachmentTarget}
+        onOpenChange={(o) => !o && setRemoveAttachmentTarget(null)}
+        onConfirm={confirmRemoveAttachment}
       />
     </div>
   );

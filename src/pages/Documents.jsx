@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Search, Upload, FolderOpen, Eye, Download, ExternalLink } from 'lucide-react';
+import { Search, Upload, FolderOpen, Eye, Download, ExternalLink, Trash2, RotateCcw, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,6 +16,9 @@ import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
 import { resolveDocumentUrl } from '@/lib/documentBlobStore';
 import { DOCUMENT_TYPE_OPTIONS, documentTypeLabel } from '@/lib/documentCategories';
+import { archiveDocument, restoreDocument } from '@/lib/documentArchive';
+import { hasDocumentArchiveAccess } from '@/lib/documentArchiveAccess';
+import RemoveDocumentDialog from '@/components/documents/RemoveDocumentDialog';
 
 const DOC_TYPE_ICONS = {
   specification: '📋', contract: '📝', structural_drawing: '📐', architectural_drawing: '🏗️',
@@ -41,8 +44,12 @@ export default function Documents() {
   const [moduleAllowed, setModuleAllowed] = useState(false);
   const [checkingModuleAccess, setCheckingModuleAccess] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState(null);
 
-  useEffect(() => { loadData(); }, []);
+  const canManageArchive = hasDocumentArchiveAccess(currentUser?.roles);
+
+  useEffect(() => { loadData(); }, [showArchived]);
   useEffect(() => {
     db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
     getEffectiveCompany()
@@ -61,12 +68,26 @@ export default function Documents() {
     setLoading(true);
     try {
       const [docData, projData] = await Promise.all([
-        db.entities.Document.filter({ is_archived: false }, '-created_date', 200),
+        db.entities.Document.filter({ is_archived: showArchived }, '-created_date', 200),
         db.entities.Project.filter({ is_archived: false }, 'name', 50),
       ]);
       setDocuments(docData);
       setProjects(projData);
     } catch (e) {} finally { setLoading(false); }
+  };
+
+  const confirmRemove = async () => {
+    if (!removeTarget) return;
+    await archiveDocument(removeTarget);
+    setRemoveTarget(null);
+    toast({ title: 'Document removed' });
+    loadData();
+  };
+
+  const handleRestore = async (doc) => {
+    await restoreDocument(doc);
+    toast({ title: 'Document restored' });
+    loadData();
   };
 
   const filtered = documents.filter(d => {
@@ -117,7 +138,9 @@ export default function Documents() {
     <div className="p-6 animate-fade-in">
       <PageHeader
         title="Documents"
-        subtitle={`${documents.length} documents across all projects`}
+        subtitle={showArchived
+          ? `${documents.length} archived document${documents.length === 1 ? '' : 's'}`
+          : `${documents.length} documents across all projects`}
         actions={<Button className="steel-gradient text-white border-0"><Upload className="w-4 h-4 mr-2" />Upload Document</Button>}
       />
 
@@ -140,6 +163,15 @@ export default function Documents() {
             {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.project_number} — {p.name}</SelectItem>)}
           </SelectContent>
         </Select>
+        {canManageArchive && (
+          <Button
+            variant={showArchived ? 'secondary' : 'outline'}
+            className="gap-1.5"
+            onClick={() => setShowArchived((v) => !v)}
+          >
+            <Archive className="w-4 h-4" />{showArchived ? 'Showing Archived' : 'Show Archived'}
+          </Button>
+        )}
       </div>
 
       <div className="steel-card overflow-hidden">
@@ -165,7 +197,9 @@ export default function Documents() {
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={8} className="py-16 text-center">
                   <FolderOpen className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                  <p className="text-sm text-muted-foreground">No documents found. Upload documents from a project page.</p>
+                  <p className="text-sm text-muted-foreground">
+                    {showArchived ? 'No archived documents.' : 'No documents found. Upload documents from a project page.'}
+                  </p>
                 </td></tr>
               ) : (
                 filtered.map(doc => {
@@ -212,6 +246,17 @@ export default function Documents() {
                               <ExternalLink className="w-3.5 h-3.5" />
                             </Button>
                           )}
+                          {showArchived ? (
+                            canManageArchive && (
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Restore" onClick={() => handleRestore(doc)}>
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </Button>
+                            )
+                          ) : (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" title="Remove" onClick={() => setRemoveTarget(doc)}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -222,6 +267,12 @@ export default function Documents() {
           </table>
         </div>
       </div>
+
+      <RemoveDocumentDialog
+        open={!!removeTarget}
+        onOpenChange={(o) => !o && setRemoveTarget(null)}
+        onConfirm={confirmRemove}
+      />
     </div>
   );
 }
