@@ -481,6 +481,25 @@ export default function BlueprintTakeoff() {
     loadSessions();
   }, [user?.company_id]);
 
+  // Reached via a bid's "Open IRONSIGHT" button (BidDetail.jsx) as
+  // /estimating/blueprint-takeoff/:id — auto-resume that bid's own existing
+  // session instead of leaving the estimator to find and click it in the
+  // Resume list, so the button drops them straight into a session already
+  // scoped to this bid rather than a blank/unassociated one. No matching
+  // session yet just falls through to the normal sessions screen, whose
+  // "start a new takeoff" panel already force-links a bid-scoped new session
+  // (see handleNewTakeoffFile below) — nothing further to do for that case.
+  // Attempted once per page load (a ref, not state) so it doesn't fight a
+  // deliberate "Back to Sessions" navigation afterward.
+  const autoOpenAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (!bidId || sessionsLoading || autoOpenAttemptedRef.current) return;
+    autoOpenAttemptedRef.current = true;
+    const existing = sessions.find((s) => s.bid_id === bidId);
+    if (existing) openSession(existing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bidId, sessions, sessionsLoading]);
+
   const loadLinkTargets = async () => {
     if (!user) { setActiveBids([]); setActiveProjects([]); return; }
     // A company_id-less account (a real, observed state — some accounts get

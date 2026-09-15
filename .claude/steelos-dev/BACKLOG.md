@@ -5,6 +5,30 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-15) — "Open IRONSIGHT" button on Bid Worksheet, auto-linked + auto-resumed
+
+- **Direct "Open IRONSIGHT" action on `BidDetail.jsx`, first among the bid's
+  action buttons.** The route/linking plumbing already existed (a
+  "Blueprint Takeoff" button navigated to
+  `/estimating/blueprint-takeoff/:bidId`, and `BlueprintTakeoff.jsx` already
+  force-links a brand-new session to that bid on create when reached this
+  way) — this pass renamed it "Open IRONSIGHT" (`Crosshair` icon, matching
+  `NavBar.jsx`'s own IRONSIGHT icon), moved it to be the first `<Button>` in
+  the header action row (before "Save Estimate" — the two status
+  badges/toggles stay leftmost), and closed the one real gap: arriving with
+  an existing session already linked to this bid used to still land on the
+  IRONSIGHT "Resume a takeoff" picker, requiring the estimator to find and
+  click their own bid's session in a company-wide list. New effect in
+  `BlueprintTakeoff.jsx` (guarded by a ref so it only ever attempts once per
+  page load, never fighting a deliberate "Back to Sessions" click
+  afterward) auto-calls the existing `openSession()` on that bid's own
+  session — found via the already-loaded, already-sorted (most-recently-
+  opened first) `sessions` list — the instant one exists, so the button
+  drops the estimator straight into a session already scoped to this bid
+  either way (existing session: auto-resumed; no session yet: lands on the
+  upload panel, which was already pre-linking on create). `npm run build &&
+  npm run lint` clean.
+
 ## Also Closed (2026-09-15) — IRONSIGHT Count tool: fraction precision, Plate dims, push-to-estimate field loss, weight calc
 
 - **Five related fixes to the Count/Bolt Count engine, all traced by hand

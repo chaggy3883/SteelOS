@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Download, ScanSearch, ScanLine, FolderOpen, FileCheck2, Loader2, HardHat, Send, ShieldAlert, Layers, FileSpreadsheet } from 'lucide-react';
+import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Download, ScanSearch, Crosshair, FolderOpen, FileCheck2, Loader2, HardHat, Send, ShieldAlert, Layers, FileSpreadsheet } from 'lucide-react';
 import { openLocalServerPath } from '@/lib/localServerPath';
 import { generateBidProposalPdf } from '@/lib/bidProposalPdf';
 import { generateBidInternalBreakdownPdf } from '@/lib/bidInternalBreakdownPdf';
@@ -547,6 +547,9 @@ export default function BidDetail() {
               <StatusBadge status={bid.status} />
             </button>
             <BidPricingHoldBadge bid={bid} holdDays={bidHoldDays} onClick={() => setShowPricingHold(true)} />
+            <Button size="sm" variant="outline" onClick={() => navigate(`/estimating/blueprint-takeoff/${bid.id}`)}>
+              <Crosshair className="w-3.5 h-3.5 mr-1" />Open IRONSIGHT
+            </Button>
             <Button size="sm" onClick={handleSaveEstimate} disabled={savingEstimate} className="steel-gradient text-white border-0">
               {savingEstimate ? 'Saving…' : 'Save Estimate'}
             </Button>
@@ -558,9 +561,6 @@ export default function BidDetail() {
             </Button>
             <Button size="sm" variant="outline" className="text-red-600 border-red-500/30 hover:bg-red-500/10" onClick={() => { setBreakdownExportFormat('excel'); setShowBreakdownConfirm(true); }} disabled={exportingBreakdownExcel}>
               <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />{exportingBreakdownExcel ? 'Generating…' : 'Full Breakdown Excel (Internal)'}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => navigate(`/estimating/blueprint-takeoff/${bid.id}`)}>
-              <ScanLine className="w-3.5 h-3.5 mr-1" />Blueprint Takeoff
             </Button>
             {bid.status !== 'won' && bid.status !== 'lost' && bid.status !== 'cancelled' && bid.status !== 'Did_Not_Bid' && (
               <>
