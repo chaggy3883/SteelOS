@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Search, Upload, FolderOpen, Eye, Download } from 'lucide-react';
+import { Search, Upload, FolderOpen, Eye, Download, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -25,6 +25,7 @@ const DOC_TYPE_ICONS = {
 export default function Documents() {
   useDocumentTitle('SteelOS — Documents');
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // A Global Search hit lands here with ?doc=<id> — filters/type get reset
   // so the highlighted row can't be hidden by a stale filter, and the row
@@ -205,6 +206,11 @@ export default function Documents() {
                                 <Download className="w-3.5 h-3.5" />
                               </Button>
                             </>
+                          )}
+                          {doc.rfi_id && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Open RFI" onClick={() => navigate(`/rfis?open=${doc.rfi_id}`)}>
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </Button>
                           )}
                         </div>
                       </td>

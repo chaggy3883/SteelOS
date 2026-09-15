@@ -20,6 +20,10 @@
       "type": "string",
       "description": "Links to VendorBill — set when this Document is the source invoice for a vendor bill (document_type 'vendor_invoice')."
     },
+    "rfi_id": {
+      "type": "string",
+      "description": "Links to RFI — set when this Document was attached via RFIs.jsx's general-purpose drag-and-drop attachment zone on a specific RFI (document_type 'rfi'). Drives the 'Open RFI' click-through on Documents.jsx. Distinct from the unrelated delay-notice flow's generated Documents (document_type 'delay_notice'), which have no rfi_id."
+    },
     "name": {
       "type": "string"
     },

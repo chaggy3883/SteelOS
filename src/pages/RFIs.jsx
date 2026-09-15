@@ -3,7 +3,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { resolveActorRole, dispatchRfiNotification } from '@/lib/salesNotifications';
-import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2, FileWarning, Sparkles } from 'lucide-react';
+import { MessageSquare, Plus, Search, AlertCircle, Clock, CheckCircle2, FileWarning, Sparkles, UploadCloud, Paperclip, Eye, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -13,7 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
-import { saveDocumentFile } from '@/lib/documentBlobStore';
+import { saveDocumentFile, resolveDocumentUrl } from '@/lib/documentBlobStore';
+import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { downloadFile } from '@/lib/downloadFile';
 import { generateDelayImpactNoticePDF } from '@/lib/delayNoticePdf';
 import { useAuth } from '@/lib/AuthContext';
 import { logStatusChange } from '@/lib/statusHistory';
@@ -121,6 +123,15 @@ export default function RFIs() {
   const [savingStatusChange, setSavingStatusChange] = useState(false);
   const [historyRfi, setHistoryRfi] = useState(null);
 
+  // General-purpose attachment zone on the RFI detail view — every file
+  // dropped here becomes a real Document (project_id + rfi_id set,
+  // document_type 'rfi'), never just a locally-held file reference. Fully
+  // separate from handleGenerateDelayNotice's Document.create below, which
+  // stays untouched.
+  const [rfiAttachments, setRfiAttachments] = useState([]);
+  const [attachingFiles, setAttachingFiles] = useState(false);
+  const [rfiDragging, setRfiDragging] = useState(false);
+
   useEffect(() => { loadData(); }, []);
 
   // Deep link from the Salesman Dashboard's Recent RFIs widget ('/rfis?open=<id>').
@@ -130,6 +141,81 @@ export default function RFIs() {
     const match = rfis.find((r) => r.id === openId);
     if (match) { setSelectedRfi(match); setEditingRfi(false); }
   }, [searchParams, rfis]);
+
+  useEffect(() => {
+    if (!selectedRfi) { setRfiAttachments([]); return; }
+    let cancelled = false;
+    db.entities.Document.filter({ rfi_id: selectedRfi.id }, '-created_date', 100)
+      .then((docs) => { if (!cancelled) setRfiAttachments(docs.filter((d) => !d.is_archived)); })
+      .catch(() => { if (!cancelled) setRfiAttachments([]); });
+    return () => { cancelled = true; };
+  }, [selectedRfi?.id]);
+
+  // Backstop against the browser's native file-open fallback for a drop that
+  // lands just outside the coded dropzone — same fix already established for
+  // PieceMarkPdfIntake.jsx/DocumentsPanel.jsx, applied here too rather than
+  // re-discovered.
+  useEffect(() => {
+    const preventDefault = (e) => e.preventDefault();
+    window.addEventListener('dragover', preventDefault);
+    window.addEventListener('drop', preventDefault);
+    return () => {
+      window.removeEventListener('dragover', preventDefault);
+      window.removeEventListener('drop', preventDefault);
+    };
+  }, []);
+
+  const handleAttachRfiFiles = async (fileList) => {
+    if (!selectedRfi) return;
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    setAttachingFiles(true);
+    try {
+      const created = [];
+      for (const file of files) {
+        const { file_url } = await db.integrations.Core.UploadFile({ file });
+        const document = await db.entities.Document.create({
+          project_id: selectedRfi.project_id,
+          rfi_id: selectedRfi.id,
+          name: file.name,
+          file_url,
+          file_name: file.name,
+          file_size: file.size,
+          file_type: file.type,
+          document_type: 'rfi',
+          status: 'uploaded',
+          is_archived: false,
+        });
+        // file_url above is an ephemeral blob: URL that dies on reload —
+        // persist the real bytes, same as every other attach-a-file path in
+        // this app (handleGenerateDelayNotice below, DocumentsPanel.jsx).
+        await saveDocumentFile(document.id, file);
+        created.push(document);
+      }
+      setRfiAttachments((prev) => [...created, ...prev]);
+      toast({ title: `${files.length} document${files.length === 1 ? '' : 's'} attached` });
+    } catch (e) {
+      toast({ title: 'Unable to attach document', description: e?.message, variant: 'destructive' });
+    } finally {
+      setAttachingFiles(false);
+    }
+  };
+
+  const rfiDropZoneProps = {
+    onDragOver: (e) => { e.preventDefault(); setRfiDragging(true); },
+    onDragLeave: () => setRfiDragging(false),
+    onDrop: (e) => { e.preventDefault(); setRfiDragging(false); handleAttachRfiFiles(e.dataTransfer.files); },
+  };
+
+  const openRfiAttachment = async (doc) => {
+    const url = await resolveDocumentUrl(doc);
+    if (!url) {
+      toast({ title: 'File unavailable', description: 'This file was uploaded before file persistence was fixed and cannot be recovered — please re-upload it.', variant: 'destructive' });
+      return;
+    }
+    if (/\.pdf$/i.test(doc.file_name || '')) openDocumentViewer(url, doc.file_name || doc.name);
+    else downloadFile(url, doc.file_name || doc.name);
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -664,6 +750,42 @@ Draft the response now.`;
               <div>
                 <p className="text-xs text-muted-foreground">Notes</p>
                 <p className="text-sm mt-1 whitespace-pre-wrap">{selectedRfi.notes || 'No notes'}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-muted-foreground mb-1.5">Attachments</p>
+                <div
+                  {...rfiDropZoneProps}
+                  onClick={() => document.getElementById('rfi-attachment-file-input')?.click()}
+                  className={`flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed p-4 text-center cursor-pointer transition-colors ${rfiDragging ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`}
+                >
+                  <UploadCloud className="w-5 h-5 text-muted-foreground" />
+                  <p className="text-xs font-medium">Drag &amp; drop files here, or click to browse</p>
+                  <input
+                    id="rfi-attachment-file-input"
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => { handleAttachRfiFiles(e.target.files); e.target.value = ''; }}
+                  />
+                </div>
+                {attachingFiles && <p className="text-xs text-muted-foreground mt-1.5">Uploading…</p>}
+                {rfiAttachments.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {rfiAttachments.map((doc) => (
+                      <button
+                        key={doc.id}
+                        type="button"
+                        onClick={() => openRfiAttachment(doc)}
+                        className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-muted/50 text-left text-sm"
+                      >
+                        <Paperclip className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <span className="flex-1 truncate">{doc.name}</span>
+                        {/\.pdf$/i.test(doc.file_name || '') ? <Eye className="w-3.5 h-3.5 text-muted-foreground" /> : <Download className="w-3.5 h-3.5 text-muted-foreground" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
