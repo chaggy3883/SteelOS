@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { flagCostCodeOverruns } from '@/lib/jobCostAnalysis';
-import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
+import { generateEstimatingShopHoursVariancePdf } from '@/lib/estimatingShopHoursVariancePdf';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { useToast } from '@/components/ui/use-toast';
 
 const STATIONS = ['saw', 'drill', 'fab', 'weld', 'paint'];
 
@@ -30,6 +32,7 @@ function TruncatedYAxisTick({ x, y, payload, maxChars }) {
 
 export default function EstimatingAnalytics() {
   useDocumentTitle('SteelOS — Historical Analytics');
+  const { toast } = useToast();
   const [variances, setVariances] = useState([]);
   const [bids, setBids] = useState([]);
   const [costOverruns, setCostOverruns] = useState([]);
@@ -138,9 +141,14 @@ export default function EstimatingAnalytics() {
         return { station: station.toUpperCase(), avgVariance: totalVar / shopHoursVariances.length };
       })
     : [];
-  const handleExportShopHoursPdf = () => {
-    const suffix = shopHoursProjectId === 'all' ? 'all-projects' : (shopHoursProjectOptions.find(p => p.id === shopHoursProjectId)?.label || shopHoursProjectId).replace(/[^a-z0-9_-]+/gi, '_');
-    exportNodeToPdf(shopHoursCardRef.current, `estimated-vs-shop-hours_${suffix}.pdf`, 'estimating_shop_hours_variance');
+  const handleExportShopHoursPdf = async () => {
+    const projectLabel = shopHoursProjectId === 'all' ? 'All Projects' : (shopHoursProjectOptions.find(p => p.id === shopHoursProjectId)?.label || shopHoursProjectId);
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateEstimatingShopHoursVariancePdf({ company, projectLabel, stationVariances });
+    } catch (e) {
+      toast({ title: 'Unable to generate Estimated vs. Shop Hours PDF', variant: 'destructive' });
+    }
   };
 
   return (

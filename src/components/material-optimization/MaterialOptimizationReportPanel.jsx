@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { buildMaterialOptimizationReport } from '@/lib/materialOptimizationReport';
-import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
+import { generateMaterialOptimizationReportPdf } from '@/lib/materialOptimizationReportPdf';
+import { getEffectiveCompany } from '@/lib/tenantContext';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Download, Loader2, Package, Boxes, Recycle, Scale, Percent } from 'lucide-react';
@@ -46,7 +47,14 @@ export default function MaterialOptimizationReportPanel({ projectId, projectName
     }
   };
 
-  const handleExport = () => exportNodeToPdf(reportRef.current, `material-optimization-report-${(projectName || 'project').replace(/[^a-z0-9]+/gi, '-')}.pdf`, 'material_optimization_report');
+  const handleExport = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateMaterialOptimizationReportPdf({ company, projectName, report });
+    } catch (e) {
+      toast({ title: 'Unable to generate Material Optimization Report PDF', variant: 'destructive' });
+    }
+  };
 
   if (loading) {
     return <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>;

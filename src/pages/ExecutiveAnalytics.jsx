@@ -15,7 +15,17 @@ import { buildWeekColumns, buildCapacityMatrix, getStationBottlenecks, getStatio
 import { bucketPipeline } from '@/lib/salesDashboardData';
 import { getSalesmanCommissionSummary } from '@/lib/commissionEngine';
 import { hasSalesmanRateAccess } from '@/lib/commissionAccess';
-import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
+import { generateWipRadarPdf } from '@/lib/wipRadarPdf';
+import { generateWipOverUnderBillingPdf } from '@/lib/wipOverUnderBillingPdf';
+import { generateExecArApAgingPdf } from '@/lib/execArApAgingPdf';
+import { generateExecCashPositionPdf } from '@/lib/execCashPositionPdf';
+import { generateExecBidWinLossPdf } from '@/lib/execBidWinLossPdf';
+import { generateExecEstimatingPerformancePdf } from '@/lib/execEstimatingPerformancePdf';
+import { generateExecShopProductionPdf } from '@/lib/execShopProductionPdf';
+import { generateExecHeadcountPdf } from '@/lib/execHeadcountPdf';
+import { generateExecSalesPipelineCommissionPdf } from '@/lib/execSalesPipelineCommissionPdf';
+import { generateExecQuarterlyTaxExposurePdf } from '@/lib/execQuarterlyTaxExposurePdf';
+import { loadCashForecastData, computeCashForecastBuckets } from '@/lib/cashForecastEngine';
 import CashForecastPanel from '@/components/accounting/CashForecastPanel';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
@@ -304,6 +314,46 @@ export default function ExecutiveAnalytics() {
   // no individual salesman commission ever appears on this page regardless
   // of role, so this only controls whether the card renders at all.
   const canViewCommission = hasSalesmanRateAccess(user?.roles || []);
+  const pipelineCount = pipeline.prospects.length + pipeline.quotes.length;
+
+  const exportWithToast = async (fn, failureTitle) => {
+    try {
+      await fn();
+    } catch (e) {
+      toast({ title: failureTitle, variant: 'destructive' });
+    }
+  };
+
+  const handleExportWipRadar = () => exportWithToast(() => generateWipRadarPdf({ company, wipRadar }), 'Unable to generate WIP Radar PDF');
+  const handleExportWipSummary = () => exportWithToast(() => generateWipOverUnderBillingPdf({ company, wipSummary }), 'Unable to generate WIP Overbilling/Underbilling PDF');
+  const handleExportAging = () => exportWithToast(
+    () => generateExecArApAgingPdf({ company, arAgingTotals, apAgingTotals, arTotalOutstanding, apTotalOutstanding, arPastDuePct }),
+    'Unable to generate AR/AP Aging PDF'
+  );
+  const handleExportCashPosition = () => exportWithToast(async () => {
+    const data = await loadCashForecastData();
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const buckets = computeCashForecastBuckets({ ...data, todayIso });
+    await generateExecCashPositionPdf({ company, startingBalance: data.startingBalance, buckets });
+  }, 'Unable to generate Cash Position PDF');
+  const handleExportWinLoss = () => exportWithToast(() => generateExecBidWinLossPdf({
+    company,
+    winLoss,
+    topLossReasons: winLoss.topLossReasons.map((r) => ({ label: REASON_LABELS[r.reason] || r.reason, count: r.count })),
+    topDnbReasons: winLoss.topDnbReasons.map((r) => ({ label: REASON_LABELS[r.reason] || r.reason, count: r.count })),
+  }), 'Unable to generate Bid Win/Loss PDF');
+  const handleExportEstimatingPerformance = () => exportWithToast(
+    () => generateExecEstimatingPerformancePdf({ company, winLoss, bidVolumeStats }),
+    'Unable to generate Estimating Performance PDF'
+  );
+  const handleExportShopProduction = () => exportWithToast(() => generateExecShopProductionPdf({
+    company, currentWeekTons, maxShopCapacity, currentWeekUtilizationPct, avgDwellVariancePct,
+  }), 'Unable to generate Shop Production PDF');
+  const handleExportHeadcount = () => exportWithToast(() => generateExecHeadcountPdf({ company, headcount }), 'Unable to generate Headcount PDF');
+  const handleExportSalesPipeline = () => exportWithToast(() => generateExecSalesPipelineCommissionPdf({
+    company, pipelineValue, pipelineCount, commissionTotals, canViewCommission,
+  }), 'Unable to generate Sales Pipeline & Commission PDF');
+  const handleExportTaxExposure = () => exportWithToast(() => generateExecQuarterlyTaxExposurePdf({ company, taxRows }), 'Unable to generate Quarterly Tax Exposure PDF');
 
   const handleSaveSnapshot = async () => {
     setSavingSnapshot(true);
@@ -351,7 +401,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Gauge} title="Financial WIP Radar"
           subtitle="Total contract value vs. actual job-to-date cost recognized (from the job cost ledger), per active project."
-          onExport={() => exportNodeToPdf(wipRadarRef.current, 'wip-radar.pdf', 'exec_wip_radar')}
+          onExport={handleExportWipRadar}
           detailPath="/accounting?tab=wip" navigate={navigate}
         />
         {wipRadar.length === 0 ? (
@@ -381,7 +431,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Scale} title="WIP Overbilling / Underbilling Summary"
           subtitle="Billed vs. earned revenue per active project (calculateWIPSchedule), rolled up company-wide."
-          onExport={() => exportNodeToPdf(wipSummaryRef.current, 'wip-overbilling-underbilling.pdf', 'exec_wip_overbilling_underbilling')}
+          onExport={handleExportWipSummary}
           detailPath="/accounting?tab=wip" navigate={navigate}
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 mb-4">
@@ -421,7 +471,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Percent} title="AR / AP Aging Summary"
           subtitle="Outstanding receivables and payables bucketed by days past due (agingReport.js), same buckets as Accounting's AR/AP Aging tabs."
-          onExport={() => exportNodeToPdf(agingRef.current, 'ar-ap-aging-summary.pdf', 'exec_ar_ap_aging_summary')}
+          onExport={handleExportAging}
           navigate={navigate}
         />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
@@ -465,7 +515,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Wallet} title="Cash Position"
           subtitle="90-day cash forecast — starting balance, weekly net change, and projected balance (CashForecastPanel's own logic, embedded so the math is never duplicated)."
-          onExport={() => exportNodeToPdf(cashRef.current, 'cash-position.pdf', 'exec_cash_position')}
+          onExport={handleExportCashPosition}
           detailPath="/accounting?tab=cash" navigate={navigate}
         />
         <div className="mt-3">
@@ -480,7 +530,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={TrendingUp} title="Commercial Bid Win/Loss"
           subtitle="Won/Lost/Did-Not-Bid are parallel outcomes, not funnel stages — shown as a categorical comparison rather than a funnel."
-          onExport={() => exportNodeToPdf(winLossRef.current, 'bid-win-loss.pdf', 'exec_bid_win_loss')}
+          onExport={handleExportWinLoss}
           detailPath="/estimating" navigate={navigate}
         />
         <div className="grid grid-cols-1 md:grid-cols-[1fr_200px] gap-4 mt-4">
@@ -526,7 +576,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Factory} title="Estimating Performance"
           subtitle="Win rate, bid volume, and average bid size — reuses computeWinLossStats and estimatingAnalytics.js, the same functions behind Historical Analytics."
-          onExport={() => exportNodeToPdf(estimatingRef.current, 'estimating-performance.pdf', 'exec_estimating_performance')}
+          onExport={handleExportEstimatingPerformance}
           detailPath="/estimating/analytics" navigate={navigate}
         />
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4 mb-4">
@@ -550,7 +600,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Boxes} title="Shop Production"
           subtitle="Current-week capacity utilization and dwell-time variance — reuses buildCapacityMatrix and getStationDwellVariance from shopOpsMetrics.js, same as the Bottleneck Radar tab."
-          onExport={() => exportNodeToPdf(shopRef.current, 'shop-production.pdf', 'exec_shop_production')}
+          onExport={handleExportShopProduction}
           detailPath="/shop-operations" navigate={navigate}
         />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
@@ -579,7 +629,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={Users} title="Headcount"
           subtitle="Active employees, company-wide."
-          onExport={() => exportNodeToPdf(hrRef.current, 'headcount.pdf', 'exec_headcount')}
+          onExport={handleExportHeadcount}
           detailPath="/human-resources" navigate={navigate}
         />
         <div className="mt-4">
@@ -595,7 +645,7 @@ export default function ExecutiveAnalytics() {
         <SectionHeader
           icon={HandCoins} title="Sales Pipeline &amp; Commission"
           subtitle="Open pipeline value reuses bucketPipeline (salesDashboardData.js) across every company bid. Commission is an aggregate company total only — no individual salesman detail is shown here, matching the same privacy gate as the salesman rate screens."
-          onExport={() => exportNodeToPdf(salesRef.current, 'sales-pipeline-commission.pdf', 'exec_sales_pipeline_commission')}
+          onExport={handleExportSalesPipeline}
           detailPath="/estimating" navigate={navigate}
         />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
@@ -629,7 +679,7 @@ export default function ExecutiveAnalytics() {
           <SectionHeader
             icon={Landmark} title="Quarterly Tax Exposure Grid"
             subtitle="Hancock County structural tax vs. Joist & Deck jobsite tax overrides, by billing quarter, across all bids."
-            onExport={() => exportNodeToPdf(taxRef.current, 'quarterly-tax-exposure.pdf', 'exec_quarterly_tax_exposure')}
+            onExport={handleExportTaxExposure}
             detailPath="/estimating" navigate={navigate}
           />
         </div>

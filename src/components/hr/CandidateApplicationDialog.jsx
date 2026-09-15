@@ -2,14 +2,22 @@ import React, { useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Download, Printer } from 'lucide-react';
-import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
+import { generateCandidateApplicationPdf } from '@/lib/candidateApplicationPdf';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import { useToast } from '@/components/ui/use-toast';
 
 export default function CandidateApplicationDialog({ candidate, open, onOpenChange }) {
+  const { toast } = useToast();
   const printRef = useRef(null);
   if (!candidate) return null;
 
-  const handleExportPdf = () => {
-    exportNodeToPdf(printRef.current, `${candidate.candidate_name || 'candidate'}-application.pdf`, 'hr_candidate_application');
+  const handleExportPdf = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateCandidateApplicationPdf({ company, candidate });
+    } catch (e) {
+      toast({ title: 'Unable to generate Candidate Application PDF', variant: 'destructive' });
+    }
   };
 
   const rows = [

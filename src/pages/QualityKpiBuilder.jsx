@@ -4,7 +4,7 @@ import { db } from '@/api/apiClient';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import { getAllRoles } from '@/components/dashboard/rbacConfig';
-import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
+import { generateQualityKpiReportPdf } from '@/lib/qualityKpiReportPdf';
 import {
   AREAS, CHART_TYPES, AGGREGATION_LEVELS, DATE_RANGE_OPTIONS, KPI_SOURCE_ENTITIES,
   metricsForArea, getMetric, resolveDateRange, computeMetricSeries, pieValueForSeries,
@@ -383,10 +383,15 @@ export default function QualityKpiBuilder() {
   const handlePrint = () => window.print();
 
   const handleExportPdf = async () => {
-    if (!exportRef.current) return;
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const name = (loadedDashboard?.dashboard_name || `${config.area}_kpi`).replace(/[^a-z0-9_-]+/gi, '_');
-    await exportNodeToPdf(exportRef.current, `${name}_${dateStr}.pdf`, 'quality_kpi_report');
+    if (!chartModel) return;
+    const dr = resolveDateRange({ date_range_type: config.dateRangeType, custom_start_date: config.customStart, custom_end_date: config.customEnd });
+    const title = loadedDashboard?.dashboard_name || `${AREAS.find((a) => a.value === config.area)?.label} KPIs`;
+    const dateRangeLabel = `${dr.start.toLocaleDateString()} – ${dr.end.toLocaleDateString()} · ${effectiveCompany?.name || 'Company'}`;
+    try {
+      await generateQualityKpiReportPdf({ company: effectiveCompany, currentUser, title, dateRangeLabel, chartModel, sortedRows });
+    } catch (e) {
+      toast({ title: 'Unable to generate KPI Report PDF', variant: 'destructive' });
+    }
   };
 
   if (checkingAccess) {

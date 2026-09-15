@@ -3,7 +3,9 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Settings2, Calculator, TrendingUp, CheckCircle2, XCircle, Archive, ListChecks, Eye, EyeOff, Pencil, X, Download } from 'lucide-react';
-import { exportNodeToPdf } from '@/lib/exportNodeToPdf';
+import { generateEstimatingActiveBidsPdf } from '@/lib/estimatingActiveBidsPdf';
+import { generateEstimatingBidHistoryPdf } from '@/lib/estimatingBidHistoryPdf';
+import { generateEstimatingDidNotBidPdf } from '@/lib/estimatingDidNotBidPdf';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -103,7 +105,32 @@ export default function Estimating() {
 
   const scrollToRef = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  const exportListToPdf = (ref, filename, documentTypeKey) => exportNodeToPdf(ref.current, filename, documentTypeKey);
+  const handleExportActiveBids = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateEstimatingActiveBidsPdf({ company, bids: activeBids, employees });
+    } catch (e) {
+      toast({ title: 'Unable to generate Active Bids PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportBidHistory = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateEstimatingBidHistoryPdf({ company, bids: [...wonBids, ...lostBids], employees });
+    } catch (e) {
+      toast({ title: 'Unable to generate Bid History PDF', variant: 'destructive' });
+    }
+  };
+
+  const handleExportDidNotBid = async () => {
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateEstimatingDidNotBidPdf({ company, bids: dnbBids, employees });
+    } catch (e) {
+      toast({ title: 'Unable to generate Did Not Bid PDF', variant: 'destructive' });
+    }
+  };
 
   const startEditBid = (bid) => {
     setEditingBid(bid);
@@ -279,7 +306,7 @@ export default function Estimating() {
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary" />Bid List — Active</h3>
             <div className="flex items-center gap-3">
-              <Button size="sm" variant="outline" onClick={() => exportListToPdf(bidListRef, 'active-bids.pdf', 'estimating_active_bids')}>
+              <Button size="sm" variant="outline" onClick={handleExportActiveBids}>
                 <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
               </Button>
               <Link to="/estimating/new" className="text-xs text-primary hover:underline">+ New Bid</Link>
@@ -369,7 +396,7 @@ export default function Estimating() {
         <div ref={bidHistoryRef} className="steel-card overflow-hidden">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><Archive className="w-4 h-4 text-muted-foreground" />Bid History — Won & Lost</h3>
-            <Button size="sm" variant="outline" onClick={() => exportListToPdf(bidHistoryRef, 'bid-history.pdf', 'estimating_bid_history')}>
+            <Button size="sm" variant="outline" onClick={handleExportBidHistory}>
               <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
             </Button>
           </div>
@@ -449,7 +476,7 @@ export default function Estimating() {
         <div ref={dnbRef} className="steel-card overflow-hidden mt-6">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h3 className="font-semibold flex items-center gap-2"><XCircle className="w-4 h-4 text-muted-foreground" />Did Not Bid</h3>
-            <Button size="sm" variant="outline" onClick={() => exportListToPdf(dnbRef, 'did-not-bid.pdf', 'estimating_did_not_bid')}>
+            <Button size="sm" variant="outline" onClick={handleExportDidNotBid}>
               <Download className="w-3.5 h-3.5 mr-1.5" />Export to PDF
             </Button>
           </div>

@@ -4,20 +4,18 @@
 //
 // Design decision: when an active letterhead is assigned to a document
 // type, it REPLACES that generator's own logo/company-name header entirely
-// (for jsPDF documents) or is prepended as a full-width band above the
-// captured screenshot (for html2canvas snapshot exports) — it never renders
-// alongside the normal header. A letterhead image is pre-designed art that
-// already carries the company name/logo/address/branding treatment, so
-// drawing both would duplicate the company name and clash stylistically.
-// Each document's own title/date/body content still renders normally,
-// starting below the letterhead.
+// — it never renders alongside the normal header. A letterhead image is
+// pre-designed art that already carries the company name/logo/address/
+// branding treatment, so drawing both would duplicate the company name and
+// clash stylistically. Each document's own title/date/body content still
+// renders normally, starting below the letterhead.
 //
 // No caching anywhere in this file — every call re-queries
 // CompanyLetterhead fresh, so a letterhead saved in Admin takes effect on
 // the very next export with no stale-until-refresh window.
 import { db } from '@/api/apiClient';
 import { loadImageAsDataUrl } from '@/lib/pdfImage';
-import { fitDimensions, drawLetterheadImage } from '@/lib/letterheadDraw';
+import { drawLetterheadImage } from '@/lib/letterheadDraw';
 
 export { drawLetterheadImage };
 
@@ -57,44 +55,4 @@ export async function loadLetterheadImage(documentTypeKey) {
 export async function drawLetterheadIfActive(doc, documentTypeKey, opts) {
   const image = await loadLetterheadImage(documentTypeKey);
   return drawLetterheadImage(doc, image, opts);
-}
-
-function loadImageElement(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
-// For html2canvas snapshot exports (exportNodeToPdf.js) — there's no drawn
-// text header on this path to replace, so the letterhead is composited as
-// its own full-width band above the captured screenshot, capped at 22% of
-// the screenshot's width so a landscape letterhead can never dwarf the
-// actual report. Returns the ORIGINAL canvas unchanged if no active
-// letterhead matches, so callers can unconditionally do
-// `canvas = await prependLetterheadBand(canvas, documentTypeKey)`.
-export async function prependLetterheadBand(sourceCanvas, documentTypeKey) {
-  const image = await loadLetterheadImage(documentTypeKey);
-  if (!image?.dataUrl) return sourceCanvas;
-
-  const { width, height } = fitDimensions(image.width, image.height, sourceCanvas.width, sourceCanvas.width * 0.22);
-  let imgEl;
-  try {
-    imgEl = await loadImageElement(image.dataUrl);
-  } catch (e) {
-    return sourceCanvas;
-  }
-
-  const bandHeightPx = Math.round(height);
-  const composite = document.createElement('canvas');
-  composite.width = sourceCanvas.width;
-  composite.height = bandHeightPx + sourceCanvas.height;
-  const ctx = composite.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, composite.width, composite.height);
-  ctx.drawImage(imgEl, (composite.width - width) / 2, 0, width, height);
-  ctx.drawImage(sourceCanvas, 0, bandHeightPx);
-  return composite;
 }

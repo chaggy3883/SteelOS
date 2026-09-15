@@ -10,9 +10,10 @@
 //    it's listed here only so the standard is documented in one place.
 //
 // 2. Manually-drawn jsPDF documents (bolPdf.js, certifiedPayrollReportPdf.js,
-//    delayNoticePdf.js, customerStatementPdf.js, exportNodeToPdf.js) — each
-//    draws its own layout in either 'mm' or 'pt' units and needs a numeric
-//    margin constant to match. PDF_MARGIN_MM/PDF_MARGIN_PT are both the same
+//    delayNoticePdf.js, customerStatementPdf.js, and every other *Pdf.js
+//    generator in this directory) — each draws its own layout in either 'mm'
+//    or 'pt' units and needs a numeric margin constant to match.
+//    PDF_MARGIN_MM/PDF_MARGIN_PT are both the same
 //    physical distance (~0.47in) — chosen to match bolPdf.js's and
 //    certifiedPayrollReportPdf.js's existing 12mm, which was already tuned
 //    so a full load fits on one BOL page and the 11-column WH-347 table fits
