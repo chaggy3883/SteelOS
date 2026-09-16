@@ -33,6 +33,7 @@ export const LETTERHEAD_DOCUMENT_TYPES = [
   { key: 'scope_review', label: 'Scope Review', category: 'Project Reviews', mechanism: 'document', source: 'scopeReviewPdf.js' },
   { key: 'material_optimization_report', label: 'Material Optimization Report', category: 'Project Reviews', mechanism: 'document', source: 'materialOptimizationReportPdf.js' },
   { key: 'detailer_import_batch_review', label: 'Detailer Import Batch Review', category: 'Project Reviews', mechanism: 'document', source: 'detailerImportBatchReviewPdf.js' },
+  { key: 'front_end_review', label: 'Front-End Spec Review — Exception Matrix', category: 'Project Reviews', mechanism: 'document', source: 'frontEndReviewPdf.js' },
 
   // Accounting & financial reports
   { key: 'customer_statement', label: 'Customer Statement', category: 'Accounting Reports', mechanism: 'document', source: 'customerStatementPdf.js' },

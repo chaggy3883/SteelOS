@@ -5,6 +5,54 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-15) — Front-End Review: page-number tracking, PDF/Excel export, scrollbar reachability
+
+- **Three fixes to Front-End Spec Review (`src/pages/FrontEndReview.jsx`)** —
+  confirmed the feature has NO real LLM call at all despite its "AI Core
+  Parsing" framing (`src/lib/aiIntelligenceEngine.js`'s `simulateAiReview` is
+  a deterministic keyword/regex text analyzer, per that file's own STUB
+  DISCLOSURE comment) — page-number tracking is therefore a text-offset
+  computation, not a prompt/schema change.
+  (1) **Page numbers**: `extractTextFromPdf` (`src/lib/pdfTextExtractor.js`)
+  used to join every page's text into one flat string and discard the page
+  boundaries; it now returns `{ text, pageOffsets }` (each page's starting
+  character offset within `text`) plus a new `pageNumberForOffset(pageOffsets,
+  index)` helper. Threaded through `simulateAiReview` →
+  `seedChecklistLines`/`buildChecklistLineSeed` and the 3 hardcoded seeders
+  (NDT/liquidated-damages/mill-source) — every seeded finding's regex `.index`
+  now resolves to a real 1-based page number, stored as a new
+  `page_number` field on `contract_exception_lines`
+  (`schema/entities/contract_exception_lines.jsonc`) and shown as a new
+  editable "Page #" column, distinct from the pre-existing
+  `location_page_reference` (confirmed that field is actually just a text
+  snippet despite its name — left it in place unchanged, alongside the new
+  real page number, rather than repurposing it). A `.txt` upload has no page
+  structure to track — `pageOffsets` is `null` for that path and every
+  finding's `page_number` comes back `null` too, same as "not found."
+  (2) **PDF + Excel export** — new `src/lib/frontEndReviewPdf.js` (stacked
+  per-finding cards, same `jsPDF` + `ensureRoom` pagination +
+  `drawLetterheadIfActive` pattern as `aiFinancialFlagsPdf.js`; registered a
+  new `front_end_review` key in `letterheadDocumentTypes.js` per that file's
+  own maintenance note) and `src/lib/frontEndReviewXlsx.js` (`aoa_to_sheet` +
+  `downloadWorkbook`, same as `aiFinancialFlagsXlsx.js` — but unlike that
+  file's deliberately-narrow structured table, this includes every column
+  the on-screen matrix shows, since the Exception Matrix spreadsheet IS the
+  working deliverable estimators hand off, not a narrative summary). Buttons
+  added next to the existing Save button, same
+  `Download`/`FileSpreadsheet` icon + busy-state/try-catch/toast pattern used
+  elsewhere.
+  (3) **Scrollbar reachability** — the Exception Matrix table used to sit in
+  an unbounded `overflow-x-auto` div, so its horizontal scrollbar drifted
+  further down the page with every row added. No sticky/dual-scrollbar
+  pattern existed anywhere in the app to copy (confirmed via a `scrollLeft`
+  search — zero hits); adapted the one related precedent that does exist
+  (`CashManagementPanel.jsx`'s bounded `max-h-64 overflow-y-auto` +
+  `sticky top-0` table) to a bounded `max-h-[65vh] overflow-auto` (both
+  axes) — the horizontal scrollbar now renders at a fixed distance below the
+  card header regardless of row count, with the column header pinned via
+  `sticky top-0` while scrolling rows inside the box.
+  `npm run build && npm run lint` clean.
+
 ## Also Closed (2026-09-15) — "Open IRONSIGHT" button on Bid Worksheet, auto-linked + auto-resumed
 
 - **Direct "Open IRONSIGHT" action on `BidDetail.jsx`, first among the bid's

@@ -3,6 +3,9 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { simulateAiReview } from '@/lib/aiIntelligenceEngine';
 import { extractTextFromPdf } from '@/lib/pdfTextExtractor';
+import { generateFrontEndReviewPdf } from '@/lib/frontEndReviewPdf';
+import { generateFrontEndReviewXlsx } from '@/lib/frontEndReviewXlsx';
+import { getEffectiveCompany } from '@/lib/tenantContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,7 +14,7 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
-import { UploadCloud, Save, ScanSearch } from 'lucide-react';
+import { UploadCloud, Save, ScanSearch, Download, FileSpreadsheet } from 'lucide-react';
 
 // A bid is "active pending" front-end review while it's still being worked —
 // once it's won/lost/cancelled the spec exceptions here are moot.
@@ -21,6 +24,7 @@ const COLUMNS = [
   { key: 'prior_bid_ask', label: 'Prior Bid Ask', type: 'bool' },
   { key: 'post_bid_ask', label: 'Post Bid Ask', type: 'bool' },
   { key: 'document_source_key', label: 'Source Doc', type: 'text' },
+  { key: 'page_number', label: 'Page #', type: 'number' },
   { key: 'location_page_reference', label: 'Location / Page Ref', type: 'text' },
   { key: 'provision_number_tag', label: 'Provision #', type: 'text' },
   { key: 'owner_gc_cm_comment', label: 'Owner/GC/CM Comment', type: 'textarea' },
@@ -46,6 +50,8 @@ export default function FrontEndReview() {
   const [parsing, setParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   useEffect(() => {
     db.entities.Bid.list('-created_date', 200)
@@ -83,13 +89,16 @@ export default function FrontEndReview() {
     }
     if (isTxt) {
       const reader = new FileReader();
-      reader.onload = (e) => runSimulatedReview(String(e.target.result), file.name);
+      // A .txt upload has no page structure to track — pageOffsets stays
+      // null, and every seeded finding's page_number comes back null too
+      // (see aiIntelligenceEngine.js's pageNumberForOffset).
+      reader.onload = (e) => runSimulatedReview(String(e.target.result), file.name, null);
       reader.readAsText(file);
       return;
     }
     setParsing(true);
     try {
-      const text = await extractTextFromPdf(file);
+      const { text, pageOffsets } = await extractTextFromPdf(file);
       if (!text) {
         toast({
           title: 'No extractable text found',
@@ -99,21 +108,21 @@ export default function FrontEndReview() {
         setParsing(false);
         return;
       }
-      await runSimulatedReview(text, file.name);
+      await runSimulatedReview(text, file.name, pageOffsets);
     } catch (e) {
       toast({ title: 'PDF parsing failed', description: e?.message || 'The file may be corrupted or password-protected.', variant: 'destructive' });
       setParsing(false);
     }
   };
 
-  const runSimulatedReview = async (rawText, filename) => {
+  const runSimulatedReview = async (rawText, filename, pageOffsets) => {
     setParsing(true);
     setParseProgress(0);
     const tick = setInterval(() => {
       setParseProgress((p) => Math.min(p + 10, 90));
     }, 150);
     try {
-      const { lines: seeded } = await simulateAiReview(selectedBid, rawText, filename);
+      const { lines: seeded } = await simulateAiReview(selectedBid, rawText, filename, pageOffsets);
       setParseProgress(100);
       setLines((prev) => [...seeded, ...prev]);
       toast({ title: 'AI Core parse complete', description: `${seeded.length} exception lines seeded — review and edit below.` });
@@ -151,6 +160,32 @@ export default function FrontEndReview() {
       toast({ title: 'Save failed', variant: 'destructive' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    setExportingPdf(true);
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      await generateFrontEndReviewPdf({ company, bid: selectedBid, lines });
+      toast({ title: 'Front-End Review PDF generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate PDF', description: 'See console for details.', variant: 'destructive' });
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const handleExportExcel = async () => {
+    setExportingExcel(true);
+    try {
+      const company = await getEffectiveCompany().catch(() => null);
+      generateFrontEndReviewXlsx({ company, bid: selectedBid, lines });
+      toast({ title: 'Front-End Review Excel generated' });
+    } catch (e) {
+      toast({ title: 'Unable to generate Excel', description: 'See console for details.', variant: 'destructive' });
+    } finally {
+      setExportingExcel(false);
     }
   };
 
@@ -199,13 +234,29 @@ export default function FrontEndReview() {
           <div className="steel-card p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold">Exception Matrix</h3>
-              <Button onClick={handleSave} disabled={saving || loadingLines} className="gap-2 steel-gradient text-white border-0">
-                <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save'}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={handleExportPdf} disabled={exportingPdf || loadingLines}>
+                  <Download className="w-3.5 h-3.5 mr-1" />{exportingPdf ? 'Generating…' : 'Export PDF'}
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleExportExcel} disabled={exportingExcel || loadingLines}>
+                  <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />{exportingExcel ? 'Generating…' : 'Export Excel'}
+                </Button>
+                <Button onClick={handleSave} disabled={saving || loadingLines} className="gap-2 steel-gradient text-white border-0">
+                  <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
             </div>
-            <div className="overflow-x-auto">
+            {/* Bounded height (rather than the unbounded growth this used to
+                have) so the table's own horizontal scrollbar always renders
+                near the top of the page, at a fixed distance below this
+                card's header, instead of drifting further down the page
+                with every row added — reachable without scrolling to the
+                bottom of the page. Vertical scrolling inside this box keeps
+                the header pinned via `sticky top-0`, same pattern already
+                used by CashManagementPanel.jsx's bounded tables. */}
+            <div className="overflow-auto max-h-[65vh] border border-border rounded-lg">
               <table className="w-full text-sm border-collapse">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-card">
                   <tr className="border-b border-border">
                     {COLUMNS.map((col) => (
                       <th key={col.key} className="text-left font-semibold text-xs uppercase tracking-wide text-muted-foreground p-2 whitespace-nowrap">{col.label}</th>
@@ -243,6 +294,15 @@ export default function FrontEndReview() {
                               value={line[col.key] != null ? line[col.key] / 100 : ''}
                               onChange={(e) => updateLine(line.id, col.key, Math.round(Number(e.target.value || 0) * 100))}
                               className="h-9 text-xs w-28"
+                            />
+                          )}
+                          {col.type === 'number' && (
+                            <Input
+                              type="number"
+                              min={1}
+                              value={line[col.key] ?? ''}
+                              onChange={(e) => updateLine(line.id, col.key, e.target.value === '' ? null : Number(e.target.value))}
+                              className="h-9 text-xs w-20"
                             />
                           )}
                         </td>

@@ -22,8 +22,13 @@
     "document_source_key": {
       "type": "string"
     },
+    "page_number": {
+      "type": "number",
+      "description": "1-based source-document page number the finding's matched text came from, resolved from the uploaded PDF's own per-page text offsets (see src/lib/pdfTextExtractor.js's pageNumberForOffset) — lets a reviewer jump straight to that page instead of re-searching the whole document. Null for a .txt upload (no page structure to resolve against) or when the underlying keyword/phrase wasn't found at all."
+    },
     "location_page_reference": {
-      "type": "string"
+      "type": "string",
+      "description": "A short surrounding-text snippet around the match (NOT a page number, despite the name) — kept alongside the numeric page_number above for extra context on where in that page the match was found."
     },
     "provision_number_tag": {
       "type": "string"

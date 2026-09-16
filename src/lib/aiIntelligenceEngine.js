@@ -1,5 +1,6 @@
 import { db } from '@/api/apiClient';
 import { callTenantScopedLocalAI, detectBlueprintShapesBatch, getCompanyAiConfig, getCompanyName } from '@/lib/localAiClient';
+import { pageNumberForOffset } from '@/lib/pdfTextExtractor';
 
 // MULTI-TENANT PROVIDER ROUTING — SECURITY BOUNDARY DISCLOSURE, READ FIRST.
 // Company.ai_provider ('local' | 'claude' | 'openai') is real, tenant-set
@@ -248,7 +249,7 @@ const NDT_PHRASE = /(ultrasonic|UT|magnetic particle|MT|radiographic|RT|non-?des
 const LD_DATE_PHRASE = /liquidated damages[^.\n]{0,80}?(substantial completion|final completion|by\s+\d{1,2}\/\d{1,2}\/\d{2,4}|no later than[^.\n]{0,40})/i;
 const MILL_SOURCE_PHRASE = /(domestic steel|buy america|mill source|melted and manufactured|domestically produced)/i;
 
-function seedNdtLine(text, filename) {
+function seedNdtLine(text, filename, pageOffsets) {
   const match = text.match(NDT_PHRASE);
   return {
     provision_number_tag: 'NDT-1',
@@ -258,11 +259,12 @@ function seedNdtLine(text, filename) {
     owner_gc_cm_question: 'Please confirm required NDT method(s), acceptance criteria, and frequency (spot vs. 100%).',
     comment_to_estimator: 'Price third-party NDT if required beyond in-house visual/MT capability.',
     document_source_key: filename,
+    page_number: match ? pageNumberForOffset(pageOffsets, match.index) : null,
     location_page_reference: match ? snippet(text, match.index, match[0].length) : 'Not found in provided text — verify manually.',
   };
 }
 
-function seedLiquidatedDamagesLine(text, filename) {
+function seedLiquidatedDamagesLine(text, filename, pageOffsets) {
   const match = text.match(LD_DATE_PHRASE);
   return {
     provision_number_tag: 'LD-1',
@@ -272,11 +274,12 @@ function seedLiquidatedDamagesLine(text, filename) {
     owner_gc_cm_question: 'Please confirm the liquidated damages rate and the completion milestone it is measured against.',
     comment_to_estimator: 'Reconcile this date against our current fabrication and erection schedule before final pricing.',
     document_source_key: filename,
+    page_number: match ? pageNumberForOffset(pageOffsets, match.index) : null,
     location_page_reference: match ? snippet(text, match.index, match[0].length) : 'Not found in provided text — verify manually.',
   };
 }
 
-function seedMillSourceLine(text, filename) {
+function seedMillSourceLine(text, filename, pageOffsets) {
   const match = text.match(MILL_SOURCE_PHRASE);
   return {
     provision_number_tag: 'MTL-1',
@@ -286,6 +289,7 @@ function seedMillSourceLine(text, filename) {
     owner_gc_cm_question: 'Please confirm whether Buy America / domestic mill certification is required for this project.',
     comment_to_estimator: 'Flag to purchasing if domestic-only sourcing is required — may affect mill lead time and cost.',
     document_source_key: filename,
+    page_number: match ? pageNumberForOffset(pageOffsets, match.index) : null,
     location_page_reference: match ? snippet(text, match.index, match[0].length) : 'Not found in provided text — verify manually.',
   };
 }
@@ -343,7 +347,7 @@ function findKeywordMatch(text, lowerText, keywordsCsv) {
   return null;
 }
 
-function buildChecklistLineSeed(item, text, lowerText, filename) {
+function buildChecklistLineSeed(item, text, lowerText, filename, pageOffsets) {
   const match = findKeywordMatch(text, lowerText, item.keywords);
   let owner_gc_cm_comment;
   if (match) {
@@ -362,6 +366,7 @@ function buildChecklistLineSeed(item, text, lowerText, filename) {
     owner_gc_cm_comment,
     comment_to_estimator: item.note_for_estimator || '',
     document_source_key: filename,
+    page_number: match ? pageNumberForOffset(pageOffsets, match.index) : null,
   };
 }
 
@@ -369,7 +374,7 @@ function buildChecklistLineSeed(item, text, lowerText, filename) {
 // entity) drives the front-end review seeding. Falls back to the original 3
 // hardcoded items only when a company has no checklist items configured yet
 // (e.g. before demo data / initial setup) — so this never seeds zero lines.
-async function seedChecklistLines(bid, text, filename) {
+async function seedChecklistLines(bid, text, filename, pageOffsets) {
   let items = [];
   try {
     items = await db.entities.ReviewChecklistItem.filter({ company_id: bid.company_id, is_active: true }, 'sort_order', 500);
@@ -378,16 +383,24 @@ async function seedChecklistLines(bid, text, filename) {
   }
 
   if (!items || items.length === 0) {
-    return [seedNdtLine(text, filename), seedLiquidatedDamagesLine(text, filename), seedMillSourceLine(text, filename)];
+    return [
+      seedNdtLine(text, filename, pageOffsets),
+      seedLiquidatedDamagesLine(text, filename, pageOffsets),
+      seedMillSourceLine(text, filename, pageOffsets),
+    ];
   }
 
   const lowerText = text.toLowerCase();
-  return items.map((item) => buildChecklistLineSeed(item, text, lowerText, filename));
+  return items.map((item) => buildChecklistLineSeed(item, text, lowerText, filename, pageOffsets));
 }
 
-export async function simulateAiReview(bid, rawText, filename) {
+// pageOffsets (from pdfTextExtractor.js's extractTextFromPdf) lets each
+// seeded finding resolve the PDF page its matched text came from — null for
+// a .txt upload (no page structure to track), in which case every finding's
+// page_number comes back null too.
+export async function simulateAiReview(bid, rawText, filename, pageOffsets) {
   const text = String(rawText || '');
-  const seeds = await seedChecklistLines(bid, text, filename);
+  const seeds = await seedChecklistLines(bid, text, filename, pageOffsets);
 
   const review = await db.entities.frontend_contract_reviews.create({
     bid_id: bid.id,
