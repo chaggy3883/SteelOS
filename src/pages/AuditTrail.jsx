@@ -24,7 +24,38 @@ const PAYROLL_ENTITY_TYPES = new Set([
   'CertifiedPayrollSubmission', 'CertifiedPayrollReport', 'PayPeriod',
 ]);
 
-const ACTION_LABELS = { create: 'Created', update: 'Updated', delete: 'Deleted' };
+const ACTION_LABELS = { create: 'Created', update: 'Updated', delete: 'Deleted', LOGIN: 'Login', LOGOUT: 'Logout', LOGIN_FAILED: 'Login Failed' };
+
+// Session events (login/logout/failed-attempt) are tagged with this fixed
+// entity_type — see writeSessionAuditLog in src/api/localData.js — so they
+// group together under one Entity Type filter value, distinct from every
+// real record-change entity_type.
+const SESSION_ENTITY_TYPE = 'UserSession';
+const SESSION_ACTION_TYPES = new Set(['LOGIN', 'LOGOUT', 'LOGIN_FAILED']);
+
+const LOGIN_CONTEXT_LABELS = { email_password_login: 'Web portal', employee_pin_login: 'Kiosk PIN', audit_trail_access: 'Audit Trail' };
+
+// FailedAccessLog is a separate entity by design (see FailedAccessLog.jsonc)
+// — failed attempts are access attempts, not record changes, so they are
+// never duplicated into AuditLog itself. This maps a FailedAccessLog row
+// into the same shape the table/filters/CSV export already expect, purely
+// for display, so an admin gets one unified login/logout/failed-attempt view.
+const mapFailedAccessLogToRow = (f) => ({
+  id: `fal-${f.id}`,
+  created_date: f.created_date,
+  user_id: f.user_id || null,
+  user_name: f.attempted_identifier,
+  user_email: null,
+  company_id: f.company_id,
+  entity_type: SESSION_ENTITY_TYPE,
+  entity_id: f.user_id || null,
+  action_type: 'LOGIN_FAILED',
+  reason: f.reason,
+  context: f.context,
+  attempted_identifier: f.attempted_identifier,
+  notes: `${LOGIN_CONTEXT_LABELS[f.context] || f.context || 'Access'} attempt failed for "${f.attempted_identifier}" — ${f.reason}.`,
+  _source: 'FailedAccessLog',
+});
 
 const truncate = (str, len = 60) => {
   if (str === null || str === undefined) return '—';
@@ -33,6 +64,17 @@ const truncate = (str, len = 60) => {
 };
 
 const formatTimestamp = (iso) => (iso ? new Date(iso).toLocaleString() : '—');
+
+const actionLabel = (log) => ACTION_LABELS[log.action] || ACTION_LABELS[log.action_type] || log.action_type || '—';
+
+const actionBadgeClass = (log) => {
+  if (log.action === 'delete') return 'bg-red-500/10 text-red-500';
+  if (log.action === 'create') return 'bg-green-500/10 text-green-600';
+  if (log.action_type === 'LOGIN') return 'bg-blue-500/10 text-blue-600';
+  if (log.action_type === 'LOGOUT') return 'bg-slate-500/10 text-slate-500';
+  if (log.action_type === 'LOGIN_FAILED') return 'bg-amber-500/10 text-amber-600';
+  return 'bg-primary/10 text-primary';
+};
 
 export default function AuditTrail() {
   const { user: currentUser } = useAuth();
@@ -76,12 +118,15 @@ export default function AuditTrail() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [logRows, employeeRows, periodRows] = await Promise.all([
+      const [logRows, failedAccessRows, employeeRows, periodRows] = await Promise.all([
         db.entities.AuditLog.list('-created_date', LOAD_LIMIT),
+        db.entities.FailedAccessLog.list('-created_date', LOAD_LIMIT),
         db.entities.employees.list('full_name', 1000),
         db.entities.PayPeriod.list('-period_start', 50),
       ]);
-      setLogs(logRows.filter((l) => !l.is_deleted));
+      const merged = [...logRows.filter((l) => !l.is_deleted), ...failedAccessRows.map(mapFailedAccessLogToRow)]
+        .sort((a, b) => (a.created_date < b.created_date ? 1 : -1));
+      setLogs(merged);
       setEmployees(employeeRows);
       setPayPeriods(periodRows);
     } catch (e) {
@@ -111,7 +156,10 @@ export default function AuditTrail() {
       if (dateTo && log.created_date > `${dateTo}T23:59:59.999Z`) return false;
       if (entityTypeFilter !== 'all' && log.entity_type !== entityTypeFilter) return false;
       if (userFilter !== 'all' && log.user_id !== userFilter) return false;
-      if (actionFilter !== 'all' && log.action !== actionFilter) return false;
+      if (actionFilter !== 'all') {
+        const matchesAction = SESSION_ACTION_TYPES.has(actionFilter) ? log.action_type === actionFilter : log.action === actionFilter;
+        if (!matchesAction) return false;
+      }
       if (entityIdSearch && !String(log.entity_id || '').toLowerCase().includes(entityIdSearch.toLowerCase())) return false;
       if (payrollOnlyFilter && !PAYROLL_ENTITY_TYPES.has(log.entity_type)) return false;
       return true;
@@ -144,7 +192,7 @@ export default function AuditTrail() {
   const mostChangedRecords = useMemo(() => {
     const counts = new Map();
     filtered.forEach((l) => {
-      if (!l.entity_id) return;
+      if (!l.entity_id || l.entity_type === SESSION_ENTITY_TYPE) return;
       const key = `${l.entity_type}::${l.entity_id}`;
       counts.set(key, (counts.get(key) || { entity_type: l.entity_type, entity_id: l.entity_id, count: 0 }));
       counts.get(key).count += 1;
@@ -157,7 +205,7 @@ export default function AuditTrail() {
     const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const counts = new Map();
     logs.forEach((l) => {
-      if (!l.user_id || !String(l.created_date || '').startsWith(monthPrefix)) return;
+      if (!l.user_id || l.entity_type === SESSION_ENTITY_TYPE || !String(l.created_date || '').startsWith(monthPrefix)) return;
       const key = l.user_id;
       counts.set(key, counts.get(key) || { user_id: key, user_name: l.user_name || l.user_email || key, count: 0 });
       counts.get(key).count += 1;
@@ -327,6 +375,9 @@ export default function AuditTrail() {
               <SelectItem value="create">Create</SelectItem>
               <SelectItem value="update">Update</SelectItem>
               <SelectItem value="delete">Delete</SelectItem>
+              <SelectItem value="LOGIN">Login</SelectItem>
+              <SelectItem value="LOGOUT">Logout</SelectItem>
+              <SelectItem value="LOGIN_FAILED">Login Failed</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -373,13 +424,13 @@ export default function AuditTrail() {
                 <td className="px-3 py-2.5 text-xs">{log.entity_type || '—'}</td>
                 <td className="px-3 py-2.5 text-xs font-mono">{truncate(log.entity_id, 16)}</td>
                 <td className="px-3 py-2.5">
-                  <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded ${log.action === 'delete' ? 'bg-red-500/10 text-red-500' : log.action === 'create' ? 'bg-green-500/10 text-green-600' : 'bg-primary/10 text-primary'}`}>
-                    {ACTION_LABELS[log.action] || log.action_type || '—'}
+                  <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded ${actionBadgeClass(log)}`}>
+                    {actionLabel(log)}
                   </span>
                 </td>
                 <td className="px-3 py-2.5 text-xs">{log.field_name || '—'}</td>
                 <td className="px-3 py-2.5 text-xs font-mono text-muted-foreground">
-                  {log.action === 'delete' ? 'record removed' : `${truncate(log.old_value, 24)} → ${truncate(log.new_value, 24)}`}
+                  {log.action === 'delete' ? 'record removed' : log.notes ? truncate(log.notes, 60) : `${truncate(log.old_value, 24)} → ${truncate(log.new_value, 24)}`}
                 </td>
               </tr>
             ))}
@@ -405,30 +456,46 @@ export default function AuditTrail() {
             <div className="space-y-2 text-sm py-2">
               <div className="grid grid-cols-2 gap-2">
                 <div><p className="text-xs text-muted-foreground">Timestamp</p><p>{formatTimestamp(detailLog.created_date)}</p></div>
-                <div><p className="text-xs text-muted-foreground">Action</p><p>{ACTION_LABELS[detailLog.action] || detailLog.action_type || '—'}</p></div>
+                <div><p className="text-xs text-muted-foreground">Action</p><p>{actionLabel(detailLog)}</p></div>
                 <div><p className="text-xs text-muted-foreground">User</p><p>{detailLog.user_name || 'Unknown'} {detailLog.user_email ? `(${detailLog.user_email})` : ''}</p></div>
                 <div><p className="text-xs text-muted-foreground">Entity</p><p>{detailLog.entity_type} / {detailLog.entity_id}{detailLog.entity_type === 'employees' && employeeNameFor(detailLog.entity_id) ? ` — ${employeeNameFor(detailLog.entity_id)}` : ''}</p></div>
+                {detailLog.employee_id && <div><p className="text-xs text-muted-foreground">Employee</p><p>{employeeNameFor(detailLog.employee_id) || detailLog.employee_id}</p></div>}
+                {detailLog.login_method && <div><p className="text-xs text-muted-foreground">Login Method</p><p className="capitalize">{detailLog.login_method}</p></div>}
+                {detailLog.logout_reason && <div><p className="text-xs text-muted-foreground">Logout Reason</p><p>{detailLog.logout_reason === 'explicit' ? 'Explicit sign-out' : 'Forced — linked employee deactivated mid-session'}</p></div>}
+                {detailLog.device_context && <div className="col-span-2"><p className="text-xs text-muted-foreground">Device</p><p className="text-xs">{detailLog.device_context}</p></div>}
+                {detailLog._source === 'FailedAccessLog' && detailLog.reason && <div><p className="text-xs text-muted-foreground">Failure Reason</p><p>{detailLog.reason}</p></div>}
               </div>
               {detailLog.field_name && <div><p className="text-xs text-muted-foreground">Field Changed</p><p className="font-mono">{detailLog.field_name}</p></div>}
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Old Value</p>
-                <pre className="text-xs bg-muted/40 border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-32">{detailLog.old_value ?? '—'}</pre>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">New Value</p>
-                <pre className="text-xs bg-muted/40 border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-32">{detailLog.new_value ?? '—'}</pre>
-              </div>
+              {!SESSION_ACTION_TYPES.has(detailLog.action_type) && (
+                <>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Old Value</p>
+                    <pre className="text-xs bg-muted/40 border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-32">{detailLog.old_value ?? '—'}</pre>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">New Value</p>
+                    <pre className="text-xs bg-muted/40 border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-32">{detailLog.new_value ?? '—'}</pre>
+                  </div>
+                </>
+              )}
               {detailLog.change_summary && <div><p className="text-xs text-muted-foreground">Summary</p><p>{detailLog.change_summary}</p></div>}
+              {detailLog.notes && <div><p className="text-xs text-muted-foreground">Notes</p><p>{detailLog.notes}</p></div>}
 
-              <div className="pt-3 border-t border-border">
-                <p className="text-xs text-muted-foreground mb-1">Soft-delete this entry (reason required — the underlying record is never edited or hard-deleted)</p>
-                <div className="flex gap-2">
-                  <Input value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Reason…" className="text-xs" />
-                  <Button variant="outline" size="sm" disabled={!deleteReason.trim() || softDeleting} onClick={handleSoftDelete} className="text-destructive shrink-0">
-                    {softDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  </Button>
+              {detailLog._source === 'FailedAccessLog' ? (
+                <div className="pt-3 border-t border-border">
+                  <p className="text-xs text-muted-foreground">FailedAccessLog entries are immutable and have no soft-delete path — this is a read-only failed-attempt record, not an editable AuditLog row.</p>
                 </div>
-              </div>
+              ) : (
+                <div className="pt-3 border-t border-border">
+                  <p className="text-xs text-muted-foreground mb-1">Soft-delete this entry (reason required — the underlying record is never edited or hard-deleted)</p>
+                  <div className="flex gap-2">
+                    <Input value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Reason…" className="text-xs" />
+                    <Button variant="outline" size="sm" disabled={!deleteReason.trim() || softDeleting} onClick={handleSoftDelete} className="text-destructive shrink-0">
+                      {softDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter><Button variant="outline" onClick={() => setDetailLog(null)}>Close</Button></DialogFooter>

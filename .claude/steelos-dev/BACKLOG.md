@@ -5,6 +5,80 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-17) — Login/logout AuditLog coverage
+
+- **Confirmed gap closed: no audit logging existed anywhere for normal
+  login/logout events.** Before this pass, the only related AuditLog usage
+  was `terminalSession.js`'s kiosk-terminal lockout row (`action_type:
+  'OTHER'`) — a device brute-force gate, not a session-start/end record.
+  Failed login attempts themselves were already fully covered, just not in
+  AuditLog: `loginViaEmailPassword`/`loginViaEmployeePin`
+  (`src/api/localData.js`) already wrote every failed web-portal AND kiosk-PIN
+  attempt to `FailedAccessLog`.
+  New `writeSessionAuditLog` (`src/api/localData.js`, right after the
+  existing `writeFailedAccessLog`) writes AuditLog rows directly (same
+  bypass-`createEntityApi` pattern as `writeFailedAccessLog`, avoiding
+  recursion), using the entity's older hand-written shape (`action_type`/
+  `entity_type`/`notes`) since a login/logout isn't a field-level change to a
+  business record — `entity_type` is fixed to `'UserSession'` (not a real
+  queryable entity) so every session-event row groups under one Entity Type
+  filter value on `/audit-trail`, distinct from real record-change rows.
+  Wired into all 4 real session-boundary points: `loginViaEmailPassword`
+  (`action_type: 'LOGIN'`, `login_method: 'web'`), `loginViaEmployeePin`
+  (`login_method: 'kiosk'`), `auth.logout()` (`action_type: 'LOGOUT'`,
+  `logout_reason: 'explicit'` — this is the one hook point for every
+  logout call site: TopBar's Sign Out, EmployeeCenter's Exit Terminal, and
+  AuthContext's `logout()`, so nothing had to be duplicated per-caller), and
+  `auth.me()`'s existing forced-deactivation branch (`logout_reason:
+  'forced_deactivation'`) — confirmed this app has no idle/inactivity
+  timeout at all; the only non-explicit session-ending path that exists is
+  `me()`'s per-call re-validation (the 60s `AppLayout.jsx` heartbeat) catching
+  a linked employee terminated/deactivated mid-session, so that's what
+  "session-timeout" maps to here, not a fabricated idle timer.
+  New AuditLog fields (`schema/entities/AuditLog.jsonc`): `employee_id`,
+  `login_method` (`web`/`kiosk`), `logout_reason` (`explicit`/
+  `forced_deactivation`), `device_context` (`navigator.userAgent`).
+  `ip_address` (already in the schema) is deliberately left null — this is a
+  browser-only SPA with no backend request to read a real client IP from,
+  and calling a third-party IP-lookup service on every login would be a
+  privacy leak for a login event, not a legitimate use of the one already-
+  approved external call in this app's architecture.
+  **Deliberate architecture call, not a literal follow of the ask**: failed
+  login attempts are NOT duplicated into AuditLog. `FailedAccessLog.jsonc`
+  already states the separation is "by design" (failed attempts are access
+  attempts, not record changes) — writing them a second time into AuditLog
+  would contradict that standing design and double the storage for the same
+  fact. Instead, `src/pages/AuditTrail.jsx` now also loads
+  `FailedAccessLog.list()` and merges it into the same in-memory table
+  (`mapFailedAccessLogToRow` — synthetic `action_type: 'LOGIN_FAILED'`,
+  `entity_type: 'UserSession'`, `user_name` falls back to
+  `attempted_identifier` since a failed/unresolved attempt often has no real
+  user_id to look a name up against), so an admin gets one unified "who
+  logged in, out, or failed to, and when" view without a second write path.
+  Action filter dropdown gained Login/Logout/Login Failed (checked against
+  `action_type` instead of `action` for these three); badge colors are
+  distinct (blue/slate/amber) from create/update/delete's
+  green/primary/red; the "Most Changed Records" and "Top Changers This
+  Month" breakdown cards now exclude `entity_type: 'UserSession'` rows so
+  login/logout volume can't skew record-change analytics (a user who just
+  logs in often would otherwise look like a top record-changer). Detail
+  dialog shows `login_method`/`logout_reason`/`device_context`/failure
+  reason when present, and hides the soft-delete action for merged
+  FailedAccessLog rows (a different entity — no soft-delete concept there,
+  explained inline instead of silently no-op-ing).
+  **Retention**: no code change needed — `purgeExpiredAuditLogs` already
+  purges the whole `AuditLog` collection by `created_date` regardless of
+  `action_type`, so LOGIN/LOGOUT rows age out at the same 1-year mark as
+  every other row automatically.
+  **Sensitive-field exclusion**: `writeSessionAuditLog` never reads or
+  writes password/PIN/SSN fields — it only pulls `id`/`full_name`/`email`/
+  `company_id`/`employee_id` off the already-authenticated user object, the
+  same fields `buildAuditActorFields` already treats as safe elsewhere in
+  this file.
+  `npm run build && npm run lint` clean. No Playwright run (per standing
+  feedback — code trace + build/lint first, browser verification only on
+  request).
+
 ## Also Closed (2026-09-16) — Meeting Mode: Project / Bid Notes format
 
 - **New "Project / Bid Notes" Meeting Mode format**, alongside (not replacing)

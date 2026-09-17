@@ -3657,6 +3657,45 @@ const writeFailedAccessLog = (entry) => {
   saveStore(latest);
 };
 
+// This is a browser-only SPA with no backend, so there is no server request
+// to read a real client IP from — capturing one would mean calling a
+// third-party "what's my IP" service on every login, which is both a privacy
+// leak and outside this app's no-backend architecture. ip_address is kept in
+// the schema (matching FailedAccessLog's same field) but left null here by
+// design; navigator.userAgent is the one piece of device context actually
+// available client-side.
+const getClientDeviceContext = () => (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : null;
+
+// Session start/end events (LOGIN/LOGOUT), written straight to the AuditLog
+// collection the same way writeFailedAccessLog writes FailedAccessLog —
+// bypassing createEntityApi('AuditLog') to avoid recursing back into this
+// same file, and using the entity's older hand-written shape (action_type/
+// entity_type/notes — see AuditLog.jsonc) rather than buildAuditLogEntries'
+// field-diff shape, since a login/logout isn't a change to a business
+// record's fields. entity_type is fixed to 'UserSession' (not a real queryable
+// entity) so these rows group together under one Entity Type filter value on
+// the Audit Trail page, distinct from every real record-change entity_type.
+const writeSessionAuditLog = ({ user, action_type, login_method, logout_reason, notes }) => {
+  const latest = loadStore();
+  const collection = ensureCollection(latest, 'AuditLog');
+  collection.push(normalizeRecord('AuditLog', {
+    user_id: user?.id || null,
+    user_name: user?.full_name || null,
+    user_email: user?.email || null,
+    company_id: user?.company_id || null,
+    employee_id: user?.employee_id || null,
+    action_type,
+    entity_type: 'UserSession',
+    entity_id: user?.id || null,
+    login_method,
+    logout_reason,
+    ip_address: null,
+    device_context: getClientDeviceContext(),
+    notes,
+  }));
+  saveStore(latest);
+};
+
 export const createEntityApi = (entityName) => {
   const store = getLocalStore();
   const collection = ensureCollection(store, entityName);
@@ -3845,6 +3884,7 @@ export const createAuthApi = () => {
 
       const token = `local-${user.id}`;
       setAuthState({ user: { ...user, password: undefined }, token });
+      writeSessionAuditLog({ user, action_type: 'LOGIN', login_method: 'web', notes: `Web portal login (email/password) for ${user.email}.` });
       return { user: { ...user, password: undefined }, token };
     },
 
@@ -3892,6 +3932,7 @@ export const createAuthApi = () => {
       };
       const token = `local-employee-${employee.id}`;
       setAuthState({ user: syntheticUser, token });
+      writeSessionAuditLog({ user: syntheticUser, action_type: 'LOGIN', login_method: 'kiosk', notes: `Kiosk PIN login for ${employee.full_name} (#${employee.employee_number}).` });
       return { user: syntheticUser, token };
     },
 
@@ -3972,6 +4013,7 @@ export const createAuthApi = () => {
         const liveEmployees = ensureCollection(getLocalStore(), 'employees');
         const liveEmployee = liveEmployees.find((e) => e.id === user.employee_id);
         if (!isEmployeeActive(liveEmployee)) {
+          writeSessionAuditLog({ user, action_type: 'LOGOUT', logout_reason: 'forced_deactivation', notes: `Session force-ended for ${user.full_name || user.email} — linked employee deactivated mid-session (caught on re-validation, e.g. the 60s heartbeat).` });
           setAuthState(null);
           getStorage().setItem(DEACTIVATION_MESSAGE_KEY, DEACTIVATION_MESSAGE);
           throw Object.assign(new Error(DEACTIVATION_MESSAGE), { status: 401, reason: 'employee_deactivated' });
@@ -3981,6 +4023,10 @@ export const createAuthApi = () => {
     },
 
     logout(redirectTo = '/') {
+      const user = getAuthState()?.user;
+      if (user) {
+        writeSessionAuditLog({ user, action_type: 'LOGOUT', logout_reason: 'explicit', notes: `Explicit sign-out for ${user.full_name || user.email}.` });
+      }
       setAuthState(null);
       if (typeof window !== 'undefined' && redirectTo) {
         window.location.assign(redirectTo);

@@ -1,7 +1,7 @@
 {
   "name": "AuditLog",
   "type": "object",
-  "// note": "WRITE-ONCE / immutable: enforced in src/api/localData.js createEntityApi — update() only permits {is_deleted, delete_reason}, delete() always throws. Most rows are now written automatically by logAuditChange() on every db.entities.*.create/update/delete/updateMany/bulkCreate call (see localData.js), one row per changed field. The action_type/entity_name/before_state/after_state/notes fields below are the original hand-written event-log shape (still used by src/lib/terminalSession.js and src/pages/EmployeeCenter.jsx) and are kept for backward compatibility alongside the newer field-level shape (action/field_name/old_value/new_value/change_summary).",
+  "// note": "WRITE-ONCE / immutable: enforced in src/api/localData.js createEntityApi — update() only permits {is_deleted, delete_reason}, delete() always throws. Most rows are now written automatically by logAuditChange() on every db.entities.*.create/update/delete/updateMany/bulkCreate call (see localData.js), one row per changed field. The action_type/entity_name/before_state/after_state/notes fields below are the original hand-written event-log shape (still used by src/lib/terminalSession.js and src/pages/EmployeeCenter.jsx) and are kept for backward compatibility alongside the newer field-level shape (action/field_name/old_value/new_value/change_summary). LOGIN/LOGOUT rows (action_type) are written directly by src/api/localData.js's writeSessionAuditLog — called from loginViaEmailPassword, loginViaEmployeePin, auth.logout(), and auth.me()'s forced-deactivation branch — with entity_type fixed to 'UserSession' so they group distinctly from real record-change rows on the /audit-trail page. Failed login attempts are deliberately NOT duplicated here — they already have their own entity, FailedAccessLog, which the Audit Trail page merges into its display instead of re-logging to this entity.",
   "properties": {
     "company_id": {
       "type": "string"
@@ -16,7 +16,32 @@
       "type": "string"
     },
     "ip_address": {
-      "type": "string"
+      "type": "string",
+      "// note": "Never populated client-side — this is a browser-only SPA with no backend request to read a real IP from, and calling a third-party IP-lookup service would be a privacy leak. Kept for schema/API parity with FailedAccessLog's own ip_address field."
+    },
+    "employee_id": {
+      "type": "string",
+      "// note": "Set on LOGIN/LOGOUT action_type rows only (see src/api/localData.js's writeSessionAuditLog) — the employees row behind a kiosk PIN session, or behind a portal User linked to one via employee_id."
+    },
+    "login_method": {
+      "type": "string",
+      "enum": [
+        "web",
+        "kiosk"
+      ],
+      "// note": "Set on LOGIN rows only — 'web' for loginViaEmailPassword, 'kiosk' for loginViaEmployeePin."
+    },
+    "logout_reason": {
+      "type": "string",
+      "enum": [
+        "explicit",
+        "forced_deactivation"
+      ],
+      "// note": "Set on LOGOUT rows only — 'explicit' for a real sign-out (db.auth.logout), 'forced_deactivation' when db.auth.me()'s per-call re-validation catches a linked employee terminated/deactivated mid-session (e.g. the 60s heartbeat in AppLayout.jsx). There is no idle/inactivity timeout in this app today — this is the only non-explicit session-ending path that exists."
+    },
+    "device_context": {
+      "type": "string",
+      "// note": "navigator.userAgent, captured on LOGIN/LOGOUT rows — the one piece of client device context available without a backend."
     },
     "action": {
       "type": "string",

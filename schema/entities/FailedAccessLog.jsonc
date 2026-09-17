@@ -1,7 +1,7 @@
 {
   "name": "FailedAccessLog",
   "type": "object",
-  "// note": "Separate from AuditLog by design (see AuditLog.jsonc / the audit-trail feature's standing rules) — failed logins and permission denials are access attempts, not record changes. Written directly by src/api/localData.js's loginViaEmailPassword/loginViaEmployeePin on a failed attempt, and by gated pages (e.g. src/pages/AuditTrail.jsx) via db.entities.FailedAccessLog.create() on a permission denial.",
+  "// note": "Separate from AuditLog by design (see AuditLog.jsonc / the audit-trail feature's standing rules) — failed logins and permission denials are access attempts, not record changes. Written directly by src/api/localData.js's loginViaEmailPassword/loginViaEmployeePin on a failed attempt (both web portal and kiosk PIN), and by gated pages (e.g. src/pages/AuditTrail.jsx) via db.entities.FailedAccessLog.create() on a permission denial. src/pages/AuditTrail.jsx reads and merges these rows into the same table as AuditLog's LOGIN/LOGOUT rows (synthetic action_type 'LOGIN_FAILED', entity_type 'UserSession') so an admin sees one unified login/logout/failed-attempt view without this entity's rows being duplicated into AuditLog.",
   "properties": {
     "company_id": {
       "type": "string"
