@@ -13,6 +13,7 @@ import ManpowerStaffingSection from '@/components/meeting-mode/sections/Manpower
 import DwellReportSection from '@/components/meeting-mode/sections/DwellReportSection';
 import ProjectBreakdownSection from '@/components/meeting-mode/sections/ProjectBreakdownSection';
 import EstimatingUpdatesSection from '@/components/meeting-mode/sections/EstimatingUpdatesSection';
+import ProjectBidNotesSession from '@/components/meeting-mode/ProjectBidNotesSession';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 
 const MEETING_MODE_ROLES = ['project_manager', 'shop_manager', 'finance_department', 'controller', 'president', 'ceo'];
@@ -204,6 +205,22 @@ export default function MeetingModeSession() {
     return (
       <div className="fixed inset-0 bg-slate-950 flex items-center justify-center text-white">
         <p className="text-xl text-slate-400">Meeting not found.</p>
+      </div>
+    );
+  }
+
+  if (meeting.format === 'project_notes') {
+    return (
+      <div className="fixed inset-0 bg-slate-950 text-white flex">
+        <ProjectBidNotesSession
+          ref={notesRef}
+          meetingId={meeting.id}
+          meetingName={meeting.name}
+          currentUser={currentUser}
+          employees={employees}
+          onExit={handleExit}
+        />
+        <UnsavedChangesModal open={showUnsavedModal} onSave={handleModalSave} onDiscard={handleModalDiscard} saving={savingUnsaved} />
       </div>
     );
   }

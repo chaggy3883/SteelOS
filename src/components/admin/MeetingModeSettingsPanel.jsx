@@ -3,6 +3,7 @@ import { DollarSign, Loader2 } from 'lucide-react';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { getAvailableSections } from '@/lib/meetingModeSections';
+import { getMeetingFormat } from '@/lib/meetingModeFormats';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
@@ -101,6 +102,14 @@ export default function MeetingModeSettingsPanel() {
       <Button onClick={handleSave} disabled={saving || !company?.id}>
         {saving ? 'Saving…' : 'Save Defaults'}
       </Button>
+
+      <div className="pt-2 border-t border-border">
+        <h3 className="text-lg font-semibold">{getMeetingFormat('project_notes').label}</h3>
+        <p className="text-sm text-muted-foreground mt-1">
+          {getMeetingFormat('project_notes').description} This meeting type has no sections to configure — it's
+          always available in "Add Meeting" alongside the structured format above.
+        </p>
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 {
   "name": "Meeting",
   "type": "object",
-  "description": "A saved, reusable Meeting Mode meeting definition — created once from the 'Add Meeting' modal and reopened repeatedly over time (e.g. every week), rather than recreated per occurrence. See src/lib/meetingModeSections.js for the section keys this can contain and src/pages/MeetingModeSession.jsx for how it's rendered.",
+  "description": "A saved, reusable Meeting Mode meeting definition — created once from the 'Add Meeting' modal and reopened repeatedly over time (e.g. every week), rather than recreated per occurrence. See src/lib/meetingModeSections.js for the section keys this can contain, src/lib/meetingModeFormats.js for the 'format' values below, and src/pages/MeetingModeSession.jsx for how each format is rendered.",
   "properties": {
     "company_id": {
       "type": "string"
@@ -14,12 +14,18 @@
       "type": "string",
       "format": "date"
     },
+    "format": {
+      "type": "string",
+      "enum": ["sections", "project_notes"],
+      "default": "sections",
+      "description": "Which Meeting Mode shape this meeting uses (see src/lib/meetingModeFormats.js). 'sections' is the original agenda-section format below. 'project_notes' has no sections at all — MeetingModeSession.jsx instead renders a project/bid picker plus a single free-text notes panel (src/components/meeting-mode/ProjectBidNotesSession.jsx), and 'sections' always stays []. Missing/undefined is treated as 'sections' for meetings created before this field existed."
+    },
     "sections": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "Section keys from src/lib/meetingModeSections.js chosen for this specific meeting — defaults from Company.meeting_mode_sections at creation, adjustable per meeting.",
+      "description": "Section keys from src/lib/meetingModeSections.js chosen for this specific meeting — defaults from Company.meeting_mode_sections at creation, adjustable per meeting. Always empty when format is 'project_notes'.",
       "default": []
     },
     "created_by": {

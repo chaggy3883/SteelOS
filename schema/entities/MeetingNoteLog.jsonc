@@ -1,14 +1,14 @@
 {
   "name": "MeetingNoteLog",
   "type": "object",
-  "description": "Append-only history of Meeting Mode notes, one new row per save (never overwritten in place) — same discipline as StatusHistoryEntry. The note shown when a meeting/section is reopened is simply the most recent row for a given meeting_id+section, which is what makes last week's notes stay visible until someone types new ones. Written and read by src/components/meeting-mode/MeetingSectionNotesPanel.jsx.",
+  "description": "Append-only history of Meeting Mode notes, one new row per save (never overwritten in place) — same discipline as StatusHistoryEntry. For the 'sections' meeting format, the note shown when a meeting/section is reopened is simply the most recent row for a given meeting_id+section, which is what makes last week's notes stay visible until someone types new ones (written/read by src/components/meeting-mode/MeetingSectionNotesPanel.jsx). For the 'project_notes' meeting format, the same append-only shape is reused keyed by project_id/bid_id instead — the most recent row for a given project_id (or bid_id) is what stays visible until edited, regardless of which Meeting instance saved it (written/read by src/components/meeting-mode/ProjectBidNotesSession.jsx).",
   "properties": {
     "company_id": {
       "type": "string"
     },
     "meeting_id": {
       "type": "string",
-      "description": "FK to Meeting.id."
+      "description": "FK to Meeting.id — which specific meeting occurrence this note was saved during."
     },
     "meeting_type": {
       "type": "string",
@@ -16,7 +16,15 @@
     },
     "section": {
       "type": "string",
-      "description": "Section key (see src/lib/meetingModeSections.js) this note was captured under, e.g. 'project_status', 'estimating_updates'."
+      "description": "Section key (see src/lib/meetingModeSections.js) this note was captured under, e.g. 'project_status', 'estimating_updates'. Fixed to the literal string 'project_notes' for rows saved from the project_notes meeting format (see project_id/bid_id below), since that format has no real sections."
+    },
+    "project_id": {
+      "type": "string",
+      "description": "FK to Project.id — only set on a 'project_notes'-format row logged against a Project. Null/absent for every other row (including bid_id-keyed project_notes rows and all 'sections'-format rows)."
+    },
+    "bid_id": {
+      "type": "string",
+      "description": "FK to Bid.id — only set on a 'project_notes'-format row logged against a Bid instead of a Project. Null/absent otherwise."
     },
     "note_text": {
       "type": "string"

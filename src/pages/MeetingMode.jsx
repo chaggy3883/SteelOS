@@ -6,6 +6,7 @@ import { Lock, Plus } from 'lucide-react';
 import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { isAdminUser, getEffectiveCompany } from '@/lib/tenantContext';
 import { getSectionDefinition } from '@/lib/meetingModeSections';
+import { getMeetingFormat } from '@/lib/meetingModeFormats';
 import AddMeetingModal from '@/components/meeting-mode/AddMeetingModal';
 
 // Who actually runs recurring meetings in this app today. admin/super_admin
@@ -58,9 +59,9 @@ export default function MeetingMode() {
 
   useEffect(() => { if (allowed) loadMeetings(); }, [allowed]);
 
-  const handleCreate = async ({ name, meeting_date, sections }) => {
+  const handleCreate = async ({ name, meeting_date, format, sections }) => {
     const me = await db.auth.me().catch(() => null);
-    const created = await db.entities.Meeting.create({ name, meeting_date, sections, created_by: me?.id || '' });
+    const created = await db.entities.Meeting.create({ name, meeting_date, format, sections, created_by: me?.id || '' });
     setShowAddModal(false);
     await loadMeetings();
     openMeeting(created.id);
@@ -125,11 +126,17 @@ export default function MeetingMode() {
                   <p className="text-sm text-slate-500">{meeting.meeting_date}</p>
                 </div>
                 <div className="flex flex-wrap gap-1.5 justify-end max-w-xs">
-                  {(meeting.sections || []).map((key) => (
-                    <span key={key} className="text-[10px] uppercase tracking-wide bg-slate-800 text-slate-300 rounded px-1.5 py-0.5">
-                      {getSectionDefinition(key)?.label || key}
+                  {meeting.format === 'project_notes' ? (
+                    <span className="text-[10px] uppercase tracking-wide bg-blue-900/60 text-blue-300 rounded px-1.5 py-0.5">
+                      {getMeetingFormat('project_notes').label}
                     </span>
-                  ))}
+                  ) : (
+                    (meeting.sections || []).map((key) => (
+                      <span key={key} className="text-[10px] uppercase tracking-wide bg-slate-800 text-slate-300 rounded px-1.5 py-0.5">
+                        {getSectionDefinition(key)?.label || key}
+                      </span>
+                    ))
+                  )}
                 </div>
               </button>
             ))}

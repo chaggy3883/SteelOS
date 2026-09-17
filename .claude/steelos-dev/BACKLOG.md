@@ -5,6 +5,58 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-16) — Meeting Mode: Project / Bid Notes format
+
+- **New "Project / Bid Notes" Meeting Mode format**, alongside (not replacing)
+  the existing sections-based format — confirmed via ground-truth code read
+  before starting that this codebase has no fixed Shop-Meeting/Turnover-
+  Meeting/Project-&-Estimating-Review type enum (`Meeting.jsonc` says so
+  explicitly: "No fixed meeting-type enum"); those names are informal
+  descriptions of section combinations, and Turnover Meeting is a wholly
+  separate feature on `ProjectDetail.jsx`'s Handoff tab, unrelated to
+  `Meeting`/`MeetingNoteLog`. This pass adds a real second top-level shape
+  to `Meeting` itself: new `format` field (`'sections'` default | `
+  'project_notes'`, `schema/entities/Meeting.jsonc`) since the requested
+  workflow (pick one Project/Bid, free-text notes, save, immediately pick
+  the next one, repeat) has no section/data-display body at all — it doesn't
+  fit as a new `SECTION_DEFINITIONS` entry.
+  New `src/lib/meetingModeFormats.js` (`MEETING_FORMATS`, mirrors
+  `meetingModeSections.js`'s single-source-of-truth pattern) — read by
+  `AddMeetingModal.jsx` (new Meeting Type picker, sections checklist hidden
+  entirely when Project/Bid Notes is chosen since there's nothing to select)
+  and by `MeetingModeSettingsPanel.jsx` (informational card only — no toggle,
+  since there's no per-company configuration this format actually needs).
+  New `src/components/meeting-mode/ProjectBidNotesSession.jsx`, rendered by
+  `MeetingModeSession.jsx` in place of the sections sidebar/body/notes-panel
+  layout whenever `meeting.format === 'project_notes'`: a Project/Bid search
+  picker (queries `getLiveProjects()` plus `Bid`s in `draft`/`in_progress`/
+  `submitted` status only — a won bid becomes a Project and should be
+  selected as one instead) beside a single notes panel, reusing the parent's
+  existing unsaved-changes guard (Exit/tab-close/back-button) via the same
+  `isDirty()`/`save()` imperative-handle contract `MeetingSectionNotesPanel.jsx`
+  already exposes, plus its own local `UnsavedChangesModal` instance for the
+  "switch project/bid while dirty" case the parent's page-level guard doesn't
+  cover.
+  **Persistence reuses `MeetingNoteLog` exactly as instructed — no parallel
+  logging mechanism** — extended with new optional `project_id`/`bid_id`
+  fields (`schema/entities/MeetingNoteLog.jsonc`); `section` is fixed to the
+  literal `'project_notes'` for these rows. The pre-populate lookup queries by
+  `project_id` (or `bid_id`) alone, not `meeting_id`, so a project/bid's notes
+  carry forward into every future Project/Bid Notes meeting that selects it
+  again, regardless of which `Meeting` instance saved them last — same
+  append-only "most recent row is what's shown" discipline as the sections
+  format, generalized to a different key. History icon reuses
+  `MeetingNoteHistoryModal.jsx` unchanged, now scoped to a project/bid's full
+  cross-meeting history rather than one meeting+section.
+  **No pricing by construction**: the picker only ever fetches
+  `Project.name`/`project_number` and `Bid.job_name`/`customer_name` — no
+  `bid_quoted_price` or any cost field ever enters this component's state,
+  same discipline `ProjectStatusSection.jsx` already uses for its own
+  no-pricing guarantee.
+  `npm run build && npm run lint` clean. No Playwright run (per standing
+  feedback — code trace + build/lint first, browser verification only on
+  request).
+
 ## Also Closed (2026-09-15) — Front-End Review: page-number tracking, PDF/Excel export, scrollbar reachability
 
 - **Three fixes to Front-End Spec Review (`src/pages/FrontEndReview.jsx`)** —
@@ -877,10 +929,6 @@ closed:
 
 ## Queued
 
-- **Meeting Mode** (Manpower + Executive) — blocked on 2 open questions:
-  (a) does the manpower meeting include scheduling specific crews to
-  jobs, or just workload/sequence, (b) should job cost be visible in the
-  executive meeting screen or only as a pre-read
 - **Mac flash drive chip auto-detect** (node-mac-arm64 / node-mac-x64 via
   `uname -m`)
 - **RFI open/review workflow** — open individual RFIs, mark
