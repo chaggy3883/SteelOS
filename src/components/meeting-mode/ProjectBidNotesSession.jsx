@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { History, Save, Check, Search, X } from 'lucide-react';
 import { db } from '@/api/apiClient';
 import { useToast } from '@/components/ui/use-toast';
@@ -84,21 +84,29 @@ const ProjectBidNotesSession = forwardRef(function ProjectBidNotesSession(
 
   const isDirty = () => !!selected && text !== savedText;
 
+  // Guards against an out-of-order async response: if the user selects a
+  // new project/bid before an older loadEntriesFor call resolves, that
+  // older call's result must never be applied once it finally comes back.
+  const loadRequestIdRef = useRef(0);
+
   const loadEntriesFor = async (item) => {
+    const requestId = ++loadRequestIdRef.current;
     setLoadingNotes(true);
     try {
       const filterKey = item.type === 'project' ? { project_id: item.id } : { bid_id: item.id };
       const rows = await db.entities.MeetingNoteLog.filter(filterKey, '-saved_at', 200);
+      if (loadRequestIdRef.current !== requestId) return; // a newer selection has since started
       setEntries(rows);
       const latest = rows[0]?.note_text || '';
       setSavedText(latest);
       setText(latest);
     } catch (e) {
+      if (loadRequestIdRef.current !== requestId) return;
       setEntries([]);
       setSavedText('');
       setText('');
     } finally {
-      setLoadingNotes(false);
+      if (loadRequestIdRef.current === requestId) setLoadingNotes(false);
     }
   };
 
