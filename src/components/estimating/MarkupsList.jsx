@@ -18,12 +18,16 @@ import { exportRowsToCsv } from '@/lib/csvExport';
 
 const TOOL_META = {
   count: { label: 'Count', icon: MousePointerClick, unitLabel: 'lbs/ft' },
+  // Bolt Count shares Count's click-to-mark/color/tally engine (same icon),
+  // but has no weight concept of its own — see calcGroup/buildPayload below.
+  bolt_count: { label: 'Bolt Count', icon: MousePointerClick, unitLabel: null },
   length: { label: 'Length', icon: Ruler, unitLabel: 'lbs/ft' },
   area: { label: 'Area', icon: Shapes, unitLabel: 'lbs/sq ft' },
 };
 
 const METRIC_LABELS = {
   count: 'Count (pcs)',
+  bolt_count: 'Bolt Count (pcs)',
   length: 'Length (ft)',
   area: 'Area (sq ft)',
 };
@@ -59,7 +63,7 @@ function lookupCatalogWeightPerFt(sizeDesignation) {
 function buildGroups(rows) {
   const map = new Map();
   rows
-    .filter((r) => r.is_accepted && (r.tool === 'count' || r.tool === 'length' || r.tool === 'area'))
+    .filter((r) => r.is_accepted && (r.tool === 'count' || r.tool === 'bolt_count' || r.tool === 'length' || r.tool === 'area'))
     .forEach((r) => {
       // Phase folds into the group key alongside tool+label — a project
       // built in stages needs its takeoff split per stage, so the same
@@ -89,7 +93,9 @@ function buildGroups(rows) {
     const totalCount = group.rows.reduce((sum, r) => sum + (r.quantity || 1), 0);
     const totalLengthFt = group.rows.reduce((sum, r) => sum + (r.length_ft || 0), 0);
     const totalAreaSqFt = group.rows.reduce((sum, r) => sum + (r.area_sq_ft || 0), 0);
-    const totalMetric = group.tool === 'count' ? totalCount : group.tool === 'length' ? totalLengthFt : totalAreaSqFt;
+    // Bolt Count tallies pieces exactly like a beam Count does — it just
+    // never derives a length/weight from that tally (see calcGroup).
+    const totalMetric = (group.tool === 'count' || group.tool === 'bolt_count') ? totalCount : group.tool === 'length' ? totalLengthFt : totalAreaSqFt;
     const isPushed = group.rows.length > 0 && group.rows.every((r) => r.pushed_to_estimate);
     const existingLineId = group.rows.find((r) => r.pushed_material_line_id)?.pushed_material_line_id || null;
     return { ...group, totalCount, totalLengthFt, totalAreaSqFt, totalMetric, isPushed, existingLineId };
@@ -240,7 +246,10 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
 
     let estLbs = 0;
     let weightUnknown = false;
-    if (group.tool === 'count') {
+    if (group.tool === 'bolt_count') {
+      // Bolts are priced by count, not weight (see buildPayload) — no
+      // est. weight to compute, and never "unknown" since none was expected.
+    } else if (group.tool === 'count') {
       const typicalLength = Number(typicalLengthFt) || 0;
       if (typicalLength > 0) {
         estLbs = finalQuantity * weight * typicalLength;
@@ -261,6 +270,35 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
     const effectiveProjectId = linkOverride ? linkOverride.projectId : projectId;
     const { multiplier, typicalLengthFt } = getSetting(group);
     const { finalQuantity, weight, estTons } = calcGroup(group);
+    const noteBase = `From IRONSIGHT takeoff: ${takeoffName || fileName || 'Untitled takeoff'}`;
+
+    // Bolt Count groups map straight onto MaterialTakeoffLine's fields —
+    // group.shape_type/size_designation/grade already hold the bolt's Type/
+    // Size/Grade (captured by CountSetupModal's bolt fields, see
+    // handleSaveCountSession in BlueprintTakeoff.jsx). Bolts have no
+    // structural shape_class and aren't priced by weight (the Bid
+    // Worksheet's Bolts/Fasteners line is a flat quote amount, not a
+    // weight-driven category — same as every other cost category, no
+    // MaterialTakeoffLine field feeds it automatically), so shape_class,
+    // length_ft, weight_per_ft, tons_per_piece, and total_tons are all left
+    // unset here rather than populated with beam-shaped values that don't
+    // apply. This intentionally skips the shape_code -> shape_class bridge
+    // below, which is beam-specific.
+    if (group.tool === 'bolt_count') {
+      return {
+        bid_id: effectiveBidId || undefined,
+        project_id: effectiveBidId ? undefined : (effectiveProjectId || undefined),
+        material_type: group.shape_type || 'Bolt',
+        material_size: group.size_designation || '',
+        grade: group.grade || undefined,
+        coating_type: 'No Coating',
+        source: 'ironsight',
+        pushed_from_takeoff_id: takeoffId,
+        quantity: finalQuantity,
+        notes: `${noteBase} — Bolt Count group "${group.label}": ${group.totalCount} pieces × ${multiplier} multiplier`,
+      };
+    }
+
     // Bridge the master catalog's shape_code (e.g. "W") to MaterialTakeoffLine's
     // own 5-value shape_class enum when this group came from a real IRONSIGHT
     // catalog shape — group.shape_type is the catalog's free-text description
@@ -270,7 +308,6 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
     const materialType = getShapeClass(shapeClass).label || shapeClass;
     const compactProfile = buildCompactShapeProfile({ shapeCode: group.shape_code, sizeDesignation: group.size_designation, widthFt: group.width_ft });
     const materialSize = (compactProfile || group.size_designation || '').toUpperCase();
-    const noteBase = `From IRONSIGHT takeoff: ${takeoffName || fileName || 'Untitled takeoff'}`;
 
     const base = {
       bid_id: effectiveBidId || undefined,
@@ -548,10 +585,15 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
   };
 
   if (groups.length === 0) {
-    return <p className="text-sm text-muted-foreground py-6 text-center">No Count, Length, or Area markups yet — place a measurement with the tools above to see it here.</p>;
+    return <p className="text-sm text-muted-foreground py-6 text-center">No Count, Bolt Count, Length, or Area markups yet — place a measurement with the tools above to see it here.</p>;
   }
 
-  const groupsByTool = { count: groups.filter((g) => g.tool === 'count'), length: groups.filter((g) => g.tool === 'length'), area: groups.filter((g) => g.tool === 'area') };
+  const groupsByTool = {
+    count: groups.filter((g) => g.tool === 'count'),
+    bolt_count: groups.filter((g) => g.tool === 'bolt_count'),
+    length: groups.filter((g) => g.tool === 'length'),
+    area: groups.filter((g) => g.tool === 'area'),
+  };
 
   return (
     <div className="space-y-4">
@@ -650,7 +692,7 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
         </CardContent>
       </Card>
 
-      {['count', 'length', 'area'].map((tool) => {
+      {['count', 'bolt_count', 'length', 'area'].map((tool) => {
         if (groupsByTool[tool].length === 0) return null;
         const Icon = TOOL_META[tool].icon;
         return (
@@ -670,9 +712,11 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
                       <span className="font-medium text-sm">{group.label}</span>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {group.shape_type}{group.size_designation ? ` — ${group.size_designation}` : ''}
+                        {tool === 'bolt_count' && group.grade ? ` — Grade ${group.grade}` : ''}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {tool === 'count' && `${group.totalCount} count`}
+                        {tool === 'bolt_count' && `${group.totalCount} bolts`}
                         {tool === 'length' && `${group.totalLengthFt.toFixed(2)} ft total`}
                         {tool === 'area' && `${group.totalAreaSqFt.toFixed(2)} sq ft total`}
                       </p>
@@ -715,33 +759,46 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
                       </div>
                     )}
 
-                    <div className="w-36">
-                      <label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                        Unit weight ({TOOL_META[tool].unitLabel})
-                        <Badge variant="outline" className={`text-[9px] px-1 py-0 leading-4 ${badge.className}`}>{badge.label}</Badge>
-                      </label>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="any"
-                        value={setting.unitWeight}
-                        onChange={(e) => updateUnitWeight(group, e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="manual entry"
-                        className="h-8 text-xs"
-                      />
-                    </div>
+                    {tool !== 'bolt_count' && (
+                      <div className="w-36">
+                        <label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          Unit weight ({TOOL_META[tool].unitLabel})
+                          <Badge variant="outline" className={`text-[9px] px-1 py-0 leading-4 ${badge.className}`}>{badge.label}</Badge>
+                        </label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={setting.unitWeight}
+                          onChange={(e) => updateUnitWeight(group, e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="manual entry"
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    )}
 
-                    <div className="w-32">
-                      <label className="text-[10px] text-muted-foreground">Est. weight</label>
-                      {weightUnknown ? (
-                        <p className="h-8 flex items-center text-xs text-muted-foreground italic">weight unknown</p>
-                      ) : (
-                        <div className="h-8 flex flex-col justify-center leading-tight">
-                          <span className="text-sm font-semibold">{estLbs.toLocaleString(undefined, { maximumFractionDigits: 0 })} lbs</span>
-                          <span className="text-[10px] text-muted-foreground">{estTons.toFixed(2)} tons</span>
-                        </div>
-                      )}
-                    </div>
+                    {tool === 'bolt_count' ? (
+                      // Bolts are priced by count, not weight — the Bid
+                      // Worksheet's Bolts/Fasteners line is a manual quote
+                      // amount (see buildPayload), so there's no est. weight
+                      // to show here, just the piece count that'll push.
+                      <div className="w-32">
+                        <label className="text-[10px] text-muted-foreground">Qty to push</label>
+                        <div className="h-8 flex items-center text-sm font-semibold">{finalQuantity.toLocaleString()} pcs</div>
+                      </div>
+                    ) : (
+                      <div className="w-32">
+                        <label className="text-[10px] text-muted-foreground">Est. weight</label>
+                        {weightUnknown ? (
+                          <p className="h-8 flex items-center text-xs text-muted-foreground italic">weight unknown</p>
+                        ) : (
+                          <div className="h-8 flex flex-col justify-center leading-tight">
+                            <span className="text-sm font-semibold">{estLbs.toLocaleString(undefined, { maximumFractionDigits: 0 })} lbs</span>
+                            <span className="text-[10px] text-muted-foreground">{estTons.toFixed(2)} tons</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="ml-auto flex items-center gap-2">
                       {group.isPushed && <Badge variant="outline" className="text-green-700 border-green-300"><CheckCircle2 className="w-3 h-3 mr-1" />Pushed</Badge>}

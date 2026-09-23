@@ -109,7 +109,17 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     setLoading(true);
     try {
       const existing = await db.entities.MaterialTakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200);
-      setRows(existing.length ? existing.map((r) => {
+      // This grid is hardcoded to the 5 structural SHAPE_CLASSES (its Shape
+      // Classification dropdown, weight math, etc. all assume one) — a line
+      // pushed with no shape_class (MarkupsList.jsx's Bolt Count branch,
+      // intentionally left unset since bolts have no structural shape/weight)
+      // would otherwise silently default to 'W-Beam' here and, worse, get
+      // overwritten with bogus W-Beam material_type/weight_per_ft the next
+      // time this tab is saved, since handleSave rewrites every row it
+      // loaded. Excluding shape_class-less rows keeps this beam/HSS/channel/
+      // angle/plate grid exactly as it worked before Bolt Count existed.
+      const structuralRows = existing.filter((r) => r.shape_class);
+      setRows(structuralRows.length ? structuralRows.map((r) => {
         const shapeClass = r.shape_class || 'W-Beam';
         return {
           id: r.id,
