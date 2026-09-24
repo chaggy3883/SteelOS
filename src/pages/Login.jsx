@@ -11,7 +11,7 @@ import LoginVaultBackdrop from "@/components/auth/LoginVaultBackdrop";
 import { isKioskModeEnabled, getKioskMode } from "@/lib/kioskMode";
 import { isSuperAdmin } from "@/lib/tenantContext";
 import { startUserSession } from "@/lib/userSessionTracking";
-import { getAndClearDeactivationMessage } from "@/api/localData";
+import { getAndClearDeactivationMessage, getAndClearSessionSwitchedMessage } from "@/api/localData";
 
 export default function Login() {
   const { toast } = useToast();
@@ -44,6 +44,14 @@ export default function Login() {
     const message = getAndClearDeactivationMessage();
     if (message) {
       toast({ title: message, variant: "destructive" });
+    }
+    // A tab that got here because AuthContext's cross-tab storage listener
+    // detected a logout/different-user-login in another tab (see
+    // AuthContext.jsx) — mutually exclusive with the deactivation message
+    // above, but both are one-time hand-offs so checking both is harmless.
+    const sessionSwitchedMessage = getAndClearSessionSwitchedMessage();
+    if (sessionSwitchedMessage) {
+      toast({ title: sessionSwitchedMessage });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -9,7 +9,10 @@ import { HANCOCK_PROPOSAL_TERMS_TEXT } from '@/lib/hancockProposalTermsContent';
 import { createUploadedFileId, saveUploadedFile, makeUploadedFileRef } from '@/lib/uploadedFileStore';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
-const AUTH_STORAGE_KEY = 'steelos_auth_state';
+// Exported so AuthContext's cross-tab `storage` listener can filter events to
+// exactly this key instead of reacting to every unrelated localStorage write
+// (dark-mode toggle, etc.) — see AuthContext.jsx.
+export const AUTH_STORAGE_KEY = 'steelos_auth_state';
 // One-time hand-off for the "you were logged out because your account was
 // deactivated" message: db.auth.me() sets this the instant it detects a
 // forced logout, then a full-page redirect lands on Login.jsx, which reads
@@ -22,6 +25,24 @@ export const getAndClearDeactivationMessage = () => {
   const storage = getStorage();
   const message = storage.getItem(DEACTIVATION_MESSAGE_KEY);
   if (message) storage.removeItem(DEACTIVATION_MESSAGE_KEY);
+  return message;
+};
+
+// Same one-time hand-off contract as the deactivation message above, but for
+// AuthContext's cross-tab session guard: a background tab that detects (via
+// the `storage` event) that the browser's session now belongs to a different
+// user than what it last rendered flags this before forcing a redirect to
+// /login, so Login.jsx can explain why the tab just bounced there.
+const SESSION_SWITCHED_MESSAGE_KEY = 'steelos_session_switched_message';
+
+export const flagSessionSwitchedMessage = (message) => {
+  getStorage().setItem(SESSION_SWITCHED_MESSAGE_KEY, message);
+};
+
+export const getAndClearSessionSwitchedMessage = () => {
+  const storage = getStorage();
+  const message = storage.getItem(SESSION_SWITCHED_MESSAGE_KEY);
+  if (message) storage.removeItem(SESSION_SWITCHED_MESSAGE_KEY);
   return message;
 };
 const fallbackStorage = (() => {
