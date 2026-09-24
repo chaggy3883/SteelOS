@@ -257,10 +257,11 @@ export default function BidDetail() {
 
   const createProjectFromWonBid = async (wonBid) => {
     const project_number = await getNextProjectNumber();
-    const [takeoffLines, documents, bidAreas] = await Promise.all([
+    const [takeoffLines, documents, bidAreas, materialTakeoffLines] = await Promise.all([
       db.entities.TakeoffLine.filter({ bid_id: wonBid.id }, '-created_date', 200),
       db.entities.Document.filter({ bid_id: wonBid.id }, '-created_date', 200),
       db.entities.ProjectSequenceArea.filter({ bid_id: wonBid.id }, 'production_priority', 200),
+      db.entities.MaterialTakeoffLine.filter({ bid_id: wonBid.id }, '-created_date', 200),
     ]);
 
     const project = await db.entities.Project.create({
@@ -298,6 +299,12 @@ export default function BidDetail() {
         db.entities.Document.create({ ...doc, is_archived: false, project_id: project.id, bid_id: wonBid.id })),
       ...takeoffLines.map(({ id: _id, created_date: _cd, updated_date: _ud, ...line }) =>
         db.entities.TakeoffLine.create({ ...line, bid_id: wonBid.id, project_id: project.id })),
+      // Material Takeoff (FullTakeoff.jsx) lines carry forward the same
+      // copy-not-move way TakeoffLine does above — sequence_area_id is kept
+      // as-is, since the ProjectSequenceArea it points to is carried forward
+      // in place (same id) by the loop below, not recreated.
+      ...materialTakeoffLines.map(({ id: _id, created_date: _cd, updated_date: _ud, ...line }) =>
+        db.entities.MaterialTakeoffLine.create({ ...line, bid_id: wonBid.id, project_id: project.id })),
     ]);
 
     // Carry each bid-stage Area forward onto the new project (same record,

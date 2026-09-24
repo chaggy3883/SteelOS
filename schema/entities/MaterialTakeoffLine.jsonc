@@ -89,6 +89,10 @@
     "pushed_from_takeoff_id": {
       "type": "string",
       "description": "Links back to the blueprint_takeoffs (IRONSIGHT) session this line was pushed from, when source is 'ironsight'."
+    },
+    "sequence_area_id": {
+      "type": "string",
+      "description": "Nullable FK to ProjectSequenceArea. Optional — assigns this takeoff line to one of the bid's already-defined Areas (see BidAreaManager.jsx), same entity/id ProjectDetail.jsx's Sequence/Area piece assignment uses. Null/unset means Unassigned, the default for bids with no Areas defined. Carried forward unchanged when the bid is won (createProjectFromWonBid, BidDetail.jsx) since the referenced ProjectSequenceArea keeps its id across the bid-to-project carryover."
     }
   },
   "required": [

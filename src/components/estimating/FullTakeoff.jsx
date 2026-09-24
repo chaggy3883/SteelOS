@@ -38,6 +38,7 @@ function emptyRow() {
     length_ft: '',
     quantity: '',
     coating_type: 'No Coating',
+    sequence_area_id: null,
   };
 }
 
@@ -60,11 +61,24 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [sequenceAreas, setSequenceAreas] = useState([]);
+  const [areaFilter, setAreaFilter] = useState('all'); // 'all' | 'unassigned' | area.id
 
   useEffect(() => { loadRows(); }, [bid?.id]);
   useEffect(() => {
     db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
   }, []);
+
+  // Bid-stage Areas (see BidAreaManager.jsx's "Build Areas" tab) — same
+  // entity/query shape, scoped by bid_id since a bid isn't a project yet.
+  // Purely additive: a bid with none defined leaves sequenceAreas empty and
+  // the Area column/filter below stay hidden entirely.
+  useEffect(() => {
+    if (!bid?.id) return;
+    db.entities.ProjectSequenceArea.filter({ bid_id: bid.id }, 'production_priority', 200)
+      .then(setSequenceAreas)
+      .catch(() => setSequenceAreas([]));
+  }, [bid?.id]);
 
   // Grade dropdown source: the master Material Catalog (MaterialShapeType +
   // MaterialGradeOption), bridged via SHAPE_CLASS_TO_MATERIAL_CODE. Loaded
@@ -130,6 +144,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
           quantity: r.quantity ?? '',
           coating_type: r.coating_type || 'No Coating',
           source: r.source || 'manual',
+          sequence_area_id: r.sequence_area_id || null,
         };
       }) : [emptyRow()]);
     } catch (e) {
@@ -140,7 +155,14 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     }
   };
 
-  const addRow = () => { setRows((prev) => [...prev, emptyRow()]); setDirty(true); };
+  // Defaults a new line to whichever Area is currently filtered/grouped on,
+  // so adding a line while scoped to one Area doesn't drop it into
+  // Unassigned and out of view — 'all'/'unassigned' both mean no default.
+  const addRow = () => {
+    const defaultAreaId = areaFilter !== 'all' && areaFilter !== 'unassigned' ? areaFilter : null;
+    setRows((prev) => [...prev, { ...emptyRow(), sequence_area_id: defaultAreaId }]);
+    setDirty(true);
+  };
   const removeRow = (idx) => { setRows((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)); setDirty(true); };
 
   const updateRow = (idx, field, value) => {
@@ -161,6 +183,30 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   };
 
   const calcs = useMemo(() => rows.map((row) => rowCalc(row, catalog)), [rows, catalog]);
+
+  // Area filter/grouping — same "group by ProjectSequenceArea, Unassigned
+  // last" shape as ProjectDetail.jsx's Sequence/Area piece assignment
+  // (seqGroupEntries). Indices below are always the row's real index into
+  // `rows`/`calcs`, never a filtered position, so addRow/updateRow/removeRow
+  // keep working unchanged regardless of which group a row renders under.
+  const sequenceAreasById = useMemo(() => new Map(sequenceAreas.map((a) => [a.id, a])), [sequenceAreas]);
+  const areaKeyForRow = (row) => (row.sequence_area_id && sequenceAreasById.has(row.sequence_area_id) ? row.sequence_area_id : 'unassigned');
+  const rowGroups = useMemo(() => {
+    if (sequenceAreas.length === 0) return [[null, rows.map((row, idx) => ({ row, idx }))]];
+    const indexed = rows.map((row, idx) => ({ row, idx })).filter(({ row }) => areaFilter === 'all' || areaKeyForRow(row) === areaFilter);
+    const map = new Map();
+    indexed.forEach((item) => {
+      const key = areaKeyForRow(item.row);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(item);
+    });
+    const groups = [
+      ...sequenceAreas.map((a) => [a.id, map.get(a.id) || []]),
+      ['unassigned', map.get('unassigned') || []],
+    ];
+    return areaFilter === 'all' ? groups : groups.filter(([key]) => key === areaFilter);
+  }, [rows, sequenceAreas, sequenceAreasById, areaFilter]);
+
   const totalTons = calcs.reduce((sum, c) => sum + c.totalTons, 0);
   const baselineManHours = rows.reduce((sum, row, i) => {
     const hoursPerTon = getShapeClass(row.shape_class).hoursPerTon || 0;
@@ -195,6 +241,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
           total_tons: rowTotalTons || 0,
           coating_type: row.coating_type || 'No Coating',
           paint_area_sq_in: paintAreaSqIn || 0,
+          sequence_area_id: row.sequence_area_id || null,
         };
         if (row.id) return db.entities.MaterialTakeoffLine.update(row.id, payload);
         return db.entities.MaterialTakeoffLine.create(payload);
@@ -296,6 +343,16 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
             <h4 className="font-semibold">Material Takeoff</h4>
           </div>
           <div className="flex items-center gap-2">
+            {sequenceAreas.length > 0 && (
+              <Select value={areaFilter} onValueChange={setAreaFilter}>
+                <SelectTrigger className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Areas</SelectItem>
+                  {sequenceAreas.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <Button variant="outline" size="sm" onClick={handleExportRequisitionPdf}>
               <FileDown className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO PDF
             </Button>
@@ -311,11 +368,25 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
           </div>
         </div>
 
-        <div className="space-y-2">
-          {rows.map((row, idx) => {
-            const calc = calcs[idx];
-            return (
-              <div key={idx} className="grid grid-cols-12 gap-2 items-end rounded-lg border border-border p-2">
+        <div className="space-y-4">
+          {rowGroups.map(([groupKey, items]) => (
+            <div key={groupKey ?? 'flat'}>
+              {sequenceAreas.length > 0 && (
+                <div className="flex items-center gap-2 mb-2 px-1">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    {groupKey === 'unassigned' ? 'Unassigned' : sequenceAreasById.get(groupKey)?.name}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{items.length} line{items.length === 1 ? '' : 's'}</span>
+                </div>
+              )}
+              {items.length === 0 ? (
+                <p className="text-xs text-muted-foreground px-1 pb-2">No material lines assigned to this Area yet.</p>
+              ) : (
+                <div className="space-y-2">
+                {items.map(({ row, idx }) => {
+                  const calc = calcs[idx];
+                  return (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-end rounded-lg border border-border p-2">
                 {row.source === 'ironsight' && (
                   <div className="col-span-12">
                     <Badge variant="outline" className="text-blue-600 border-blue-300 text-[10px]">IRONSIGHT</Badge>
@@ -436,6 +507,18 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                       {COATING_TYPES.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
+                  {sequenceAreas.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <Label className="text-xs whitespace-nowrap">Area</Label>
+                      <Select value={row.sequence_area_id || 'unassigned'} onValueChange={(v) => updateRow(idx, 'sequence_area_id', v === 'unassigned' ? null : v)}>
+                        <SelectTrigger className="h-7 w-40 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {sequenceAreas.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Calculated Metrics: {calc.paintAreaSqIn ? `${calc.paintAreaSqIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In` : '—'}
                   </p>
@@ -454,6 +537,10 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
               </div>
             );
           })}
+          </div>
+              )}
+            </div>
+          ))}
         </div>
 
         {/* Repeats the header's "Add Material Line" button, pinned to the

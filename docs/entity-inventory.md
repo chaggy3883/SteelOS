@@ -274,7 +274,7 @@ disciplinary consolidation above.
 | `load_items` | snake_case | src/components/field-operations/JobsiteReceiving.jsx, src/components/shipping/LoadBuilder.jsx, src/components/shipping/LoadDetailModal.jsx |
 | `login_slideshow_images` | snake_case | src/components/admin/LoginSlideshowManager.jsx, src/components/auth/LoginVaultBackdrop.jsx, src/lib/demoDataSeeder.js |
 | `manager_overrides` | snake_case | src/pages/ShopFabrication.jsx, src/pages/ShopOperations.jsx |
-| `MaterialTakeoffLine` | PascalCase | src/components/estimating/FullTakeoff.jsx, src/components/estimating/MarkupsList.jsx, src/lib/demoDataSeeder.js |
+| `MaterialTakeoffLine` | PascalCase | src/components/estimating/FullTakeoff.jsx, src/components/estimating/MarkupsList.jsx, src/lib/demoDataSeeder.js, src/pages/BidDetail.jsx |
 | `MillPricing` | PascalCase | *(none found — orphaned)* |
 | `MillTestReport` | PascalCase | src/components/receiving/MtrReader.jsx, src/pages/portal/VendorPanel.jsx |
 | `MonthEndClose` | PascalCase | src/components/accounting/MonthEndClosePanel.jsx, src/lib/demoDataSeeder.js |
