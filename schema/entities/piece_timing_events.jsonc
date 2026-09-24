@@ -30,9 +30,11 @@
         "ready_for_inspection",
         "inspection_pass",
         "inspection_fail",
-        "scan_generic"
+        "scan_generic",
+        "work_paused",
+        "work_resumed"
       ],
-      "description": "start/complete/hold/resume are the Shop Floor Command Center's per-station clock audit trail (paired via station_log_id). qr_created/received/start_work/ready_for_inspection/inspection_pass/inspection_fail/scan_generic are the piece-lifecycle timeline (ShopFabrication.jsx, JobsiteReceiving.jsx) — one shared entity/table so a piece's full history is a single query regardless of which flow recorded it."
+      "description": "start/complete/hold/resume are the Shop Floor Command Center's per-station clock audit trail (paired via station_log_id). qr_created/received/start_work/ready_for_inspection/inspection_pass/inspection_fail/scan_generic/work_paused/work_resumed are the piece-lifecycle timeline (ShopFabrication.jsx, JobsiteReceiving.jsx) — one shared entity/table so a piece's full history is a single query regardless of which flow recorded it. work_paused/work_resumed are distinct from hold/resume: they mark the ShopFabrication.jsx genuine pieces.workflow_status='Paused' pause/resume (whole-piece, any-worker-can-resume), not the Shop Floor Command Center's per-station clock hold."
     },
     "scanned_by": {
       "type": "string",

@@ -14,6 +14,8 @@ export const PIECE_LIFECYCLE_EVENT_LABELS = {
   complete: 'Completed (Station Clock)',
   hold: 'Held',
   resume: 'Resumed',
+  work_paused: 'Paused',
+  work_resumed: 'Resumed From Pause',
 };
 
 export function pieceEventLabel(eventType) {

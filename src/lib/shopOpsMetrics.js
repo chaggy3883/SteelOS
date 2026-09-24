@@ -20,6 +20,7 @@ export const HEATMAP_COLOR = { Green: 'bg-green-500/20 text-green-700', Yellow: 
 export const TIMING_EVENT_TYPES = [
   'start', 'complete', 'hold', 'resume',
   'qr_created', 'received', 'start_work', 'ready_for_inspection', 'inspection_pass', 'inspection_fail', 'scan_generic',
+  'work_paused', 'work_resumed',
 ];
 
 const startOfWeek = (date) => {

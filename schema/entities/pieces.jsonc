@@ -48,10 +48,15 @@
         "Inspector_Queue",
         "Weld_Unlocked",
         "Paint_Unlocked",
-        "Rejected"
+        "Rejected",
+        "Paused"
       ],
       "default": "In_Fabrication",
-      "description": "Received sits between In_Fabrication and the QA/tagging states: a fabricated piece manually checked in by office/receiving staff (see verified_by/verified_date) as physically staged and ready for a QR tag, distinct from the receiving_logs entity which tracks raw material/PO receiving instead."
+      "description": "Received sits between In_Fabrication and the QA/tagging states: a fabricated piece manually checked in by office/receiving staff (see verified_by/verified_date) as physically staged and ready for a QR tag, distinct from the receiving_logs entity which tracks raw material/PO receiving instead. Paused is set only from the In_Fabrication scan-gated flow (ShopFabrication.jsx) when a worker explicitly pauses mid-work instead of finishing — current_worker_id is cleared at the same time so any authorized worker can resume it; resuming sets workflow_status back to In_Fabrication and current_worker_id to whoever resumed it. Prior elapsed time is never lost or reset on pause/resume — see station_logs, which already accumulates time across multiple start/stop sessions per piece."
+    },
+    "current_worker_id": {
+      "type": "string",
+      "description": "Nullable FK to employees.id — resolved from the typed Employee ID against employees.employee_number (same lookup assertStationCertClearance uses) at the moment work starts via scan or the Start Work button. Cleared (null) whenever the piece is paused or finished (station_logs closes to Paused or Complete), so it always reflects whether someone currently has an open station_logs session on this piece, never a stale prior worker. Not an access-control field — any authorized worker can pause or resume a piece regardless of who this points to."
     },
     "field_status": {
       "type": "string",

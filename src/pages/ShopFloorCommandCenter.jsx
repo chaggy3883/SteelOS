@@ -114,6 +114,16 @@ export default function ShopFloorCommandCenter() {
   const stalePieces = useMemo(() => getStalePieces(stationLogs, staleHours, now), [stationLogs, staleHours, now]);
   const inspectorQueuePieces = useMemo(() => pieces.filter((p) => p.workflow_status === 'Inspector_Queue'), [pieces]);
   const inspectorQueueRef = useRef(null);
+  // ShopFabrication.jsx's genuine whole-piece pause (workflow_status='Paused',
+  // current_worker_id cleared) — distinct from this page's own per-station
+  // Hold/Resume (station_logs.status='Paused' only, no workflow_status
+  // change). Surfaced here so a supervisor can see what's waiting and why,
+  // separate from pieces actively running or truly finished.
+  const pausedPieces = useMemo(() => pieces.filter((p) => p.workflow_status === 'Paused'), [pieces]);
+  const pausedRef = useRef(null);
+  const pieceElapsedMinutes = (pieceId) => stationLogs
+    .filter((entry) => entry.piece_id === pieceId)
+    .reduce((sum, entry) => sum + (entry.elapsed_minutes || 0), 0);
 
   const recentCompletions = useMemo(() => {
     return stationLogs
@@ -351,6 +361,14 @@ export default function ShopFloorCommandCenter() {
           <p className="text-4xl font-bold mt-2">{inspectorQueuePieces.length}</p>
           <p className="text-xs mt-1 opacity-80">pieces queued</p>
         </button>
+        <button
+          onClick={() => pausedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          className={`rounded-2xl border-2 p-4 text-center transition-colors ${pausedPieces.length > 0 ? 'bg-blue-500/20 text-blue-300' : HEATMAP_COLOR.Green} ${pausedPieces.length > 0 ? 'border-blue-500' : 'border-green-600'}`}
+        >
+          <p className="text-sm font-semibold uppercase tracking-wide">Paused</p>
+          <p className="text-4xl font-bold mt-2">{pausedPieces.length}</p>
+          <p className="text-xs mt-1 opacity-80">available to resume</p>
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -435,6 +453,29 @@ export default function ShopFloorCommandCenter() {
               >
                 <span className="font-medium">{piece.piece_mark}</span>
                 <span className="text-neutral-400">{stationName(piece.current_station_id)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Paused pieces — genuine whole-piece pauses from ShopFabrication.jsx,
+          distinct from actively-running or genuinely-finished pieces. */}
+      <div ref={pausedRef} className="rounded-xl border-2 border-blue-600/60 bg-blue-950/30 p-4">
+        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2 text-blue-400"><PauseCircle className="w-5 h-5" />Paused ({pausedPieces.length})</h3>
+        {pausedPieces.length === 0 ? (
+          <p className="text-neutral-500 py-4 text-center">No pieces paused right now.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {pausedPieces.map((piece) => (
+              <button
+                key={piece.id}
+                onClick={() => setDetailPiece(piece)}
+                className="flex items-center justify-between rounded-lg border border-blue-600/40 bg-black/30 px-3 py-2 text-left hover:bg-black/50 transition-colors"
+              >
+                <span className="font-medium">{piece.piece_mark}</span>
+                <span className="text-neutral-400">{stationName(piece.current_station_id)}</span>
+                <span className="text-blue-400 text-sm">{pieceElapsedMinutes(piece.id)}m logged</span>
               </button>
             ))}
           </div>
@@ -579,6 +620,9 @@ export default function ShopFloorCommandCenter() {
                 <div><p className="text-xs text-neutral-500">Weight</p><p className="font-medium">{detailPiece.weight ? `${detailPiece.weight} lbs` : '—'}</p></div>
                 <div><p className="text-xs text-neutral-500">Workflow Status</p><p className="font-medium">{detailPiece.workflow_status ? workflowStatusLabel(detailPiece.workflow_status) : '—'}</p></div>
                 <div><p className="text-xs text-neutral-500">Field Status</p><p className="font-medium">{detailPiece.field_status?.replace(/_/g, ' ') || '—'}</p></div>
+                {detailPiece.workflow_status === 'Paused' && (
+                  <div><p className="text-xs text-neutral-500">Time Logged So Far</p><p className="font-medium text-blue-400">{pieceElapsedMinutes(detailPiece.id)} min</p></div>
+                )}
               </div>
               <PieceTimeline pieceId={detailPiece.id} className="border-t border-neutral-700 pt-3 [&_.border-l-2]:border-neutral-700" />
               <DialogFooter>

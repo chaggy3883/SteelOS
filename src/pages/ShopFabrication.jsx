@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import PageHeader from '@/components/ui/PageHeader';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getCertStatus } from '@/lib/certAlerts';
@@ -47,11 +48,21 @@ const STATION_CERT_REQUIREMENTS = {
   3: 'Rigging',
 };
 
+// Resolves the tablet's typed Employee ID (free text, not a real login) to a
+// real employees record — the same lookup assertStationCertClearance already
+// does for cert gating, extracted so pieces.current_worker_id can store a
+// genuine FK instead of the raw typed string. Returns null (not the typed
+// string) when no HR record matches, since current_worker_id is a real FK.
+const findEmployeeByNumber = async (employeeNumber) => {
+  if (!employeeNumber) return null;
+  const matches = await db.entities.employees.filter({ employee_number: String(employeeNumber).trim() });
+  return matches[0] || null;
+};
+
 const assertStationCertClearance = async (employeeNumber, stationId) => {
   const requiredCert = STATION_CERT_REQUIREMENTS[Number(stationId)];
   if (!requiredCert) return { ok: true };
-  const matches = await db.entities.employees.filter({ employee_number: String(employeeNumber).trim() });
-  const employee = matches[0];
+  const employee = await findEmployeeByNumber(employeeNumber);
   if (!employee) return { ok: true }; // no HR record on file for this ID — nothing to block against
   const certs = await db.entities.employee_certifications.filter({ employee_id: employee.id, cert_type: requiredCert });
   const hasValidCert = certs.some((c) => getCertStatus(c.expiration_date) !== 'Expired');
@@ -111,6 +122,9 @@ export default function ShopFabrication() {
   const [viewingStockUnitId, setViewingStockUnitId] = useState(null);
   const [activeTab, setActiveTab] = useState('logs');
   const [logsAutoPausedOnly, setLogsAutoPausedOnly] = useState(false);
+  // Second scan of an In_Fabrication piece with an active timer no longer
+  // auto-completes — it offers a real Finish/Pause choice. { piece, log }.
+  const [pendingSecondScan, setPendingSecondScan] = useState(null);
   const touchPrimary = useIsTouchPrimaryDevice();
 
   useEffect(() => { loadData(); }, []);
@@ -197,6 +211,13 @@ export default function ShopFabrication() {
   // (which also drives the QA inspection gateway panel below; a Received
   // piece is not queued for inspection).
   const isReceived = selectedPiece?.workflow_status === 'Received';
+  // Paused pieces have no active worker/log by definition — must be resumed
+  // (Start Work) before they can advance stations or re-enter the QA gateway.
+  const isPaused = selectedPiece?.workflow_status === 'Paused';
+  const pausedPieces = useMemo(() => pieces.filter((p) => p.workflow_status === 'Paused'), [pieces]);
+  const pieceElapsedMinutes = (pieceId) => stationLogs
+    .filter((entry) => entry.piece_id === pieceId)
+    .reduce((sum, entry) => sum + (entry.elapsed_minutes || 0), 0);
   // Module 10b real-time priority sync: Expedite_Part overrides always sort
   // first, then each piece's project priority_weight from the Scheduler
   // Matrix — a single shared function (shopOpsMetrics.js) keeps this in sync
@@ -273,31 +294,55 @@ export default function ShopFabrication() {
         return { ok: false, message: clearance.message };
       }
     }
+    const resumingFromPause = target.workflow_status === 'Paused';
+    const nowIso = new Date().toISOString();
     const log = await db.entities.station_logs.create({
       piece_id: target.id,
       employee_id: employeeId,
       station_id: target.current_station_id,
       status: 'In_Progress',
-      start_time: new Date().toISOString(),
+      start_time: nowIso,
       elapsed_minutes: 0,
       auto_paused: false,
     });
     setStationLogs((prev) => [log, ...prev]);
+
+    // Any authorized worker can pick up a Paused piece — current_worker_id
+    // always reflects who has the open station_logs session right now, and
+    // a Paused piece re-enters In_Fabrication without touching the elapsed
+    // time already banked on its prior (now-closed) station_logs rows.
+    const worker = await findEmployeeByNumber(employeeId);
+    const pieceUpdates = { current_worker_id: worker?.id || null };
+    if (resumingFromPause) pieceUpdates.workflow_status = 'In_Fabrication';
+    const updatedPiece = await db.entities.pieces.update(target.id, pieceUpdates);
+    setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
+
+    if (resumingFromPause) {
+      await logStatusChange({
+        entityType: 'pieces',
+        entityId: target.id,
+        fieldName: 'workflow_status',
+        fromValue: 'Paused',
+        toValue: 'In_Fabrication',
+        changedBy: employeeId,
+      });
+    }
     await db.entities.piece_timing_events.create({
       company_id: target.company_id,
       piece_id: target.id,
       station_id: target.current_station_id,
-      event_type: 'start_work',
+      event_type: resumingFromPause ? 'work_resumed' : 'start_work',
       scanned_by: employeeId,
-      scanned_at: new Date().toISOString(),
+      scanned_at: nowIso,
     });
-    if (!options.silent) toast({ title: 'Work started' });
+    if (!options.silent) toast({ title: resumingFromPause ? 'Work resumed' : 'Work started' });
     return { ok: true, log };
   };
 
   const finishWork = async (nextStatus, logOverride, options = {}) => {
     const log = logOverride || activeLog;
     if (!log) return null;
+    const target = pieces.find((p) => p.id === log.piece_id) || selectedPiece;
     const endTime = new Date().toISOString();
     const elapsed_minutes = Math.max(1, Math.round((new Date(endTime).getTime() - new Date(log.start_time).getTime()) / 60000));
     const updated = await db.entities.station_logs.update(log.id, {
@@ -307,7 +352,43 @@ export default function ShopFabrication() {
       auto_paused: false,
     });
     setStationLogs((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-    if (!options.silent) toast({ title: nextStatus === 'Paused' ? 'Timer paused' : 'Work completed' });
+
+    // A genuine (whole-piece) pause only applies to the In_Fabrication scan
+    // flow this feature targets — Weld_Unlocked/Paint_Unlocked pieces keep
+    // the pre-existing per-log-only pause (no workflow_status change), since
+    // resuming always lands back on In_Fabrication and those two statuses
+    // represent QA progress that a pause must never roll back. Either way,
+    // nobody has an open session on this piece once its timer closes, so
+    // current_worker_id always clears.
+    const isGenuinePause = nextStatus === 'Paused' && target?.workflow_status === 'In_Fabrication';
+    if (target) {
+      const pieceUpdates = { current_worker_id: null };
+      if (isGenuinePause) pieceUpdates.workflow_status = 'Paused';
+      const updatedPiece = await db.entities.pieces.update(target.id, pieceUpdates);
+      setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
+      if (isGenuinePause) {
+        await logStatusChange({
+          entityType: 'pieces',
+          entityId: target.id,
+          fieldName: 'workflow_status',
+          fromValue: 'In_Fabrication',
+          toValue: 'Paused',
+          changedBy: employeeId,
+        });
+        await db.entities.piece_timing_events.create({
+          company_id: target.company_id,
+          piece_id: target.id,
+          station_id: target.current_station_id,
+          event_type: 'work_paused',
+          scanned_by: employeeId,
+          scanned_at: endTime,
+          elapsed_minutes,
+        });
+      }
+    }
+    if (!options.silent) {
+      toast({ title: isGenuinePause ? 'Piece paused' : nextStatus === 'Paused' ? 'Timer paused' : 'Work completed', description: isGenuinePause ? 'Available for anyone to resume — prior time preserved.' : undefined });
+    }
     return updated;
   };
 
@@ -352,8 +433,17 @@ export default function ShopFabrication() {
     const activeLogForPiece = stationLogs.find((entry) => entry.piece_id === found.id && entry.status === 'In_Progress');
 
     if (activeLogForPiece) {
-      // Second scan of a piece already In_Progress — finish it and route.
       setSelectedPieceId(found.id);
+      if (found.workflow_status === 'In_Fabrication') {
+        // Second scan of an In_Fabrication piece already In_Progress — offer
+        // a real choice instead of auto-completing, so a worker pulled onto
+        // something else can pause without their progress being force-finished.
+        setShowBlueprint(false);
+        setPendingSecondScan({ piece: found, log: activeLogForPiece });
+        return;
+      }
+      // Every other in-progress workflow_status (Weld_Unlocked/Paint_Unlocked)
+      // keeps the original scan-gated behavior: second scan finishes and routes.
       await finishWork('Complete', activeLogForPiece, { silent: true });
       if (requiresInspectionRouting(found)) {
         await requestInspection(found, { silent: true });
@@ -365,14 +455,37 @@ export default function ShopFabrication() {
       return;
     }
 
-    // First scan — start work immediately; only select/open the blueprint if
-    // that succeeds, so a certification block never opens the blueprint or
-    // starts the timer.
+    // First scan (or resuming a Paused piece) — start work immediately; only
+    // select/open the blueprint if that succeeds, so a certification block
+    // never opens the blueprint or starts the timer.
+    const wasPaused = found.workflow_status === 'Paused';
     const result = await startWork(found, { silent: true });
     if (!result.ok) return;
     setSelectedPieceId(found.id);
     setShowBlueprint(true);
-    toast({ title: `Loaded ${found.piece_mark}`, description: 'Blueprint opened and work started.' });
+    toast({
+      title: wasPaused ? `Resumed ${found.piece_mark}` : `Loaded ${found.piece_mark}`,
+      description: wasPaused ? `Picked up by ${employeeId}. Prior elapsed time preserved.` : 'Blueprint opened and work started.',
+    });
+  };
+
+  // Choice presented on a second scan of an active In_Fabrication piece.
+  const resolvePendingSecondScan = async (choice) => {
+    if (!pendingSecondScan) return;
+    const { piece, log } = pendingSecondScan;
+    setPendingSecondScan(null);
+    if (choice === 'pause') {
+      await finishWork('Paused', log, { silent: true });
+      toast({ title: 'Piece paused', description: `${piece.piece_mark} is now available for anyone to resume — prior time preserved.` });
+      return;
+    }
+    await finishWork('Complete', log, { silent: true });
+    if (requiresInspectionRouting(piece)) {
+      await requestInspection(piece, { silent: true });
+      toast({ title: 'Sent to inspection queue', description: `${piece.piece_mark} is queued for ${pendingStage(piece).replace('_', ' ')} inspection.` });
+    } else {
+      toast({ title: 'Piece marked complete', description: `${piece.piece_mark} work finished.` });
+    }
   };
 
   const handleCameraScan = (decodedText) => {
@@ -381,6 +494,9 @@ export default function ShopFabrication() {
     handleScan(decodedText);
   };
 
+  // Recovery path for the shift-end fail-safe banner (auto_paused logs) —
+  // distinct from the genuine workflow_status='Paused' pause/resume above;
+  // this never touched workflow_status and still doesn't.
   const resumeWork = async (pausedLog) => {
     if (!selectedPiece) return;
     const log = await db.entities.station_logs.create({
@@ -393,11 +509,16 @@ export default function ShopFabrication() {
       auto_paused: false,
     });
     setStationLogs((prev) => [log, ...prev]);
+    const worker = await findEmployeeByNumber(employeeId);
+    const updatedPiece = await db.entities.pieces.update(selectedPiece.id, { current_worker_id: worker?.id || null });
+    setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
     toast({ title: 'Work resumed', description: 'A fresh ledger block was started.' });
   };
 
   const moveToStation = async (nextStationId) => {
-    if (!selectedPiece || isFrozen || activeLog) return;
+    // A Paused piece has no active worker on it — it must be resumed (Start
+    // Work) before it can advance stations, same as isFrozen/activeLog.
+    if (!selectedPiece || isFrozen || isPaused || activeLog) return;
     const expedited = hasActiveOverride(overrides, selectedPiece.id, 'Expedite_Part');
     if (!expedited) {
       const clearance = await assertStationCertClearance(employeeId, nextStationId);
@@ -416,7 +537,8 @@ export default function ShopFabrication() {
         elapsed_minutes: 0,
         auto_paused: false,
       });
-      const updatedPiece = await db.entities.pieces.update(selectedPiece.id, { current_station_id: nextStationId });
+      const worker = await findEmployeeByNumber(employeeId);
+      const updatedPiece = await db.entities.pieces.update(selectedPiece.id, { current_station_id: nextStationId, current_worker_id: worker?.id || null });
       setStationLogs((prev) => [log, ...prev]);
       setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
       toast({ title: `Routed to ${stationName(nextStationId)}` });
@@ -518,6 +640,28 @@ export default function ShopFabrication() {
         </div>
       )}
 
+      {pausedPieces.length > 0 && (
+        <div className="steel-card p-3 border-blue-500/30 bg-blue-500/5 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium text-blue-700">
+            <PauseCircle className="w-4 h-4" />
+            {pausedPieces.length} piece{pausedPieces.length > 1 ? 's' : ''} paused — available for anyone to scan and resume
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {pausedPieces.map((piece) => (
+              <button
+                key={piece.id}
+                type="button"
+                onClick={() => setSelectedPieceId(piece.id)}
+                className="rounded-full border border-blue-500/30 bg-background px-3 py-1 text-xs hover:bg-blue-500/10 transition-colors"
+                title={`${pieceElapsedMinutes(piece.id)} min already logged`}
+              >
+                {piece.piece_mark} • {stationName(piece.current_station_id)} • {pieceElapsedMinutes(piece.id)}m logged
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="steel-card p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -551,6 +695,7 @@ export default function ShopFabrication() {
                 <div className="flex items-center gap-2">
                   {isFrozen && <span className="flex items-center gap-1 rounded-full bg-red-500/10 px-3 py-1 text-xs font-medium text-red-600"><Lock className="w-3 h-3" />Frozen</span>}
                   {isReceived && <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-3 py-1 text-xs font-medium text-green-700"><Lock className="w-3 h-3" />Received — Awaiting Tag</span>}
+                  {isPaused && <span className="flex items-center gap-1 rounded-full bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-700"><PauseCircle className="w-3 h-3" />Paused — Anyone Can Resume</span>}
                   <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{stationName(selectedPiece.current_station_id)}</span>
                 </div>
               </div>
@@ -559,6 +704,7 @@ export default function ShopFabrication() {
                 <div><span className="text-muted-foreground">Dimensions</span><p className="font-medium">{selectedPiece.dimensions}</p></div>
                 <div><span className="text-muted-foreground">Weight</span><p className="font-medium">{selectedPiece.weight} lb</p></div>
                 <div><span className="text-muted-foreground">Workflow Status</span><p className="font-medium">{workflowStatusLabel(selectedPiece.workflow_status)}</p></div>
+                {isPaused && <div><span className="text-muted-foreground">Time Logged So Far</span><p className="font-medium">{pieceElapsedMinutes(selectedPiece.id)} min</p></div>}
               </div>
               {pieceMarkDetailRows.length > 0 && (
                 <div className="grid gap-2 text-sm md:grid-cols-2 border-t border-border pt-3">
@@ -589,7 +735,7 @@ export default function ShopFabrication() {
               </div>
               <div className="flex flex-wrap gap-2 border-t border-border pt-3">
                 {selectedPiece.current_station_id < 5 && (
-                  <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || !!activeLog} onClick={() => moveToStation(selectedPiece.current_station_id + 1)}>
+                  <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || isPaused || !!activeLog} onClick={() => moveToStation(selectedPiece.current_station_id + 1)}>
                     <ArrowRightCircle className="w-4 h-4" />Advance to {stationName(selectedPiece.current_station_id + 1)}
                   </Button>
                 )}
@@ -700,7 +846,10 @@ export default function ShopFabrication() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="text-right">
-                  <p className="font-medium">{workflowStatusLabel(piece.workflow_status)}</p>
+                  <p className={`font-medium ${piece.workflow_status === 'Paused' ? 'text-blue-700' : ''}`}>
+                    {workflowStatusLabel(piece.workflow_status)}
+                    {piece.workflow_status === 'Paused' ? ` • ${pieceElapsedMinutes(piece.id)}m logged` : ''}
+                  </p>
                   <p className="text-muted-foreground font-mono text-xs">{piece.qr_payload_string}</p>
                 </div>
                 <button
@@ -751,6 +900,27 @@ export default function ShopFabrication() {
       {showCameraScanner && (
         <CameraQrScanner onScan={handleCameraScan} onCancel={() => setShowCameraScanner(false)} />
       )}
+
+      <Dialog open={!!pendingSecondScan} onOpenChange={(open) => !open && setPendingSecondScan(null)}>
+        <DialogContent>
+          {pendingSecondScan && (
+            <>
+              <DialogHeader><DialogTitle>{pendingSecondScan.piece.piece_mark} is already in progress</DialogTitle></DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Finish the work, or pause it — pausing stops the timer, keeps every minute already logged, and frees the piece up for anyone to resume later.
+              </p>
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button variant="outline" className="gap-2 flex-1 text-blue-700 border-blue-500/30 hover:bg-blue-500/10" onClick={() => resolvePendingSecondScan('pause')}>
+                  <PauseCircle className="w-4 h-4" />Pause
+                </Button>
+                <Button className="gap-2 flex-1 bg-green-600 hover:bg-green-700 text-white border-0" onClick={() => resolvePendingSecondScan('finish')}>
+                  <CheckCircle2 className="w-4 h-4" />Finish
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <StockMaterialUnitDetailModal
         open={!!viewingStockUnitId}

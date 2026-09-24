@@ -12,6 +12,7 @@ export const WORKFLOW_STATUS_LABELS = {
   Weld_Unlocked: 'Ready for Welding',
   Paint_Unlocked: 'Ready for Paint',
   Rejected: 'Failed — Awaiting Rework',
+  Paused: 'Paused — Available to Resume',
 };
 
 export function workflowStatusLabel(status) {
