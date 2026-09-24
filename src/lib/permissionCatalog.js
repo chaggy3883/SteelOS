@@ -164,6 +164,7 @@ export const PERMISSION_CATALOG = [
     { key: 'tab:/human-resources:terminal', label: 'Timeclock Terminal' },
     { key: 'tab:/human-resources:addemployee', label: 'Add Employee' },
     { key: 'tab:/human-resources:files', label: 'Employee Files' },
+    { key: 'tab:/human-resources:auditlog', label: 'Audit Log' },
   ] },
   // No tab: entries — Termination and Disciplinary Actions live inside
   // EmployeeProfileDialog.jsx (a per-employee modal), not their own HR page

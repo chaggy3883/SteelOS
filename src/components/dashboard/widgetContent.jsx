@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Package, CalendarClock } from 'lucide-react';
+import { Loader2, Package, CalendarClock, Clock, Users } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { getBidHoldDays, getBidPricingHoldState } from '@/lib/bidPricingHold';
@@ -667,12 +667,78 @@ function MaterialReceivedTrackerWidget() {
   ))}</div>;
 }
 
+function PtoRequestsWidget() {
+  const [requests, setRequests] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    Promise.all([
+      db.entities.time_off_requests.list('-created_date', 200),
+      db.entities.employees.list('full_name', 500),
+    ]).then(([reqs, emps]) => {
+      const pending = reqs.filter((r) => r.status === 'Submitted' || r.status === 'Pending')
+        .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
+        .slice(0, 8);
+      setRequests(pending);
+      setEmployees(emps);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+  if (loading) return <WidgetSkeleton lines={5} />;
+  if (requests.length === 0) return <WidgetEmpty message="No pending time-off requests" />;
+  const employeeName = (id) => employees.find((e) => e.id === id)?.full_name || 'Unknown';
+  return <div className="space-y-1">{requests.map((r) => (
+    <Link key={r.id} to="/human-resources" className="flex items-center gap-2 p-1.5 min-h-[44px] rounded cursor-pointer hover:bg-muted transition-colors" title="Open Human Resources">
+      <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex flex-col items-center justify-center flex-shrink-0">
+        <span className="text-[9px] font-bold text-yellow-600">{new Date(r.start_date).toLocaleDateString('en', { month: 'short' })}</span>
+        <span className="text-xs font-bold text-yellow-600">{new Date(r.start_date).getDate()}</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium truncate" title={employeeName(r.employee_id)}>{employeeName(r.employee_id)}</p>
+        <p className="text-[10px] text-muted-foreground truncate">{r.leave_type} • {r.total_hours || 0}h</p>
+      </div>
+      <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+    </Link>
+  ))}</div>;
+}
+
+function EmployeeHeadcountWidget() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    Promise.all([
+      db.entities.employees.list('-created_date', 1000),
+      db.entities.candidate_profiles.list('-created_date', 500),
+    ]).then(([emps, candidates]) => {
+      const activeEmployees = emps.filter((e) => !e.termination_date && e.employee_status !== 'Terminated').length;
+      const pipeline = candidates.filter((c) => c.status !== 'Hired' && c.status !== 'Rejected').length;
+      setData({ activeEmployees, pipeline });
+    }).catch(() => setData({ activeEmployees: 0, pipeline: 0 }));
+  }, []);
+  if (!data) return <WidgetSkeleton lines={2} />;
+  return (
+    <Link to="/human-resources" className="grid grid-cols-2 gap-2 h-full" title="Open Human Resources">
+      <div className="flex flex-col items-center justify-center rounded min-h-[44px] hover:bg-muted/50 transition-colors">
+        <Users className="w-4 h-4 text-primary mb-1" />
+        <p className="text-2xl font-bold">{data.activeEmployees}</p>
+        <p className="text-xs text-muted-foreground mt-1">Active Employees</p>
+      </div>
+      <div className="flex flex-col items-center justify-center rounded min-h-[44px] hover:bg-muted/50 transition-colors">
+        <Users className="w-4 h-4 text-purple-500 mb-1" />
+        <p className="text-2xl font-bold">{data.pipeline}</p>
+        <p className="text-xs text-muted-foreground mt-1">Candidates in Pipeline</p>
+      </div>
+    </Link>
+  );
+}
+
 const WIDGET_RENDERERS = {
   bid_list: BidListWidget, active_bids_count: ActiveBidsCountWidget, bid_win_rate: BidWinRateWidget,
   bid_pricing_hold: BidPricingHoldWidget,
   bid_history: BidHistoryWidget, quick_add_bid: QuickAddBidWidget, active_projects: ActiveProjectsWidget,
   change_orders: ChangeOrdersWidget, fab_progress: FabProgressWidget, shipments_calendar: ShipmentsCalendarWidget,
   interviews_calendar: InterviewsCalendarWidget,
+  pto_requests_widget: PtoRequestsWidget,
+  employee_headcount_widget: EmployeeHeadcountWidget,
   invoiced_vs_remaining: InvoicedVsRemainingWidget,
   project_health_summary: ProjectHealthSummaryWidget,
   change_order_pipeline: ChangeOrderPipelineWidget,

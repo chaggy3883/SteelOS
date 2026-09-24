@@ -25,6 +25,7 @@ const SUBTYPES_BY_CATEGORY = {
 const emptyForm = () => ({
   employee_id: '', deduction_type: 'benefits', deduction_subtype: '', amount_or_percent: '', is_percent: false,
   priority_order: '1', effective_date: new Date().toISOString().slice(0, 10), end_date: '',
+  case_number: '', issuing_authority: '', order_date: '',
 });
 
 export default function DeductionsPanel({ employees }) {
@@ -63,6 +64,7 @@ export default function DeductionsPanel({ employees }) {
       employee_id: row.employee_id, deduction_type: row.deduction_type, deduction_subtype: row.deduction_subtype || '', amount_or_percent: String(row.amount_or_percent ?? ''),
       is_percent: !!row.is_percent, priority_order: String(row.priority_order ?? 1),
       effective_date: row.effective_date || new Date().toISOString().slice(0, 10), end_date: row.end_date || '',
+      case_number: row.case_number || '', issuing_authority: row.issuing_authority || '', order_date: row.order_date || '',
     });
     setViewing(null);
     setShowForm(true);
@@ -85,6 +87,9 @@ export default function DeductionsPanel({ employees }) {
         priority_order: Number(form.priority_order) || 1,
         effective_date: form.effective_date,
         end_date: form.end_date || null,
+        case_number: form.deduction_type === 'garnishment' ? (form.case_number || null) : null,
+        issuing_authority: form.deduction_type === 'garnishment' ? (form.issuing_authority || null) : null,
+        order_date: form.deduction_type === 'garnishment' ? (form.order_date || null) : null,
       };
       if (editId) {
         await db.entities.Deduction.update(editId, payload);
@@ -160,6 +165,11 @@ export default function DeductionsPanel({ employees }) {
                 ['Priority Order', viewing.priority_order],
                 ['Effective Date', viewing.effective_date],
                 ['End Date', viewing.end_date || '—'],
+                ...(viewing.deduction_type === 'garnishment' ? [
+                  ['Case #', viewing.case_number || '—'],
+                  ['Issuing Authority', viewing.issuing_authority || '—'],
+                  ['Order Date', viewing.order_date || '—'],
+                ] : []),
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between border-b border-border/50 py-1 last:border-0">
                   <span className="text-muted-foreground">{label}</span>
@@ -213,6 +223,22 @@ export default function DeductionsPanel({ employees }) {
                     {SUBTYPES_BY_CATEGORY[form.deduction_type].map((t) => <SelectItem key={t} value={t}>{titleCase(t)}</SelectItem>)}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+            {form.deduction_type === 'garnishment' && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Case / Order #</Label>
+                  <Input value={form.case_number} onChange={(e) => setForm((f) => ({ ...f, case_number: e.target.value }))} className="mt-1" />
+                </div>
+                <div>
+                  <Label className="text-xs">Issuing Court / Agency</Label>
+                  <Input value={form.issuing_authority} onChange={(e) => setForm((f) => ({ ...f, issuing_authority: e.target.value }))} className="mt-1" />
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs">Order Date</Label>
+                  <Input type="date" value={form.order_date} onChange={(e) => setForm((f) => ({ ...f, order_date: e.target.value }))} className="mt-1" />
+                </div>
               </div>
             )}
             <div className="grid grid-cols-2 gap-3 items-end">

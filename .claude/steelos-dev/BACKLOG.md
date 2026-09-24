@@ -5,6 +5,120 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-09-24) — HR Admin role scope fix, garnishment/401(k) add capability, scoped HR audit log
+
+- **HR Admin's `allowed_modules`/`allowed_widgets` corrected** (`rbacConfig.jsx`)
+  — was `['/', '/employee-center', '/quality/kpi-builder', '/users', '/accounting',
+  '/admin', '/admin/salesman-rates', '/human-resources', '/payroll/setup',
+  '/payroll/garnishments', '/payroll/401k-contributions', '/portal/login']`
+  with a single widget (`interviews_calendar`). Ground-truthed against the
+  actual codebase rather than an abstract role model before changing anything:
+  `/accounting` confirmed dead weight — `Accounting.jsx`'s own `TAB_ROLES`
+  comment already states hr_admin/payroll_admin see zero usable tabs there
+  (every tab requires an accounting-function role); removed, a bug fix not a
+  regression. `/quality/kpi-builder` confirmed to have nothing HR-specific —
+  its `AREAS` (`kpiMetrics.js`) are safety/quality/production/equipment/
+  shipping only, and `employee_certifications` (training certs) is already
+  surfaced directly on `/human-resources`'s own Safety Radar tab, independent
+  of the Quality & Safety module; removed. `/admin` was **kept**, deliberately
+  deviating from the literal target list — investigation of `Admin.jsx` found
+  its own per-tab `roles` allowlist already scopes hr_admin to exactly 5
+  legitimate tools there (Roles & Permissions, Company Settings — "hr_admin
+  needs this alongside full admin — it's also where the default new-hire
+  equipment kit policy lives" — PTO Policies, Salesman Commission Rates, T&M
+  Labor Rates), each with its own pre-existing justifying comment; none of
+  those 5 are reachable by any other route, so dropping `/admin` would have
+  silently broken all of them. New `/admin/pto-policies` added as an explicit
+  direct shortcut on top (new NavBar.jsx Payroll-group entry — PTO Policies
+  was already reachable via the Admin Panel tile, this just adds a one-click
+  path). `allowed_widgets` expanded to 3: `interviews_calendar` plus two new
+  widgets (`pto_requests_widget`, `employee_headcount_widget` —
+  `WIDGET_LIBRARY`/`widgetContent.jsx`), since the `hr` widget category had
+  only ever had the one entry.
+
+- **Garnishment add/edit capability** (`GarnishmentsReport.jsx`, previously
+  100% read-only) — new "Add Garnishment" action and a "Garnishment Orders on
+  File" section (separate from the existing withholding-history table, which
+  reads `PayrollLineDeduction` post-payroll-run rows, not the `Deduction`
+  config that drives them) writing to the existing `Deduction` entity:
+  `deduction_type: 'garnishment'`, subtype (child support / wage garnishment /
+  tax levy / other), amount-or-percent, priority order, effective/end dates,
+  plus 3 new `Deduction` fields for the court-order info a garnishment
+  actually needs (`schema/entities/Deduction.jsonc`): `case_number`,
+  `issuing_authority`, `order_date`. Same fields also added to the generic
+  `DeductionsPanel.jsx` (`/payroll/setup`) so a garnishment entered from
+  either entry point captures the same data, not two divergent shapes for one
+  entity. Access matches the page's existing gate (admin/super_admin/
+  payroll_admin/hr_admin).
+
+- **401(k) enrollment/contribution add-edit capability**
+  (`Retirement401kReport.jsx`, same gap, same fix) — new "Enroll Employee" /
+  "Update Contribution" action and an "Active Enrollments" section, writing to
+  `Deduction` with `deduction_type: 'benefits'`, `deduction_subtype: '401k'`,
+  contribution amount-or-percent, effective date. Same access gate as the
+  page.
+
+- **Sensitive-field audit exclusion verified, not changed** — confirmed
+  `localData.js`'s `AUDIT_SENSITIVE_FIELD_PATTERN` (password/ssn/pin/secret/
+  token/api_key/account_number/routing_number/tax_id/ein) does not match any
+  of the new `Deduction` fields or garnishment/401(k) dollar amounts, so
+  add/edit of a garnishment or 401(k) enrollment IS captured in the normal
+  audit trail — case numbers and contribution amounts are compliance data HR
+  needs to track who-changed-what on, not banking/SSN secrets. No schema or
+  logic change needed; this was already correct.
+
+- **Scoped HR audit visibility** — new read-only "Audit Log" tab on
+  `/human-resources` (`HumanResources.jsx`, gated by the same `isFullAccess`
+  as Emergency Contacts/Employee Files: hr_admin/payroll_admin/admin/
+  super_admin), not a filtered mode of the existing company-wide
+  `/audit-trail` page. Decision, documented in-file: `AuditTrail.jsx` is
+  admin/super_admin-only by design and its breakdown cards (Most Changed
+  Records, Top Changers, Deletions) compute over every `entity_type` with no
+  scoping option — reusing that page would mean either loosening its role
+  gate (increases blast radius to the full company financial/job-cost audit
+  trail) or forking scope-aware variants of those cards (real risk of
+  leaking non-HR data through an overlooked one). A dedicated tab reuses the
+  exact same `AuditLog` rows (same `logAuditChange()` write path, no parallel
+  logging), filtered client-side to a new `HR_AUDIT_ENTITY_TYPES` allow-list
+  (`employees`, `Deduction`, `PtoBalance`, `PtoPolicy`, `EmployeePtoPolicy`,
+  `PtoTransaction`, `time_off_requests`, `DisciplinaryAction`,
+  `candidate_profiles`, `candidate_documents`, `employee_hiring_documents`,
+  `employee_certifications`, `StatusHistoryEntry`, `EmployeePayRate`) —
+  deliberately excludes `PayrollRun`/`PayrollLine` (payroll-processing/GL-
+  adjacent, payroll_admin/controller territory) to keep this strictly
+  "employee-record changes," not "who ran payroll." Read-only: no soft-delete
+  action, unlike the admin-only page. New `tab:/human-resources:auditlog`
+  catalog entry added to `permissionCatalog.js` for consistency with every
+  other HR tab.
+
+- **Hand-traced** (no browser-automation tool in this project — per standing
+  feedback, code trace + build/lint first): HR Admin's corrected
+  `allowed_modules` walked through `Sidebar.jsx`/`NavBar.jsx`'s
+  `isModuleAllowed()` exact-path filtering — Accounting and KPI Builder no
+  longer match any entry, Human Resources/Payroll Setup/Garnishments/401(k)/
+  the new PTO Policies shortcut all do. Traced `Admin.jsx`'s `hasTabAccess()`
+  for an hr_admin session: `visibleTabs` = `['roles', 'branding']`,
+  `visibleNavLinks` = `['pto-policies', 'salesman-rates', 'tm-labor-rates']`
+  (each tab/link's `roles` array contains `'hr_admin'`) — confirms `/admin`
+  really does resolve to exactly the 5 pre-scoped tools, not a blanket grant.
+  Traced `handleSaveGarnishment`: a new garnishment with
+  `amount_or_percent: 150`, `is_percent: false`, `deduction_type:
+  'garnishment'` creates one `Deduction` row; `GarnishmentsReport.jsx`'s
+  `loadData` re-filters `Deduction.list()` by `deduction_type === 'garnishment'`
+  into `garnishmentDeductions`, which the new "Garnishment Orders on File"
+  table renders immediately — confirmed the row appears without needing a
+  payroll run (it's the config, not the withholding history, which still
+  correctly stays empty until a run processes it). Traced `HR_AUDIT_ENTITY_TYPES`
+  against `AuditTrail.jsx`'s admin-only gate (`isAdminUser`) — an hr_admin
+  session fails that check and gets "Admin Access Required" on `/audit-trail`
+  directly, while `/human-resources`'s own Audit Log tab loads
+  successfully and only ever renders rows whose `entity_type` is in the HR
+  allow-list, confirmed by reading `loadAuditLog`'s filter against the same
+  `AuditLog.list()` call `AuditTrail.jsx` itself uses (no parallel log).
+  `npm run build && npm run lint` clean (4059 modules, 0 lint errors). No
+  Playwright run (per standing feedback — code trace + build/lint first,
+  browser verification only on request).
+
 ## Also Closed (2026-09-17) — Login/logout AuditLog coverage
 
 - **Confirmed gap closed: no audit logging existed anywhere for normal

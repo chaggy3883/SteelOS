@@ -1,4 +1,4 @@
-import { ListChecks, Calculator, TrendingUp, History, Plus, FolderKanban, FileEdit, Factory, Truck, DollarSign, Activity, PackageCheck, CalendarClock, AlertTriangle } from 'lucide-react';
+import { ListChecks, Calculator, TrendingUp, History, Plus, FolderKanban, FileEdit, Factory, Truck, DollarSign, Activity, PackageCheck, CalendarClock, AlertTriangle, Clock, Users } from 'lucide-react';
 import { db } from '@/api/apiClient';
 
 export const ALL_MODULES = [
@@ -37,6 +37,7 @@ export const ALL_MODULES = [
   { path: '/audit-trail', label: 'Audit Trail' },
   { path: '/admin/commission-setup', label: 'Sales Commission Setup' },
   { path: '/admin/salesman-rates', label: 'Salesman Commission Rates' },
+  { path: '/admin/pto-policies', label: 'PTO Policies' },
   { path: '/human-resources', label: 'Human Resources' },
   { path: '/payroll/hours', label: 'Hours at a Glance' },
   { path: '/executive-analytics', label: 'Executive Analytics' },
@@ -75,6 +76,8 @@ export const WIDGET_LIBRARY = [
   { id: 'pending_requisition_approvals_widget', name: 'Pending Requisition Approvals', category: 'pm', icon: Activity, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Requisitions awaiting executive approval', route: '/purchasing/module' },
   { id: 'material_received_tracker_widget', name: 'Material Received Tracker', category: 'pm', icon: PackageCheck, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Recent receiving log status by PO', route: '/purchasing/receiving-kiosk' },
   { id: 'interviews_calendar', name: 'Interviews', category: 'hr', icon: CalendarClock, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 3, description: 'Upcoming candidate interview schedule', route: '/human-resources' },
+  { id: 'pto_requests_widget', name: 'Pending Time Off', category: 'hr', icon: Clock, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 3, description: 'Time-off requests awaiting approval', route: '/human-resources' },
+  { id: 'employee_headcount_widget', name: 'Employee & Candidate Summary', category: 'hr', icon: Users, minW: WIDGET_MIN_W, minH: WIDGET_MIN_H, defaultW: 2, defaultH: 2, description: 'Active employee count and candidate pipeline by stage', route: '/human-resources' },
 ];
 
 export const BUILTIN_ROLES = [
@@ -85,7 +88,42 @@ export const BUILTIN_ROLES = [
   { name: 'shop_manager', label: 'Shop Manager', is_system: true, description: 'Production & quality oversight', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/production', '/quality', '/safety', '/inventory', '/shop-operations', '/shop-floor-command-center', '/detailer-imports', '/field-operations', '/field-operations/rigging-inspection', '/field-operations/equipment-service', '/payroll/hours', '/intelligence-signals', '/meeting-mode'], allowed_widgets: ['fab_progress'] },
   { name: 'inspector', label: 'Inspector', is_system: true, description: 'Quality inspection', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/quality', '/documents'], allowed_widgets: [] },
   { name: 'warehouse_clerk', label: 'Warehouse Clerk', is_system: true, description: 'Inventory & shipping', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/inventory', '/shipping'], allowed_widgets: ['shipments_calendar'] },
-  { name: 'hr_admin', label: 'HR Admin', is_system: true, description: 'User management, accounting, and personnel records', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/users', '/accounting', '/admin', '/admin/salesman-rates', '/human-resources', '/payroll/setup', '/payroll/garnishments', '/payroll/401k-contributions', '/portal/login'], allowed_widgets: ['interviews_calendar'] },
+  // Scope matches the researched HR access model: full master data access
+  // (Users, Human Resources), restricted payroll/compensation (Payroll
+  // Setup, Garnishments, 401k — not Accounting/GL), recruitment/ATS and
+  // time & attendance (both live inside /human-resources), and scoped
+  // audit/compliance (the Audit Log tab inside /human-resources — see
+  // HumanResources.jsx — not the company-wide /audit-trail page, which
+  // stays admin/super_admin only).
+  //
+  // No /accounting: Accounting.jsx's own TAB_ROLES comment confirms
+  // hr_admin/payroll_admin see zero usable tabs there today — pure nav
+  // clutter, not a real feature, so cutting it is a bug fix, not a
+  // regression. No /quality/kpi-builder: its metric areas (kpiMetrics.js's
+  // AREAS) are safety/quality/production/equipment/shipping only — nothing
+  // HR-specific — and employee_certifications/training-cert data is already
+  // surfaced directly on /human-resources's own Safety Radar tab, so
+  // nothing HR-relevant is hidden behind Quality & Safety.
+  //
+  // '/admin' IS kept, deliberately deviating from the literal researched
+  // list (which didn't name it) — ground-truthing against Admin.jsx found
+  // it's the load-bearing gateway for several tools Admin.jsx's OWN
+  // per-tab `roles` allowlist already scopes to hr_admin specifically, each
+  // with its own justifying comment there: the 'roles' tab (Roles &
+  // Permissions), the 'branding' tab ("hr_admin needs this alongside full
+  // admin — it's also where the default new-hire equipment kit policy
+  // lives"), and the Salesman Commission Rates / T&M Labor Rates
+  // NAV_LINKS (commissionAccess.js: "payroll_admin and hr_admin both need
+  // to maintain compensation records as part of normal HR/payroll
+  // duties"). None of those are standalone routes reachable any other way,
+  // so dropping '/admin' would have silently broken all of them — unlike
+  // /accounting, they ARE real, currently-used hr_admin features.
+  // '/admin/pto-policies' is added on top as an explicit direct shortcut
+  // (see the new NavBar.jsx Payroll-group entry) — PTO Policies was
+  // already reachable via the Admin Panel tile before this change, but the
+  // researched model called it out by name, so it also gets a one-click
+  // path from the Payroll menu.
+  { name: 'hr_admin', label: 'HR Admin', is_system: true, description: 'Employee master data, recruitment, time & attendance, and payroll compensation records', allowed_modules: ['/', '/employee-center', '/users', '/human-resources', '/admin', '/admin/pto-policies', '/payroll/setup', '/payroll/garnishments', '/payroll/401k-contributions', '/portal/login'], allowed_widgets: ['interviews_calendar', 'pto_requests_widget', 'employee_headcount_widget'] },
   { name: 'payroll_admin', label: 'Payroll Admin', is_system: true, description: 'Payroll and personnel compensation records', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/accounting', '/human-resources', '/payroll/hours', '/payroll/setup', '/payroll/processing', '/payroll/garnishments', '/payroll/401k-contributions', '/admin/salesman-rates', '/certified-payroll', '/portal/login'], allowed_widgets: ['interviews_calendar'] },
   { name: 'president', label: 'President', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/estimating', '/estimating/analytics', '/estimating/spec-review', '/projects', '/crm', '/accounting', '/reports', '/executive-analytics', '/admin', '/legal', '/intelligence-signals', '/meeting-mode', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining', 'pending_requisition_approvals_widget'] },
   { name: 'ceo', label: 'CEO', is_system: true, description: 'Executive visibility', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/estimating', '/estimating/analytics', '/estimating/spec-review', '/projects', '/crm', '/accounting', '/reports', '/executive-analytics', '/admin', '/legal', '/intelligence-signals', '/meeting-mode', '/portal/login'], allowed_widgets: ['bid_list', 'active_bids_count', 'bid_history', 'active_projects', 'invoiced_vs_remaining', 'pending_requisition_approvals_widget'] },

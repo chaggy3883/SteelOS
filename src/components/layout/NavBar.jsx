@@ -86,6 +86,7 @@ const navGroups = [
       { icon: FileCheck2, label: 'Certified Payroll', path: '/certified-payroll' },
       { icon: Scale, label: 'Garnishments', path: '/payroll/garnishments' },
       { icon: Percent, label: '401(k) Contributions', path: '/payroll/401k-contributions' },
+      { icon: CalendarClock, label: 'PTO Policies', path: '/admin/pto-policies' },
     ]
   },
   {

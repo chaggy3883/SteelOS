@@ -29,7 +29,8 @@ import { isCapabilityAllowed, GRANULAR_ACTIONS, hasGranularPermission } from '@/
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
-import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse, CalendarPlus, FileText, History } from 'lucide-react';
+import { UserPlus, Lock, Unlock, AlertTriangle, ShieldCheck, EyeOff, IdCard, CalendarClock, CheckCircle2, Ban, HeartPulse, CalendarPlus, FileText, History, Download } from 'lucide-react';
+import { exportRowsToCsv } from '@/lib/csvExport';
 
 // Classification is the prevailing-wage/certified-payroll labor
 // classification (certifiedPayrollReport.js) — kept separate from
@@ -68,7 +69,25 @@ const HR_TABS = [
   { value: 'terminal', key: 'tab:/human-resources:terminal' },
   { value: 'addemployee', key: 'tab:/human-resources:addemployee' },
   { value: 'files', key: 'tab:/human-resources:files' },
+  { value: 'auditlog', key: 'tab:/human-resources:auditlog' },
 ];
+
+// Scoped HR compliance view (see BACKLOG.md) — a deliberately narrower
+// alternative to the company-wide /audit-trail page (admin/super_admin
+// only, and its "Most Changed Records"/"Top Changers" breakdown cards
+// compute over every entity_type with no scoping option, so reusing that
+// page's own filters would risk leaking non-HR financial/job-cost data to
+// HR through those cards). This lists the exact same AuditLog rows —
+// same write path (logAuditChange in localData.js), no parallel logging —
+// filtered to just the employee/HR-record domain. PayrollRun/PayrollLine
+// (payroll-processing/GL-adjacent) are deliberately excluded — that's
+// payroll_admin/controller territory; this is "who changed an employee's
+// own record," not "who ran payroll."
+const HR_AUDIT_ENTITY_TYPES = new Set([
+  'employees', 'Deduction', 'PtoBalance', 'PtoPolicy', 'EmployeePtoPolicy', 'PtoTransaction',
+  'time_off_requests', 'DisciplinaryAction', 'candidate_profiles', 'candidate_documents',
+  'employee_hiring_documents', 'employee_certifications', 'StatusHistoryEntry', 'EmployeePayRate',
+]);
 
 const emptyInterviewForm = () => ({ scheduled_datetime: '', interviewer: '', notes: '' });
 
@@ -128,6 +147,10 @@ export default function HumanResources() {
   const [allRoles, setAllRoles] = useState([]);
   const [assigningRoleId, setAssigningRoleId] = useState(null);
   const [viewingCertification, setViewingCertification] = useState(null);
+
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [viewingAuditLog, setViewingAuditLog] = useState(null);
 
   useEffect(() => { init(); }, []);
   useEffect(() => {
@@ -205,6 +228,19 @@ export default function HumanResources() {
       setPendingLeave(pending);
       loadPendingLeaveBalances(pending);
     } catch (e) {}
+    if (hasFullEmployeeAccess(currentRoles)) loadAuditLog();
+  };
+
+  const loadAuditLog = async () => {
+    setAuditLoading(true);
+    try {
+      const logs = await db.entities.AuditLog.list('-created_date', 2000);
+      setAuditLogs(logs.filter((l) => !l.is_deleted && HR_AUDIT_ENTITY_TYPES.has(l.entity_type)));
+    } catch (e) {
+      setAuditLogs([]);
+    } finally {
+      setAuditLoading(false);
+    }
   };
 
   const isFullAccess = hasFullEmployeeAccess(roles);
@@ -507,6 +543,7 @@ export default function HumanResources() {
           {isTabVisible('safety') && <TabsTrigger value="safety">Safety Radar</TabsTrigger>}
           {isTabVisible('terminal') && <TabsTrigger value="terminal">Timeclock Terminal</TabsTrigger>}
           {isFullAccess && isTabVisible('files') && <TabsTrigger value="files">Employee Files</TabsTrigger>}
+          {isFullAccess && isTabVisible('auditlog') && <TabsTrigger value="auditlog">Audit Log</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="ats" className="space-y-3">
@@ -931,6 +968,96 @@ export default function HumanResources() {
         {isFullAccess && (
           <TabsContent value="files">
             <EmployeeFilesPanel employees={employees} />
+          </TabsContent>
+        )}
+
+        {isFullAccess && (
+          <TabsContent value="auditlog" className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground max-w-xl">
+                Employee-record changes only — hires, terminations, pay-rate/deduction/garnishment/401(k) edits, PTO balance
+                adjustments, disciplinary actions, and candidate/hiring-document activity. Company-wide financial and job-cost
+                audit data lives on the separate Audit Trail page (Admin/Super Admin only).
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={auditLogs.length === 0}
+                onClick={() => exportRowsToCsv({
+                  filename: 'hr-audit-log.csv',
+                  columns: ['Timestamp', 'User', 'Entity Type', 'Entity', 'Action', 'Field Changed', 'Old Value', 'New Value'],
+                  rows: auditLogs.map((l) => [
+                    l.created_date, l.user_name || l.user_email || '', l.entity_type || '',
+                    l.entity_type === 'employees' ? (employees.find((e) => e.id === l.entity_id)?.full_name || l.entity_id || '') : (l.entity_id || ''),
+                    l.action || l.action_type || '', l.field_name || '', l.old_value || '', l.new_value || '',
+                  ]),
+                })}
+              >
+                <Download className="w-3.5 h-3.5 mr-2" />Export CSV
+              </Button>
+            </div>
+            <div className="steel-card overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 border-b border-border">
+                  <tr>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Timestamp</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">User</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Record</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Action</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Field</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLoading ? (
+                    <tr><td colSpan={5} className="text-center py-8 text-sm text-muted-foreground">Loading…</td></tr>
+                  ) : auditLogs.length === 0 ? (
+                    <tr><td colSpan={5} className="text-center py-8 text-sm text-muted-foreground">No employee-record changes on file.</td></tr>
+                  ) : auditLogs.slice(0, 300).map((log) => (
+                    <tr key={log.id} onClick={() => setViewingAuditLog(log)} className="border-b border-border/50 last:border-0 hover:bg-muted/30 cursor-pointer">
+                      <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{log.created_date ? new Date(log.created_date).toLocaleString() : '—'}</td>
+                      <td className="px-3 py-2 text-xs">{log.user_name || log.user_email || 'Unknown'}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {log.entity_type}
+                        {log.entity_type === 'employees' && employees.find((e) => e.id === log.entity_id) && (
+                          <span className="text-muted-foreground"> — {employees.find((e) => e.id === log.entity_id)?.full_name}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-xs capitalize">{log.action || log.action_type || '—'}</td>
+                      <td className="px-3 py-2 text-xs font-mono">{log.field_name || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {auditLogs.length > 300 && (
+                <p className="text-[11px] text-muted-foreground text-center py-2">Showing the 300 most recent of {auditLogs.length} — use Export CSV for the full set.</p>
+              )}
+            </div>
+
+            <Dialog open={!!viewingAuditLog} onOpenChange={(o) => !o && setViewingAuditLog(null)}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader><DialogTitle>Audit Entry Detail</DialogTitle></DialogHeader>
+                {viewingAuditLog && (
+                  <div className="space-y-2 text-sm py-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><p className="text-xs text-muted-foreground">Timestamp</p><p>{viewingAuditLog.created_date ? new Date(viewingAuditLog.created_date).toLocaleString() : '—'}</p></div>
+                      <div><p className="text-xs text-muted-foreground">Action</p><p className="capitalize">{viewingAuditLog.action || viewingAuditLog.action_type || '—'}</p></div>
+                      <div><p className="text-xs text-muted-foreground">User</p><p>{viewingAuditLog.user_name || 'Unknown'} {viewingAuditLog.user_email ? `(${viewingAuditLog.user_email})` : ''}</p></div>
+                      <div><p className="text-xs text-muted-foreground">Entity</p><p>{viewingAuditLog.entity_type} / {viewingAuditLog.entity_id}{viewingAuditLog.entity_type === 'employees' && employees.find((e) => e.id === viewingAuditLog.entity_id) ? ` — ${employees.find((e) => e.id === viewingAuditLog.entity_id)?.full_name}` : ''}</p></div>
+                    </div>
+                    {viewingAuditLog.field_name && <div><p className="text-xs text-muted-foreground">Field Changed</p><p className="font-mono">{viewingAuditLog.field_name}</p></div>}
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Old Value</p>
+                      <pre className="text-xs bg-muted/40 border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-32">{viewingAuditLog.old_value ?? '—'}</pre>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">New Value</p>
+                      <pre className="text-xs bg-muted/40 border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-32">{viewingAuditLog.new_value ?? '—'}</pre>
+                    </div>
+                  </div>
+                )}
+                <DialogFooter><Button variant="outline" onClick={() => setViewingAuditLog(null)}>Close</Button></DialogFooter>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
         )}
       </Tabs>

@@ -38,6 +38,19 @@
     "end_date": {
       "type": "string",
       "format": "date"
+    },
+    "case_number": {
+      "type": "string",
+      "description": "Court/agency case or order number — set on garnishment-type deductions only (child support, wage garnishment, tax levy). Not itself treated as sensitive by AuditLog's field-exclusion pattern (only banking/SSN/PIN/secret fields are excluded), so add/edit of this field IS captured in the normal audit trail, matching the compliance need to track who entered/changed a garnishment order."
+    },
+    "issuing_authority": {
+      "type": "string",
+      "description": "Court, agency, or CSE (child support enforcement) office that issued the order — garnishment-type only."
+    },
+    "order_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the garnishment order was issued — garnishment-type only. Distinct from effective_date, which is when withholding actually starts."
     }
   },
   "required": [
