@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Printer, QrCode } from 'lucide-react';
+import { Printer, QrCode, Trash2 } from 'lucide-react';
 
 // Standing rule 1 (clickable row -> detail view), applied to leftover
 // pieces the same way InventoryItemDetailModal.jsx applies it to SKU rows.
@@ -18,7 +18,7 @@ import { Printer, QrCode } from 'lucide-react';
 // matching how a consumed StockMaterialUnit/remnant already behaves
 // elsewhere in this app rather than allowing an already-transferred QR to be
 // edited out from under the piece now wearing it.
-export default function RemnantInventoryDetailModal({ remnant, open, onOpenChange, shopFloorZones = [], projectsById = {}, onUpdated, onPrint }) {
+export default function RemnantInventoryDetailModal({ remnant, open, onOpenChange, shopFloorZones = [], projectsById = {}, onUpdated, onPrint, onRemove }) {
   const { toast } = useToast();
   const [notes, setNotes] = useState('');
   const [zoneId, setZoneId] = useState('');
@@ -32,7 +32,7 @@ export default function RemnantInventoryDetailModal({ remnant, open, onOpenChang
 
   if (!remnant) return null;
 
-  const canEdit = !remnant.is_assigned;
+  const canEdit = !remnant.is_assigned && remnant.status !== 'removed';
 
   const handleSave = async () => {
     setSaving(true);
@@ -66,8 +66,12 @@ export default function RemnantInventoryDetailModal({ remnant, open, onOpenChang
           <p><span className="text-muted-foreground">Source Project:</span> {sourceProject?.name || remnant.source_project_id || '—'}</p>
           <p className="col-span-2">
             <span className="text-muted-foreground">Status:</span>{' '}
-            {remnant.is_assigned ? (
+            {remnant.status === 'removed' ? (
+              <span className="text-slate-500 font-medium">Removed — {remnant.removed_reason || '—'}{remnant.removed_date ? ` (${new Date(remnant.removed_date).toLocaleDateString()})` : ''}</span>
+            ) : remnant.is_assigned ? (
               <span className="text-amber-600 font-medium">Assigned to {assignedProject?.name || remnant.assigned_project_id}</span>
+            ) : remnant.status === 'consumed' ? (
+              <span className="text-amber-600 font-medium">Consumed{remnant.consumed_date ? ` (${new Date(remnant.consumed_date).toLocaleDateString()})` : ''}</span>
             ) : (
               <span className="text-green-600 font-medium">Available / Unassigned</span>
             )}
@@ -111,6 +115,11 @@ export default function RemnantInventoryDetailModal({ remnant, open, onOpenChang
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          {remnant.status !== 'removed' && onRemove && (
+            <Button variant="destructive" className="gap-1.5" onClick={() => onRemove(remnant)}>
+              <Trash2 className="w-3.5 h-3.5" />Remove from Inventory
+            </Button>
+          )}
           {canEdit && (
             <Button onClick={handleSave} disabled={saving} className="steel-gradient text-white border-0">
               {saving ? 'Saving…' : 'Save Changes'}

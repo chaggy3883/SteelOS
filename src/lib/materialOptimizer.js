@@ -170,7 +170,7 @@ export function compareStockLengthOptions(piecesInGroup, stockLengthChoices, ker
 export function findMatchingRemnants(remnants, group) {
   const targetKey = materialGroupKey({ material_profile: group.material_profile, material_grade: group.material_grade });
   return (remnants || []).filter((r) => (
-    r.status !== 'consumed'
+    r.status === 'available'
     && materialGroupKey({ material_profile: r.material_shape, material_grade: r.material_grade }) === targetKey
   ));
 }

@@ -30,9 +30,9 @@
     },
     "status": {
       "type": "string",
-      "enum": ["available", "consumed"],
+      "enum": ["available", "consumed", "removed"],
       "default": "available",
-      "description": "Stage 10: 'consumed' once a later Material Optimization run has cut one or more pieces from this remnant — kept as a record rather than deleted, same posture as StockMaterialUnit.status. Only 'available' remnants are offered when a new run checks for usable existing stock."
+      "description": "Stage 10: 'consumed' once a later Material Optimization run has cut one or more pieces from this remnant — kept as a record rather than deleted, same posture as StockMaterialUnit.status. 'removed' is the same kept-as-a-record posture, for a remnant pulled out of circulation via Inventory.jsx's \"Remove from Inventory\" action (added in error, damaged, scrapped, or otherwise unusable) rather than consumed by production — see removed_reason/removed_date. Only 'available' remnants are offered when a new run checks for usable existing stock."
     },
     "source_material_optimization_run_id": {
       "type": "string",
@@ -70,6 +70,15 @@
     "assigned_piece_mark_id": {
       "type": "string",
       "description": "FK to PieceMark — the specific new piece that received this remnant's qr_payload_string, set alongside is_assigned:true. Null while unassigned."
+    },
+    "removed_reason": {
+      "type": "string",
+      "description": "Set alongside status:'removed' via Inventory.jsx's \"Remove from Inventory\" action — a required reason (e.g. 'Added in error', 'Damaged', 'Scrapped', or free-text 'Other'). Null unless status is 'removed'."
+    },
+    "removed_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Set alongside status:'removed' — when this remnant was pulled out of circulation. Null unless status is 'removed'."
     }
   },
   "required": [
