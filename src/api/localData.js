@@ -1493,6 +1493,19 @@ const buildSeedData = () => {
         created_by: 'admin',
         created_date: now,
       },
+      // LEED / Gov't Job surcharge $/hr (see LEED_RATE_CATEGORY_KEY in
+      // bidWorksheetCalc.js) — seeded at the $50 it was hardcoded at before
+      // it became configurable, so demo bid totals don't move.
+      {
+        id: 'cost-category-rate-leed-hourly-rate',
+        company_id: 'company-hancock',
+        category_key: 'leed_hourly_rate',
+        hourly_rate: 50,
+        effective_date: '2026-01-01',
+        end_date: null,
+        created_by: 'admin',
+        created_date: now,
+      },
     ],
     report_templates: [
       {

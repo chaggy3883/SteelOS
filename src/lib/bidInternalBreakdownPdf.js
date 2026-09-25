@@ -4,7 +4,7 @@ import { COST_CATEGORIES } from '@/components/estimating/TakeoffEngine';
 import { loadImageAsDataUrl } from '@/lib/pdfImage';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { drawBidInternalBreakdownPdf } from '@/lib/bidInternalBreakdownPdfLayout';
-import { calculateBondAmount, calculateLeedSurcharge, calculatePaymentPlatformFee } from '@/lib/bidWorksheetCalc';
+import { calculateBondAmount, calculateLeedSurcharge, resolveLeedHourlyRate, calculatePaymentPlatformFee } from '@/lib/bidWorksheetCalc';
 import { loadLetterheadImage } from '@/lib/letterheadPdf';
 
 export { drawBidInternalBreakdownPdf };
@@ -85,7 +85,7 @@ export async function generateBidInternalBreakdownPdf(bid) {
     : 0;
   const overrideTotal = parseFloat(bid?.insurance_override) || 0;
   const includedInsuranceAllocation = bid?.insurance_enabled ? insuranceAllocation : 0;
-  const leedSurchargeAmount = calculateLeedSurcharge(bid?.leed_level_override);
+  const leedSurchargeAmount = calculateLeedSurcharge(bid?.leed_level_override, resolveLeedHourlyRate(bid));
   // Same ordering as TakeoffEngine.jsx: bond and the Procore/Textura fees are
   // each layered on top of the total that precedes them (see
   // src/lib/bidWorksheetCalc.js), so neither can be part of its own base.

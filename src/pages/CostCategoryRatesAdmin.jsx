@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '@/api/apiClient';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { hasBidWorksheetRateAccess } from '@/lib/bidWorksheetRateAccess';
 import { COST_CATEGORIES, RATE_DEFAULT_CATEGORY_KEYS } from '@/components/estimating/TakeoffEngine';
+import { LEED_RATE_CATEGORY_KEY, LEED_SURCHARGE_LEVELS } from '@/lib/bidWorksheetCalc';
 import { ShieldCheck, Loader2, Edit2, History, DollarSign } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/ui/PageHeader';
+import DeliveryPricingTiersSection from '@/components/admin/DeliveryPricingTiersSection';
 
 const emptyForm = () => ({ hourly_rate: '', effective_date: new Date().toISOString().slice(0, 10), notes: '' });
 
@@ -18,9 +21,22 @@ const emptyForm = () => ({ hourly_rate: '', effective_date: new Date().toISOStri
 // categories are the exact COST_CATEGORIES keys TakeoffEngine.jsx pre-fills
 // unit_cost from (see RATE_DEFAULT_CATEGORY_KEYS), so there's no add/remove
 // affordance here, just a rate/history per category.
-const RATE_CATEGORIES = RATE_DEFAULT_CATEGORY_KEYS
-  .map((key) => COST_CATEGORIES.find((c) => c.key === key))
-  .filter(Boolean);
+//
+// The LEED / Gov't Job surcharge rate rides the same effective-dated
+// CostCategoryDefaultRate history under its own category_key, but it isn't a
+// COST_CATEGORIES line — it's the $/hr multiplied by the fixed per-level
+// hours in LEED_SURCHARGE_LEVELS (see calculateLeedSurcharge).
+const LEED_RATE_CATEGORY = {
+  key: LEED_RATE_CATEGORY_KEY,
+  label: "LEED / Gov't Job Surcharge",
+  rateLabel: `Rate/Hr × fixed hours (${LEED_SURCHARGE_LEVELS.map((l) => `${l.label} ${l.hours}`).join(', ')})`,
+};
+const RATE_CATEGORIES = [
+  ...RATE_DEFAULT_CATEGORY_KEYS
+    .map((key) => COST_CATEGORIES.find((c) => c.key === key))
+    .filter(Boolean),
+  LEED_RATE_CATEGORY,
+];
 
 export default function CostCategoryRatesAdmin() {
   const { toast } = useToast();
@@ -38,6 +54,14 @@ export default function CostCategoryRatesAdmin() {
   const [historyCategoryKey, setHistoryCategoryKey] = useState(null);
 
   useEffect(() => { if (canAccess) load(); else setLoading(false); }, [canAccess]);
+
+  // The old /admin/delivery-pricing route redirects here with
+  // #delivery-pricing — scroll to that section once the page has rendered.
+  const location = useLocation();
+  useEffect(() => {
+    if (loading || !location.hash) return;
+    document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' });
+  }, [loading, location.hash]);
 
   const load = async () => {
     setLoading(true);
@@ -124,9 +148,14 @@ export default function CostCategoryRatesAdmin() {
     <div className="p-6 max-w-4xl mx-auto">
       <PageHeader
         title="Bid Worksheet Default Rates"
-        subtitle="Company-wide default rate that pre-fills a brand-new Bid Worksheet line for these categories. Fully editable per line afterward — this only sets the starting value."
+        subtitle="All company-wide rate configuration the Bid Worksheet reads from: hourly rate defaults and delivery/freight pricing tiers."
       />
 
+      <h2 className="text-base font-semibold mb-1">Hourly Rate Defaults</h2>
+      <p className="text-sm text-muted-foreground mb-3">
+        Pre-fills a brand-new Bid Worksheet line for these categories — fully editable per line afterward, this only sets the starting value.
+        The LEED / Gov't Job rate is multiplied by that level's fixed hours; a bid keeps the rate it was saved at.
+      </p>
       <div className="steel-card overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 border-b border-border">
@@ -166,6 +195,8 @@ export default function CostCategoryRatesAdmin() {
           </tbody>
         </table>
       </div>
+
+      <DeliveryPricingTiersSection />
 
       {/* Edit / Set Rate */}
       <Dialog open={!!editingCategoryKey} onOpenChange={(o) => !o && closeEdit()}>

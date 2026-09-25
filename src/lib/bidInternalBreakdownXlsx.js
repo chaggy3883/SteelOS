@@ -1,7 +1,7 @@
 import { db } from '@/api/apiClient';
 import { getJoistDeckTaxRate } from '@/lib/taxRate';
 import { COST_CATEGORIES } from '@/components/estimating/TakeoffEngine';
-import { calculateBondAmount, calculateLeedSurcharge, calculatePaymentPlatformFee } from '@/lib/bidWorksheetCalc';
+import { calculateBondAmount, calculateLeedSurcharge, resolveLeedHourlyRate, calculatePaymentPlatformFee } from '@/lib/bidWorksheetCalc';
 import * as XLSX from 'xlsx';
 import { downloadWorkbook } from '@/lib/bidRecapXlsxExport';
 
@@ -61,7 +61,7 @@ export async function generateBidInternalBreakdownXlsx(bid) {
     : 0;
   const overrideTotal = parseFloat(bid?.insurance_override) || 0;
   const includedInsuranceAllocation = bid?.insurance_enabled ? insuranceAllocation : 0;
-  const leedSurchargeAmount = calculateLeedSurcharge(bid?.leed_level_override);
+  const leedSurchargeAmount = calculateLeedSurcharge(bid?.leed_level_override, resolveLeedHourlyRate(bid));
   const preBondTotal = subtotalWithMarkup + overrideTotal + structuralTaxAmount + joistDeckTaxAmount + includedInsuranceAllocation + leedSurchargeAmount;
   const computedBondAmount = calculateBondAmount(preBondTotal);
   const bondAmount = bid?.bond_override != null ? Number(bid.bond_override) : computedBondAmount;

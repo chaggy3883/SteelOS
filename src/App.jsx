@@ -55,7 +55,6 @@ import Settings from '@/pages/Settings';
 import Admin from '@/pages/Admin';
 import AuditTrail from '@/pages/AuditTrail';
 import CostCodesAdmin from '@/pages/CostCodesAdmin';
-import DeliveryPricingAdmin from '@/pages/DeliveryPricingAdmin';
 import PtoPoliciesAdmin from '@/pages/PtoPoliciesAdmin';
 import CommissionSetup from '@/pages/CommissionSetup';
 import SalesmanRatesAdmin from '@/pages/SalesmanRatesAdmin';
@@ -205,7 +204,8 @@ const AuthenticatedApp = () => {
           <Route path="/audit-trail" element={<AuditTrail />} />
           <Route path="/admin/employees" element={<AdminEmployees />} />
           <Route path="/admin/cost-codes" element={<CostCodesAdmin />} />
-          <Route path="/admin/delivery-pricing" element={<DeliveryPricingAdmin />} />
+          {/* Delivery Pricing merged into Bid Worksheet Default Rates — old links land on its section. */}
+          <Route path="/admin/delivery-pricing" element={<Navigate to="/admin/bid-worksheet-rates#delivery-pricing" replace />} />
           <Route path="/admin/intelligence-rules" element={<IntelligenceRulesAdmin />} />
           <Route path="/admin/intelligence-rules/:id" element={<IntelligenceRuleDetail />} />
           <Route path="/admin/service-schedules" element={<ServiceScheduleAdmin />} />

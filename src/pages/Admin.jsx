@@ -54,7 +54,13 @@ const NAV_LINKS = [
   { path: '/audit-trail', label: 'Audit Trail', icon: ScrollText },
   { path: '/admin/employees', label: 'Employees', icon: UserCog },
   { path: '/admin/cost-codes', label: 'Cost Codes', icon: Tags },
-  { path: '/admin/delivery-pricing', label: 'Delivery Pricing', icon: Truck },
+  // Bid Worksheet reference data — hourly rate defaults (feeds TakeoffEngine's
+  // rate pre-fill and LEED surcharge) plus the Delivery Pricing tiers (feeds
+  // its freight mileage calculator), merged into one page that took over
+  // Delivery Pricing's old slot. Admitted alongside full admin the same way
+  // Material Catalog admits estimator below; tier editing itself stays
+  // admin-only inside the page.
+  { path: '/admin/bid-worksheet-rates', label: 'Bid Worksheet Default Rates', icon: Truck, roles: ['estimator'] },
   { path: '/admin/intelligence-rules', label: 'Intelligence Rules', icon: Radar },
   { path: '/admin/service-schedules', label: 'Equipment Service Schedules', icon: Wrench },
   { path: '/admin/pto-policies', label: 'PTO Policies', icon: CalendarClock, roles: ['hr_admin', 'payroll_admin'] },
@@ -65,10 +71,6 @@ const NAV_LINKS = [
   // dropdown) — admitted alongside full admin the same way PTO/salesman
   // rates admit hr_admin/payroll_admin above.
   { path: '/admin/material-catalog', label: 'Material Catalog', icon: Package, roles: ['estimator'] },
-  // Bid Worksheet reference data (feeds TakeoffEngine's rate pre-fill) —
-  // admitted alongside full admin the same way Material Catalog admits
-  // estimator above.
-  { path: '/admin/bid-worksheet-rates', label: 'Bid Worksheet Rates', icon: DollarSign, roles: ['estimator'] },
 ];
 
 export default function Admin() {

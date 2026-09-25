@@ -1,20 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
 import { isAdminUser } from '@/lib/tenantContext';
-import { ShieldCheck, Plus, Edit2, Trash2, Loader2, Truck } from 'lucide-react';
+import { Plus, Edit2, Trash2, Loader2, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import PageHeader from '@/components/ui/PageHeader';
 
+// Delivery/freight tier configuration, rendered as a section of the Bid
+// Worksheet Default Rates page (CostCategoryRatesAdmin.jsx) — formerly its
+// own /admin/delivery-pricing page. The DeliveryPricingTier data is
+// unchanged; TakeoffEngine.jsx's freight mileage calculator still reads it
+// directly to price the Jobsite Freight (Material Delivery) line.
+//
+// The host page admits estimators, but editing tiers stays full-admin-only
+// exactly as it was on the standalone page — non-admins see the tiers
+// read-only.
 const emptyForm = () => ({ min_miles: '', max_miles: '', cost_per_trip: '' });
 
 const formatCurrency = (n) => `$${Number(n || 0).toLocaleString()}`;
 const formatMinMiles = (tier) => (Number(tier.min_miles) === 0 ? `< ${tier.max_miles}` : String(tier.min_miles));
 
-export default function DeliveryPricingAdmin() {
+export default function DeliveryPricingTiersSection() {
   const { toast } = useToast();
   const [currentUser, setCurrentUser] = useState(null);
   const [checkingAccess, setCheckingAccess] = useState(true);
@@ -95,27 +103,21 @@ export default function DeliveryPricingAdmin() {
     }
   };
 
-  if (checkingAccess) {
-    return <div className="flex items-center justify-center h-96"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;
-  }
-
-  if (!isAdminUser(currentUser)) {
-    return (
-      <div className="flex flex-col items-center justify-center h-96 gap-3">
-        <ShieldCheck className="w-12 h-12 text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Admin Access Required</h2>
-        <p className="text-sm text-muted-foreground">You need administrator privileges to manage delivery pricing.</p>
-      </div>
-    );
-  }
+  const canEdit = !checkingAccess && isAdminUser(currentUser);
+  const colCount = canEdit ? 4 : 3;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <PageHeader
-        title="Delivery Pricing Tiers"
-        subtitle="Flat delivery cost per trip, banded by one-way mileage from the company address to the jobsite."
-        actions={<Button onClick={openAdd} className="steel-gradient text-white border-0"><Plus className="w-4 h-4" />Add Tier</Button>}
-      />
+    <section id="delivery-pricing" className="mt-8">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <h2 className="text-base font-semibold mb-1">Delivery Pricing Tiers</h2>
+          <p className="text-sm text-muted-foreground">
+            Flat delivery cost per trip, banded by one-way mileage from the company address to the jobsite — prices the Bid Worksheet's Jobsite Freight (Material Delivery) line via its mileage calculator.
+            {!checkingAccess && !canEdit && ' Editing tiers requires administrator privileges.'}
+          </p>
+        </div>
+        {canEdit && <Button onClick={openAdd} className="steel-gradient text-white border-0 shrink-0"><Plus className="w-4 h-4" />Add Tier</Button>}
+      </div>
 
       <div className="steel-card overflow-hidden">
         <table className="w-full text-sm">
@@ -124,37 +126,39 @@ export default function DeliveryPricingAdmin() {
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Min Miles</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Max Miles</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Cost</th>
-              <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
+              {canEdit && <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={4} className="text-center py-8"><Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" /></td></tr>
+              <tr><td colSpan={colCount} className="text-center py-8"><Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" /></td></tr>
             ) : tiers.length === 0 ? (
               <tr>
-                <td colSpan={4} className="text-center py-10 text-muted-foreground">
+                <td colSpan={colCount} className="text-center py-10 text-muted-foreground">
                   <Truck className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                  No delivery pricing tiers yet. Click "Add Tier" to create one.
+                  No delivery pricing tiers yet.{canEdit && ' Click "Add Tier" to create one.'}
                 </td>
               </tr>
             ) : tiers.map(tier => (
-              <tr key={tier.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+              <tr key={tier.id} className={`border-b border-border last:border-0 hover:bg-muted/30${canEdit ? ' cursor-pointer' : ''}`} onClick={canEdit ? () => openEdit(tier) : undefined}>
                 <td className="px-4 py-3 font-mono text-xs">{formatMinMiles(tier)}</td>
                 <td className="px-4 py-3 font-mono text-xs">{tier.max_miles}</td>
                 <td className="px-4 py-3 font-medium">{formatCurrency(tier.cost_per_trip)}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(tier)}><Edit2 className="w-3.5 h-3.5" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(tier)}><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
-                  </div>
-                </td>
+                {canEdit && (
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); openEdit(tier); }}><Edit2 className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); handleDelete(tier); }}><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {showModal && (
+      {showModal && canEdit && (
         <Dialog open onOpenChange={closeModal}>
           <DialogContent>
             <DialogHeader><DialogTitle>{editId ? 'Edit Delivery Pricing Tier' : 'Add Delivery Pricing Tier'}</DialogTitle></DialogHeader>
@@ -192,6 +196,6 @@ export default function DeliveryPricingAdmin() {
           </DialogContent>
         </Dialog>
       )}
-    </div>
+    </section>
   );
 }

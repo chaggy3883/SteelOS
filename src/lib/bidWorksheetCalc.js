@@ -24,6 +24,12 @@ export function calculateBondAmount(contractValue) {
 // Stored value must stay 'Government' (not 'Government Job') — bidRecapMapping.js's
 // LEED_TIERS list expects that exact word (case-insensitive) for the Excel
 // recap export's Addtn'l (AKP)!B24 cell; the friendlier label is display-only.
+// The hour tiers below are fixed; only the $/hr is company-configurable — a
+// CostCategoryDefaultRate row with category_key LEED_RATE_CATEGORY_KEY,
+// admin-managed at /admin/bid-worksheet-rates. LEED_SURCHARGE_RATE_PER_HOUR
+// is only the fallback for a company that hasn't configured one, and the
+// rate a bid saved before the rate became configurable was priced at.
+export const LEED_RATE_CATEGORY_KEY = 'leed_hourly_rate';
 export const LEED_SURCHARGE_RATE_PER_HOUR = 50;
 export const LEED_SURCHARGE_LEVELS = [
   { value: 'Certified', label: 'Certified', hours: 30 },
@@ -33,9 +39,23 @@ export const LEED_SURCHARGE_LEVELS = [
   { value: 'Government', label: 'Government Job', hours: 140 },
 ];
 
-export function calculateLeedSurcharge(level) {
+export function calculateLeedSurcharge(level, ratePerHour = LEED_SURCHARGE_RATE_PER_HOUR) {
   const match = LEED_SURCHARGE_LEVELS.find((l) => l.value === level);
-  return match ? match.hours * LEED_SURCHARGE_RATE_PER_HOUR : 0;
+  return match ? match.hours * (Number(ratePerHour) || 0) : 0;
+}
+
+// The $/hr a given bid's LEED surcharge is priced at. Bid.leed_hourly_rate is
+// the rate snapshotted when the worksheet was last saved with a LEED level,
+// so a later admin rate change never silently reprices a saved bid (same
+// pre-fill-only philosophy as the other Bid Worksheet default rates) and the
+// PDF/XLSX exports, which only see the Bid, price it exactly as the
+// worksheet did. A bid that already has a LEED level but no snapshot was
+// saved before the rate was configurable, so it stays at the old flat $50.
+// Everything else gets the company's current configured rate.
+export function resolveLeedHourlyRate(bid, configuredRate) {
+  if (bid?.leed_hourly_rate != null) return Number(bid.leed_hourly_rate) || 0;
+  if (bid?.leed_level_override) return LEED_SURCHARGE_RATE_PER_HOUR;
+  return configuredRate != null ? Number(configuredRate) || 0 : LEED_SURCHARGE_RATE_PER_HOUR;
 }
 
 // Procore Pay / Textura both charge the same 0.2% payment-processing fee on

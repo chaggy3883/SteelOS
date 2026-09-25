@@ -14,8 +14,8 @@ import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import { calculateDistance } from '@/lib/mileageService';
-import { calculateBondAmount, bondRateForContractValue, LEED_SURCHARGE_LEVELS, calculateLeedSurcharge, calculatePaymentPlatformFee, PAYMENT_PLATFORM_FEE_RATE } from '@/lib/bidWorksheetCalc';
-import { buildCostCategoryRateMap } from '@/lib/bidWorksheetRateEngine';
+import { calculateBondAmount, bondRateForContractValue, LEED_SURCHARGE_LEVELS, LEED_RATE_CATEGORY_KEY, calculateLeedSurcharge, resolveLeedHourlyRate, calculatePaymentPlatformFee, PAYMENT_PLATFORM_FEE_RATE } from '@/lib/bidWorksheetCalc';
+import { buildCostCategoryRateMap, currentCostCategoryRate } from '@/lib/bidWorksheetRateEngine';
 
 const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 
@@ -82,8 +82,9 @@ export const COST_CATEGORIES = [
   // Not in the audit's mapping/null lists either — treated the same as the other non-reference additions above pending user confirmation.
   { key: 'additional_cost_insurance', label: 'Additional Cost: Insurance', unit: 'lot', override: true, cost_code: null, default_markup_pct: 10 },
   // LEED/Gov't job surcharge moved to the Administrative Overrides section
-  // below (a level dropdown × fixed hours × $50/hr, not a manual $ line) —
-  // see the leed_level override field and leedSurchargeAmount.
+  // below (a level dropdown × fixed hours × the company's configured LEED
+  // $/hr, not a manual $ line) — see the leed_level override field,
+  // leedHourlyRate, and leedSurchargeAmount.
 ];
 
 const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
@@ -132,13 +133,19 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   // field for a new/never-saved line (see loadLines); it has no effect on
   // totals directly.
   const [markupPct, setMarkupPct] = useState(bid?.markup_percentage ?? 0);
+  // $/hr the LEED surcharge is priced at — see resolveLeedHourlyRate in
+  // bidWorksheetCalc.js. Starts from the bid's own snapshot (or the $50
+  // fallback) and is re-resolved against the company's configured rate once
+  // loadLines has fetched CostCategoryDefaultRate.
+  const [leedHourlyRate, setLeedHourlyRate] = useState(() => resolveLeedHourlyRate(bid, null));
 
   const [company, setCompany] = useState(null);
   // Freight mileage calculator: purely a lookup tool that tells the
   // estimator which DeliveryPricingTier rate applies to the Jobsite Freight
   // (Material Delivery) line in the Cost Breakdown table above — it has no
   // total of its own and posts nothing to the job cost ledger. See
-  // DeliveryPricingAdmin.jsx for the tier structure itself, unchanged here.
+  // the Delivery Pricing Tiers section of CostCategoryRatesAdmin.jsx
+  // (/admin/bid-worksheet-rates) for the tier structure itself.
   const [freightTiers, setFreightTiers] = useState([]);
   const [freightDistance, setFreightDistance] = useState(bid?.delivery_distance_miles ?? null);
   const [freightLoading, setFreightLoading] = useState(false);
@@ -271,6 +278,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         db.entities.CostCategoryDefaultRate.list('-effective_date', 500).catch(() => []),
       ]);
       const defaultRateByCategory = buildCostCategoryRateMap(categoryRateDefaults, RATE_DEFAULT_CATEGORY_KEYS);
+      const configuredLeedRate = currentCostCategoryRate(categoryRateDefaults, LEED_RATE_CATEGORY_KEY);
+      setLeedHourlyRate(resolveLeedHourlyRate(bid, configuredLeedRate ? configuredLeedRate.hourly_rate : null));
       // Each category's own default_markup_pct is the DEFAULT that pre-fills
       // a brand-new line's markup_percentage; Bid.markup_percentage is only
       // the fallback for the rare category missing one. This also covers any
@@ -423,7 +432,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
   const insuranceAllocation = (parseFloat(insuranceInputs.general_liability) || 0) + (parseFloat(insuranceInputs.umbrella) || 0) + (parseFloat(insuranceInputs.professional_liability) || 0);
   const includedInsuranceAllocation = insuranceEnabled ? insuranceAllocation : 0;
-  const leedSurchargeAmount = calculateLeedSurcharge(overrides.leed_level);
+  const leedSurchargeAmount = calculateLeedSurcharge(overrides.leed_level, leedHourlyRate);
   // Bid's running total before the bond itself and before the Procore/Textura
   // fees (both of which are layered on top of everything else, so neither can
   // be part of its own base) — the "current total" the bond tier and the fee
@@ -500,6 +509,9 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         procore_pay_enabled: procorePayEnabled,
         textura_enabled: texturaEnabled,
         leed_level_override: overrides.leed_level || null,
+        // Snapshot only alongside a LEED level, so a non-LEED bid that later
+        // becomes one picks up the company's then-current rate.
+        leed_hourly_rate: overrides.leed_level ? leedHourlyRate : null,
         delivery_distance_miles: freightDistance,
       });
       toast({ title: 'Takeoff saved!' });
@@ -837,7 +849,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             </Select>
             {leedSurchargeAmount > 0 && (
               <p className="text-xs text-muted-foreground mt-1 font-mono">
-                {LEED_SURCHARGE_LEVELS.find(l => l.value === overrides.leed_level)?.hours} hrs × $50/hr = ${leedSurchargeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                {LEED_SURCHARGE_LEVELS.find(l => l.value === overrides.leed_level)?.hours} hrs × ${Number(leedHourlyRate).toLocaleString(undefined, { maximumFractionDigits: 2 })}/hr = ${leedSurchargeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </p>
             )}
           </div>

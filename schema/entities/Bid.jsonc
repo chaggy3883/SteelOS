@@ -346,7 +346,11 @@
         "Platinum",
         "Government"
       ],
-      "description": "Maps to a fixed hour allocation at $50/hr (30/50/80/120/140 hours respectively — see LEED_SURCHARGE_LEVELS in src/lib/bidWorksheetCalc.js), added to the total price. Null/absent means not a LEED or government job — no surcharge line. Must stay 'Government' (not 'Government Job', which is display-only) to match bidRecapMapping.js's LEED_TIERS."
+      "description": "Maps to a fixed hour allocation (30/50/80/120/140 hours respectively — see LEED_SURCHARGE_LEVELS in src/lib/bidWorksheetCalc.js) × leed_hourly_rate, added to the total price. Null/absent means not a LEED or government job — no surcharge line. Must stay 'Government' (not 'Government Job', which is display-only) to match bidRecapMapping.js's LEED_TIERS."
+    },
+    "leed_hourly_rate": {
+      "type": "number",
+      "description": "$/hr the LEED surcharge was priced at, snapshotted from the company's CostCategoryDefaultRate (category_key 'leed_hourly_rate', admin-managed at /admin/bid-worksheet-rates) whenever the Bid Worksheet is saved with a leed_level_override; null when there's no LEED level. Keeps a later admin rate change from silently repricing a saved bid and keeps the internal breakdown PDF/XLSX exports in step with the worksheet. Absent on a bid with a LEED level means it was saved before the rate was configurable — priced at the old flat $50 (see resolveLeedHourlyRate in src/lib/bidWorksheetCalc.js)."
     },
     "is_archived": {
       "type": "boolean",

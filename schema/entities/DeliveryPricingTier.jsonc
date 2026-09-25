@@ -1,6 +1,7 @@
 {
   "name": "DeliveryPricingTier",
   "type": "object",
+  "description": "Flat delivery cost per trip, banded by one-way mileage from the company address to the jobsite. Admin-managed in the Delivery Pricing Tiers section of /admin/bid-worksheet-rates (CostCategoryRatesAdmin.jsx; the old /admin/delivery-pricing URL redirects there). Read by TakeoffEngine.jsx's freight mileage calculator to price the Jobsite Freight (Material Delivery) line.",
   "properties": {
     "company_id": {
       "type": "string"
