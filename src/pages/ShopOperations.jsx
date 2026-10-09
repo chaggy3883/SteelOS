@@ -463,6 +463,7 @@ export default function ShopOperations() {
           <LabelPrintingPanel
             pieces={pieces}
             manifests={manifests}
+            remnants={remnants}
             printJobs={printJobs}
             onReload={refreshPrintJobs}
           />

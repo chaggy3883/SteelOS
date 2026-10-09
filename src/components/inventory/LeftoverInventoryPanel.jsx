@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { Plus, Recycle, Trash2, Archive } from 'lucide-react';
+import { Plus, Recycle, Trash2, Archive, AlertTriangle } from 'lucide-react';
 import { buildZplPayload, LABEL_STOCK_SIZES } from '@/lib/zplLabels';
+import { findLegacyUnscannableLabelJobs, describeLegacyLabelJobTarget } from '@/lib/labelReprint';
 import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelSheet';
 import AddLeftoverDialog from '@/components/inventory/AddLeftoverDialog';
 import RemnantInventoryDetailModal from '@/components/inventory/RemnantInventoryDetailModal';
@@ -21,6 +22,7 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
   const { toast } = useToast();
   const [remnants, setRemnants] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [printJobs, setPrintJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [viewingId, setViewingId] = useState(null);
@@ -33,12 +35,14 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
   const load = async () => {
     setLoading(true);
     try {
-      const [remnantRows, projectRows] = await Promise.all([
+      const [remnantRows, projectRows, printJobRows] = await Promise.all([
         db.entities.remnant_inventory.list('-created_date', 500),
         db.entities.Project.list('name', 500),
+        db.entities.print_label_jobs.filter({ label_type: 'Material_Stock' }, '-created_date', 500),
       ]);
       setRemnants(remnantRows || []);
       setProjects(projectRows || []);
+      setPrintJobs(printJobRows || []);
     } catch (e) {
       toast({ title: 'Unable to load leftover inventory', variant: 'destructive' });
     } finally {
@@ -87,14 +91,17 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
   const handlePrinted = async () => {
     if (!sheet?.targetRecordId) return;
     const zpl_payload_string = buildZplPayload({ labelType: 'Material_Stock', title: sheet.title, subtitle: sheet.subtitle, qrPayload: sheet.qrPayload });
-    await db.entities.print_label_jobs.create({
+    const job = await db.entities.print_label_jobs.create({
       label_type: 'Material_Stock',
       target_record_id: sheet.targetRecordId,
       zpl_payload_string,
       status: 'Printed',
       created_at: new Date().toISOString(),
     });
+    setPrintJobs((prev) => [job, ...prev]);
   };
+
+  const legacyJobs = useMemo(() => findLegacyUnscannableLabelJobs(printJobs), [printJobs]);
 
   const visibleRemnants = remnants.filter((r) => (showRemoved ? r.status === 'removed' : r.status !== 'removed'));
   const available = visibleRemnants.filter((r) => !r.is_assigned);
@@ -121,6 +128,35 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
           </Button>
         </div>
       </div>
+
+      {legacyJobs.length > 0 && (
+        <div className="p-4 border-b border-border bg-amber-500/5">
+          <h4 className="font-semibold text-sm mb-1 flex items-center gap-2 text-amber-700">
+            <AlertTriangle className="w-4 h-4" />Needs Reprint — {legacyJobs.length} label{legacyJobs.length === 1 ? '' : 's'} not scannable
+          </h4>
+          <p className="text-xs text-muted-foreground mb-3">
+            These were printed before the QR fix and only show a placeholder icon on the physical label, not a real scannable code.
+          </p>
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {legacyJobs.map((job) => {
+              const target = describeLegacyLabelJobTarget(job, { remnants });
+              return (
+                <div key={job.id} className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/30 p-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{target.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{target.detail}</p>
+                  </div>
+                  {target.record ? (
+                    <Button size="sm" variant="outline" className="flex-shrink-0" onClick={() => handlePrint(target.record)}>Reprint</Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground flex-shrink-0">Record not found</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
