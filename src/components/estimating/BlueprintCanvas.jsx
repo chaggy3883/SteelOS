@@ -149,6 +149,15 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   // File/Blob — both accepted so this can be wired directly to the same
   // upload BlueprintTakeoff already does). Destroys the previous document
   // on every change/unmount so pdfjs frees its worker-side resources.
+  //
+  // Destroy via the LOADING TASK (pdfjsLib.getDocument(params)'s own return
+  // value), not the resolved PDFDocumentProxy — in pdfjs-dist 6.x the proxy
+  // itself has no .destroy() method at all (that convenience delegation was
+  // removed from older pdf.js versions); only PDFDocumentLoadingTask.destroy()
+  // exists. Calling doc.destroy() threw "doc.destroy is not a function" on
+  // every unmount with a loaded PDF (e.g. IRONSIGHT's "Back to sessions"),
+  // which went uncaught and blanked the whole screen before the error
+  // boundary below existed.
   useEffect(() => {
     if (!source) {
       setPdfDoc(null);
@@ -156,16 +165,17 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       return;
     }
     let cancelled = false;
-    let doc = null;
+    let loadingTask = null;
     setIsLoading(true);
     setLoadError(null);
 
     (async () => {
       try {
         const params = typeof source === 'string' ? { url: source } : { data: await source.arrayBuffer() };
-        doc = await pdfjsLib.getDocument(params).promise;
+        loadingTask = pdfjsLib.getDocument(params);
+        const doc = await loadingTask.promise;
         if (cancelled) {
-          doc.destroy();
+          loadingTask.destroy();
           return;
         }
         setPdfDoc(doc);
@@ -181,7 +191,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
 
     return () => {
       cancelled = true;
-      doc?.destroy();
+      loadingTask?.destroy();
     };
   }, [source]);
 

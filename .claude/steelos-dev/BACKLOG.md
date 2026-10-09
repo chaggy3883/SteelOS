@@ -5,6 +5,69 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-10-09) — IRONSIGHT: PDF preview broken, Back to Sessions blank screen, no error boundary anywhere
+
+- **Root cause 1 (confirmed, fixed)**: `BlueprintTakeoff.jsx`'s `handleNewTakeoffFile`
+  set `activePdfUrl` straight from `UploadFile`'s `file_url` — since the storage-root
+  fix (2026-09-11), that's an opaque `steelos-upload:<id>` reference, not a fetchable
+  URL, so `pdfjsLib.getDocument({ url: ... })` in `BlueprintCanvas.jsx` failed every
+  time with "Could not load this PDF for preview." Fixed by displaying
+  `URL.createObjectURL(file)` (the in-memory File just uploaded) instead — the real
+  `file_url` is still written to the `blueprint_takeoffs` record and the background
+  `savePdf` call is untouched. `setActivePdfUrl` already revokes the previous object
+  URL on every session switch/unmount, so this doesn't leak.
+
+- **Re-audited all `db.integrations.Core.UploadFile` callers** (19 call sites across
+  16 files, not just BlueprintTakeoff.jsx) via two parallel subagents, each tracing
+  every call site's downstream use of `file_url` by hand. Result: every other caller
+  was already correct — each persists the real `File` via its own entity's durable
+  IndexedDB blob store (`saveDocumentFile`/`saveMtrDocument`/etc., the pattern
+  `documentBlobStore.js` established 2026-09-11) immediately after upload, and reads
+  it back via `resolveDocumentUrl`/`resolveUploadedFileUrl` — BlueprintTakeoff.jsx's
+  direct, non-Document-entity consumption was the one real gap. Also confirmed the
+  Document eye/view icon path (`DocumentsPanel.jsx`, `FileExplorer.jsx`, `Legal.jsx`'s
+  `openStoredDocument`) already does this correctly — not the same bug.
+
+- **Root cause 2 (found live, not guessed — confirmed by reproducing in Chromium via
+  Playwright, explicitly approved for this task)**: "Back to Sessions" after a
+  successful PDF load threw `TypeError: doc?.destroy is not a function` from
+  `BlueprintCanvas.jsx`'s PDF-loading effect cleanup, uncaught, blanking the whole
+  app. Real cause: in the installed `pdfjs-dist` 6.2.108, `PDFDocumentProxy` (the
+  resolved value of `loadingTask.promise`) has no `.destroy()` method at all — that
+  convenience delegation existed in older pdf.js versions but was removed; only
+  `PDFDocumentLoadingTask.destroy()` (the object `pdfjsLib.getDocument(params)`
+  itself returns) exists in this version. Fixed by keeping a `loadingTask` ref and
+  calling `loadingTask.destroy()` in both the cancelled-during-fetch branch and the
+  effect's unmount cleanup, instead of `doc.destroy()`.
+
+- **Added a top-level React error boundary** (`src/components/ErrorBoundary.jsx`,
+  none existed anywhere in the app before this) — one wrapping the whole routed app
+  (`App.jsx`, around `AuthProvider`/`Router`) as a last-resort catch-all, and a second
+  scoped around just the IRONSIGHT workspace (`BlueprintTakeoff.jsx`'s
+  `mode === 'workspace'` block) so a future IRONSIGHT render crash recovers back to
+  that page's own session list (a new `handleWorkspaceErrorReset`, same end state as
+  `handleBackToSessions` but skips the confirm-discard prompt since in-memory state
+  may itself be what's broken) instead of taking down the whole app shell. Each
+  boundary shows the error message, logs the full stack to console, and offers
+  Reload (and, for the inner one, Back to sessions). The app-root boundary is what
+  actually caught Root Cause 2 live during Playwright verification before the fix,
+  confirming it works as designed.
+
+- **Verified live in Chromium (Playwright, approved for this task only — not a
+  standing practice; see `feedback_browser_automation_on_request_only` memory)**:
+  cached Chromium binary + a scratchpad-local `playwright-core` install, a
+  generated 4-page test PDF, logged in as a real tenant user
+  (`estimator@hancocksteel.com` — `admin@steelos.dev` turned out to be a
+  super-admin account that fails tenant-scoped writes without impersonation, an
+  unrelated pre-existing quirk, not fixed here). Confirmed end-to-end with
+  screenshots, zero console errors throughout: drop a multi-page PDF → canvas
+  renders immediately (real content, not just "no error") → Back to sessions →
+  sessions list shows (no blank screen) → Resume → canvas re-renders → Back to
+  sessions again (second round trip, clean) → repeated the same flow entering
+  through a bid-linked session (`/estimating/blueprint-takeoff/:bidId`, shows
+  "Linked to: Bid") and a standalone session. `npm run build && npm run lint`
+  clean (4113 modules, 0 lint errors).
+
 ## Also Closed (2026-10-09) — Drop Pieces rename, inline location, Use-this-Drop assignment
 
 - **UI-only rename, "Leftover" -> "Drop"/"Drop Pieces"** across

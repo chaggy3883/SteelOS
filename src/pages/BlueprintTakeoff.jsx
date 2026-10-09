@@ -3,6 +3,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { db } from '@/api/apiClient';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { simulateAiBatchTakeoff } from '@/lib/aiIntelligenceEngine';
 import { savePdf, getPdf } from '@/lib/pdfBlobStore';
 import { findSimilarSymbols } from '@/lib/localAiClient';
@@ -718,6 +719,19 @@ export default function BlueprintTakeoff() {
     loadSessions();
   };
 
+  // Recovery path for the IRONSIGHT workspace error boundary below — same
+  // end state as handleBackToSessions, but skipped the confirm-discard
+  // prompt deliberately: this only ever runs after a render exception, where
+  // in-memory count-session state may itself be the thing that's broken, and
+  // this must unconditionally get the estimator back to a working screen.
+  const handleWorkspaceErrorReset = () => {
+    resetWorkspaceState();
+    setTakeoffName('');
+    setHasStoredPdf(false);
+    setMode('sessions');
+    loadSessions();
+  };
+
   const handleReattachPdf = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -764,7 +778,13 @@ export default function BlueprintTakeoff() {
       setTakeoffId(created.id);
       setTakeoffName(newTakeoffName.trim());
       setHasStoredPdf(false);
-      setActivePdfUrl(file_url);
+      // file_url (from UploadFile) is an opaque steelos-upload:<id> reference,
+      // not a fetchable URL — pdf.js can't load it. Display the in-memory
+      // File directly via its own object URL instead; setActivePdfUrl revokes
+      // it automatically on the next session switch/unmount. The persisted
+      // blueprint_takeoffs.file_url record and the background savePdf below
+      // are unaffected — this only changes what's handed to BlueprintCanvas.
+      setActivePdfUrl(URL.createObjectURL(file));
       setFileName(file.name);
       setSheetCount(null);
       setScaleReference('');
@@ -2119,6 +2139,12 @@ export default function BlueprintTakeoff() {
       )}
 
       {mode === 'workspace' && (
+        <ErrorBoundary
+          label="ironsight-workspace"
+          title="IRONSIGHT hit an unexpected error"
+          onReset={handleWorkspaceErrorReset}
+          resetLabel="Back to sessions"
+        >
         <>
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="font-semibold truncate" title={takeoffName || fileName || 'Untitled takeoff'}>{takeoffName || fileName || 'Untitled takeoff'}</span>
@@ -2737,6 +2763,7 @@ export default function BlueprintTakeoff() {
             </div>
           )}
         </>
+        </ErrorBoundary>
       )}
       <SteelCatalogEditor
         open={steelCatalogEditorOpen}
