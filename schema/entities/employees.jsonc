@@ -142,6 +142,10 @@
     "supervisor_name": {
       "type": "string"
     },
+    "supervisor_id": {
+      "type": ["string", "null"],
+      "description": "FK to employees — the employee who supervises this employee for timecard approval (EmployeeCenter.jsx's Approve Hours queue) and other supervisor-scoped workflows. Distinct from supervisor_name (free text, kept for display/back-compat) — backfilled once from an exact full_name match against an active employee by migrateSupervisorIdFromName in src/api/localData.js; left null where no exact match was found rather than guessing. Nullable: an employee with no supervisor_id on file skips the supervisor-approval stage entirely (payroll's view flags this as 'No supervisor assigned')."
+    },
     "dob": {
       "type": "string",
       "format": "date"

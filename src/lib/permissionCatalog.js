@@ -192,6 +192,7 @@ export const PERMISSION_CATALOG = [
     { key: 'tab:/employee-center:profile', label: 'My Profile' },
     { key: 'tab:/employee-center:timeoff', label: 'Time Off' },
     { key: 'tab:/employee-center:payroll', label: 'Payroll' },
+    { key: 'tab:/employee-center:supervisor', label: 'Approve Hours' },
   ] },
   // Super-Admin Role Firewall — see RoleManager.jsx's identical exclusion of
   // the super_admin builtin role from the role picker. This module is

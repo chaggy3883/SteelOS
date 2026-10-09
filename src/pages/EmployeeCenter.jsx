@@ -30,7 +30,7 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   LogIn, LogOut, Coffee, Play, Lock, ShieldAlert, FileText,
   User, Send, Plus, CheckCircle2, Ban, KeyRound, MapPin, Smartphone, Receipt, DoorOpen,
-  Timer, Square, Eye, ShieldCheck, AlertCircle, Landmark,
+  Timer, Square, Eye, ShieldCheck, AlertCircle, Landmark, ClipboardCheck, Undo2,
 } from 'lucide-react';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import PayStubDetail from '@/components/payroll/PayStubDetail';
@@ -53,6 +53,7 @@ const EMPLOYEE_CENTER_TABS = [
   { value: 'profile', key: 'tab:/employee-center:profile' },
   { value: 'timeoff', key: 'tab:/employee-center:timeoff' },
   { value: 'payroll', key: 'tab:/employee-center:payroll' },
+  { value: 'supervisor', key: 'tab:/employee-center:supervisor' },
 ];
 
 const LABOR_CATEGORIES = ['Shop_Fab', 'Drill_Line', 'Welding', 'Paint', 'Field_Erection'];
@@ -141,6 +142,20 @@ export default function EmployeeCenter() {
   const [editingNoteText, setEditingNoteText] = useState('');
   const [lockedPeriods, setLockedPeriods] = useState([]);
 
+  // Approve Hours (supervisor timecard review) — scoped strictly to this
+  // employee's own direct reports (employees.supervisor_id === employee.id),
+  // never the whole company. See loadSupervisorQueue below.
+  const [directReports, setDirectReports] = useState([]);
+  const [supervisorPayPeriods, setSupervisorPayPeriods] = useState([]);
+  const [supervisorPeriodId, setSupervisorPeriodId] = useState('');
+  const [supervisorTimecards, setSupervisorTimecards] = useState([]);
+  const [returningTimecardId, setReturningTimecardId] = useState(null);
+  const [returnReason, setReturnReason] = useState('');
+  const [viewingEntriesFor, setViewingEntriesFor] = useState(null);
+  const [viewingEntries, setViewingEntries] = useState([]);
+  const [loadingEntries, setLoadingEntries] = useState(false);
+  const [supervisorBusyId, setSupervisorBusyId] = useState(null);
+
   useEffect(() => {
     checkLock();
     db.entities.Project.filter({ is_archived: false }, 'name', 50).then(setProjects).catch(() => setProjects([]));
@@ -193,6 +208,8 @@ export default function EmployeeCenter() {
     getPayrollRateScalesCents().then(setRateScale).catch(() => setRateScale(null));
   }, []);
 
+  useEffect(() => { if (supervisorPayPeriods.length > 0 && !supervisorPeriodId) setSupervisorPeriodId(supervisorPayPeriods[0].id); }, [supervisorPayPeriods]);
+
   const checkLock = async () => {
     const info = await isTerminalLocked(terminalId);
     setLockInfo(info);
@@ -226,7 +243,7 @@ export default function EmployeeCenter() {
     // Idempotent (see ptoEngine's policy_year_end comparison), so it's safe
     // to run on every login rather than only the first one after the date.
     await runAnniversaryRenewalCheckForEmployee(employeeRecord).catch(() => {});
-    const [punchData, leaveData, payrollData, expenseData, balanceData, lockedRuns, allPeriods, bankAccounts, employeeLines, employeeTaxWithholdings, employeeDeductions, employerTaxRules] = await Promise.all([
+    const [punchData, leaveData, payrollData, expenseData, balanceData, lockedRuns, allPeriods, bankAccounts, employeeLines, employeeTaxWithholdings, employeeDeductions, employerTaxRules, reports] = await Promise.all([
       db.entities.attendance_punches.filter({ employee_id: employeeId }, '-created_date', 200),
       db.entities.time_off_requests.filter({ employee_id: employeeId }, '-created_date', 100),
       db.entities.payroll_document_mappings.filter({ employee_id: employeeId }, '-created_date', 100),
@@ -239,7 +256,17 @@ export default function EmployeeCenter() {
       db.entities.TaxWithholding.filter({ employee_id: employeeId }, '-effective_date', 50).catch(() => []),
       db.entities.Deduction.filter({ employee_id: employeeId }, '-effective_date', 50).catch(() => []),
       db.entities.PayrollRule.filter({ rule_type: 'employer_tax' }, '-effective_date', 50).catch(() => []),
+      db.entities.employees.filter({ supervisor_id: employeeId, is_active: true }, 'full_name', 500).catch(() => []),
     ]);
+    setDirectReports(reports);
+    setSupervisorPayPeriods(allPeriods);
+    if (reports.length > 0) {
+      const reportIds = new Set(reports.map((r) => r.id));
+      const submittedTimecards = await db.entities.Timecard.filter({ status: 'submitted' }, '-created_date', 2000).catch(() => []);
+      setSupervisorTimecards(submittedTimecards.filter((t) => reportIds.has(t.employee_id)));
+    } else {
+      setSupervisorTimecards([]);
+    }
     setPunches(punchData);
     setTimeOffRequests(leaveData);
     setPayrollDocs(payrollData);
@@ -391,6 +418,14 @@ export default function EmployeeCenter() {
     setEditingNotePunchId(null);
     setEditingNoteText('');
     setLockedPeriods([]);
+    setDirectReports([]);
+    setSupervisorPayPeriods([]);
+    setSupervisorPeriodId('');
+    setSupervisorTimecards([]);
+    setReturningTimecardId(null);
+    setReturnReason('');
+    setViewingEntriesFor(null);
+    setViewingEntries([]);
   };
 
   // Kiosk Reset Action — a real kiosk-PIN session (isKioskSession) has no
@@ -602,6 +637,89 @@ export default function EmployeeCenter() {
     decideLeaveRequest(request, 'Rejected', declineNote.trim());
   };
 
+  // Approve Hours — supervisor review of direct reports' submitted
+  // timecards, standing between the employee's own submit and payroll's
+  // final approve (see TimecardsPanel.jsx's Approve/Override Approve split
+  // and Timecard.status). identity falls back through portal User ->
+  // employee record so both a kiosk-PIN supervisor and an office-login
+  // supervisor record a real name on the approval.
+  const supervisorIdentity = () => currentUser?.full_name || currentUser?.email || employee?.full_name || 'Unknown';
+
+  const approveSupervisorTimecard = async (tc) => {
+    if (isAdminViewing) return;
+    setSupervisorBusyId(tc.id);
+    try {
+      const updated = await db.entities.Timecard.update(tc.id, {
+        status: 'supervisor_approved',
+        supervisor_approved_by: supervisorIdentity(),
+        supervisor_approved_at: new Date().toISOString(),
+        supervisor_returned_reason: null,
+      });
+      setSupervisorTimecards((prev) => prev.filter((t) => t.id !== updated.id));
+      toast({ title: `Approved ${directReports.find((r) => r.id === tc.employee_id)?.full_name || 'timecard'}'s hours` });
+    } catch (e) {
+      toast({ title: 'Unable to approve timecard', variant: 'destructive' });
+    } finally {
+      setSupervisorBusyId(null);
+    }
+  };
+
+  const confirmReturnTimecard = async (tc) => {
+    if (isAdminViewing) return;
+    if (!returnReason.trim()) {
+      toast({ title: 'A reason is required to return a timecard', variant: 'destructive' });
+      return;
+    }
+    setSupervisorBusyId(tc.id);
+    try {
+      const updated = await db.entities.Timecard.update(tc.id, {
+        status: 'unsubmitted',
+        supervisor_returned_reason: returnReason.trim(),
+        supervisor_approved_by: null,
+        supervisor_approved_at: null,
+      });
+      setSupervisorTimecards((prev) => prev.filter((t) => t.id !== updated.id));
+      const reportEmployee = directReports.find((r) => r.id === tc.employee_id);
+      try {
+        const linkedUsers = await db.entities.User.filter({ employee_id: tc.employee_id }, '-created_date', 1);
+        if (linkedUsers[0]) {
+          await db.entities.Notification.create({
+            user_id: linkedUsers[0].id,
+            title: 'Timecard returned',
+            message: `${employee?.full_name || 'Your supervisor'} returned your timecard for correction: ${returnReason.trim()}`,
+            type: 'warning',
+            link: '/employee-center',
+            entity_type: 'Timecard',
+            entity_id: tc.id,
+            creator_id: employee?.id,
+            is_read: false,
+          });
+        }
+      } catch (e) {}
+      toast({ title: `Returned ${reportEmployee?.full_name || 'timecard'} for correction` });
+      setReturningTimecardId(null);
+      setReturnReason('');
+    } catch (e) {
+      toast({ title: 'Unable to return timecard', variant: 'destructive' });
+    } finally {
+      setSupervisorBusyId(null);
+    }
+  };
+
+  const openSupervisorEntries = async (tc) => {
+    setViewingEntriesFor(tc);
+    setLoadingEntries(true);
+    try {
+      const period = supervisorPayPeriods.find((p) => p.id === tc.pay_period_id);
+      const entries = await db.entities.TimeEntry.filter({ employee_id: tc.employee_id }, '-work_date', 500);
+      setViewingEntries(period ? entries.filter((e) => e.work_date >= period.period_start && e.work_date <= period.period_end) : entries);
+    } catch (e) {
+      setViewingEntries([]);
+    } finally {
+      setLoadingEntries(false);
+    }
+  };
+
   const requestInfoUpdate = async () => {
     if (isAdminViewing) return;
     try {
@@ -757,6 +875,7 @@ export default function EmployeeCenter() {
               {isTabVisible('profile') && <TabsTrigger value="profile">My Profile</TabsTrigger>}
               {isTabVisible('timeoff') && <TabsTrigger value="timeoff">Time Off</TabsTrigger>}
               {isTabVisible('payroll') && <TabsTrigger value="payroll">Payroll</TabsTrigger>}
+              {isTabVisible('supervisor') && directReports.length > 0 && <TabsTrigger value="supervisor">Approve Hours</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="kiosk" className="space-y-4">
@@ -1159,6 +1278,57 @@ export default function EmployeeCenter() {
                 )}
               </div>
             </TabsContent>
+
+            <TabsContent value="supervisor" className="space-y-3">
+              <div className="steel-card p-4">
+                <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+                  <h4 className="font-semibold text-sm flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-primary" />Approve Hours — Direct Reports</h4>
+                  <Select value={supervisorPeriodId} onValueChange={setSupervisorPeriodId}>
+                    <SelectTrigger className="w-64"><SelectValue placeholder="Select a pay period" /></SelectTrigger>
+                    <SelectContent>
+                      {supervisorPayPeriods.map((p) => <SelectItem key={p.id} value={p.id}>{p.period_start} — {p.period_end}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {(() => {
+                  const queue = supervisorTimecards.filter((t) => t.pay_period_id === supervisorPeriodId);
+                  if (queue.length === 0) {
+                    return <p className="text-sm text-muted-foreground py-4 text-center">No submitted timecards awaiting your approval for this pay period.</p>;
+                  }
+                  return queue.map((tc) => {
+                    const reportEmployee = directReports.find((r) => r.id === tc.employee_id);
+                    const busy = supervisorBusyId === tc.id;
+                    return (
+                      <div key={tc.id} className="rounded-lg border border-border p-3 text-sm mb-2">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div>
+                            <p className="font-medium">{reportEmployee?.full_name || tc.employee_id}</p>
+                            <button type="button" className="text-xs text-primary hover:underline" onClick={() => openSupervisorEntries(tc)}>
+                              {(tc.total_regular_hours || 0).toFixed(2)} reg / {(tc.total_ot_hours || 0).toFixed(2)} OT / {(tc.total_double_time_hours || 0).toFixed(2)} DT hrs — view entries
+                            </button>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" className="gap-1 h-7 text-xs" onClick={() => openSupervisorEntries(tc)}><Eye className="w-3.5 h-3.5" />View</Button>
+                            <Button size="sm" className="gap-1 h-7 text-xs bg-green-600 hover:bg-green-700 text-white border-0" disabled={busy} onClick={() => approveSupervisorTimecard(tc)}><CheckCircle2 className="w-3.5 h-3.5" />Approve</Button>
+                            <Button size="sm" variant="outline" className="gap-1 h-7 text-xs text-red-600 border-red-500/30" disabled={busy} onClick={() => { setReturningTimecardId(tc.id); setReturnReason(''); }}><Undo2 className="w-3.5 h-3.5" />Return</Button>
+                          </div>
+                        </div>
+                        {returningTimecardId === tc.id && (
+                          <div className="mt-3 pt-3 border-t border-border/50 space-y-2">
+                            <Label className="text-xs">Reason for return (required)</Label>
+                            <Textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)} rows={2} placeholder="What needs to be corrected before resubmitting?" />
+                            <div className="flex gap-2 justify-end">
+                              <Button size="sm" variant="outline" onClick={() => { setReturningTimecardId(null); setReturnReason(''); }}>Cancel</Button>
+                              <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white border-0" disabled={busy} onClick={() => confirmReturnTimecard(tc)}>Confirm Return</Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </TabsContent>
           </Tabs>
         </>
       )}
@@ -1311,6 +1481,38 @@ export default function EmployeeCenter() {
           })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setViewingYtdYear(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingEntriesFor} onOpenChange={(o) => { if (!o) { setViewingEntriesFor(null); setViewingEntries([]); } }}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{directReports.find((r) => r.id === viewingEntriesFor?.employee_id)?.full_name || 'Time Entries'}</DialogTitle>
+          </DialogHeader>
+          {loadingEntries ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Loading…</p>
+          ) : viewingEntries.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No time entries on file for this pay period.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {viewingEntries.map((e) => (
+                <div key={e.id} className="rounded-lg border border-border p-2.5 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{e.work_date}</span>
+                    <span className="font-mono">{Number(e.hours || 0).toFixed(2)}h</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {(() => { const p = projects.find((pr) => pr.id === e.project_id); return p ? `${p.project_number} — ${p.name}` : e.project_id || '—'; })()}
+                    {' · '}{costCodes.find((c) => c.id === e.cost_code_id)?.code_name || '—'}
+                    {[e.phase_id, e.area_id].filter(Boolean).length > 0 ? ` · ${[e.phase_id, e.area_id].filter(Boolean).join(' / ')}` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setViewingEntriesFor(null); setViewingEntries([]); }}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

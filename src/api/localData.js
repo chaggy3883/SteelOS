@@ -2704,6 +2704,43 @@ const migrateRiggingInspectionAssetLinks = (migrated) => {
 // single-role records forward into a one-element array rather than dropping
 // them; idempotent since it only rewrites rows that still carry the legacy
 // string field.
+// employees.supervisor_name was always free text with no FK — added
+// supervisor_id (nullable FK to employees) so Timecard supervisor-approval
+// (see Timecard.status) has a real relationship to query against. Backfills
+// supervisor_id only where supervisor_name is an EXACT, UNIQUE full_name
+// match against another active employee — never a fuzzy/best-effort guess.
+// Idempotent: only rewrites rows that still have supervisor_name set but no
+// supervisor_id yet. Rows that don't resolve (no match, or the name matches
+// more than one active employee) are left with supervisor_id null and
+// reported via console.warn so HR can resolve them by hand on the employee
+// profile's new Supervisor field (EmployeeProfileDialog.jsx) rather than the
+// migration silently guessing wrong.
+const migrateSupervisorIdFromName = (migrated) => {
+  const rows = Array.isArray(migrated.employees) ? migrated.employees : [];
+  if (rows.length === 0) return;
+  const activeByName = new Map();
+  const nameCounts = new Map();
+  rows.forEach((row) => {
+    if (!row.is_active || !row.full_name) return;
+    const key = row.full_name.trim();
+    nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
+    activeByName.set(key, row);
+  });
+
+  migrated.employees = rows.map((row) => {
+    if (!row.supervisor_name || row.supervisor_id) return row;
+    const key = row.supervisor_name.trim();
+    const count = nameCounts.get(key) || 0;
+    if (count !== 1) {
+      console.warn(`[migrateSupervisorIdFromName] employees/${row.id} (${row.full_name}) has supervisor_name "${row.supervisor_name}" which ${count === 0 ? 'matches no active employee' : 'matches more than one active employee'} — supervisor_id left blank. Set it by hand on the employee profile.`);
+      return row;
+    }
+    const match = activeByName.get(key);
+    if (match.id === row.id) return row; // never self-supervise
+    return { ...row, supervisor_id: match.id };
+  });
+};
+
 const migrateEmployeePlatformRoles = (migrated) => {
   const rows = Array.isArray(migrated.employees) ? migrated.employees : [];
   migrated.employees = rows.map((row) => {
@@ -3031,6 +3068,7 @@ const migrateStore = (store) => {
 
   migrateLegacyShippingLoads(migrated);
   migrateEmployeePlatformRoles(migrated);
+  migrateSupervisorIdFromName(migrated);
   backfillMissingTenantCompanyId(migrated);
   backfillDocumentIsArchived(migrated);
   migrateRiggingLedgerFields(migrated);

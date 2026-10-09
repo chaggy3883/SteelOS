@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Plus, AlertCircle, CheckCircle2, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +31,7 @@ export default function TimeEntryPanel({ employees, projects, costCodes, payPeri
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm());
+  const [editingEntry, setEditingEntry] = useState(null);
   const [saving, setSaving] = useState(false);
   const [employeeFilter, setEmployeeFilter] = useState('all');
   const [lockedPeriodIds, setLockedPeriodIds] = useState(new Set());
@@ -88,7 +89,44 @@ export default function TimeEntryPanel({ employees, projects, costCodes, payPeri
     [entries, employeeFilter]
   );
 
-  const openAdd = () => { setForm(emptyForm()); setShowForm(true); };
+  const openAdd = () => { setEditingEntry(null); setForm(emptyForm()); setShowForm(true); };
+  const openEdit = (entry) => {
+    setEditingEntry(entry);
+    setForm({
+      employee_id: entry.employee_id, work_date: entry.work_date,
+      clock_in: entry.clock_in || '', clock_out: entry.clock_out || '',
+      project_id: entry.project_id, phase_id: entry.phase_id || '', area_id: entry.area_id || '',
+      cost_code_id: entry.cost_code_id, entry_type: entry.entry_type || 'regular',
+    });
+    setShowForm(true);
+  };
+
+  // Safety net for req. 6: a TimeEntry edit must never leave an already
+  // supervisor-approved or payroll-approved Timecard silently holding stale
+  // hours. Resets BOTH the entry's original pay period and its new one (if
+  // the edit moved work_date across a period boundary) back to 'submitted',
+  // clearing every approval field — the payroll pipeline then requires a
+  // fresh Refresh/Approve pass, same as if it had never been approved.
+  // Already-locked periods (a PayrollRun that's actually locked) are a
+  // separate, stronger gate enforced by lockedPeriodForDate below — this
+  // only resets the softer supervisor/payroll approval flags underneath it.
+  const resetTimecardIfApproved = async (employeeId, workDate) => {
+    const period = payPeriods.find((p) => workDate >= p.period_start && workDate <= p.period_end);
+    if (!period) return;
+    try {
+      const matches = await db.entities.Timecard.filter({ employee_id: employeeId, pay_period_id: period.id }, '-created_date', 1);
+      const tc = matches[0];
+      if (!tc || (tc.status !== 'supervisor_approved' && tc.status !== 'approved')) return;
+      await db.entities.Timecard.update(tc.id, {
+        status: 'submitted',
+        supervisor_approved_by: null,
+        supervisor_approved_at: null,
+        approved_by: null,
+        approved_at: null,
+        payroll_override_reason: null,
+      });
+    } catch (e) {}
+  };
 
   const handleSave = async () => {
     if (!form.employee_id || !form.work_date || !form.project_id || !form.cost_code_id) {
@@ -100,13 +138,13 @@ export default function TimeEntryPanel({ employees, projects, costCodes, payPeri
       toast({ title: 'Clock out must be after clock in', variant: 'destructive' });
       return;
     }
-    if (lockedPeriodForDate(form.work_date)) {
-      toast({ title: 'Pay period is locked', description: 'This work date falls in a locked pay period — reopen the payroll run before adding time entries.', variant: 'destructive' });
+    if (lockedPeriodForDate(form.work_date) || (editingEntry && lockedPeriodForDate(editingEntry.work_date))) {
+      toast({ title: 'Pay period is locked', description: 'This work date falls in a locked pay period — reopen the payroll run before editing time entries.', variant: 'destructive' });
       return;
     }
     setSaving(true);
     try {
-      const created = await db.entities.TimeEntry.create({
+      const payload = {
         employee_id: form.employee_id,
         work_date: form.work_date,
         clock_in: form.clock_in,
@@ -117,11 +155,23 @@ export default function TimeEntryPanel({ employees, projects, costCodes, payPeri
         cost_code_id: form.cost_code_id,
         hours,
         entry_type: form.entry_type,
-      });
-      setEntries((prev) => [created, ...prev]);
+      };
+      if (editingEntry) {
+        const updated = await db.entities.TimeEntry.update(editingEntry.id, payload);
+        setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+        await resetTimecardIfApproved(editingEntry.employee_id, editingEntry.work_date);
+        if (form.work_date !== editingEntry.work_date || form.employee_id !== editingEntry.employee_id) {
+          await resetTimecardIfApproved(form.employee_id, form.work_date);
+        }
+        toast({ title: `Time entry updated for ${employeeName(form.employee_id)}` });
+      } else {
+        const created = await db.entities.TimeEntry.create(payload);
+        setEntries((prev) => [created, ...prev]);
+        toast({ title: `${hours.toFixed(2)} hours logged for ${employeeName(form.employee_id)}` });
+      }
       setShowForm(false);
+      setEditingEntry(null);
       setForm(emptyForm());
-      toast({ title: `${hours.toFixed(2)} hours logged for ${employeeName(form.employee_id)}` });
     } catch (e) {
       toast({ title: 'Unable to save time entry', variant: 'destructive' });
     } finally {
@@ -192,13 +242,14 @@ export default function TimeEntryPanel({ employees, projects, costCodes, payPeri
                 <th className="text-left py-2 px-3">Cost Code</th>
                 <th className="text-right py-2 px-3">Hours</th>
                 <th className="text-left py-2 px-3">Type</th>
+                <th className="text-right py-2 px-3">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">Loading…</td></tr>
+                <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">Loading…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">No time entries yet</td></tr>
+                <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">No time entries yet</td></tr>
               ) : filtered.map((e) => (
                 <tr key={e.id} className="border-b border-border/50">
                   <td className="py-2 px-3 font-medium">{employeeName(e.employee_id)}</td>
@@ -208,6 +259,9 @@ export default function TimeEntryPanel({ employees, projects, costCodes, payPeri
                   <td className="py-2 px-3">{costCodeName(e.cost_code_id)}</td>
                   <td className="py-2 px-3 text-right font-mono">{Number(e.hours || 0).toFixed(2)}</td>
                   <td className="py-2 px-3">{titleCase(e.entry_type)}</td>
+                  <td className="py-2 px-3 text-right">
+                    <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" disabled={!!lockedPeriodForDate(e.work_date)} onClick={() => openEdit(e)}><Pencil className="w-3 h-3" />Edit</Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -215,9 +269,9 @@ export default function TimeEntryPanel({ employees, projects, costCodes, payPeri
         </div>
       </div>
 
-      <Dialog open={showForm} onOpenChange={setShowForm}>
+      <Dialog open={showForm} onOpenChange={(o) => { setShowForm(o); if (!o) setEditingEntry(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Add Time Entry</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingEntry ? 'Edit Time Entry' : 'Add Time Entry'}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>

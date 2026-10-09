@@ -13,6 +13,7 @@ export default function NewEmployee() {
   const [roles, setRoles] = useState(['user']);
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [allRoles, setAllRoles] = useState([]);
+  const [existingEmployees, setExistingEmployees] = useState([]);
 
   useDocumentTitle('SteelOS — Add Employee');
 
@@ -28,6 +29,7 @@ export default function NewEmployee() {
     // super_admin is a platform-operator role, not an assignable HR role —
     // never offer it in the Platform Role dropdown, matching HumanResources.jsx.
     getAllRoles().then((r) => setAllRoles(r.filter((role) => role.value !== 'super_admin'))).catch(() => setAllRoles([]));
+    db.entities.employees.filter({ is_active: true }, 'full_name', 1000).then(setExistingEmployees).catch(() => setExistingEmployees([]));
     setCheckingAccess(false);
   };
 
@@ -66,6 +68,7 @@ export default function NewEmployee() {
         positions={POSITIONS}
         jobTitles={JOB_TITLES}
         allRoles={allRoles}
+        existingEmployees={existingEmployees}
         onEmployeeCreated={() => {}}
       />
     </div>

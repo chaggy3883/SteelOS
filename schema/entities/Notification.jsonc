@@ -45,8 +45,8 @@
     },
     "entity_type": {
       "type": "string",
-      "enum": ["RFI", "ChangeOrder", "ProjectBulletin", "AchIncoming", "Submittal"],
-      "description": "Set alongside entity_id for the RFI/CO/Addenda/Submittal notification routing system (src/lib/salesNotifications.js) — blank for other notification types that predate it. 'AchIncoming' is used by src/lib/achEngine.js's notifyArUnmatchedAch, broadcast to every user holding an AR-relevant role (finance_department/controller/president/ceo) rather than a project-scoped assignee."
+      "enum": ["RFI", "ChangeOrder", "ProjectBulletin", "AchIncoming", "Submittal", "Timecard"],
+      "description": "Set alongside entity_id for the RFI/CO/Addenda/Submittal notification routing system (src/lib/salesNotifications.js) — blank for other notification types that predate it. 'AchIncoming' is used by src/lib/achEngine.js's notifyArUnmatchedAch, broadcast to every user holding an AR-relevant role (finance_department/controller/president/ceo) rather than a project-scoped assignee. 'Timecard' is used directly by EmployeeCenter.jsx's supervisor Return action, notifying the one employee whose timecard was returned (resolved via User.employee_id), not a role broadcast."
     },
     "entity_id": {
       "type": "string",

@@ -233,6 +233,7 @@ export async function provisionEmployee(formData) {
     department: formData.department,
     platform_roles: Array.isArray(formData.platform_roles) ? formData.platform_roles : [],
     supervisor_name: formData.supervisor_name,
+    supervisor_id: formData.supervisor_id || null,
     pin_encrypted: encodeFormulaPin({ employee_number, ssn_last4 }),
     is_timeclock_locked: true,
     has_w4_approved: false,

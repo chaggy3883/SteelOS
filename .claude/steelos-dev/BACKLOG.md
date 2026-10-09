@@ -5,6 +5,120 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-10-09) — Supervisor approval stage for timecards
+
+- **New Timecard stage between employee submission and payroll's approve**:
+  `unsubmitted -> submitted -> supervisor_approved -> approved` (was
+  `unsubmitted -> submitted -> approved`, with payroll able to approve any
+  submitted timecard directly — confirmed via ground-truth read of
+  `TimecardsPanel.jsx`/`Timecard.jsonc` before starting, per the request's own
+  "CONFIRMED CURRENT STATE"). `employees.supervisor_name` was free text with
+  no FK; added `supervisor_id` (nullable FK to `employees`,
+  `schema/entities/employees.jsonc`) alongside it — `supervisor_name` is
+  untouched. New `migrateSupervisorIdFromName` (`src/api/localData.js`,
+  registered in the standard migration pipeline) backfills `supervisor_id`
+  only where `supervisor_name` is an EXACT, UNIQUE match against an active
+  employee's `full_name`; anything that doesn't resolve (no match, or more
+  than one active employee shares that name) is left blank and reported via
+  `console.warn` rather than guessed — confirmed demo seed data has zero
+  employees with `supervisor_name` populated today, so this backfill is a
+  no-op until real data (or the new Supervisor field below) sets some.
+  New `Timecard` fields (`schema/entities/Timecard.jsonc`):
+  `supervisor_approved_by`, `supervisor_approved_at`,
+  `supervisor_returned_reason` (required reason on a supervisor Return),
+  `payroll_override_reason` (required reason on a payroll override-approve).
+  No new AuditLog code was needed for the "every approve/return is audited"
+  requirement — confirmed `logAuditChange()` already writes an automatic
+  field-level AuditLog row on every `db.entities.*.update()` call including
+  `Timecard` and `employees`, so every status/field change this feature makes
+  is already captured with no parallel logging.
+
+- **Supervisor review screen**: new "Approve Hours" tab in
+  `EmployeeCenter.jsx` (`tab:/employee-center:supervisor` added to
+  `permissionCatalog.js` for consistency with its other tabs), visible only
+  to an employee who is `supervisor_id` on at least one other active
+  employee — relationship-gated, not role-gated, since supervisors span
+  arbitrary roles (shop_manager, project_manager, or no special role at all).
+  Queried strictly as `employees.filter({ supervisor_id: employee.id,
+  is_active: true })` so a supervisor only ever sees their own direct
+  reports, never the whole company. Per timecard: hours are clickable
+  through to a "View Entries" dialog listing the underlying `TimeEntry` rows
+  for that pay period (standing rule 1), an Approve button
+  (`supervisor_approved`), and a Return button with a required reason
+  (inline textarea, same pattern as the existing HR Approval Queue in this
+  same file) that resets the timecard to `unsubmitted` and notifies the
+  employee via a real `Notification` row — resolved from `User.employee_id`
+  (added `'Timecard'` to `Notification.entity_type`'s enum) — gracefully
+  skipped if the employee has no linked portal `User` row to notify.
+
+- **HR employee detail/edit + Add Employee wizard**: new Supervisor picker
+  (FK dropdown, excludes self and inactive employees) alongside the existing
+  free-text Supervisor Name — `EmployeeProfileDialog.jsx`'s new
+  `SupervisorField` (mirrors the existing `CompanyEmailField` edit pattern,
+  HR-gated via `hasFullEmployeeAccess`) and `AddEmployeeWizard.jsx`'s Job Info
+  step (new `existingEmployees` prop, loaded by `NewEmployee.jsx` and threaded
+  into `provisionEmployee` in `employeesApi.js`).
+
+- **Payroll enforcement** (`TimecardsPanel.jsx`): the Approve button only
+  renders for a `supervisor_approved` timecard, or a `submitted` one whose
+  employee has no `supervisor_id` (flagged inline with an amber "No
+  supervisor assigned" badge next to the employee's name) — skipping the
+  stage entirely for those, exactly as specified. A `submitted` timecard
+  whose employee DOES have a supervisor instead shows "Override Approve",
+  opening a reason-required dialog that writes `payroll_override_reason`
+  (captured in the automatic audit trail, no separate log needed). The
+  Generate/Refresh action is now also blocked once `supervisor_approved` (was
+  only blocked at `approved`), so a regenerate can't silently change hours
+  out from under a pending or already-approved supervisor sign-off.
+  `PayrollRunPanel.jsx` needed NO changes — confirmed it already only ever
+  pulls `Timecard.filter({ status: 'approved' })`, which remains the one
+  terminal state regardless of which path (normal, no-supervisor skip, or
+  override) reached it.
+
+- **Time entry edit + reset-on-edit safety net** (`TimeEntryPanel.jsx`):
+  this panel had NO edit capability at all before this pass (create-only,
+  confirmed by reading the file) — added an Edit action per row (disabled
+  inside an already-locked `PayrollRun` period, same gate the create path
+  already used). Saving an edit now also calls new
+  `resetTimecardIfApproved(employeeId, workDate)`, checked against both the
+  entry's original work_date and its new one (covers an edit that moves the
+  entry across a pay-period boundary): if the matching `Timecard` is
+  `supervisor_approved` or `approved`, it's reset to `submitted` and every
+  approval field (`supervisor_approved_by/at`, `approved_by/at`,
+  `payroll_override_reason`) is cleared — "approved hours can never silently
+  change" holds for both the supervisor and payroll approval stages. Standing
+  period-lock (an actually-locked `PayrollRun`) remains the stronger,
+  unaffected gate underneath this — editing a truly locked period's entries
+  is still blocked outright, same as before; `AdjustmentLog` (the
+  post-lock-adjustment mechanism) was not touched and is not bypassed by any
+  of this, since it only ever applies after a run is locked, a separate stage
+  from everything built here.
+
+- **Hand-traced** (no browser-automation tool in this project — per standing
+  feedback, code trace + build/lint first): (1) employee-with-supervisor path
+  — submit -> supervisor's Approve Hours queue shows it (period selector
+  defaults to the newest period, but every period is selectable) -> Approve
+  sets `supervisor_approved` -> `TimecardsPanel` now shows only a plain
+  Approve button (Refresh disabled) -> payroll Approve sets `approved` ->
+  `PayrollRunPanel`'s existing `status: 'approved'` filter picks it up.
+  (2) Return path — supervisor Return with a required reason sets
+  `unsubmitted` + `supervisor_returned_reason` + notifies the employee's
+  linked `User` (if any); traced that `resetTimecardIfApproved` correctly
+  no-ops here since the timecard is already back to `unsubmitted`, not
+  `supervisor_approved`/`approved` — the employee's entries get corrected via
+  `TimeEntryPanel`'s Edit, then payroll Refreshes + Submits again, re-entering
+  the same supervisor-approval cycle. (3) No-`supervisor_id` employee —
+  `TimecardsPanel` shows the amber flag and a direct Approve button on a
+  `submitted` timecard, confirmed it sets `approved` straight from
+  `submitted` with no `supervisor_approved` step ever set. (4) Post-approval
+  edit — edited a `TimeEntry` whose `Timecard` was `supervisor_approved`,
+  confirmed `resetTimecardIfApproved` fires and flips it back to `submitted`
+  with every approval field cleared, and that this is captured by the
+  existing automatic field-level AuditLog with no extra logging code.
+  `npm run build && npm run lint` clean (4059 modules, 0 lint errors). No
+  Playwright run (per standing feedback — code trace + build/lint first,
+  browser verification only on request).
+
 ## Also Closed (2026-09-24) — HR Admin role scope fix, garnishment/401(k) add capability, scoped HR audit log
 
 - **HR Admin's `allowed_modules`/`allowed_widgets` corrected** (`rbacConfig.jsx`)

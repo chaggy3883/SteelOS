@@ -18,7 +18,7 @@ const emptyForm = (positions, jobTitles) => ({
   emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '',
   job_title: jobTitles[0] || '', classification: positions[0] || '', hire_date: new Date().toISOString().slice(0, 10),
   pay_type: 'hourly', pay_rate_cents: '', annual_salary_cents: '',
-  department: '', platform_roles: [], supervisor_name: '',
+  department: '', platform_roles: [], supervisor_name: '', supervisor_id: '',
 });
 
 const emptyDocs = () => ({ drivers_license: null, ssn_card: null, birth_cert: null });
@@ -32,7 +32,7 @@ function FileBadge({ file }) {
   );
 }
 
-export default function AddEmployeeWizard({ positions, jobTitles, allRoles, onEmployeeCreated }) {
+export default function AddEmployeeWizard({ positions, jobTitles, allRoles, existingEmployees = [], onEmployeeCreated }) {
   const { toast } = useToast();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(() => emptyForm(positions, jobTitles));
@@ -225,6 +225,17 @@ export default function AddEmployeeWizard({ positions, jobTitles, allRoles, onEm
             <Label>Supervisor Name</Label>
             <Input value={form.supervisor_name} onChange={setInput('supervisor_name')} className="mt-1" />
           </div>
+          <div>
+            <Label>Supervisor</Label>
+            <Select value={form.supervisor_id || '__none__'} onValueChange={(v) => set('supervisor_id')(v === '__none__' ? '' : v)}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder="No supervisor assigned" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">No supervisor assigned</SelectItem>
+                {existingEmployees.map((e) => <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[11px] text-muted-foreground">Required for this employee's timecards to route through a supervisor-approval queue before payroll.</p>
+          </div>
         </div>
       )}
 
@@ -283,7 +294,8 @@ export default function AddEmployeeWizard({ positions, jobTitles, allRoles, onEm
               <p><span className="text-muted-foreground">Pay:</span> {payLabel}</p>
               <p><span className="text-muted-foreground">Department:</span> {form.department || '—'}</p>
               <p><span className="text-muted-foreground">Platform Roles:</span> {form.platform_roles.length > 0 ? form.platform_roles.map((v) => allRoles.find((r) => r.value === v)?.label || v).join(', ') : '—'}</p>
-              <p><span className="text-muted-foreground">Supervisor:</span> {form.supervisor_name || '—'}</p>
+              <p><span className="text-muted-foreground">Supervisor Name:</span> {form.supervisor_name || '—'}</p>
+              <p><span className="text-muted-foreground">Supervisor:</span> {existingEmployees.find((e) => e.id === form.supervisor_id)?.full_name || '—'}</p>
             </div>
           </div>
           <div className="pt-3 border-t border-border/50">

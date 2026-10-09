@@ -13,8 +13,9 @@
     },
     "status": {
       "type": "string",
-      "enum": ["unsubmitted", "submitted", "approved"],
-      "default": "unsubmitted"
+      "enum": ["unsubmitted", "submitted", "supervisor_approved", "approved"],
+      "default": "unsubmitted",
+      "description": "unsubmitted -> submitted -> supervisor_approved -> approved. supervisor_approved is set by the employee's own supervisor (employees.supervisor_id) via EmployeeCenter.jsx's Approve Hours queue before payroll's own approve (TimecardsPanel.jsx) can run — unless the employee has no supervisor_id, in which case payroll may approve directly from 'submitted', or a payroll admin overrides via payroll_override_reason."
     },
     "total_regular_hours": {
       "type": "number",
@@ -35,6 +36,22 @@
     "approved_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "supervisor_approved_by": {
+      "type": "string",
+      "description": "Name of the supervisor (employees.supervisor_id relationship) who set status to 'supervisor_approved'. Cleared whenever the timecard is returned or reset back to 'submitted' by a post-approval time entry edit."
+    },
+    "supervisor_approved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "supervisor_returned_reason": {
+      "type": "string",
+      "description": "Required free-text reason set when a supervisor returns a 'submitted' timecard back to 'unsubmitted' (EmployeeCenter.jsx's Approve Hours queue). Cleared on the next supervisor approve."
+    },
+    "payroll_override_reason": {
+      "type": "string",
+      "description": "Required free-text reason set only when a payroll admin approves a still-'submitted' timecard directly, bypassing the supervisor_approved stage for an employee who has a supervisor_id on file (TimecardsPanel.jsx's override action). Blank for every normal approval path, including the no-supervisor-assigned skip."
     },
     "payroll_run_id": {
       "type": "string",

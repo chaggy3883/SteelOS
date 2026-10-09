@@ -19,6 +19,7 @@ import { GRANULAR_ACTIONS, hasGranularPermission } from '@/lib/permissionCatalog
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { AlertTriangle, Save } from 'lucide-react';
 
@@ -75,6 +76,68 @@ function CompanyEmailField({ employee, roles, onUpdated }) {
   );
 }
 
+// employees.supervisor_id drives Timecard's supervisor-approval stage (see
+// Timecard.jsonc) — distinct from the free-text supervisor_name, which stays
+// untouched here. Same edit pattern as CompanyEmailField above: HR-editable,
+// read-only display otherwise. Excludes the employee themself from the
+// picker (never self-supervise) and offers "No supervisor assigned" so HR
+// can explicitly clear a stale/incorrect link rather than being stuck once set.
+function SupervisorField({ employee, employees, roles, onUpdated }) {
+  const { toast } = useToast();
+  const canEdit = hasFullEmployeeAccess(roles);
+  const [value, setValue] = useState(employee.supervisor_id || '');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setValue(employee.supervisor_id || ''); }, [employee.id, employee.supervisor_id]);
+
+  const dirty = value !== (employee.supervisor_id || '');
+  const candidates = employees.filter((e) => e.id !== employee.id && e.is_active);
+  const supervisorName = employees.find((e) => e.id === employee.supervisor_id)?.full_name;
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const updated = await db.entities.employees.update(employee.id, { supervisor_id: value || null });
+      onUpdated(updated);
+      toast({ title: 'Supervisor updated' });
+    } catch (e) {
+      toast({ title: 'Unable to save supervisor', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-4">
+      <Label className="text-xs">Supervisor</Label>
+      {canEdit ? (
+        <div className="flex items-center gap-2 mt-1">
+          <Select value={value || '__none__'} onValueChange={(v) => setValue(v === '__none__' ? '' : v)}>
+            <SelectTrigger className="max-w-xs"><SelectValue placeholder="No supervisor assigned" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No supervisor assigned</SelectItem>
+              {candidates.map((e) => <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {dirty && (
+            <Button size="sm" onClick={handleSave} disabled={saving} className="gap-1.5 steel-gradient text-white border-0">
+              <Save className="w-3.5 h-3.5" />{saving ? 'Saving…' : 'Save'}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <p className="mt-1 text-sm">{supervisorName || '—'}</p>
+      )}
+      {!employee.supervisor_id && (
+        <p className="mt-1 text-[11px] text-amber-600 flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+          No supervisor assigned — this employee's timecards skip straight to payroll approval.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function EmployeeProfileDialog({ employee, employees = [], roles, granularPermissions, open, onOpenChange, onEmployeeUpdated }) {
   const [current, setCurrent] = useState(employee);
   const [currentUserName, setCurrentUserName] = useState('');
@@ -115,6 +178,7 @@ export default function EmployeeProfileDialog({ employee, employees = [], roles,
           </DialogDescription>
         </DialogHeader>
         <CompanyEmailField employee={current} roles={roles} onUpdated={handleUpdated} />
+        <SupervisorField employee={current} employees={employees} roles={roles} onUpdated={handleUpdated} />
         <Tabs defaultValue="access">
           <TabsList className="mb-4">
             <TabsTrigger value="access">System Access</TabsTrigger>
