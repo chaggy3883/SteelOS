@@ -175,7 +175,7 @@ export default function Inventory() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="list" className="gap-2"><List className="w-4 h-4" /> Inventory List</TabsTrigger>
-          <TabsTrigger value="leftover" className="gap-2"><Recycle className="w-4 h-4" /> Leftover Material</TabsTrigger>
+          <TabsTrigger value="leftover" className="gap-2"><Recycle className="w-4 h-4" /> Drop Pieces</TabsTrigger>
           <TabsTrigger value="warehouse" className="gap-2"><Warehouse className="w-4 h-4" /> 3D Warehouse</TabsTrigger>
         </TabsList>
 

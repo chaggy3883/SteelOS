@@ -117,7 +117,7 @@ export default function LabelPrintingPanel({ pieces, manifests, remnants = [], p
                   {canReprintHere ? (
                     <Button size="sm" variant="outline" className="flex-shrink-0" onClick={() => handleReprintLegacy(job)}>Reprint</Button>
                   ) : (
-                    <span className="text-xs text-muted-foreground flex-shrink-0">Reprint from Leftover Material Inventory</span>
+                    <span className="text-xs text-muted-foreground flex-shrink-0">Reprint from Drop Pieces Inventory</span>
                   )}
                 </div>
               );

@@ -105,7 +105,11 @@ export const detectRevisions = async (batch, stagedRows) => {
 export const findInventoryMatches = async (batch, stagedRows, skipRowIds = new Set()) => {
   const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
   const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
-  const remnants = await db.entities.remnant_inventory.filter({ status: 'available' }, '-created_date', 1000);
+  // status and is_assigned can drift apart (see findMatchingRemnants in
+  // materialOptimizer.js) — filter on both here too rather than trusting
+  // status alone, even though findWholePieceRemnantMatches below re-checks
+  // is_assigned itself.
+  const remnants = await db.entities.remnant_inventory.filter({ status: 'available', is_assigned: false }, '-created_date', 1000);
 
   const claimed = new Set();
   const matches = [];

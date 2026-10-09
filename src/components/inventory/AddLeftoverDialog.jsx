@@ -11,7 +11,7 @@ import { generatePiecePayload } from '@/lib/qrSerialization';
 
 const emptyForm = () => ({
   material_shape: '', material_grade: '', dimensions: '', length_in: '',
-  heat_number_string: '', source_project_id: '', notes: '',
+  heat_number_string: '', source_project_id: '', notes: '', rack: '', bin: '',
 });
 
 // Manual entry only, per confirmed intent — a leftover/drop from a job
@@ -44,7 +44,7 @@ export default function AddLeftoverDialog({ open, onOpenChange, projects, shopFl
     setSaving(true);
     try {
       const sourceProject = projects.find((p) => p.id === form.source_project_id);
-      const projectLabel = sourceProject?.project_number || sourceProject?.name || 'LEFTOVER';
+      const projectLabel = sourceProject?.project_number || sourceProject?.name || 'DROP';
       const qrPayload = generatePiecePayload(projectLabel, form.material_shape);
 
       const created = await db.entities.remnant_inventory.create({
@@ -55,6 +55,8 @@ export default function AddLeftoverDialog({ open, onOpenChange, projects, shopFl
         heat_number_string: form.heat_number_string.trim(),
         source_project_id: form.source_project_id,
         inventory_zone_id: form.inventory_zone_id || '',
+        rack: form.rack.trim(),
+        bin: form.bin.trim(),
         notes: form.notes.trim(),
         status: 'available',
         is_assigned: false,
@@ -62,11 +64,11 @@ export default function AddLeftoverDialog({ open, onOpenChange, projects, shopFl
         qr_payload_string: qrPayload,
       });
 
-      toast({ title: 'Leftover added to inventory', description: `QR ${qrPayload} — print it now and tag the piece.` });
+      toast({ title: 'Drop added to inventory', description: `QR ${qrPayload} — print it now and tag the piece.` });
       onCreated(created);
       handleClose(false);
     } catch (e) {
-      toast({ title: 'Unable to add leftover', variant: 'destructive' });
+      toast({ title: 'Unable to add drop', variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -75,7 +77,7 @@ export default function AddLeftoverDialog({ open, onOpenChange, projects, shopFl
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent>
-        <DialogHeader><DialogTitle>Add Leftover to Inventory</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Add Drop to Inventory</DialogTitle></DialogHeader>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Shape</Label>
@@ -106,6 +108,14 @@ export default function AddLeftoverDialog({ open, onOpenChange, projects, shopFl
               </SelectContent>
             </Select>
           </div>
+          <div>
+            <Label>Rack</Label>
+            <Input value={form.rack} onChange={(e) => set('rack')(e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <Label>Bin</Label>
+            <Input value={form.bin} onChange={(e) => set('bin')(e.target.value)} className="mt-1" />
+          </div>
           <div className="col-span-2">
             <Label>Source Project (where it came from)</Label>
             <Select value={form.source_project_id} onValueChange={set('source_project_id')}>
@@ -123,7 +133,7 @@ export default function AddLeftoverDialog({ open, onOpenChange, projects, shopFl
         <DialogFooter>
           <Button variant="outline" onClick={() => handleClose(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving} className="steel-gradient text-white border-0">
-            {saving ? 'Saving…' : 'Add Leftover'}
+            {saving ? 'Saving…' : 'Add Drop'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -54,7 +54,10 @@ export default function MaterialOptimizationGroupPanel({ group, projectId }) {
       const [catalog, runs, remnantRows, settingsRows] = await Promise.all([
         db.entities.steel_catalog.list('size_designation', 5000),
         db.entities.MaterialOptimizationRun.filter({ project_id: projectId, material_group_key: group.group_key }, '-created_date', 50),
-        db.entities.remnant_inventory.filter({ status: 'available' }, '-created_date', 500),
+        // status and is_assigned can drift apart (see findMatchingRemnants in
+        // materialOptimizer.js, which also re-checks is_assigned itself) —
+        // filter on both here too rather than trusting status alone.
+        db.entities.remnant_inventory.filter({ status: 'available', is_assigned: false }, '-created_date', 500),
         db.entities.SystemSetting.filter({ setting_group: 'production' }, '-created_date', 1),
       ]);
       const normalizedProfile = normalizeMaterialProfile(group.material_profile);

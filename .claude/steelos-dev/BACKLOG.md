@@ -5,6 +5,105 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-10-09) — Drop Pieces rename, inline location, Use-this-Drop assignment
+
+- **UI-only rename, "Leftover" -> "Drop"/"Drop Pieces"** across
+  `LeftoverInventoryPanel.jsx`, `AddLeftoverDialog.jsx`,
+  `RemnantInventoryDetailModal.jsx`, `Inventory.jsx`'s tab label, and one
+  stray reference in `LabelPrintingPanel.jsx` ("Reprint from Leftover
+  Material Inventory"). Grepped the whole `src/` tree for "leftover"
+  case-insensitive to confirm every user-visible string was caught —
+  remaining hits are component/file names (`LeftoverInventoryPanel.jsx`,
+  `AddLeftoverDialog.jsx`) and code comments, deliberately left alone per the
+  request's own "UI text only: do not rename the remnant_inventory entity or
+  any field" scope. The QR payload's fallback project-label prefix
+  (`AddLeftoverDialog.jsx`, used when no source project is picked) changed
+  `'LEFTOVER'` -> `'DROP'` too, since that string is embedded in the printed
+  label's actual QR text, not just a UI label.
+
+- **Inline location on the list row** (`LeftoverInventoryPanel.jsx`) — new
+  `rack`/`bin` fields on `remnant_inventory`
+  (`schema/entities/remnant_inventory.jsonc`), same free-text convention as
+  `InventoryItem.warehouse_rack`/`warehouse_bin` (that entity already has
+  this pattern; `remnant_inventory` didn't). Row shows the resolved zone name
+  plus rack/bin when any location is set, or an amber "No location" badge
+  when none is. Editable in both `AddLeftoverDialog.jsx` (create) and
+  `RemnantInventoryDetailModal.jsx` (edit, while still editable at all — see
+  below).
+
+- **"Use this Drop" action** (`RemnantInventoryDetailModal.jsx`, new
+  `UseRemnantDialog.jsx`) — previously a drop could only ever be consumed
+  automatically via a Detailer Import whole-piece match; there was no manual
+  path. Two mutually exclusive modes, shown only when
+  `status === 'available' && !is_assigned`:
+  (a) **Assign to a Project** — project picker (required) plus an optional
+  piece-mark picker scoped to that project (`PieceMark.filter({project_id})`)
+  and an optional note. Sets `is_assigned: true`, `assigned_project_id`,
+  `assigned_piece_mark_id` (blank if none picked), `status: 'consumed'`,
+  `consumed_date`, `used_reason: 'project_assignment'`. The existing
+  `qr_payload_string` is never touched — same physical label, different
+  owning record, matching the posture `detailerImportCommit.js`'s automatic
+  whole-piece-match transfer already uses.
+  (b) **Other** — a required free-text note (rejected empty, inline error,
+  no write attempted), sets `status: 'consumed'`, `used_reason: 'other'`,
+  `used_note`. `is_assigned` deliberately stays `false` here — nothing was
+  actually assigned to a project.
+  New fields on `remnant_inventory` (`schema/entities/remnant_inventory.jsonc`):
+  `used_reason` (enum `project_assignment`/`other`), `used_note`, `used_by`
+  (the acting user's display name, captured at save time). No new AuditLog
+  code — confirmed (same precedent as the 2026-10-09 Supervisor Approval and
+  2026-09-24 HR Admin passes above) that every plain
+  `db.entities.remnant_inventory.update()` call already writes an automatic
+  field-level AuditLog row per changed field, with actor (`user_id`/
+  `user_name`/`user_email`) attached, satisfying "every use writes an
+  AuditLog entry with actor, item, reason" with no parallel logging.
+  `RemnantInventoryDetailModal.jsx`'s `canEdit` was tightened to also exclude
+  `status === 'consumed'` (previously only excluded `is_assigned`/`removed`)
+  — an Other-used drop (is_assigned stays false) would otherwise have stayed
+  editable after being marked used, which contradicts "a used drop becomes a
+  read-only history record."
+
+- **Invariant fix: status/is_assigned drift** (confirmed real, per the
+  request's own note that earlier work found the two flags can disagree) —
+  `findMatchingRemnants` (`src/lib/materialOptimizer.js`), the function
+  `MaterialOptimizationGroupPanel.jsx` calls directly for cut-plan remnant
+  matching, previously filtered on `status === 'available'` alone with no
+  `is_assigned` check at all (unlike `findWholePieceRemnantMatches` a few
+  lines below it in the same file, which already checked `!r.is_assigned`).
+  Added `&& !r.is_assigned` directly in `findMatchingRemnants` — a single
+  fix that covers both of its call sites (itself, and transitively
+  `findWholePieceRemnantMatches`, where it's now a harmless redundant check).
+  Also hardened the two DB-level queries that fetch remnants before any
+  client-side filtering even runs — `detailerImportCommit.js`'s
+  `findInventoryMatches` and `MaterialOptimizationGroupPanel.jsx`'s
+  `loadData` — from `.filter({ status: 'available' })` to
+  `.filter({ status: 'available', is_assigned: false })`, so a drift in
+  either direction is caught at the query itself, not just downstream.
+
+- **Hand-traced** (no browser-automation tool in this project — per standing
+  feedback, code trace + build/lint first): (1) added a drop with a zone +
+  rack/bin, confirmed the list row resolves and shows the zone name plus
+  "rack / bin" sub-line immediately on create (no reload needed —
+  `handleCreated` prepends to local state). (2) Used it via "Assign to a
+  Project" with no piece mark picked — confirmed the record lands
+  `is_assigned: true, status: 'consumed'`, and that both
+  `findInventoryMatches`'s DB-level filter (`is_assigned: false` now fails)
+  and `findMatchingRemnants`'s client-side filter (`!r.is_assigned` now
+  fails, `status==='available'` also now fails) independently exclude it —
+  either check alone would have caught it, confirming the fix isn't relying
+  on a single flag. (3) Added a second drop, opened "Use this Drop" -> Other
+  with the note left blank -> confirmed `handleConfirm` returns early with
+  the inline error and never calls `onConfirm` (no write attempted); typed a
+  note and confirmed it saves with `used_reason: 'other'`, `is_assigned`
+  unchanged (`false`), `status: 'consumed'` — confirmed this one is also
+  excluded from both match paths the same way, and that
+  `RemnantInventoryDetailModal`'s `canEdit`/`canUse` both evaluate `false`
+  for it afterward (read-only, "Use this Drop" button gone) so it can't be
+  used a second time. `npm run build && npm run lint` clean (4112 modules,
+  0 lint errors/warnings beyond the pre-existing chunk-size notice). No
+  Playwright run (per standing feedback — code trace + build/lint first,
+  browser verification only on request).
+
 ## Also Closed (2026-10-09) — Supervisor approval stage for timecards
 
 - **New Timecard stage between employee submission and payroll's approve**:

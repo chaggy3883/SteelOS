@@ -9,12 +9,13 @@ import PrintableLabelSheet from '@/components/barcode-printing/PrintableLabelShe
 import AddLeftoverDialog from '@/components/inventory/AddLeftoverDialog';
 import RemnantInventoryDetailModal from '@/components/inventory/RemnantInventoryDetailModal';
 import RemoveRemnantDialog from '@/components/inventory/RemoveRemnantDialog';
+import UseRemnantDialog from '@/components/inventory/UseRemnantDialog';
 
 // QR lifecycle, manual-drop side: lists remnant_inventory rows (both
 // unassigned/available and already-assigned, for a visible history of where
-// a leftover's QR ended up) and hosts "Add Leftover to Inventory". Printing
-// reuses the exact same pipeline LabelPrintingPanel.jsx (ShopOperations.jsx)
-// uses for pieces/manifests — PrintableLabelSheet + buildZplPayload +
+// a drop's QR ended up) and hosts "Add Drop to Inventory". Printing reuses
+// the exact same pipeline LabelPrintingPanel.jsx (ShopOperations.jsx) uses
+// for pieces/manifests — PrintableLabelSheet + buildZplPayload +
 // print_label_jobs — scoped here to remnant_inventory as the target record,
 // using the Material_Stock label size that already existed for this purpose
 // but had nothing wired to trigger it yet.
@@ -28,9 +29,12 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
   const [viewingId, setViewingId] = useState(null);
   const [sheet, setSheet] = useState(null);
   const [removeTarget, setRemoveTarget] = useState(null);
+  const [useTarget, setUseTarget] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
   const [showRemoved, setShowRemoved] = useState(false);
 
   useEffect(() => { load(); }, []);
+  useEffect(() => { db.auth.me().then(setCurrentUser).catch(() => setCurrentUser(null)); }, []);
 
   const load = async () => {
     setLoading(true);
@@ -44,13 +48,14 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
       setProjects(projectRows || []);
       setPrintJobs(printJobRows || []);
     } catch (e) {
-      toast({ title: 'Unable to load leftover inventory', variant: 'destructive' });
+      toast({ title: 'Unable to load drop inventory', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
   const projectsById = projects.reduce((map, p) => { map[p.id] = p; return map; }, {});
+  const zoneLabel = (zoneId) => shopFloorZones.find((z) => z.id === zoneId)?.label || zoneId;
   const viewing = remnants.find((r) => r.id === viewingId) || null;
 
   const handleCreated = (created) => {
@@ -75,6 +80,38 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
       toast({ title: 'Removed from inventory' });
     } catch (e) {
       toast({ title: 'Unable to remove item', variant: 'destructive' });
+    }
+  };
+
+  const handleUse = async (payload) => {
+    if (!useTarget) return;
+    try {
+      const now = new Date().toISOString();
+      const usedBy = currentUser?.full_name || currentUser?.email || '';
+      const updateFields = payload.mode === 'project'
+        ? {
+            is_assigned: true,
+            assigned_project_id: payload.projectId,
+            assigned_piece_mark_id: payload.pieceMarkId || '',
+            status: 'consumed',
+            consumed_date: now,
+            used_reason: 'project_assignment',
+            used_note: payload.note || '',
+            used_by: usedBy,
+          }
+        : {
+            status: 'consumed',
+            consumed_date: now,
+            used_reason: 'other',
+            used_note: payload.note,
+            used_by: usedBy,
+          };
+      const updated = await db.entities.remnant_inventory.update(useTarget.id, updateFields);
+      handleUpdated(updated);
+      setUseTarget(null);
+      toast({ title: 'Drop marked used' });
+    } catch (e) {
+      toast({ title: 'Unable to use drop', variant: 'destructive' });
     }
   };
 
@@ -104,15 +141,15 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
   const legacyJobs = useMemo(() => findLegacyUnscannableLabelJobs(printJobs), [printJobs]);
 
   const visibleRemnants = remnants.filter((r) => (showRemoved ? r.status === 'removed' : r.status !== 'removed'));
-  const available = visibleRemnants.filter((r) => !r.is_assigned);
-  const assigned = visibleRemnants.filter((r) => r.is_assigned);
+  const available = visibleRemnants.filter((r) => !r.is_assigned && r.status !== 'consumed');
+  const assigned = visibleRemnants.filter((r) => r.is_assigned || r.status === 'consumed');
 
   return (
     <div className="steel-card">
       <div className="p-4 border-b border-border flex items-center justify-between">
         <div>
-          <h3 className="font-semibold text-sm flex items-center gap-2"><Recycle className="w-4 h-4 text-primary" />Leftover Material</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Manually logged drops/leftovers with their own printable QR — searchable and matchable against a new project's Detailer Import.</p>
+          <h3 className="font-semibold text-sm flex items-center gap-2"><Recycle className="w-4 h-4 text-primary" />Drop Pieces</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Manually logged drop pieces with their own printable QR — searchable and matchable against a new project's Detailer Import.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -124,7 +161,7 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
             <Archive className="w-4 h-4" />{showRemoved ? 'Showing Removed' : 'Show Removed'}
           </Button>
           <Button size="sm" className="gap-1.5 steel-gradient text-white border-0" onClick={() => setShowAdd(true)}>
-            <Plus className="w-4 h-4" />Add Leftover to Inventory
+            <Plus className="w-4 h-4" />Add Drop to Inventory
           </Button>
         </div>
       </div>
@@ -164,6 +201,7 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
             <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
               <th className="text-left py-3 px-4">Shape / Grade</th>
               <th className="text-left py-3 px-4">Dimensions</th>
+              <th className="text-left py-3 px-4">Location</th>
               <th className="text-left py-3 px-4">Source Project</th>
               <th className="text-left py-3 px-4">QR</th>
               <th className="text-left py-3 px-4">Status</th>
@@ -173,12 +211,12 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
           <tbody>
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <tr key={i}><td colSpan={6} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
+                <tr key={i}><td colSpan={7} className="py-3 px-4"><div className="h-6 bg-muted rounded animate-pulse" /></td></tr>
               ))
             ) : visibleRemnants.length === 0 ? (
-              <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">
+              <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">
                 <Recycle className="w-8 h-8 mx-auto mb-2" />
-                {showRemoved ? 'No removed leftover material.' : 'No leftover material logged yet'}
+                {showRemoved ? 'No removed drop pieces.' : 'No drop pieces logged yet'}
               </td></tr>
             ) : (
               [...available, ...assigned].map((r) => (
@@ -188,6 +226,16 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
                     <p className="text-xs text-muted-foreground">{r.material_grade || '—'}</p>
                   </td>
                   <td className="py-3 px-4 text-muted-foreground">{r.dimensions || (r.length_in ? `${r.length_in}"` : '—')}</td>
+                  <td className="py-3 px-4 text-muted-foreground">
+                    {r.inventory_zone_id || r.rack || r.bin ? (
+                      <>
+                        <p>{r.inventory_zone_id ? zoneLabel(r.inventory_zone_id) : '—'}</p>
+                        {(r.rack || r.bin) && <p className="text-xs">{[r.rack, r.bin].filter(Boolean).join(' / ')}</p>}
+                      </>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600">No location</span>
+                    )}
+                  </td>
                   <td className="py-3 px-4 text-muted-foreground">{projectsById[r.source_project_id]?.name || '—'}</td>
                   <td className="py-3 px-4 font-mono text-xs text-muted-foreground truncate max-w-[10rem]">{r.qr_payload_string || '—'}</td>
                   <td className="py-3 px-4">
@@ -195,6 +243,8 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
                       ? <span className="text-xs px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-500">Removed — {r.removed_reason || '—'}</span>
                       : r.is_assigned
                       ? <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600">Assigned — {projectsById[r.assigned_project_id]?.name || r.assigned_project_id}</span>
+                      : r.status === 'consumed'
+                      ? <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600">Used — Other</span>
                       : <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-500">Available</span>
                     }
                   </td>
@@ -235,6 +285,7 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
         onUpdated={handleUpdated}
         onPrint={handlePrint}
         onRemove={(remnant) => { setViewingId(null); setRemoveTarget(remnant); }}
+        onUse={(remnant) => { setViewingId(null); setUseTarget(remnant); }}
       />
 
       <RemoveRemnantDialog
@@ -242,6 +293,14 @@ export default function LeftoverInventoryPanel({ shopFloorZones }) {
         open={!!removeTarget}
         onOpenChange={(o) => !o && setRemoveTarget(null)}
         onConfirm={handleRemove}
+      />
+
+      <UseRemnantDialog
+        remnant={useTarget}
+        open={!!useTarget}
+        onOpenChange={(o) => !o && setUseTarget(null)}
+        projects={projects}
+        onConfirm={handleUse}
       />
 
       <PrintableLabelSheet

@@ -167,10 +167,16 @@ export function compareStockLengthOptions(piecesInGroup, stockLengthChoices, ker
 // 'available' remnants are offered; a group with no material_grade set on
 // its remnant matches nothing, same as the piece side (materialGroupKey
 // needs both sides present to agree).
+// Checks is_assigned alongside status, not status alone — the two can drift
+// apart (e.g. a remnant used via "Use this Drop" -> Other reason is
+// status:'consumed' with is_assigned staying false; a defensive bug
+// elsewhere could in principle flip one without the other), so a remnant is
+// only ever offered as a match when BOTH say it's still available.
 export function findMatchingRemnants(remnants, group) {
   const targetKey = materialGroupKey({ material_profile: group.material_profile, material_grade: group.material_grade });
   return (remnants || []).filter((r) => (
     r.status === 'available'
+    && !r.is_assigned
     && materialGroupKey({ material_profile: r.material_shape, material_grade: r.material_grade }) === targetKey
   ));
 }

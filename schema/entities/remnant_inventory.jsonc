@@ -79,6 +79,27 @@
       "type": "string",
       "format": "date-time",
       "description": "Set alongside status:'removed' — when this remnant was pulled out of circulation. Null unless status is 'removed'."
+    },
+    "rack": {
+      "type": "string",
+      "description": "Optional rack within inventory_zone_id, shown inline on the Drop Pieces list row alongside the resolved zone name so a drop can be located at a glance — same free-text convention as InventoryItem.warehouse_rack."
+    },
+    "bin": {
+      "type": "string",
+      "description": "Optional bin within rack/inventory_zone_id — same free-text convention as InventoryItem.warehouse_bin."
+    },
+    "used_reason": {
+      "type": "string",
+      "enum": ["project_assignment", "other"],
+      "description": "Set by the \"Use this Drop\" action (RemnantInventoryDetailModal.jsx) alongside status:'consumed' — 'project_assignment' when assigned to a project (see assigned_project_id/assigned_piece_mark_id, is_assigned also set true), 'other' for an internal-use reason not tied to any project (used_note is required in that case; is_assigned stays false since nothing was actually assigned). Null until used."
+    },
+    "used_note": {
+      "type": "string",
+      "description": "Free-text note captured by the \"Use this Drop\" action. Required when used_reason is 'other' (e.g. shop repair, internal use); optional additional context when used_reason is 'project_assignment'."
+    },
+    "used_by": {
+      "type": "string",
+      "description": "Display name of the user who performed the \"Use this Drop\" action, captured at that moment. The automatic per-field AuditLog entry this update() call also writes already attributes the change to the acting user_id/user_name — this is kept on the record itself too so the detail view can show it directly without a join."
     }
   },
   "required": [
