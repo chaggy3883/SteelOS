@@ -160,8 +160,17 @@ export default function PayrollHours() {
     return map;
   }, [employees, punchesByEmployee, weekDays]);
 
-  const filteredEmployees = employees.filter((emp) => {
+  // Everything except projectFilter — used for the Top Projects list so
+  // selecting a project doesn't collapse the list down to just itself.
+  const matchesNonProjectFilters = (emp) => {
     if (departmentFilter !== 'all' && emp.department !== departmentFilter) return false;
+    return true;
+  };
+
+  const employeesForTopProjects = employees.filter(matchesNonProjectFilters);
+
+  const filteredEmployees = employees.filter((emp) => {
+    if (!matchesNonProjectFilters(emp)) return false;
     if (projectFilter !== 'all') {
       const perDay = weekMinutesByEmployee[emp.id] || [];
       const touchedProject = perDay.some((d) => (d.projectMinutes[projectFilter] || 0) > 0);
@@ -183,13 +192,18 @@ export default function PayrollHours() {
     let totalMinutes = 0;
     let otMinutes = 0;
     let employeesWithHours = 0;
-    const projectMinutesTotal = {};
     filteredEmployees.forEach((emp) => {
       const { regularMinutes, overtimeMinutes } = employeeWeekTotals(emp);
       const empTotal = regularMinutes + overtimeMinutes;
       totalMinutes += empTotal;
       otMinutes += overtimeMinutes;
       if (empTotal > 0) employeesWithHours += 1;
+    });
+
+    // Scoped to everything except projectFilter so every project stays
+    // listed (and clickable) even once one is selected.
+    const projectMinutesTotal = {};
+    employeesForTopProjects.forEach((emp) => {
       (weekMinutesByEmployee[emp.id] || []).forEach((d) => {
         Object.entries(d.projectMinutes).forEach(([projectId, minutes]) => {
           if (!projectId) return;
@@ -202,8 +216,7 @@ export default function PayrollHours() {
       .sort((a, b) => b.hours - a.hours)
       .slice(0, 5);
     return { totalHours: hoursOf(totalMinutes), otHours: hoursOf(otMinutes), employeesWithHours, topProjects };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredEmployees, weekMinutesByEmployee]);
+  }, [filteredEmployees, employeesForTopProjects, weekMinutesByEmployee]);
 
   const dailyColumnTotals = weekDays.map((_, dayIdx) => {
     let regularMinutes = 0;
@@ -330,16 +343,29 @@ export default function PayrollHours() {
           <p className="text-2xl font-bold text-green-500">{summary.employeesWithHours}</p>
         </button>
         <div className="steel-card p-4">
-          <div className="flex items-center gap-2 mb-2"><FolderKanban className="w-4 h-4 text-primary" /><p className="text-xs text-muted-foreground">Top Projects (Labor Hours)</p></div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2"><FolderKanban className="w-4 h-4 text-primary" /><p className="text-xs text-muted-foreground">Top Projects (Labor Hours)</p></div>
+            {projectFilter !== 'all' && (
+              <button type="button" onClick={() => setProjectFilter('all')} className="text-[11px] text-primary hover:underline">All projects</button>
+            )}
+          </div>
           <div className="space-y-1">
             {summary.topProjects.length === 0 ? (
               <p className="text-xs text-muted-foreground">No project-tagged hours.</p>
-            ) : summary.topProjects.map(({ projectId, hours }) => (
-              <button type="button" key={projectId} onClick={() => { setProjectFilter(projectId); scrollToGrid(); }} className="w-full flex items-center justify-between text-xs rounded px-1 -mx-1 hover:bg-muted/50">
-                <span className="text-muted-foreground truncate" title={projectsById[projectId]?.name || projectId}>{projectsById[projectId]?.name || projectId}</span>
-                <span className="font-mono font-semibold">{hours.toFixed(1)}</span>
-              </button>
-            ))}
+            ) : summary.topProjects.map(({ projectId, hours }) => {
+              const isSelected = projectFilter === projectId;
+              return (
+                <button
+                  type="button"
+                  key={projectId}
+                  onClick={() => { setProjectFilter(isSelected ? 'all' : projectId); scrollToGrid(); }}
+                  className={`w-full flex items-center justify-between text-xs rounded px-1 -mx-1 ${isSelected ? 'bg-primary/10 ring-1 ring-primary/40' : 'hover:bg-muted/50'}`}
+                >
+                  <span className={`truncate ${isSelected ? 'text-foreground font-semibold' : 'text-muted-foreground'}`} title={projectsById[projectId]?.name || projectId}>{projectsById[projectId]?.name || projectId}</span>
+                  <span className="font-mono font-semibold">{hours.toFixed(1)}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
