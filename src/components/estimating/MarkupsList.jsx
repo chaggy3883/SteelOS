@@ -152,7 +152,7 @@ const WEIGHT_BADGES = {
 // record via pushed_material_line_id rather than creating a duplicate every
 // sync). Weight settings persist onto the blueprint_takeoffs session so they
 // survive a resume, mirroring tool_chest's own 800ms debounce.
-export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName, fileName, companyId, bidId, projectId, onLink, initialWeights }) {
+export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName, fileName, companyId, bidId, projectId, sequenceAreaId, onLink, initialWeights }) {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [settings, setSettings] = useState(() => mapInitialWeights(initialWeights));
@@ -288,6 +288,7 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
       return {
         bid_id: effectiveBidId || undefined,
         project_id: effectiveBidId ? undefined : (effectiveProjectId || undefined),
+        sequence_area_id: sequenceAreaId || undefined,
         material_type: group.shape_type || 'Bolt',
         material_size: group.size_designation || '',
         grade: group.grade || undefined,
@@ -312,6 +313,7 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
     const base = {
       bid_id: effectiveBidId || undefined,
       project_id: effectiveBidId ? undefined : (effectiveProjectId || undefined),
+      sequence_area_id: sequenceAreaId || undefined,
       material_type: materialType,
       shape_class: shapeClass,
       material_size: materialSize,

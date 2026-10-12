@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
@@ -216,6 +216,20 @@ export default function BlueprintTakeoff() {
   const [sessionLinkDraft, setSessionLinkDraft] = useState({});
   const [workspaceLinkDraft, setWorkspaceLinkDraft] = useState('');
   const [gridView, setGridView] = useState('takeoff');
+  // Bid-entry drop-first flow — the bid's own ProjectSequenceArea rows (empty,
+  // silently, for a bid with none defined), which area the estimator picked
+  // for the NEXT file(s) about to be dropped, and which area the CURRENTLY
+  // OPEN session was actually created with (restored on resume via
+  // openSession, set on create via enterNewSessionWorkspace).
+  const [bidAreas, setBidAreas] = useState([]);
+  const [pendingDropAreaId, setPendingDropAreaId] = useState(null);
+  const [sessionAreaId, setSessionAreaId] = useState(null);
+  // Inline rename of the open session's takeoff_name (workspace header) —
+  // the bid-entry drop-first flow never asks for a name up front, so this is
+  // the "editable later" half of that trade-off; also available for a
+  // standalone session.
+  const [editingTakeoffName, setEditingTakeoffName] = useState(false);
+  const [takeoffNameDraft, setTakeoffNameDraft] = useState('');
   // Confirmed Measurements table (Count/Length/Area rows only) — highlight
   // is which row's canvas marker most recently got clicked (cleared after a
   // short flash by highlightTimeoutRef), sort/excludedAreas drive that
@@ -342,6 +356,7 @@ export default function BlueprintTakeoff() {
   const [visualSearchError, setVisualSearchError] = useState(null);
 
   const fileInputRef = useRef(null);
+  const bidFileInputRef = useRef(null);
   const reattachInputRef = useRef(null);
   const activePdfUrlRef = useRef(null);
   const toolChestSaveTimerRef = useRef(null);
@@ -427,6 +442,16 @@ export default function BlueprintTakeoff() {
       .catch(() => setEstimatorFullName(''));
   }, [bid?.estimator_id]);
 
+  // This bid's own Areas (BidAreaManager.jsx), if any — drives the optional
+  // "Which area is this set for?" selector on the drop-first panel below.
+  // Silently empty for a bid with none defined, or when opened standalone.
+  useEffect(() => {
+    if (!bidId) { setBidAreas([]); return; }
+    db.entities.ProjectSequenceArea.filter({ bid_id: bidId }, 'production_priority', 200)
+      .then(setBidAreas)
+      .catch(() => setBidAreas([]));
+  }, [bidId]);
+
   // Blob URLs handed back by getPdf() are ours to revoke — swap them out
   // through this helper instead of setFileUrl directly so a session switch
   // (or unmount) never leaks the previous one.
@@ -442,10 +467,20 @@ export default function BlueprintTakeoff() {
     if (activePdfUrlRef.current) URL.revokeObjectURL(activePdfUrlRef.current);
   }, []);
 
+  // AppLayout resolves `user` via its own separate db.auth.me() call, so this
+  // page's very first render(s) always see `user` as null before it arrives
+  // — loadSessions still fires on that pass (company_id: undefined) and can
+  // finish with a stale/empty list before the real company_id is known.
+  // sessionsLoadedForCompanyRef records which company_id the last COMPLETED
+  // load actually reflects, so the auto-open effect below can tell a load
+  // that's merely finished apart from one that's finished FOR THE REAL USER.
+  const sessionsLoadedForCompanyRef = useRef(undefined);
+
   const loadSessions = async () => {
+    const forCompanyId = user?.company_id;
     setSessionsLoading(true);
     try {
-      const list = await db.entities.blueprint_takeoffs.filter({ company_id: user?.company_id }, '-created_date', 500);
+      const list = await db.entities.blueprint_takeoffs.filter({ company_id: forCompanyId }, '-created_date', 500);
       const sorted = [...list].sort((a, b) => {
         const aOpened = a.last_opened_at || '';
         const bOpened = b.last_opened_at || '';
@@ -475,6 +510,7 @@ export default function BlueprintTakeoff() {
       setSessions([]);
     } finally {
       setSessionsLoading(false);
+      sessionsLoadedForCompanyRef.current = forCompanyId;
     }
   };
 
@@ -482,24 +518,40 @@ export default function BlueprintTakeoff() {
     loadSessions();
   }, [user?.company_id]);
 
+  // This bid's own takeoff sessions only — drives the Resume list and the
+  // auto-open decision below when reached via a specific bid. Standalone
+  // (no bidId) keeps showing every company session, unfiltered, as before.
+  const bidSessions = useMemo(
+    () => (bidId ? sessions.filter((s) => s.bid_id === bidId) : sessions),
+    [sessions, bidId]
+  );
+
   // Reached via a bid's "Open IRONSIGHT" button (BidDetail.jsx) as
   // /estimating/blueprint-takeoff/:id — auto-resume that bid's own existing
   // session instead of leaving the estimator to find and click it in the
   // Resume list, so the button drops them straight into a session already
-  // scoped to this bid rather than a blank/unassociated one. No matching
-  // session yet just falls through to the normal sessions screen, whose
-  // "start a new takeoff" panel already force-links a bid-scoped new session
-  // (see handleNewTakeoffFile below) — nothing further to do for that case.
+  // scoped to this bid rather than a blank/unassociated one. Only when
+  // there's exactly one — with several, which one to auto-open is a real
+  // choice the estimator should make, so this falls through to the sessions
+  // screen (now scoped to just this bid's sessions) and its drop-first panel
+  // instead. No matching session at all also falls through, the same way.
   // Attempted once per page load (a ref, not state) so it doesn't fight a
   // deliberate "Back to Sessions" navigation afterward.
   const autoOpenAttemptedRef = useRef(false);
   useEffect(() => {
     if (!bidId || sessionsLoading || autoOpenAttemptedRef.current) return;
+    // sessionsLoading can flip back to false after a premature pass that ran
+    // before the real user/company_id was known (see sessionsLoadedForCompanyRef
+    // above) — wait for a completed load that's actually scoped to the
+    // current user before treating "how many sessions does this bid have" as
+    // settled, or this fires once on the wrong (empty) list and never gets
+    // another chance.
+    if (sessionsLoadedForCompanyRef.current !== user?.company_id) return;
     autoOpenAttemptedRef.current = true;
-    const existing = sessions.find((s) => s.bid_id === bidId);
-    if (existing) openSession(existing);
+    const matches = sessions.filter((s) => s.bid_id === bidId);
+    if (matches.length === 1) openSession(matches[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bidId, sessions, sessionsLoading]);
+  }, [bidId, user?.company_id, sessions, sessionsLoading]);
 
   const loadLinkTargets = async () => {
     if (!user) { setActiveBids([]); setActiveProjects([]); return; }
@@ -638,6 +690,8 @@ export default function BlueprintTakeoff() {
     setVisualSearchError(null);
     setSessionBidId(null);
     setSessionProjectId(null);
+    setSessionAreaId(null);
+    setEditingTakeoffName(false);
     setWorkspaceLinkDraft('');
     setGridView('takeoff');
     setMarkupWeights({});
@@ -686,6 +740,8 @@ export default function BlueprintTakeoff() {
     setCountSession(null);
     setSessionBidId(takeoff.bid_id || null);
     setSessionProjectId(takeoff.bid_id ? null : (takeoff.project_id || null));
+    setSessionAreaId(takeoff.sequence_area_id || null);
+    setEditingTakeoffName(false);
     setWorkspaceLinkDraft('');
     setGridView('takeoff');
     setMarkupWeights(takeoff.markup_weights || {});
@@ -750,6 +806,113 @@ export default function BlueprintTakeoff() {
     }
   };
 
+  const stripPdfExtension = (name) => (name || '').replace(/\.pdf$/i, '').trim();
+
+  // Core session-record creation, shared by the standalone named-upload flow
+  // (handleNewTakeoffFile) and the bid-entry drop-first flow below
+  // (handleBidFilesDrop) — just the UploadFile + blueprint_takeoffs.create,
+  // no workspace UI state. areaId is the bid-entry flow's optional
+  // ProjectSequenceArea pick; always undefined for a standalone session.
+  const createTakeoffRecord = async ({ file, name, areaId }) => {
+    const { file_url } = await db.integrations.Core.UploadFile({ file });
+    const pickedLink = bidId ? { bid_id: null, project_id: null } : parseLinkValue(newTakeoffLinkValue);
+    return db.entities.blueprint_takeoffs.create({
+      company_id: user?.company_id,
+      bid_id: bidId || pickedLink.bid_id || undefined,
+      project_id: bidId ? undefined : (pickedLink.project_id || undefined),
+      sequence_area_id: areaId || undefined,
+      takeoff_name: name,
+      file_url,
+      file_name: file.name,
+      sheet_count: 1,
+      scale_reference: '',
+      accepted_items: [],
+      has_stored_pdf: false,
+      last_opened_at: new Date().toISOString(),
+    });
+  };
+
+  // Stores a just-created session's PDF to IndexedDB in the background with
+  // no workspace UI feedback — used for every session in a multi-file
+  // bid-entry drop EXCEPT the one that's actually opened (enterNewSessionWorkspace
+  // below already does this with UI feedback for that one), since a
+  // not-currently-open session has no "storing…"/error UI to update anyway.
+  const persistTakeoffPdfQuietly = (created, file) => {
+    savePdf(created.id, file)
+      .then(() => db.entities.blueprint_takeoffs.update(created.id, { has_stored_pdf: true }))
+      .catch((e) => console.error('Failed to store PDF for offline resume (background session)', created.id, e));
+  };
+
+  // Opens a freshly-created session straight into the workspace — the same
+  // full state reset handleNewTakeoffFile always did, factored out so the
+  // bid-entry drop-first flow (possibly several files dropped at once) can
+  // open just the first one the exact same way.
+  const enterNewSessionWorkspace = (created, file) => {
+    setTakeoffId(created.id);
+    setTakeoffName(created.takeoff_name || file.name);
+    setHasStoredPdf(false);
+    // file_url (from UploadFile) is an opaque steelos-upload:<id> reference,
+    // not a fetchable URL — pdf.js can't load it. Display the in-memory
+    // File directly via its own object URL instead; setActivePdfUrl revokes
+    // it automatically on the next session switch/unmount. The persisted
+    // blueprint_takeoffs.file_url record and the background savePdf below
+    // are unaffected — this only changes what's handed to BlueprintCanvas.
+    setActivePdfUrl(URL.createObjectURL(file));
+    setFileName(file.name);
+    setSheetCount(null);
+    setScaleReference('');
+    setRows([]);
+    setScanError(null);
+    setPdfMissingNotice(false);
+    setReattachError(null);
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setCalFeet('');
+    setCalInches('');
+    setCalFraction('0');
+    setPxPerFt(null);
+    setCalibrationData(null);
+    setActiveTool(null);
+    setLengthPoints([]);
+    setAreaPoints([]);
+    setAreas({});
+    setPendingAreaPolygon(null);
+    setAreaNameModalOpen(false);
+    setToolChest([]);
+    setSelectedPresetId(null);
+    setCandidates([]);
+    setCandidateSourceRow(null);
+    setVisualSearchLoading(false);
+    setVisualSearchError(null);
+    setCountSetup(null);
+    setCountSetupModalOpen(false);
+    setPendingCountFields(null);
+    setCountColorModalOpen(false);
+    setCountSession(null);
+    setSessionBidId(created.bid_id || null);
+    setSessionProjectId(created.bid_id ? null : (created.project_id || null));
+    setSessionAreaId(created.sequence_area_id || null);
+    setEditingTakeoffName(false);
+    setWorkspaceLinkDraft('');
+    setGridView('takeoff');
+    setMarkupWeights({});
+    setPageNotes({});
+    setPageInfo({ pageNum: 1, numPages: 1 });
+    setMode('workspace');
+
+    // Open the workspace immediately — the PDF write to IndexedDB happens
+    // in the background so the user isn't stuck on the sessions screen
+    // waiting for it. has_stored_pdf/hasStoredPdf flip on once it lands.
+    savePdf(created.id, file)
+      .then(() => db.entities.blueprint_takeoffs.update(created.id, { has_stored_pdf: true }))
+      .then(() => setHasStoredPdf(true))
+      .catch((e) => {
+        console.error('Failed to store PDF for offline resume', e);
+        setHasStoredPdf(false);
+        setNewSessionError('This session was created, but the PDF could not be stored on this device — reopening it later will restore measurements only, not the drawing.');
+      });
+  };
+
   const handleNewTakeoffFile = async (file) => {
     if (!file) return;
     if (!newTakeoffName.trim()) {
@@ -759,87 +922,11 @@ export default function BlueprintTakeoff() {
     setNewSessionError(null);
     setCreatingSession(true);
     try {
-      const { file_url } = await db.integrations.Core.UploadFile({ file });
-      const pickedLink = bidId ? { bid_id: null, project_id: null } : parseLinkValue(newTakeoffLinkValue);
-      const created = await db.entities.blueprint_takeoffs.create({
-        company_id: user?.company_id,
-        bid_id: bidId || pickedLink.bid_id || undefined,
-        project_id: bidId ? undefined : (pickedLink.project_id || undefined),
-        takeoff_name: newTakeoffName.trim(),
-        file_url,
-        file_name: file.name,
-        sheet_count: 1,
-        scale_reference: '',
-        accepted_items: [],
-        has_stored_pdf: false,
-        last_opened_at: new Date().toISOString(),
-      });
-
-      setTakeoffId(created.id);
-      setTakeoffName(newTakeoffName.trim());
-      setHasStoredPdf(false);
-      // file_url (from UploadFile) is an opaque steelos-upload:<id> reference,
-      // not a fetchable URL — pdf.js can't load it. Display the in-memory
-      // File directly via its own object URL instead; setActivePdfUrl revokes
-      // it automatically on the next session switch/unmount. The persisted
-      // blueprint_takeoffs.file_url record and the background savePdf below
-      // are unaffected — this only changes what's handed to BlueprintCanvas.
-      setActivePdfUrl(URL.createObjectURL(file));
-      setFileName(file.name);
-      setSheetCount(null);
-      setScaleReference('');
-      setRows([]);
-      setScanError(null);
-      setPdfMissingNotice(false);
-      setReattachError(null);
-      setCalibrationMode(false);
-      setCalibrationPoints([]);
-      setCalFeet('');
-      setCalInches('');
-      setCalFraction('0');
-      setPxPerFt(null);
-      setCalibrationData(null);
-      setActiveTool(null);
-      setLengthPoints([]);
-      setAreaPoints([]);
-      setAreas({});
-      setPendingAreaPolygon(null);
-      setAreaNameModalOpen(false);
-      setToolChest([]);
-      setSelectedPresetId(null);
-      setCandidates([]);
-      setCandidateSourceRow(null);
-      setVisualSearchLoading(false);
-      setVisualSearchError(null);
-      setCountSetup(null);
-      setCountSetupModalOpen(false);
-      setPendingCountFields(null);
-      setCountColorModalOpen(false);
-      setCountSession(null);
-      setSessionBidId(created.bid_id || null);
-      setSessionProjectId(created.bid_id ? null : (created.project_id || null));
-      setWorkspaceLinkDraft('');
-      setGridView('takeoff');
-      setMarkupWeights({});
-      setPageNotes({});
-      setPageInfo({ pageNum: 1, numPages: 1 });
+      const created = await createTakeoffRecord({ file, name: newTakeoffName.trim(), areaId: null });
+      enterNewSessionWorkspace(created, file);
       setNewTakeoffLinkValue('');
-
       setNewTakeoffName('');
-      setMode('workspace');
       loadSessions();
-
-      // Open the workspace immediately — the PDF write to IndexedDB happens
-      // in the background so the user isn't stuck on the sessions screen
-      // waiting for it. has_stored_pdf/hasStoredPdf flip on once it lands.
-      savePdf(created.id, file)
-        .then(() => db.entities.blueprint_takeoffs.update(created.id, { has_stored_pdf: true }))
-        .then(() => setHasStoredPdf(true))
-        .catch((e) => {
-          console.error('Failed to store PDF for offline resume', e);
-          setHasStoredPdf(false);
-          setNewSessionError('This session was created, but the PDF could not be stored on this device — reopening it later will restore measurements only, not the drawing.');
-        });
     } catch (e) {
       console.error('Failed to create takeoff session', e);
       setNewSessionError('Could not create the takeoff session — see console for details.');
@@ -874,12 +961,77 @@ export default function BlueprintTakeoff() {
     await handleNewTakeoffFile(file);
   };
 
+  // Bid-entry drop-first flow — no name required up front (defaults from
+  // each file's own name), one session per dropped file, all linked to this
+  // bid and tagged with whatever area is currently selected in
+  // pendingDropAreaId (if the bid has any). The first session opens straight
+  // into the workspace; the rest are created and stored in the background
+  // and simply show up in the Resume list next time it's seen (loadSessions
+  // below already refreshes it, even though the estimator is mid-upload in
+  // the first file's workspace when that happens).
+  const handleBidFilesDrop = async (fileList) => {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (files.length === 0) return;
+    setNewSessionError(null);
+    setCreatingSession(true);
+    try {
+      const areaId = pendingDropAreaId;
+      const createdPairs = [];
+      for (const file of files) {
+        const name = stripPdfExtension(file.name) || file.name;
+        const created = await createTakeoffRecord({ file, name, areaId });
+        createdPairs.push({ created, file });
+      }
+      const [first, ...rest] = createdPairs;
+      enterNewSessionWorkspace(first.created, first.file);
+      rest.forEach(({ created, file }) => persistTakeoffPdfQuietly(created, file));
+      loadSessions();
+    } catch (e) {
+      console.error('Failed to create takeoff session(s)', e);
+      setNewSessionError('Could not create the takeoff session — see console for details.');
+    } finally {
+      setCreatingSession(false);
+    }
+  };
+
+  const handleBidBrowseSelect = async (e) => {
+    // Snapshot into a real array before clearing the input — e.target.files
+    // is a live FileList tied to the input's current value, so resetting
+    // e.target.value first (as handleNewBrowseSelect does, safe there since
+    // it extracts files[0] into a plain File reference immediately) would
+    // empty this one out from under handleBidFilesDrop's later iteration.
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    await handleBidFilesDrop(files);
+  };
+
+  const handleBidDrop = async (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    await handleBidFilesDrop(e.dataTransfer.files);
+  };
+
   const handleDragOver = (e) => {
     e.preventDefault();
     setIsDragOver(true);
   };
 
   const handleDragLeave = () => setIsDragOver(false);
+
+  // Inline rename (workspace header) — the only way to set a takeoff's name
+  // when it was created via the bid-entry drop-first flow, which never asks
+  // up front; also available for a standalone session.
+  const commitTakeoffNameEdit = () => {
+    const trimmed = takeoffNameDraft.trim();
+    setEditingTakeoffName(false);
+    if (!trimmed || trimmed === takeoffName) return;
+    setTakeoffName(trimmed);
+    if (takeoffId) {
+      db.entities.blueprint_takeoffs.update(takeoffId, { takeoff_name: trimmed }).catch((e) => {
+        console.error('Failed to rename takeoff', e);
+      });
+    }
+  };
 
   const handleStartCalibration = () => {
     setActiveTool(null);
@@ -2025,7 +2177,11 @@ export default function BlueprintTakeoff() {
           </svg>
           <div>
             <h1 className="text-3xl font-bold text-white tracking-tight leading-none">IRONSIGHT</h1>
-            <p className="text-sm text-slate-400 mt-1">Structural Steel Takeoff Platform</p>
+            <p className="text-sm text-slate-400 mt-1">
+              {bidId
+                ? (bid ? `Takeoff for Bid ${[bid.bid_number, bid.job_name].filter(Boolean).join(': ')}` : 'Loading bid…')
+                : 'Structural Steel Takeoff Platform'}
+            </p>
           </div>
         </div>
       ) : (
@@ -2045,15 +2201,15 @@ export default function BlueprintTakeoff() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-3">
             <h3 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
-              <FolderOpen className="w-4 h-4" />Resume a takeoff
+              <FolderOpen className="w-4 h-4" />{bidId ? "This Bid's Takeoff Sessions" : 'Resume a takeoff'}
             </h3>
             {sessionsLoading ? (
               <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading sessions…</p>
-            ) : sessions.length === 0 ? (
+            ) : bidSessions.length === 0 ? (
               <p className="text-sm text-muted-foreground">No takeoff sessions yet — start one on the right.</p>
             ) : (
               <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
-                {sessions.map((s) => {
+                {bidSessions.map((s) => {
                   const itemCount = (s.accepted_items || []).length;
                   return (
                     <Card key={s.id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => openSession(s)}>
@@ -2103,37 +2259,67 @@ export default function BlueprintTakeoff() {
             <h3 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
               <Plus className="w-4 h-4" />Start a new takeoff
             </h3>
-            <Input
-              placeholder='Takeoff name — e.g. "Scott Park Phase II — Sheets S1-S8"'
-              value={newTakeoffName}
-              onChange={(e) => setNewTakeoffName(e.target.value)}
-            />
-            {!bidId && (
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Link to Bid or Project (optional)</label>
-                <Select value={newTakeoffLinkValue} onValueChange={setNewTakeoffLinkValue}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Not linked" /></SelectTrigger>
-                  <SelectContent>
-                    {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
-                    {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name} ({b.bid_number})</SelectItem>)}
-                    {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
+            {bidId ? (
+              <>
+                {bidAreas.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Which area is this set for? (optional)</label>
+                    <Select value={pendingDropAreaId || 'unassigned'} onValueChange={(v) => setPendingDropAreaId(v === 'unassigned' ? null : v)}>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                        {bidAreas.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <div
+                  onClick={() => bidFileInputRef.current?.click()}
+                  onDrop={handleBidDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  className={`rounded-lg border-2 border-dashed p-12 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border bg-muted/20 hover:bg-muted/30'}`}
+                >
+                  <input ref={bidFileInputRef} type="file" accept=".pdf,image/*" multiple className="hidden" onChange={handleBidBrowseSelect} />
+                  {creatingSession ? <Loader2 className="w-12 h-12 text-primary animate-spin" /> : <UploadCloud className="w-12 h-12 text-primary" />}
+                  <p className="font-semibold text-base">Drag & drop blueprints here to start</p>
+                  <p className="text-xs text-muted-foreground">or click to browse — drop several files to create one session per sheet set, all linked to this bid. Name defaults from the file, editable later.</p>
+                </div>
+                {newSessionError && <p className="text-sm text-amber-600">{newSessionError}</p>}
+              </>
+            ) : (
+              <>
+                <Input
+                  placeholder='Takeoff name — e.g. "Scott Park Phase II — Sheets S1-S8"'
+                  value={newTakeoffName}
+                  onChange={(e) => setNewTakeoffName(e.target.value)}
+                />
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Link to Bid or Project (optional)</label>
+                  <Select value={newTakeoffLinkValue} onValueChange={setNewTakeoffLinkValue}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Not linked" /></SelectTrigger>
+                    <SelectContent>
+                      {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
+                      {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name} ({b.bid_number})</SelectItem>)}
+                      {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div
+                  onClick={handleNewDropzoneClick}
+                  onDrop={handleNewDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  className={`rounded-lg border-2 border-dashed p-8 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border bg-muted/20 hover:bg-muted/30'}`}
+                >
+                  <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleNewBrowseSelect} />
+                  {creatingSession ? <Loader2 className="w-10 h-10 text-primary animate-spin" /> : <UploadCloud className="w-10 h-10 text-primary" />}
+                  <p className="font-semibold">Drag & drop the blueprint package here</p>
+                  <p className="text-xs text-muted-foreground">or click to browse — multi-page PDFs and drawing sets accepted</p>
+                </div>
+                {newSessionError && <p className="text-sm text-amber-600">{newSessionError}</p>}
+              </>
             )}
-            <div
-              onClick={handleNewDropzoneClick}
-              onDrop={handleNewDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              className={`rounded-lg border-2 border-dashed p-8 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border bg-muted/20 hover:bg-muted/30'}`}
-            >
-              <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleNewBrowseSelect} />
-              {creatingSession ? <Loader2 className="w-10 h-10 text-primary animate-spin" /> : <UploadCloud className="w-10 h-10 text-primary" />}
-              <p className="font-semibold">Drag & drop the blueprint package here</p>
-              <p className="text-xs text-muted-foreground">or click to browse — multi-page PDFs and drawing sets accepted</p>
-            </div>
-            {newSessionError && <p className="text-sm text-amber-600">{newSessionError}</p>}
           </div>
         </div>
       )}
@@ -2147,7 +2333,31 @@ export default function BlueprintTakeoff() {
         >
         <>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="font-semibold truncate" title={takeoffName || fileName || 'Untitled takeoff'}>{takeoffName || fileName || 'Untitled takeoff'}</span>
+            {editingTakeoffName ? (
+              <Input
+                autoFocus
+                value={takeoffNameDraft}
+                onChange={(e) => setTakeoffNameDraft(e.target.value)}
+                onBlur={commitTakeoffNameEdit}
+                onKeyDown={(e) => { if (e.key === 'Enter') commitTakeoffNameEdit(); if (e.key === 'Escape') setEditingTakeoffName(false); }}
+                className="h-7 text-sm font-semibold w-64"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setTakeoffNameDraft(takeoffName); setEditingTakeoffName(true); }}
+                className="font-semibold truncate hover:underline decoration-dotted underline-offset-2"
+                title="Click to rename"
+              >
+                {takeoffName || fileName || 'Untitled takeoff'}
+              </button>
+            )}
+            {sessionAreaId && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <span className="text-xs text-muted-foreground">Area: {bidAreas.find((a) => a.id === sessionAreaId)?.name || 'Assigned'}</span>
+              </>
+            )}
             <span className="text-muted-foreground">·</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1"><Link2 className="w-3 h-3" />Linked to:</span>
             {sessionBidId ? (
@@ -2484,6 +2694,7 @@ export default function BlueprintTakeoff() {
                   companyId={user?.company_id}
                   bidId={sessionBidId}
                   projectId={sessionProjectId}
+                  sequenceAreaId={sessionAreaId}
                   onLink={(newBidId, newProjectId) => persistTakeoffLink(takeoffId, newBidId, newProjectId)}
                   initialWeights={markupWeights}
                 />

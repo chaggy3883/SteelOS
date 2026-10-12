@@ -11,6 +11,10 @@
     "bid_id": {
       "type": "string"
     },
+    "sequence_area_id": {
+      "type": "string",
+      "description": "Nullable FK to ProjectSequenceArea — which of the bid's own Areas (BidAreaManager.jsx) this takeoff session is for, picked optionally at drop time (BlueprintTakeoff.jsx's bid-entry drop-first panel). Null/unset means no area was picked, or the bid has none defined. Carried onto every MaterialTakeoffLine pushed from this session (MaterialTakeoffLine.sequence_area_id) via MarkupsList.jsx's buildPayload."
+    },
     "file_url": {
       "type": "string"
     },

@@ -5,6 +5,126 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-10-09) — IRONSIGHT entered from a Bid: drop-and-go, visibly tied to the bid
+
+- **Bid context banner** (`BlueprintTakeoff.jsx`'s sessions/landing screen) —
+  when reached with a `bidId` (via a bid's "Open IRONSIGHT" button), the dark
+  IRONSIGHT banner's subtitle now reads "Takeoff for Bid {bid_number}:
+  {job_name}" (joining only whichever of the two fields the bid actually has,
+  so a bid missing `job_name` in thin demo data doesn't print a bare trailing
+  colon) instead of the generic "Structural Steel Takeoff Platform". The
+  Resume list is also scoped to `bidSessions` (a `useMemo` filtering
+  `sessions` by `bid_id === bidId`) instead of the whole company's sessions,
+  heading relabeled "This Bid's Takeoff Sessions".
+- **Drop-first panel, no name required up front** — when `bidId` is present,
+  "Start a new takeoff" renders a large dropzone with no name field and no
+  link dropdown (both are implied/unnecessary — linking is automatic, and the
+  standalone-only `!bidId` branch keeps the original name-required +
+  link-dropdown + single-file behavior completely unchanged). New
+  `stripPdfExtension` defaults each created session's `takeoff_name` from its
+  own filename (minus `.pdf`); **"editable later"** is a new inline-rename
+  control on the workspace header's title (click to edit, Enter/blur commits
+  via `db.entities.blueprint_takeoffs.update(... { takeoff_name })`) — this
+  didn't exist in any form before this pass, standalone sessions can use it
+  too.
+- **Multiple files in one drop** — new `handleBidFilesDrop` (bid-context only)
+  accepts a `FileList`/array, creates one `blueprint_takeoffs` session per
+  file sequentially (`createTakeoffRecord`, factored out of the old single-file
+  `handleNewTakeoffFile` so both flows share it), opens the first straight
+  into the workspace (`enterNewSessionWorkspace`, also factored out) and
+  persists the rest's PDFs to IndexedDB quietly in the background
+  (`persistTakeoffPdfQuietly` — no "storing…" UI for a session that isn't
+  open) — they simply appear in the Resume list next time it's seen.
+  **Real bug caught and fixed during this work**: `handleBidBrowseSelect`
+  originally did `const files = e.target.files; e.target.value = '';` —
+  `e.target.files` is a live `FileList` tied to the input's current value,
+  so clearing the value immediately after capturing the reference (instead
+  of snapshotting into a real array first, as `handleNewBrowseSelect`
+  already safely does by extracting `files[0]` immediately) silently emptied
+  it out from under the later `Array.from(fileList)` call — confirmed via a
+  live Playwright repro (file input count correct, zero console errors, but
+  the dropzone just sat idle with no session ever created) before tracing to
+  the actual line. Fixed by snapshotting `Array.from(e.target.files || [])`
+  before clearing `e.target.value`.
+- **Areas** — new `sequence_area_id` field on `blueprint_takeoffs`
+  (`schema/entities/blueprint_takeoffs.jsonc`), nullable FK to
+  `ProjectSequenceArea`. New `bidAreas` state loads the bid's own Areas
+  (`ProjectSequenceArea.filter({ bid_id: bidId })`, same query
+  `FullTakeoff.jsx` already uses) — the optional "Which area is this set
+  for?" selector in the drop-first panel only renders when `bidAreas.length >
+  0` (skipped silently otherwise, per spec), defaulting to Unassigned.
+  Selecting one applies to every file in that drop batch (`pendingDropAreaId`
+  state, not reset between drops — picking a different area before the next
+  drop is how the trace's "second PDF with an area selected" scenario works).
+  Resumed/opened sessions restore `sessionAreaId` from the record
+  (`openSession`/`enterNewSessionWorkspace`), shown as a small "Area: {name}"
+  badge in the workspace header. Threaded through to the estimate:
+  `MarkupsList.jsx` gained a `sequenceAreaId` prop, written as
+  `sequence_area_id` on every pushed `MaterialTakeoffLine` (both the bolt and
+  the beam/length/area/count payload branches in `buildPayload`) — the field
+  itself (`MaterialTakeoffLine.sequence_area_id`) already existed from the
+  earlier Area work, this pass is what actually populates it from an
+  IRONSIGHT push.
+- **Auto-open changed to "only when exactly one"** — the existing
+  2026-09-15 "Open IRONSIGHT" auto-resume effect used to open ANY single
+  matching session unconditionally (effectively already "exactly one" by
+  accident, since `.find()` returns the first match regardless of how many
+  exist); now explicit: `sessions.filter(s => s.bid_id === bidId)`, auto-opens
+  only when `.length === 1`, otherwise falls through to the (now bid-scoped)
+  sessions list + drop-first panel.
+  **Real pre-existing race condition found and fixed during live
+  verification, not introduced by this pass**: `AppLayout.jsx` resolves
+  `user` via its own separate `db.auth.me()` call, so `BlueprintTakeoff`'s
+  very first render(s) always see `user` as `null` before that resolves.
+  `loadSessions()` still fired on that premature pass with
+  `company_id: undefined`, finishing with an empty list — and since the old
+  auto-open effect's `autoOpenAttemptedRef` guard only checked
+  `sessionsLoading`/`bidId`, that empty premature pass permanently consumed
+  the ref's one allowed attempt, so the auto-open NEVER fired once the real,
+  correctly-scoped session list arrived a moment later. This was silent
+  (no console error — just no auto-open, falling through to the sessions
+  list every time) and had gone undetected since 2026-09-15. Live Playwright
+  testing (approved for this task) first caught it as a confusing
+  reload-shows-the-dim-sessions-screen result; isolating it down to the exact
+  component tree and timing (not guessed) led to the real cause. Fixed with
+  new `sessionsLoadedForCompanyRef`, set in `loadSessions`'s `finally` block
+  to whichever `company_id` that specific completed fetch actually queried —
+  the auto-open effect now also requires
+  `sessionsLoadedForCompanyRef.current === user?.company_id` before treating
+  the session count as settled, so a premature pass (ref value `undefined`,
+  not yet matching the real company_id once it arrives) can never
+  permanently block the real one. Verified live: single-session bid now
+  reliably auto-opens straight to the workspace on a fresh reload;
+  multi-session bid reliably shows the list; standalone (no bidId) flow
+  confirmed unchanged (name required, link dropdown present, validation
+  error on empty name, single-file upload) as its own explicit regression
+  check.
+- **Push-to-estimate confirmed, not changed** — `MarkupsList`'s `bidId` prop
+  was already wired from `sessionBidId` (set from `created.bid_id`/
+  `takeoff.bid_id`), and `buildPayload` already writes `bid_id: effectiveBidId`
+  on every pushed line; this pass only added the `sequence_area_id` field
+  alongside it (see Areas above) — the push-lands-on-this-bid path itself
+  needed no change.
+- **Verified live in Chromium (Playwright, approved for this task)**: a
+  single dev-server instance (three stray leftover instances from earlier
+  in this session were found fighting over the same `db.json` file via
+  separate Windows PIDs — killed via `Stop-Process`, since Bash's own `kill`
+  inside this MSYS shell doesn't reach real Windows process IDs started via
+  `npm run dev &`). Full trace: banner shows "Takeoff for Bid BID-1001" on a
+  bid with no `job_name` seeded (graceful, no bare colon); drop one PDF with
+  no area selected — canvas renders real content, session shows "Linked to:
+  Bid"; back to sessions, select "North Wing" (created live via
+  `BidAreaManager`'s own "Add Area" UI, not seeded), drop a second PDF —
+  workspace shows "Area: North Wing"; back to sessions, drop three PDFs at
+  once — exactly 5 sessions total found afterward (2 prior + 3 new), all
+  named `test-drawing` (stripped from the shared test file's name), first one
+  auto-opened. Separately: a bid with exactly one session auto-opens to the
+  workspace on a fresh reload (canvas visible, "Back to sessions" present);
+  a bid with several sessions shows the list instead; standalone (no bidId)
+  regression confirmed unchanged. `npm run build && npm run lint` clean
+  (4113 modules, 0 lint errors) after every substantive change, not just at
+  the end.
+
 ## Also Closed (2026-10-09) — IRONSIGHT: PDF preview broken, Back to Sessions blank screen, no error boundary anywhere
 
 - **Root cause 1 (confirmed, fixed)**: `BlueprintTakeoff.jsx`'s `handleNewTakeoffFile`
