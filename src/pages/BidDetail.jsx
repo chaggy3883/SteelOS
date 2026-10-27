@@ -868,7 +868,7 @@ export default function BidDetail() {
         ) : (
           <>
             <TabsContent value="takeoff">
-              <TakeoffEngine ref={takeoffRef} bid={liveTaxBid} onSaved={() => loadBid()} />
+              <TakeoffEngine ref={takeoffRef} bid={liveTaxBid} onSaved={() => loadBid()} onOpenFullTakeoff={() => setActiveTab('fulltakeoff')} />
             </TabsContent>
 
             <TabsContent value="fulltakeoff">

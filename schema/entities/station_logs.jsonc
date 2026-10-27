@@ -13,7 +13,7 @@
     },
     "station_id": {
       "type": "number",
-      "enum": [1, 2, 3, 4, 5, 6]
+      "description": "Ids 1-6 are the original stations; a company can add more (7+) in Admin > Shop Stations & Routes — see SystemSetting.shop_stations. Names resolve via stationName() in src/lib/shopStations.js. A row with status Complete is what the route skipped-step check (src/lib/shopRoutes.js) counts as \"been through this station\"."
     },
     "status": {
       "type": "string",

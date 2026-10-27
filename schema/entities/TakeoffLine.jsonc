@@ -77,11 +77,13 @@
     },
     "is_auto_filled": {
       "type": "boolean",
-      "default": false
+      "default": false,
+      "description": "True when TakeoffEngine.jsx filled this line's quantity from the Full Takeoff: primer_paint <- Bid.estimated_paint_area_sqft, galvanizing <- Bid.estimated_galvanizing_tons, structural_fabrication <- Bid.estimated_man_hours (rounded to 0.1 hr). While true and is_overridden is false, the quantity is refreshed from the bid every time the worksheet loads (rate/markup are kept)."
     },
     "is_overridden": {
       "type": "boolean",
-      "default": false
+      "default": false,
+      "description": "True once the estimator types a different QUANTITY on an auto-filled line (rate/coverage/markup edits do not set it). Locks the quantity against later takeoff refreshes; the structural_fabrication line's 'Use takeoff hours' button clears it and re-attaches the line."
     },
     "source": {
       "type": "string",

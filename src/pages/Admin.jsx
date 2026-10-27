@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat, Presentation, ClipboardCheck, Package, FileImage } from 'lucide-react';
+import { ShieldCheck, Users, ScrollText, Calculator, MapPin, Database, Plug, Loader2, Boxes, Palette, LayoutTemplate, Layers, Tags, Truck, Radar, Wrench, CalendarClock, Percent, DollarSign, UserCog, HardHat, Presentation, ClipboardCheck, Package, FileImage, Factory } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getEffectiveCompany, isAdminUser, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
@@ -20,6 +20,7 @@ import FormReportSettingsPanel from '@/components/admin/FormReportSettingsPanel'
 import SteelCatalogPanel from '@/components/settings/SteelCatalogPanel';
 import MeetingModeSettingsPanel from '@/components/admin/MeetingModeSettingsPanel';
 import TurnoverMeetingSettingsPanel from '@/components/admin/TurnoverMeetingSettingsPanel';
+import ShopStationsPanel from '@/components/admin/ShopStationsPanel';
 
 const TABS = [
   { id: 'users', label: 'User Management', icon: Users, Component: UserManagement },
@@ -31,6 +32,10 @@ const TABS = [
   // Fab-pack only — a shop floor to lay out only exists for a company whose
   // plan includes shop fabrication (see modulePacks.js).
   { id: 'shopfloor', label: '3D Shop Floor Layout', icon: Boxes, Component: ShopFloorLayoutEditor, modulePath: '/shop-fabrication' },
+  // Fab-pack only, same gate as the floor layout — configurable stations +
+  // per-piece routes (src/lib/shopStations.js) only mean something to a
+  // company that runs shop stations.
+  { id: 'shop-stations', label: 'Shop Stations & Routes', icon: Factory, Component: ShopStationsPanel, modulePath: '/shop-fabrication' },
   // hr_admin needs this alongside full admin — it's also where the default
   // new-hire equipment kit policy lives (issuedAssetsApi.js), an HR-owned
   // setting, not just branding.

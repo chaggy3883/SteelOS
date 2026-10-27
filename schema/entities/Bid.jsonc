@@ -166,7 +166,8 @@
     },
     "estimated_man_hours": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Shop fabrication man-hours from the Full Takeoff (FullTakeoff.jsx): sum over MaterialTakeoffLine of total_tons x the shape class's hoursPerTon (src/data/steelShapeSelector.js), divided by shop_efficiency_pct/100. Written on Full Takeoff save; auto-fills the Bid Worksheet's Structural Fabrication hours (TakeoffLine cost_category 'structural_fabrication'), never overwriting an overridden line."
     },
     "estimated_paint_area_sqft": {
       "type": "number",

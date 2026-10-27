@@ -104,3 +104,35 @@ export const deleteShopDrawingFile = async (drawingId) => {
     transaction.onerror = () => finish(() => reject(new Error(`Failed to delete shop drawing ${drawingId}: ${transaction.error?.message || 'unknown error'}`)));
   });
 };
+
+// Revision support (see src/lib/drawingReleaseStatus.js revisionFileKey):
+// the CURRENT revision's PDF always lives under the drawing's own id, so
+// every existing caller of getShopDrawingFileUrl(drawing.id) keeps opening
+// the current sheet. Adding a revision moves the outgoing PDF to
+// `archiveKey` and writes the new PDF under the drawing id — in ONE
+// transaction, so a failure can't leave the old file overwritten and lost.
+// Older revisions are read back with getShopDrawingFileUrl(archiveKey).
+export const saveShopDrawingRevisionFile = async (drawingId, archiveKey, file) => {
+  if (!drawingId || !archiveKey || !file) return;
+
+  const db = await openDatabase();
+  if (!db) return;
+
+  await new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (handler) => { if (settled) return; settled = true; closeDatabase(db); handler(); };
+
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const getRequest = store.get(drawingId);
+
+    getRequest.onsuccess = () => {
+      if (getRequest.result) store.put(getRequest.result, archiveKey);
+      store.put(file, drawingId);
+    };
+
+    transaction.oncomplete = () => finish(() => resolve());
+    transaction.onerror = () => finish(() => reject(new Error(`Failed to store new revision for shop drawing ${drawingId}: ${transaction.error?.message || 'unknown error'}`)));
+    transaction.onabort = () => finish(() => reject(new Error(`Storing new revision for shop drawing ${drawingId} was aborted: ${transaction.error?.message || 'unknown error'}`)));
+  });
+};

@@ -52,6 +52,27 @@
     },
     "notes": {
       "type": "string"
+    },
+    "put_away_status": {
+      "type": "string",
+      "enum": ["pending", "stocked", "skipped"],
+      "description": "Set to 'pending' when ReceivingKiosk.jsx creates the log; the guided Put it away step (src/components/receiving/PutAwayStep.jsx) flips it to 'stocked' (after writing a 'receive' inventory_transactions row for quantity_received_this_delivery) or 'skipped' (with put_away_skip_reason). Blank on logs created before put-away existed — those never touched stock."
+    },
+    "put_away_skip_reason": {
+      "type": "string",
+      "description": "Required when put_away_status is 'skipped', e.g. 'Going straight to a job — Smith Warehouse'."
+    },
+    "inventory_item_id": {
+      "type": "string",
+      "description": "FK to the InventoryItem this delivery was put away into (put_away_status 'stocked')."
+    },
+    "inventory_transaction_id": {
+      "type": "string",
+      "description": "FK to the 'receive' inventory_transactions row written for this delivery."
+    },
+    "put_away_at": {
+      "type": "string",
+      "format": "date-time"
     }
   },
   "required": [

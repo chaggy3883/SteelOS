@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Truck, PackageCheck, Search, Eye } from 'lucide-react';
 import PurchaseOrderDetailModal, { PO_STATUS_STYLES, DEFAULT_PO_STATUS_STYLE } from '@/components/purchasing/PurchaseOrderDetailModal';
 import MtrReader from '@/components/receiving/MtrReader';
+import PutAwayStep from '@/components/receiving/PutAwayStep';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { notifyUsersByRole } from '@/lib/notifyRoles';
 import { INVOICE_APPROVAL_ROLES } from '@/components/dashboard/widgetContent';
@@ -36,7 +37,13 @@ export default function ReceivingKiosk() {
   const [looked, setLooked] = useState(false);
   const [reviewPoId, setReviewPoId] = useState(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [shopFloorZones, setShopFloorZones] = useState([]);
+  const [pendingPutAways, setPendingPutAways] = useState([]);
+  // Deliveries waiting on the guided "Put it away" step, as { log, line }.
+  // The first one is shown; finishing or skipping it moves to the next.
+  const [putAwayQueue, setPutAwayQueue] = useState([]);
   const matchedPoRef = useRef(null);
+  const putAwayRef = useRef(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -44,15 +51,32 @@ export default function ReceivingKiosk() {
     if (matchedPo) matchedPoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [matchedPo]);
 
+  const activePutAway = putAwayQueue[0] || null;
+  useEffect(() => {
+    if (activePutAway) putAwayRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [activePutAway?.log.id]);
+
+  const startPutAway = (log) => {
+    const line = allPoLines.find((l) => l.id === log.line_id) || null;
+    setPutAwayQueue((prev) => [{ log, line }, ...prev.filter((q) => q.log.id !== log.id)]);
+  };
+
+  const finishPutAway = () => {
+    setPutAwayQueue((prev) => prev.slice(1));
+    loadData();
+  };
+
   const loadData = async () => {
     try {
-      const [poList, logList, lineList, projectList, vendorList, subcontractList] = await Promise.all([
+      const [poList, logList, lineList, projectList, vendorList, subcontractList, zoneList, pendingList] = await Promise.all([
         db.entities.purchase_orders.list('-created_date', 100),
         db.entities.receiving_logs.list('-created_date', 10),
         db.entities.purchase_order_lines.list('-created_date', 500),
         db.entities.Project.filter({ is_archived: false }, 'name', 200),
         db.entities.Vendor.list('name', 500),
         db.entities.Subcontract.list('-created_date', 500),
+        db.entities.ShopFloorZone.list('-created_date', 200).catch(() => []),
+        db.entities.receiving_logs.filter({ put_away_status: 'pending' }, '-created_date', 100).catch(() => []),
       ]);
       setPurchaseOrders(poList);
       setRecentLogs(logList);
@@ -60,6 +84,8 @@ export default function ReceivingKiosk() {
       setProjects(projectList);
       setVendors(vendorList);
       setSubcontracts(subcontractList);
+      setShopFloorZones(zoneList);
+      setPendingPutAways(pendingList);
     } catch (e) {}
   };
 
@@ -237,6 +263,7 @@ export default function ReceivingKiosk() {
       const me = await db.auth.me().catch(() => null);
 
       const updatedLines = [];
+      const newPutAways = [];
       for (const line of linesToReceive) {
         const input = lineInputs[line.id];
         const receiveQty = Number(input.receiveNow) || 0;
@@ -244,7 +271,7 @@ export default function ReceivingKiosk() {
         const isFullyReceived = newReceived >= (Number(line.quantity_ordered) || 0);
         const deliveryStatus = isFullyReceived ? 'Received Complete' : 'Partial Delivery';
 
-        await db.entities.receiving_logs.create({
+        const createdLog = await db.entities.receiving_logs.create({
           po_id: matchedPo.id,
           po_number: matchedPo.po_number,
           line_id: line.id,
@@ -258,6 +285,9 @@ export default function ReceivingKiosk() {
           receiver_name: me?.full_name || '',
           notes: `Condition: ${input.condition || 'Good'}`,
           verified: true,
+          // Stock isn't touched here — the guided Put it away step below
+          // books exactly receiveQty into inventory (or records why not).
+          put_away_status: 'pending',
         });
 
         const updatedLine = await db.entities.purchase_order_lines.update(line.id, {
@@ -266,6 +296,7 @@ export default function ReceivingKiosk() {
           is_fully_received: isFullyReceived,
         });
         updatedLines.push(updatedLine);
+        newPutAways.push({ log: createdLog, line: updatedLine });
       }
 
       const mergedLines = poLines.map(l => updatedLines.find(u => u.id === l.id) || l);
@@ -292,6 +323,7 @@ export default function ReceivingKiosk() {
 
       setLineInputs(buildLineInputs(mergedLines));
       setFiles([]);
+      setPutAwayQueue((prev) => [...prev, ...newPutAways]);
       loadData();
     } catch (e) {
       toast({ title: 'Unable to log receiving', variant: 'destructive' });
@@ -359,6 +391,49 @@ export default function ReceivingKiosk() {
       </div>
 
       <PurchaseOrderDetailModal open={reviewOpen} onOpenChange={setReviewOpen} poId={reviewPoId} showCosts={false} />
+
+      {activePutAway && (
+        <div ref={putAwayRef}>
+          <PutAwayStep
+            key={activePutAway.log.id}
+            log={activePutAway.log}
+            line={activePutAway.line}
+            po={purchaseOrders.find((p) => p.id === activePutAway.log.po_id) || matchedPo}
+            shopFloorZones={shopFloorZones}
+            position={1}
+            total={putAwayQueue.length}
+            onFinished={finishPutAway}
+          />
+        </div>
+      )}
+
+      {!activePutAway && pendingPutAways.length > 0 && (
+        <div className="steel-card p-6 mb-6">
+          <h3 className="font-semibold mb-1 text-lg">Waiting to be put away ({pendingPutAways.length})</h3>
+          <p className="text-sm text-muted-foreground mb-3">Received but not yet added to stock. Tap one to finish it.</p>
+          <div className="space-y-2">
+            {pendingPutAways.map((log) => {
+              const line = allPoLines.find((l) => l.id === log.line_id);
+              return (
+                <button
+                  type="button"
+                  key={log.id}
+                  onClick={() => startPutAway(log)}
+                  className="w-full flex items-center justify-between gap-3 p-3 rounded-lg border border-border text-left text-sm hover:bg-muted/50 transition-colors"
+                >
+                  <span>
+                    <span className="font-medium">{log.po_number}</span> · {line?.description || 'PO line'}
+                    <span className="block text-xs text-muted-foreground">
+                      {log.created_date ? new Date(log.created_date).toLocaleString() : ''}{log.receiver_name ? ` · ${log.receiver_name}` : ''}{log.material_heat_number ? ` · Heat ${log.material_heat_number}` : ''}
+                    </span>
+                  </span>
+                  <span className="font-semibold">{log.quantity_received_this_delivery} {line?.unit_of_measure || ''}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="steel-card p-6 mb-6 space-y-4">
         <div>
@@ -552,6 +627,19 @@ export default function ReceivingKiosk() {
                     </span>
                     {poLinesForLog.length > 0 && (
                       <p className="text-xs text-muted-foreground mt-1">PO {poCompletionPct}% received</p>
+                    )}
+                    {log.put_away_status === 'pending' && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); startPutAway(log); }}
+                        className="text-xs text-primary hover:underline mt-1 block ml-auto"
+                      >
+                        Needs put-away →
+                      </button>
+                    )}
+                    {log.put_away_status === 'stocked' && <p className="text-xs text-green-600 mt-1">Put in stock</p>}
+                    {log.put_away_status === 'skipped' && (
+                      <p className="text-xs text-muted-foreground mt-1" title={log.put_away_skip_reason}>Not stocked: {log.put_away_skip_reason}</p>
                     )}
                   </div>
                 </div>

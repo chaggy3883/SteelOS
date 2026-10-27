@@ -25,6 +25,16 @@ const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 // lost; they're just not rendered in the takeoff form for that company.
 const FABRICATION_ONLY_CATEGORIES = ['structural_material', 'structural_fabrication', 'shop_priming'];
 
+// The Structural Fabrication line's Hours auto-fill from the Full Takeoff's
+// shop man-hours (FullTakeoff.jsx: each MaterialTakeoffLine's total_tons x
+// its shape class's hoursPerTon from steelShapeSelector.js, divided by the
+// bid's Shop Efficiency %, saved as Bid.estimated_man_hours). Rounded to one
+// decimal, the same way the Full Takeoff's "Total Estimated Man-Hours" card
+// shows it, so the two screens always read the same number.
+const FAB_HOURS_CATEGORY_KEY = 'structural_fabrication';
+const roundTakeoffHours = (hours) => Math.round((Number(hours) || 0) * 10) / 10;
+const formatHours = (hours) => roundTakeoffHours(hours).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
 // Categories whose rate field is filled from a company-configurable default
 // (CostCategoryDefaultRate, admin-managed at /admin/bid-worksheet-rates) —
 // the per-company equivalent of default_markup_pct below, kept out of
@@ -87,7 +97,7 @@ export const COST_CATEGORIES = [
   // leedHourlyRate, and leedSurchargeAmount.
 ];
 
-const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
+const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFullTakeoff }, ref) {
   const { toast } = useToast();
   const [lines, setLines] = useState({});
   const [overrides, setOverrides] = useState({
@@ -214,6 +224,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
 
   useEffect(() => { loadLines(); }, [bid?.id]);
 
+  const takeoffFabHours = roundTakeoffHours(bid?.estimated_man_hours);
+
   // Recomputes the effective tax rate (jurisdiction table first, Ohio
   // hardcoded fallback second, manual entry last) live as the bid's address
   // or tax settings change — computeEffectiveTaxRate is async because it now
@@ -298,11 +310,26 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         // (no saved row, or a saved row still is_auto_filled && !is_overridden),
         // and only when the takeoff actually produced a positive number, so a
         // bid with no takeoff run yet still starts blank instead of "AUTO 0".
+        // Structural Fabrication hours follow the same rule from the takeoff's
+        // shop man-hours (see FAB_HOURS_CATEGORY_KEY above). One extra case
+        // for that line only: a saved row that is still blank (0 hours, never
+        // auto-filled, never overridden) also picks up the takeoff hours —
+        // handleSave writes a row for every category, so any bid whose
+        // worksheet was saved before its takeoff existed has exactly that
+        // blank row, and it would otherwise never fill in.
         const autoQty = cat.key === 'primer_paint' ? Number(bid?.estimated_paint_area_sqft) || 0
           : cat.key === 'galvanizing' ? Number(bid?.estimated_galvanizing_tons) || 0
+          : cat.key === FAB_HOURS_CATEGORY_KEY ? takeoffFabHours
           : 0;
-        if (autoQty > 0 && (!found || (found.is_auto_filled && !found.is_overridden))) {
-          const base = found || { quantity: 0, unit_cost: 0, coverage_rate: 300, markup_percentage: categoryDefaultMarkupPct, id: null };
+        const isBlankFabRow = cat.key === FAB_HOURS_CATEGORY_KEY && found && !found.is_auto_filled && !found.is_overridden && !(Number(found.quantity) > 0);
+        if (autoQty > 0 && (!found || (found.is_auto_filled && !found.is_overridden) || isBlankFabRow)) {
+          const base = found || {
+            quantity: 0,
+            unit_cost: RATE_DEFAULT_CATEGORY_KEYS.includes(cat.key) ? (defaultRateByCategory.get(cat.key) ?? 0) : 0,
+            coverage_rate: 300,
+            markup_percentage: categoryDefaultMarkupPct,
+            id: null,
+          };
           const unitCost = base.unit_cost || 0;
           const coverageRate = base.coverage_rate ?? 300;
           map[cat.key] = {
@@ -312,6 +339,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
             markup_percentage: base.markup_percentage ?? categoryDefaultMarkupPct,
             total_cost: cat.inputMode === 'coverage' ? (autoQty / (coverageRate || 300)) * unitCost : autoQty * unitCost,
             is_auto_filled: true,
+            is_overridden: false,
             source: 'calculated',
           };
           return;
@@ -344,7 +372,11 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
   const updateLine = (key, field, value) => {
     setLines(prev => {
       const line = prev[key] || { quantity: 0, unit_cost: 0, coverage_rate: 300 };
-      const updated = { ...line, [field]: value, is_overridden: line.is_auto_filled && field !== 'source' ? true : line.is_overridden };
+      // Only a hand-typed QUANTITY detaches an auto-filled line from the
+      // takeoff — the auto-fill only ever supplies quantity, and loadLines
+      // keeps the saved rate/coverage either way, so setting the shop rate
+      // on an auto-filled line must not stop its hours following the takeoff.
+      const updated = { ...line, [field]: value, is_overridden: line.is_auto_filled && field === 'quantity' ? true : line.is_overridden };
       const cat = COST_CATEGORIES.find(c => c.key === key);
       updated.total_cost = cat?.inputMode === 'coverage'
         ? ((updated.quantity || 0) / (updated.coverage_rate || 300)) * (updated.unit_cost || 0)
@@ -352,6 +384,40 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       return { ...prev, [key]: updated };
     });
     setDirty(true);
+  };
+
+  // "Use takeoff hours" — puts the Structural Fabrication line back on the
+  // takeoff's number and re-attaches it, so later takeoff saves flow through
+  // again. Works for an overridden auto line and for a line typed in by hand
+  // before auto-fill existed.
+  const resetFabHoursToTakeoff = () => {
+    setLines(prev => {
+      const line = prev[FAB_HOURS_CATEGORY_KEY] || { quantity: 0, unit_cost: 0, coverage_rate: 300 };
+      const updated = {
+        ...line,
+        quantity: takeoffFabHours,
+        total_cost: takeoffFabHours * (line.unit_cost || 0),
+        is_auto_filled: true,
+        is_overridden: false,
+        source: 'calculated',
+      };
+      return { ...prev, [FAB_HOURS_CATEGORY_KEY]: updated };
+    });
+    setDirty(true);
+  };
+
+  // Drill-down from the fabrication hours to the takeoff lines that produced
+  // them (the Full Takeoff tab). Switching tabs unmounts this worksheet, so
+  // unsaved edits here are saved first rather than silently dropped.
+  const openFullTakeoff = async () => {
+    if (!onOpenFullTakeoff) return;
+    if (dirty) {
+      const shouldSave = window.confirm('Save your worksheet changes before opening the Full Takeoff?');
+      if (!shouldSave) return;
+      const saved = await handleSave();
+      if (!saved) return;
+    }
+    onOpenFullTakeoff();
   };
 
   const updateLineMarkup = (key, value) => {
@@ -517,8 +583,10 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
       toast({ title: 'Takeoff saved!' });
       setDirty(false);
       onSaved?.();
+      return true;
     } catch (e) {
       toast({ title: 'Save failed', description: e?.message, variant: 'destructive' });
+      return false;
     } finally { setSaving(false); }
   };
 
@@ -552,6 +620,61 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
     setDocuments([]);
   };
 
+  // Plain-language note under the Structural Fabrication line saying where
+  // its hours came from. Every hours figure here is a link to the Full
+  // Takeoff tab (the takeoff lines behind it) when the parent provides one.
+  const renderFabHoursNote = (line) => {
+    const lineHours = Number(line.quantity) || 0;
+    const hoursLink = (hours, className) => (onOpenFullTakeoff ? (
+      <button type="button" onClick={openFullTakeoff} title="Show the takeoff lines these hours come from" className={cn('font-semibold underline underline-offset-2 hover:opacity-80', className)}>
+        {formatHours(hours)} hrs
+      </button>
+    ) : <span className={cn('font-semibold', className)}>{formatHours(hours)} hrs</span>);
+    const openTakeoffButton = onOpenFullTakeoff && (
+      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={openFullTakeoff}>Open Full Takeoff</Button>
+    );
+    const useTakeoffButton = (
+      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={resetFabHoursToTakeoff}>Use takeoff hours</Button>
+    );
+
+    if (takeoffFabHours <= 0) {
+      if (line.is_auto_filled && !line.is_overridden && lineHours > 0) {
+        return (
+          <div className="w-full flex flex-wrap items-center gap-2 text-xs text-yellow-700 dark:text-yellow-500">
+            <span>The Full Takeoff now shows 0 shop hours, but this line still has {formatHours(lineHours)} hrs from an earlier takeoff. Check the takeoff, or type the hours you want.</span>
+            {openTakeoffButton}
+          </div>
+        );
+      }
+      return (
+        <div className="w-full flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>No takeoff hours yet. Fill in and save the Full Takeoff and its shop hours will drop in here — or type the hours in yourself.</span>
+          {openTakeoffButton}
+        </div>
+      );
+    }
+
+    if (line.is_auto_filled && !line.is_overridden) {
+      return (
+        <div className="w-full flex flex-wrap items-center gap-2 text-xs">
+          <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+            From takeoff: {hoursLink(takeoffFabHours)}
+          </span>
+          <span className="text-muted-foreground">Follows the Full Takeoff every time it's saved. Type a different number to set your own.</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="w-full flex flex-wrap items-center gap-2 text-xs">
+        <span className="px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-700 dark:text-yellow-500">
+          {line.is_overridden ? 'Overridden' : 'Typed in by hand'} — takeoff says {hoursLink(takeoffFabHours)}
+        </span>
+        {useTakeoffButton}
+      </div>
+    );
+  };
+
   if (loading) return <div className="h-64 bg-muted rounded-xl animate-pulse" />;
 
   return (
@@ -561,7 +684,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
         <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm">
           <Info className="w-4 h-4 text-blue-500 flex-shrink-0" />
           <span className="text-blue-700 dark:text-blue-400">
-            Blue-tagged rows were auto-filled from BIM/AI data. Overridden cells are highlighted in yellow.
+            Blue rows were filled in from the Full Takeoff. Yellow rows were changed by hand and no longer follow the takeoff.
           </span>
         </div>
       )}
@@ -685,6 +808,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved }, ref) {
                     <Upload className="w-3.5 h-3.5 mr-1" />Docs
                   </Button>
                 </div>
+                {cat.key === FAB_HOURS_CATEGORY_KEY && renderFabHoursNote(line)}
               </div>
             );
           })}

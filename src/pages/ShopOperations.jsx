@@ -5,7 +5,9 @@ import { db } from '@/api/apiClient';
 import {
   buildWeekColumns, buildCapacityMatrix, getStationBottlenecks, getStationDwellVariance, getStalePieces,
   getEmployeeScorecards, getMaterialShortages, stationName, HEATMAP_COLOR,
+  getVoidedShopPieceIds, excludeVoidedShopData,
 } from '@/lib/shopOpsMetrics';
+import { useShopStationConfig } from '@/lib/shopStationsStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,8 +31,19 @@ export default function ShopOperations() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [projects, setProjects] = useState([]);
-  const [pieces, setPieces] = useState([]);
-  const [stationLogs, setStationLogs] = useState([]);
+  const [allPieces, setPieces] = useState([]);
+  const [allStationLogs, setStationLogs] = useState([]);
+  const [pieceMarks, setPieceMarks] = useState([]);
+  // Loads the company's configured station list so stationName() below
+  // re-renders with it (defaults to the original six).
+  useShopStationConfig();
+  // Voided pieces (removed from the detailer file) drop out of every metric
+  // and list on this page. Nothing voided = the same arrays as before.
+  const voidedPieceIds = useMemo(() => getVoidedShopPieceIds(allPieces, pieceMarks), [allPieces, pieceMarks]);
+  const { pieces, stationLogs } = useMemo(
+    () => excludeVoidedShopData({ pieces: allPieces, stationLogs: allStationLogs }, voidedPieceIds),
+    [allPieces, allStationLogs, voidedPieceIds]
+  );
   const [qaInspections, setQaInspections] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [remnants, setRemnants] = useState([]);
@@ -77,7 +90,7 @@ export default function ShopOperations() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [projectData, pieceData, logsData, qaData, scheduleData, remnantData, overrideData, settingsRows, poData, receivingData, leaveData, manifestData, printJobData, pieceProductionLogData, employeeData] = await Promise.all([
+      const [projectData, pieceData, logsData, qaData, scheduleData, remnantData, overrideData, settingsRows, poData, receivingData, leaveData, manifestData, printJobData, pieceProductionLogData, employeeData, pieceMarkData] = await Promise.all([
         db.entities.Project.filter({ is_archived: false }, 'name', 50),
         db.entities.pieces.list('-created_date', 500),
         db.entities.station_logs.list('-created_date', 500),
@@ -93,7 +106,9 @@ export default function ShopOperations() {
         db.entities.print_label_jobs.list('-created_date', 500),
         db.entities.piece_production_logs.filter({ status: 'Complete' }, '-created_date', 1000),
         db.entities.employees.list('full_name', 500),
+        db.entities.PieceMark.list('-created_date', 5000).catch(() => []),
       ]);
+      setPieceMarks(pieceMarkData);
       setProjects(projectData);
       setPieces(pieceData);
       setStationLogs(logsData);

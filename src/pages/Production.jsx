@@ -16,6 +16,10 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { buildDrawingIndex, getPieceDrawingStatus, pieceNeedsDrawingWarning, DRAWING_BADGE_CLASSES } from '@/lib/drawingReleaseStatus';
+import { isVoidedPieceMark } from '@/lib/detailerImportRemovals';
+import { useShopStationConfig } from '@/lib/shopStationsStore';
+import { resolvePieceRoute, routeLabel, routeSourceLabel, ON_HOLD_BADGE_TEXT, isOnHoldPieceMark } from '@/lib/shopRoutes';
 
 const STATUS_OPTIONS = ['all', 'not_started', 'in_fabrication', 'fabricated', 'inspected', 'painted', 'shipped', 'erected'];
 
@@ -103,6 +107,38 @@ export default function Production() {
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => { loadStaticData(); }, []);
+
+  // ---- Shop route (per-piece override of the default route by item_type;
+  // see src/lib/shopRoutes.js) ----
+  const stationConfig = useShopStationConfig();
+  const [savingRoute, setSavingRoute] = useState(false);
+  const activeRoutes = stationConfig.routes.filter((r) => r.is_active);
+  const pieceRouteText = (piece) => {
+    const route = resolvePieceRoute(piece, stationConfig);
+    return route ? `${routeLabel(route, stationConfig)} (${routeSourceLabel(piece, route)})` : 'No route — no skipped-step check';
+  };
+  const updatePieceRoute = async (piece, routeId) => {
+    setSavingRoute(true);
+    try {
+      const updated = await db.entities.PieceMark.update(piece.id, { route_id: routeId || null });
+      setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      setViewingPiece(updated);
+    } finally { setSavingRoute(false); }
+  };
+  // ---- end shop route ----
+
+  // ---- Drawing release gate (badge only; see src/lib/drawingReleaseStatus.js) ----
+  const [drawingIndex, setDrawingIndex] = useState(null);
+  useEffect(() => {
+    db.entities.ShopDrawing.list('-created_date', 2000).then((drawings) => setDrawingIndex(buildDrawingIndex(drawings || []))).catch(() => {});
+  }, []);
+  const drawingStatusFor = (piece) => (drawingIndex ? getPieceDrawingStatus(piece, drawingIndex) : null);
+  const drawingReleaseText = (piece) => {
+    const status = drawingStatusFor(piece);
+    if (!status || status.state === 'untracked') return 'No shop drawing on file for this drawing number';
+    return pieceNeedsDrawingWarning(status) ? `${status.label} — ${status.detail}` : `${status.label} ${status.detail}`.trim();
+  };
+  // ---- end drawing release gate ----
   useEffect(() => { loadPieces(projectFilter); }, [projectFilter]);
   useEffect(() => {
     db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
@@ -152,14 +188,16 @@ export default function Production() {
     try {
       if (project === 'all') {
         const pieceData = await db.entities.PieceMark.list('-created_date', 200);
-        setPieces(pieceData);
+        // Voided pieces (removed from the detailer file) are excluded from
+        // every list/count on this page; on-hold pieces stay, with a badge.
+        setPieces(pieceData.filter((p) => !isVoidedPieceMark(p)));
         setShopPieces([]);
       } else {
         const [pieceData, shopData] = await Promise.all([
           db.entities.PieceMark.filter({ project_id: project }, '-created_date', 1000),
           db.entities.pieces.filter({ project_id: project }, '-created_date', 1000),
         ]);
-        setPieces(pieceData);
+        setPieces(pieceData.filter((p) => !isVoidedPieceMark(p)));
         setShopPieces(shopData);
       }
     } catch (e) {} finally { setLoading(false); }
@@ -711,7 +749,10 @@ export default function Production() {
                     onClick={() => setViewingPiece(p)}
                     className={`border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer ${STATUS_ROW_TINT[p.status] || ''}`}
                   >
-                    <td className="py-3 px-4 font-mono font-bold text-primary">{p.piece_mark}</td>
+                    <td className="py-3 px-4 font-mono font-bold text-primary">
+                      {p.piece_mark}
+                      {isOnHoldPieceMark(p) && <span title={p.removal_reason || ''} className="ml-1.5 inline-block rounded-full px-1.5 py-0.5 font-sans text-[10px] font-semibold bg-orange-500/15 text-orange-700 border border-orange-500/30">{ON_HOLD_BADGE_TEXT}</span>}
+                    </td>
                     <td className="py-3 px-4">
                       <button onClick={(e) => goToProject(p.project_id, e)} className="text-muted-foreground hover:text-primary hover:underline text-left">
                         {projectName(p.project_id)}
@@ -722,7 +763,10 @@ export default function Production() {
                     <td className="py-3 px-4 text-right">{p.quantity || 1}</td>
                     <td className="py-3 px-4 text-right font-mono">{p.weight_lbs ? p.weight_lbs.toLocaleString() : '—'}</td>
                     <td className="py-3 px-4 text-xs font-mono text-muted-foreground">{p.warehouse_zone || '—'}</td>
-                    <td className="py-3 px-4 text-xs font-mono text-muted-foreground">{p.drawing_number || '—'}</td>
+                    <td className="py-3 px-4 text-xs font-mono text-muted-foreground">
+                      {p.drawing_number || '—'}
+                      {(() => { const ds = drawingStatusFor(p); return pieceNeedsDrawingWarning(ds) ? <span title={ds.detail} className={`ml-1.5 inline-block rounded-full px-1.5 py-0.5 font-sans text-[10px] font-semibold ${DRAWING_BADGE_CLASSES[ds.state]}`}>{ds.label}</span> : null; })()}
+                    </td>
                     <td className="py-3 px-4 text-xs text-muted-foreground">{piecePhaseKey(p)}</td>
                     <td className="py-3 px-4">
                       <button onClick={(e) => { e.stopPropagation(); setViewingPiece(p); }}>
@@ -756,8 +800,11 @@ export default function Production() {
               ['Phase', piecePhaseKey(viewingPiece)],
               ['Status', viewingPiece.status],
               ['Status Detail', statusExplanation(viewingPiece)],
+              ['Detailer Hold', isOnHoldPieceMark(viewingPiece) ? `${ON_HOLD_BADGE_TEXT}${viewingPiece.removal_reason ? ` — ${viewingPiece.removal_reason}` : ''}` : null],
+              ['Shop Route', pieceRouteText(viewingPiece)],
               ['Warehouse Zone / Rack', [viewingPiece.warehouse_zone, viewingPiece.warehouse_rack].filter(Boolean).join(' / ')],
-              ['Drawing Number', viewingPiece.drawing_number],
+              ['Drawing Number', [viewingPiece.drawing_number, viewingPiece.revision && `rev ${viewingPiece.revision}`].filter(Boolean).join(' ')],
+              ['Drawing Release', viewingPiece.drawing_number ? drawingReleaseText(viewingPiece) : null],
               ['Heat Number', viewingPiece.heat_number],
               ['Fab Start Date', formatDate(viewingPiece.fab_start_date)],
               ['Fab Complete Date', formatDate(viewingPiece.fab_complete_date)],
@@ -787,6 +834,20 @@ export default function Production() {
                     <span className="col-span-2 font-medium whitespace-pre-wrap break-words">{value || value === 0 ? value : '—'}</span>
                   </div>
                 ))}
+                {activeRoutes.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 text-sm items-center pt-1">
+                    <span className="text-muted-foreground">Route for this piece</span>
+                    <select
+                      className="col-span-2 h-9 rounded-md border border-input bg-background px-2 text-sm"
+                      value={viewingPiece.route_id || ''}
+                      disabled={savingRoute}
+                      onChange={(e) => updatePieceRoute(viewingPiece, e.target.value)}
+                    >
+                      <option value="">Use the default for {(viewingPiece.item_type || 'Piece_Mark').replace(/_/g, ' ')}</option>
+                      {activeRoutes.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
             );
           })()}

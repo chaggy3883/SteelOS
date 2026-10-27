@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
+import { isVoidedPieceMark } from '@/lib/detailerImportRemovals';
 import { Layers, PackageSearch, X } from 'lucide-react';
 
 // STAGE 5: pick a project, group its PieceMark rows by shape+grade
@@ -71,7 +72,9 @@ export default function MaterialOptimization() {
     setLoadingPieces(true);
     setExpandedGroupKey(null);
     try {
-      const list = await db.entities.PieceMark.filter({ project_id: projectId }, 'piece_mark', 5000);
+      // Voided pieces (removed from the model on a detailer re-import) don't
+      // need material bought or cut for them.
+      const list = (await db.entities.PieceMark.filter({ project_id: projectId }, 'piece_mark', 5000)).filter((p) => !isVoidedPieceMark(p));
       if (!batchId) {
         setPieces(list || []);
         setScopedBatch(null);

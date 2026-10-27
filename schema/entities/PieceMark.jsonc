@@ -56,6 +56,28 @@
       ],
       "default": "not_started"
     },
+    "removal_status": {
+      "type": "string",
+      "enum": ["on_hold", "voided"],
+      "description": "Nullable/absent = live. Set when a detailer re-import no longer contains this piece mark and the reviewer chose \"Put on hold\" or \"Void (removed from job)\" in RevisionCompareModal.jsx (detection: detectRemovedPieces in src/lib/detailerImportRemovals.js; write: applyRemovalDecisions, called from commitBatch). Deliberately separate from `status` so the shop's real progress (e.g. \"fabricated\") is preserved alongside the hold/void. Voided pieces are excluded from shipping/cut/receiving lists via isVoidedPieceMark; on_hold pieces stay visible. Cleared back to null only when the piece reappears in a later import AND the reviewer confirms that revision. Changes are recorded by the automatic per-field AuditLog on PieceMark.update."
+    },
+    "removal_reason": {
+      "type": "string",
+      "description": "Auto text \"Not in detailer file from <detailer> (<file names>)\" plus the reviewer's optional note. Set together with removal_status."
+    },
+    "removal_decided_by": {
+      "type": "string",
+      "description": "Reviewer's full_name (falls back to email) who chose hold/void at commit time."
+    },
+    "removal_decided_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp the hold/void was applied (commit time)."
+    },
+    "removal_batch_id": {
+      "type": "string",
+      "description": "Links to the DetailerImportBatch whose commit applied the hold/void."
+    },
     "fab_start_date": {
       "type": "string",
       "format": "date"
@@ -150,7 +172,11 @@
     },
     "revision": {
       "type": "string",
-      "description": "Drawing revision letter/number (e.g. \"A\", \"R1\"). Populated on promotion from a DetailerImportedPiece row; not yet written by any other path."
+      "description": "Drawing revision letter/number (e.g. \"A\", \"R1\"). Written by two paths: (1) promotion from a DetailerImportedPiece row, and (2) releasing the piece's shop drawing to the shop (ShopDrawingsSection.jsx release flow) — a blank revision is backfilled with the released revision, and an older revision is moved to the released revision only for pieces the PM ticks in the release dialog. Read by getPieceDrawingStatus (src/lib/drawingReleaseStatus.js) for the \"Old revision\" shop-floor badge."
+    },
+    "route_id": {
+      "type": "string",
+      "description": "Optional per-piece shop route override — the id of one of the company's routes in SystemSetting(setting_group 'production').shop_routes. Blank/null = follow the default route for this piece's item_type (SystemSetting.default_route_by_item_type); no default either = no route (no skipped-step warning, no route progress). Set from the piece detail window in Production.jsx; resolved by resolvePieceRoute in src/lib/shopRoutes.js."
     },
     "cnc_file_url": {
       "type": "string",

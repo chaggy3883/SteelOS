@@ -36,21 +36,25 @@
     },
     "quantity_on_hand": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Written only through src/lib/inventoryLedger.js (recordInventoryChange), which appends an inventory_transactions row for every change — never update this field directly."
     },
     "quantity_reserved": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Set aside for a job. Changed only via inventoryLedger.js reserve/release transactions."
     },
     "quantity_available": {
       "type": "number",
-      "default": 0
+      "default": 0,
+      "description": "Derived: max(0, quantity_on_hand - quantity_reserved), recomputed by inventoryLedger.js on every change."
     },
     "unit_cost": {
       "type": "number"
     },
     "warehouse_zone": {
-      "type": "string"
+      "type": "string",
+      "description": "ShopFloorZone.id. warehouse_zone/rack/bin change only through inventoryLedger.js 'move' transactions (or a 'receive' put-away into a new spot) so moves are in the item's History."
     },
     "warehouse_rack": {
       "type": "string"
@@ -59,7 +63,8 @@
       "type": "string"
     },
     "heat_number": {
-      "type": "string"
+      "type": "string",
+      "description": "Single display heat. One item can hold several heats, so receiving only fills this when blank — each receipt's heat is kept on its own inventory_transactions row."
     },
     "mtr_url": {
       "type": "string"

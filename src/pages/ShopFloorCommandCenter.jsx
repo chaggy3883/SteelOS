@@ -3,8 +3,12 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import {
   getStationBottlenecks, getStationDwellVariance, getStalePieces, computeEfficiencyPct,
-  getCapacityStatus, STATIONS, stationName, HEATMAP_COLOR, normalizeTargetMinutes,
+  getCapacityStatus, stationName, HEATMAP_COLOR, normalizeTargetMinutes,
+  getVoidedShopPieceIds, excludeVoidedShopData,
 } from '@/lib/shopOpsMetrics';
+import { getActiveStations } from '@/lib/shopStations';
+import { useShopStationConfig } from '@/lib/shopStationsStore';
+import { resolvePieceRoute, completedStationIdsFor, skippedStepWarnings, holdWarningText } from '@/lib/shopRoutes';
 import { matchPieceByScan } from '@/lib/pieceScan';
 import CameraQrScanner, { useIsTouchPrimaryDevice } from '@/components/shared/CameraQrScanner';
 import { workflowStatusLabel } from '@/lib/pieceWorkflowStatus';
@@ -33,8 +37,17 @@ const currentShiftLabel = (now) => (now.getHours() < SHIFT_END_HOUR ? '1st Shift
 export default function ShopFloorCommandCenter() {
   useDocumentTitle('SteelOS — Shop Floor Command Center');
   const { toast } = useToast();
-  const [pieces, setPieces] = useState([]);
-  const [stationLogs, setStationLogs] = useState([]);
+  const [allPieces, setAllPieces] = useState([]);
+  const [allStationLogs, setAllStationLogs] = useState([]);
+  const [pieceMarks, setPieceMarks] = useState([]);
+  const stationConfig = useShopStationConfig();
+  // Voided pieces (removed from the detailer file) are excluded from every
+  // tile, list and metric on this screen. Nothing voided = identical arrays.
+  const voidedPieceIds = useMemo(() => getVoidedShopPieceIds(allPieces, pieceMarks), [allPieces, pieceMarks]);
+  const { pieces, stationLogs } = useMemo(
+    () => excludeVoidedShopData({ pieces: allPieces, stationLogs: allStationLogs }, voidedPieceIds),
+    [allPieces, allStationLogs, voidedPieceIds]
+  );
   const [pieceProductionLogs, setPieceProductionLogs] = useState([]);
   const [timingEvents, setTimingEvents] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -53,7 +66,10 @@ export default function ShopFloorCommandCenter() {
   const [stationTargetMinutesInput, setStationTargetMinutesInput] = useState('');
 
   // Out-of-sequence confirmation gate (cross-phase, or a second station
-  // clock left running elsewhere) — { piece, stationId, reasonText }.
+  // clock left running elsewhere) — { piece, stationId, reasonText,
+  // softWarnings, requiresNote }. softWarnings are the route skipped-step /
+  // detailer-hold heads-ups (warn only); requiresNote stays true only for
+  // the original out-of-sequence cases, which still need a written reason.
   const [pendingScan, setPendingScan] = useState(null);
   const [confirmNote, setConfirmNote] = useState('');
   const [confirmingScan, setConfirmingScan] = useState(false);
@@ -66,16 +82,18 @@ export default function ShopFloorCommandCenter() {
 
   const loadAll = async () => {
     try {
-      const [pieceData, logsData, pplData, timingData, projectData, settingsRows] = await Promise.all([
+      const [pieceData, logsData, pplData, timingData, projectData, settingsRows, pieceMarkData] = await Promise.all([
         db.entities.pieces.list('-created_date', 500),
         db.entities.station_logs.list('-created_date', 500),
         db.entities.piece_production_logs.filter({ status: 'Complete' }, '-created_date', 1000),
         db.entities.piece_timing_events.list('-scanned_at', 500),
         db.entities.Project.filter({ is_archived: false }, 'name', 200),
         db.entities.SystemSetting.filter({ setting_group: 'production' }, '-created_date', 1),
+        db.entities.PieceMark.list('-created_date', 5000).catch(() => []),
       ]);
-      setPieces(pieceData);
-      setStationLogs(logsData);
+      setAllPieces(pieceData);
+      setAllStationLogs(logsData);
+      setPieceMarks(pieceMarkData);
       setPieceProductionLogs(pplData);
       setTimingEvents(timingData);
       setProjects(projectData);
@@ -244,6 +262,23 @@ export default function ShopFloorCommandCenter() {
     await loadAll();
   };
 
+  // Office-side PieceMark for a shop piece (piece_mark_id first, project-
+  // scoped piece_mark fallback) -> detailer hold + route warnings. Route
+  // completions are re-read for this one piece so older history counts.
+  const pieceMarkFor = (piece) => pieceMarks.find((pm) => pm.id === piece.piece_mark_id)
+    || pieceMarks.find((pm) => pm.project_id === piece.project_id && String(pm.piece_mark || '').trim().toLowerCase() === String(piece.piece_mark || '').trim().toLowerCase())
+    || null;
+  const startWarningsFor = async (piece, stationId) => {
+    const pieceMark = pieceMarkFor(piece);
+    const warnings = [holdWarningText(pieceMark)];
+    const route = resolvePieceRoute(pieceMark, stationConfig);
+    if (route) {
+      const logs = await db.entities.station_logs.filter({ piece_id: piece.id }, '-created_date', 1000).catch(() => stationLogs);
+      warnings.push(...skippedStepWarnings(route, stationId, completedStationIdsFor(piece.id, logs), stationConfig));
+    }
+    return warnings.filter(Boolean);
+  };
+
   // Scan resolution: explicit FK match against the piece's own
   // qr_payload_string/piece_mark (matchPieceByScan — the same
   // case-insensitive matcher JobsiteReceiving.jsx uses), never an inferred
@@ -264,7 +299,17 @@ export default function ShopFloorCommandCenter() {
       return;
     }
 
+    if (voidedPieceIds.has(piece.id)) {
+      toast({ title: `${piece.piece_mark} was voided`, description: 'It was removed from the detailer file and voided. Do not work it — check with the office.', variant: 'destructive' });
+      setStationScanValue('');
+      return;
+    }
+
     const openElsewhere = stationLogs.find((l) => l.piece_id === piece.id && l.status === 'In_Progress' && Number(l.station_id) !== Number(stationId));
+    // Route skipped-step + detailer-hold heads-ups only apply when this scan
+    // STARTS a clock here (no open session at this station yet).
+    const startingHere = !stationLogs.some((l) => l.piece_id === piece.id && Number(l.station_id) === Number(stationId) && l.status === 'In_Progress');
+    const softWarnings = startingHere ? await startWarningsFor(piece, stationId) : [];
     const isCrossPhase = Number(piece.current_station_id) !== Number(stationId);
 
     if (isCrossPhase) {
@@ -278,7 +323,14 @@ export default function ShopFloorCommandCenter() {
       const reasonText = openElsewhere
         ? `${piece.piece_mark} still has an unfinished timer running at ${stationName(openElsewhere.station_id)}. Recording this scan at ${stationName(stationId)} anyway will leave that timer open.`
         : `${piece.piece_mark}'s station on file is ${stationName(piece.current_station_id)}, not ${stationName(stationId)}.`;
-      setPendingScan({ piece, stationId, reasonText });
+      setPendingScan({ piece, stationId, reasonText, softWarnings, requiresNote: true });
+      setConfirmNote('');
+      setStationScanValue('');
+      return;
+    }
+
+    if (softWarnings.length > 0) {
+      setPendingScan({ piece, stationId, reasonText: '', softWarnings, requiresNote: false });
       setConfirmNote('');
       setStationScanValue('');
       return;
@@ -296,10 +348,10 @@ export default function ShopFloorCommandCenter() {
   };
 
   const confirmPendingScan = async () => {
-    if (!pendingScan || confirmNote.trim().length < 10) return;
+    if (!pendingScan || (pendingScan.requiresNote && confirmNote.trim().length < 10)) return;
     setConfirmingScan(true);
     try {
-      await recordScanEvent({ piece: pendingScan.piece, stationId: pendingScan.stationId, note: confirmNote.trim(), isOverride: true });
+      await recordScanEvent({ piece: pendingScan.piece, stationId: pendingScan.stationId, note: confirmNote.trim(), isOverride: pendingScan.requiresNote });
       setPendingScan(null);
       setConfirmNote('');
       setStationTargetMinutesInput('');
@@ -337,7 +389,7 @@ export default function ShopFloorCommandCenter() {
 
       {/* Per-station tiles */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        {STATIONS.map((station) => {
+        {getActiveStations(stationConfig).map((station) => {
           const signal = stationSignals.find((s) => s.stationId === station.id) || { stationId: station.id, count: 0, avgActualMinutes: null, isBottleneck: false, signal: 'None' };
           const status = stationHeatmapStatus(signal);
           return (
@@ -686,26 +738,35 @@ export default function ShopFloorCommandCenter() {
           override-with-reason pattern rather than a silent recording. */}
       <Dialog open={!!pendingScan} onOpenChange={(open) => { if (!open) { setPendingScan(null); setConfirmNote(''); } }}>
         <DialogContent className="bg-neutral-900 text-white border-neutral-700">
-          <DialogHeader><DialogTitle>Confirm Out-of-Sequence Scan</DialogTitle></DialogHeader>
-          <p className="text-sm text-neutral-300">{pendingScan?.reasonText}</p>
-          <div>
-            <Label className="text-xs text-neutral-400">Reason (required, min 10 characters)</Label>
-            <Textarea
-              rows={3}
-              value={confirmNote}
-              onChange={(e) => setConfirmNote(e.target.value)}
-              className="bg-neutral-800 border-neutral-700 text-white mt-1"
-              placeholder="Explain why this scan should be recorded out of sequence…"
-            />
-          </div>
+          <DialogHeader><DialogTitle>{pendingScan?.requiresNote ? 'Confirm Out-of-Sequence Scan' : `Before you start ${pendingScan?.piece?.piece_mark || ''} at ${pendingScan ? stationName(pendingScan.stationId) : ''}`}</DialogTitle></DialogHeader>
+          {pendingScan?.reasonText && <p className="text-sm text-neutral-300">{pendingScan.reasonText}</p>}
+          {(pendingScan?.softWarnings || []).length > 0 && (
+            <ul className="space-y-2">
+              {pendingScan.softWarnings.map((w, i) => (
+                <li key={i} className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-200"><AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />{w}</li>
+              ))}
+            </ul>
+          )}
+          {pendingScan?.requiresNote && (
+            <div>
+              <Label className="text-xs text-neutral-400">Reason (required, min 10 characters)</Label>
+              <Textarea
+                rows={3}
+                value={confirmNote}
+                onChange={(e) => setConfirmNote(e.target.value)}
+                className="bg-neutral-800 border-neutral-700 text-white mt-1"
+                placeholder="Explain why this scan should be recorded out of sequence…"
+              />
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" className="border-neutral-600" onClick={() => { setPendingScan(null); setConfirmNote(''); }}>Cancel</Button>
             <Button
               onClick={confirmPendingScan}
-              disabled={confirmNote.trim().length < 10 || confirmingScan}
+              disabled={(pendingScan?.requiresNote && confirmNote.trim().length < 10) || confirmingScan}
               className="bg-amber-600 hover:bg-amber-700 text-white border-0"
             >
-              {confirmingScan ? 'Recording…' : 'Confirm & Record Anyway'}
+              {confirmingScan ? 'Recording…' : pendingScan?.requiresNote ? 'Confirm & Record Anyway' : 'Continue anyway'}
             </Button>
           </DialogFooter>
         </DialogContent>

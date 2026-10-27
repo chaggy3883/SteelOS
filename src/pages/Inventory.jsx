@@ -16,6 +16,7 @@ import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
 import InventoryItemDetailModal from '@/components/inventory/InventoryItemDetailModal';
 import LeftoverInventoryPanel from '@/components/inventory/LeftoverInventoryPanel';
+import { createInventoryItemWithStock } from '@/lib/inventoryLedger';
 
 const CATEGORIES = ['wide_flange', 'hss', 'angle', 'channel', 'plate', 'rebar', 'bolt', 'weld_material', 'paint', 'other'];
 
@@ -75,21 +76,20 @@ export default function Inventory() {
     }
     setSavingItem(true);
     try {
-      const quantityOnHand = Number(itemForm.quantity_on_hand) || 0;
-      const created = await db.entities.InventoryItem.create({
+      // Starting quantity is booked through the stock ledger (a 'count' row)
+      // so even an item's first number shows up in its History.
+      const { item: created } = await createInventoryItemWithStock({
         item_number: itemForm.item_number.trim(),
         description: itemForm.description.trim(),
         category: itemForm.category,
         material_grade: itemForm.material_grade.trim(),
         size: itemForm.size.trim(),
         unit_of_measure: itemForm.unit_of_measure.trim() || 'ea',
-        quantity_on_hand: quantityOnHand,
-        quantity_available: quantityOnHand,
         unit_cost: Number(itemForm.unit_cost) || 0,
         warehouse_zone: itemForm.warehouse_zone.trim(),
         reorder_point: Number(itemForm.reorder_point) || 0,
         is_active: true,
-      });
+      }, { startingQty: Number(itemForm.quantity_on_hand) || 0 });
       setItems((prev) => [created, ...prev]);
       setShowAddItem(false);
       setItemForm(emptyItemForm());

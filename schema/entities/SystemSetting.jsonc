@@ -74,6 +74,39 @@
       "default": 24,
       "description": "Stage 10: minimum leftover length (inches) worth logging as a remnant_inventory record after a Material Optimization run commits — below this, drop is treated as scrap rather than reusable stock. Read under setting_group 'production'; edited inline on MaterialOptimizationGroupPanel.jsx (no dedicated Production settings admin screen exists yet, same as this group's other thresholds)."
     },
+    "shop_stations": {
+      "type": "array",
+      "description": "Company-configured shop stations, read under setting_group 'production' (src/lib/shopStations.js; edited in Admin > Shop Stations & Routes). Absent/empty = the six original stations (ids 1-6: Receiving, Shot Blaster, Iron Worker, Drill Line, Fab (Layout / Tack), Paint), so a company that never configures this behaves exactly as before. Ids are the numbers stored on station_logs.station_id / pieces.current_station_id / piece_timing_events.station_id; new stations get the next unused number (7+). Stations are never deleted — retiring sets is_active false and all history keeps resolving to the name. Ids 5 (QA-gated Fab) and 6 (Paint) and the cert-gated ids 2/3 keep their fixed meaning in ShopFabrication.jsx.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "number" },
+          "name": { "type": "string" },
+          "short_code": { "type": "string" },
+          "sort_order": { "type": "number", "description": "Shop order (1 = first). Drives tile order and the \"Advance to\" target for pieces without a route." },
+          "is_active": { "type": "boolean", "default": true },
+          "shop_floor_zone_id": { "type": "string", "description": "Optional FK to ShopFloorZone.id." }
+        }
+      }
+    },
+    "shop_routes": {
+      "type": "array",
+      "description": "Named, ordered station lists (e.g. \"Plate\": Plasma -> Fit -> Weld) under setting_group 'production'. Used by the skipped-step warning (src/lib/shopRoutes.js) and the route progress strip on ShopFabrication.jsx. A piece's route = PieceMark.route_id, else default_route_by_item_type[item_type].",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "station_ids": { "type": "array", "items": { "type": "number" }, "description": "Ordered shop_stations ids." },
+          "is_active": { "type": "boolean", "default": true }
+        }
+      }
+    },
+    "default_route_by_item_type": {
+      "type": "object",
+      "description": "Map of PieceMark.item_type (Piece_Mark, Loose_Part, Embed, Misc_Metal, Lintel, Bolt) -> shop_routes id. Blank item_type reads as Piece_Mark. Missing key = no default route for that type.",
+      "additionalProperties": { "type": "string" }
+    },
     "last_updated_by": {
       "type": "string"
     },

@@ -3398,6 +3398,7 @@ const TENANT_SCOPED_ENTITIES = [
   'form_layouts',
   'frontend_contract_reviews',
   'heavy_equipment_inspections',
+  'inventory_transactions',
   'issued_assets',
   'load_items',
   'loads',
@@ -3796,6 +3797,10 @@ export const createEntityApi = (entityName) => {
   // the store's AuditLog array directly during migrateStore, not through
   // this API — see purgeExpiredAuditLogs.)
   const assertAuditLogMutationAllowed = (data) => {
+    // inventory_transactions is an append-only stock ledger — a mistake is
+    // undone by writing an opposite row (src/lib/inventoryLedger.js), never
+    // by editing or deleting the original.
+    if (entityName === 'inventory_transactions') throw new Error('inventory_transactions rows are append-only — reverse a transaction instead of editing it.');
     if (entityName !== 'AuditLog') return;
     const allowedKeys = new Set(['is_deleted', 'delete_reason']);
     if (Object.keys(data).some((key) => !allowedKeys.has(key))) {
@@ -3860,6 +3865,9 @@ export const createEntityApi = (entityName) => {
         throw new Error(`${entityName} not found`);
       }
 
+      if (entityName === 'inventory_transactions') {
+        throw new Error('inventory_transactions rows cannot be deleted — reverse the transaction instead.');
+      }
       if (entityName === 'AuditLog') {
         throw new Error('AuditLog records cannot be hard-deleted. Use update(id, { is_deleted: true, delete_reason }) instead.');
       }

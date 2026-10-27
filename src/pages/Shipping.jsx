@@ -22,6 +22,7 @@ import ModuleLocked from '@/components/shared/ModuleLocked';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
 import { logStatusChange } from '@/lib/statusHistory';
+import { isVoidedPieceMark } from '@/lib/detailerImportRemovals';
 
 // Loads that have finished Load Builder (Load Complete) and are ready,
 // inspected, or already moving — the main Shipping List. Draft/Staged
@@ -117,12 +118,20 @@ export default function Shipping() {
         db.entities.PieceMark.filter({ status: { $in: ['painted', 'shipped', 'erected'] } }, '-updated_date', 200),
         db.entities.Project.filter({ is_archived: false }, 'name', 50),
       ]);
-      setPieces(pieceData);
+      // Voided pieces (removed from the model on a detailer re-import —
+      // detailerImportRemovals.js) are never ready to ship.
+      setPieces(pieceData.filter((p) => !isVoidedPieceMark(p)));
       setProjects(projData);
     } catch (e) {} finally { setLoading(false); }
   };
 
   const readyToShip = pieces.filter(p => p.status === 'painted');
+  // Shop pieces bridged to a voided PieceMark can't be staged onto a new
+  // load — but one already on a load stays in the list so that load's
+  // contents still resolve (LoadBuilder looks load items up in this list).
+  const voidedPieceMarkIds = new Set(pieceMarks.filter(isVoidedPieceMark).map((pm) => pm.id));
+  const assignedShopPieceIds = new Set(loadItems.map((li) => li.piece_id));
+  const loadBuilderPieces = shopPieces.filter((p) => !voidedPieceMarkIds.has(p.piece_mark_id) || assignedShopPieceIds.has(p.id));
   const shipped = pieces.filter(p => p.status === 'shipped');
   const erected = pieces.filter(p => p.status === 'erected');
 
@@ -346,7 +355,7 @@ export default function Shipping() {
 
         <TabsContent value="load-builder">
           <LoadBuilder
-            pieces={shopPieces}
+            pieces={loadBuilderPieces}
             loads={loads}
             loadItems={loadItems}
             projects={projects}

@@ -1,15 +1,17 @@
+import { getActiveStations, stationName } from '@/lib/shopStations';
+import { isVoidedPieceMark } from '@/lib/detailerImportRemovals';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 
-// Single source of truth for the 6 shop-floor stations — station names and
-// heatmap colors are shared verbatim between ShopOperations.jsx's Bottleneck
-// Radar tab and the Shop Floor Command Center so the two views never drift
-// into a second naming/color convention for the same stations.
-export const STATIONS = [
-  { id: 1, name: 'Receiving' }, { id: 2, name: 'Shot Blaster' }, { id: 3, name: 'Iron Worker' },
-  { id: 4, name: 'Drill Line' }, { id: 5, name: 'Fab (Layout / Tack)' }, { id: 6, name: 'Paint' },
-];
-export const stationName = (id) => STATIONS.find((s) => s.id === Number(id))?.name || `Station ${id}`;
+// Station names now come from the company's configured station list
+// (src/lib/shopStations.js — SystemSetting 'production'.shop_stations), with
+// the original six hard-coded stations (same ids 1-6, same names) as the
+// fallback when a company has never configured any. stationName is
+// re-exported here so every existing `import { stationName } from
+// '@/lib/shopOpsMetrics'` keeps working. Heatmap colors stay shared between
+// ShopOperations.jsx's Bottleneck Radar tab and the Shop Floor Command Center.
+export { stationName };
 export const HEATMAP_COLOR = { Green: 'bg-green-500/20 text-green-700', Yellow: 'bg-yellow-500/30 text-yellow-800', Red: 'bg-red-500/40 text-red-800' };
 
 // piece_timing_events.event_type enum. start/complete/hold/resume are the
@@ -153,13 +155,13 @@ export function getStationDwellVariance(stationLogs, pieces, pieceProductionLogs
   const headcountByStation = {};
   headcountBottlenecks.forEach((b) => { headcountByStation[b.stationId] = b; });
 
-  // Seeded from STATIONS (not just whatever ids happen to show up in the data)
+  // Seeded from the active station list (not just whatever ids happen to show up in the data)
   // so a station with zero current pieces and zero recent completions still
   // gets a result row — getStationBottlenecks only emits ids with count >= 1,
   // which would otherwise make a quiet station vanish from the grid instead
   // of showing as an empty/Green tile.
   const stationIds = new Set([
-    ...STATIONS.map((s) => s.id),
+    ...getActiveStations().map((s) => s.id),
     ...Object.keys(byStation).map(Number),
     ...headcountBottlenecks.map((b) => b.stationId),
   ]);
@@ -312,4 +314,39 @@ export function sortPiecesByPriority(pieces, schedules, overrides) {
     if (aPriority !== bPriority) return bPriority - aPriority;
     return new Date(b.created_date || 0).getTime() - new Date(a.created_date || 0).getTime();
   });
+}
+
+// Voided pieces (PieceMark.removal_status === 'voided' — removed from the
+// detailer file and voided at import review, see detailerImportRemovals.js)
+// are dropped from every shop metric. Shop-floor `pieces` carry no
+// removal_status of their own, so this bridges each one to its office-side
+// PieceMark via piece_mark_id first, then the project-scoped piece_mark
+// fallback (same bridge ShopFabrication.jsx uses). Returns a Set of shop
+// `pieces.id` values. With no voided PieceMarks the set is empty and every
+// metric is unchanged.
+export function getVoidedShopPieceIds(shopPieces = [], pieceMarks = []) {
+  const voided = pieceMarks.filter(isVoidedPieceMark);
+  if (voided.length === 0) return new Set();
+  const voidedIds = new Set(voided.map((pm) => pm.id));
+  const voidedKeys = new Set(voided.map((pm) => `${pm.project_id || ''}::${String(pm.piece_mark || '').trim().toLowerCase()}`));
+  const liveIds = new Set(pieceMarks.filter((pm) => !isVoidedPieceMark(pm)).map((pm) => pm.id));
+  const result = new Set();
+  shopPieces.forEach((p) => {
+    if (p.piece_mark_id) {
+      if (voidedIds.has(p.piece_mark_id)) result.add(p.id);
+      if (liveIds.has(p.piece_mark_id) || voidedIds.has(p.piece_mark_id)) return;
+    }
+    if (voidedKeys.has(`${p.project_id || ''}::${String(p.piece_mark || '').trim().toLowerCase()}`)) result.add(p.id);
+  });
+  return result;
+}
+
+// Filters shop pieces + their station logs down to non-voided ones before
+// any metric runs. Same arrays back (by identity) when nothing is voided.
+export function excludeVoidedShopData({ pieces = [], stationLogs = [] }, voidedIds) {
+  if (!voidedIds || voidedIds.size === 0) return { pieces, stationLogs };
+  return {
+    pieces: pieces.filter((p) => !voidedIds.has(p.id)),
+    stationLogs: stationLogs.filter((l) => !voidedIds.has(l.piece_id)),
+  };
 }

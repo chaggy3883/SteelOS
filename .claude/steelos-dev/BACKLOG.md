@@ -5,6 +5,77 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-10-27) — PowerFab gap batch 1: takeoff hours, removed pieces, stock ledger + put-away, drawing release gate, configurable stations
+
+Gaps found by a screen-by-screen comparison of Tekla PowerFab's EST/PRJ/PDC/INV/IMP
+modules against SteelOS (functional comparison only — no PowerFab code, layouts or
+label text carried over). Built in plain shop language with guided steps.
+
+- **Estimating — takeoff hours feed the price** (`TakeoffEngine.jsx`, `FullTakeoff.jsx`,
+  `BidDetail.jsx`): the Structural Fabrication worksheet line now auto-fills from
+  `Bid.estimated_man_hours` (rounded to 0.1) using the same `is_auto_filled`/`is_overridden`
+  pattern as primer/galv; badges "From takeoff: X hrs" / "Overridden — takeoff says X hrs"
+  with a one-click reset; hours drill down to Full Takeoff, whose lines now show their own
+  hours math. Rate/coverage edits no longer count as an override (all categories); blank
+  saved fab rows on older bids now auto-fill. Hand-trace: 3 lines → 19.2 hrs × $78 =
+  $1,497.60, $1,647.36 at 10% markup.
+- **Detailer Import — removed pieces flagged on re-import** (new `detailerImportRemovals.js`,
+  `detailerImportCommit.js`, `RevisionCompareModal.jsx`, `BatchReviewModal.jsx`): marks in the
+  job but missing from the new file (scoped to same detailer + same sequence/area coverage;
+  >50% missing = treated as a partial file, all default Keep) get Keep / Put on hold / Void;
+  anything past not-started defaults to Keep with an "Already being fabricated" flag; void is
+  never a default. New `PieceMark.removal_status` (+ reason/who/when/batch) — `status` and
+  shop progress untouched. Voided pieces excluded from Shipping, Material Optimization,
+  Customer Hub % complete, Use Remnant, CNC auto-match and all shop pages/metrics.
+- **Inventory — append-only stock ledger + receiving puts material away** (new
+  `inventory_transactions` entity, tenant-scoped, update/delete blocked in `localData.js`;
+  `src/lib/inventoryLedger.js` is the only stock write path): item detail gains Change stock
+  (guided actions with before/after preview; adjust/count/scrap need a reason) and History
+  (clickable rows, Undo writes an opposite row). `ReceivingKiosk.jsx` adds a "Put it away"
+  step (where it went → matched or new item → save) that books only this delivery's qty,
+  carries the heat number, and is skippable with a required reason
+  (`receiving_logs.put_away_status`). Hand-trace: 10 → receive 5 of 8 into Bay 2 = 15 →
+  −2 = 13 → undo = 15.
+- **Project Management — shop drawing revisions + approval + release gate** (new
+  `ShopDrawingsSection.jsx`, `drawingReleaseStatus.js`; `shopDrawingBlobStore.js` archives old
+  rev PDFs): `ShopDrawing.revisions[]`, plain-language approval steps, numbered releases
+  (R-001…); a new rev pulls the drawing back from the shop. Release keeps `PieceMark.revision`
+  in sync (blank → released rev; old-rev pieces only when ticked). Shop Fabrication/Production
+  show "Drawing not released" / "Old revision — current is X" with a confirm, not a block.
+- **Production — configurable stations + per-piece routes** (new `shopStations.js`,
+  `shopRoutes.js`, `shopStationsStore.js`, `ShopStationsPanel.jsx` Admin tab,
+  `StartWarningsDialog.jsx`, `RouteProgress.jsx`): stations/routes/default-route-per-item-type
+  live on `SystemSetting('production')`; unconfigured companies get the same six stations
+  with the same ids, so existing logs/metrics are unchanged. `PieceMark.route_id` override.
+  Skipped-step warning (warn only) on scan/Start/Advance; drawing, hold and skipped-step
+  warnings combined into one "Before you start" prompt.
+- `npm run build && npm run lint` clean after the full batch. Pure helpers hand-traced in
+  node, then **verified live in the browser (approved for this task)** against a backed-up
+  `db.json` (restored afterward): takeoff 13.5 t → 15.5 hrs → $1,209 line, override/reset and
+  drill-down; stock count 10 → −2 → undo; receive 25 of L4x4 → put-away R3/B2 with heat, plus
+  two skip-to-job lines; drawing upload → sent → approved → R-001 release (piece rev set to A) →
+  rev B pulls it back; re-import flags A2 "Already being fabricated", Hold writes reason with
+  status untouched; Plasma saved as station 7, Beam route saved, and scanning held A2 at Fab
+  shows ONE prompt with old-rev + on-hold + skipped-step warnings; Cancel starts nothing. One
+  cosmetic fix from the run: status dialog title read "Mark undefined drawings" while closing.
+  Testing note: super_admin must impersonate a tenant before tenant writes (pre-existing).
+
+## Queued — follow-ups from PowerFab gap batch 1
+
+- `hoursPerTon` values in `src/data/steelShapeSelector.js` (0.7–1.15) look far too low for
+  real shop hours (typically ~8–20/ton) — bids will price fab labor low until corrected.
+- Paint/galv worksheet lines still skip blank saved rows (fab now handles this).
+- Stored bid total only updates when the worksheet is re-saved.
+- Undoing an inventory `receive` doesn't reopen its receiving log; `StockMaterialUnit`
+  receiving isn't linked to put-away; a failed receive write after creating a new item can
+  leave a zero-qty item.
+- Voided/on-hold not yet surfaced in `ProjectDetail.jsx` parts list (should badge, not hide),
+  `widgetContent.jsx`, `Reports.jsx`, `salesDashboardData.js`.
+- Next PowerFab gaps (see gap analysis): operation-based labor hours, assemblies, bulk line
+  edit; revision tolerances + XLSX/mapping profiles + NC1 cross-check; issue-to-job, per-job
+  reservations, cycle counts, heat/cert packets; drawing transmittals, CO line items; work
+  packages with release/hold, cut lists at the saw, assembly kitting.
+
 ## Also Closed (2026-10-09) — IRONSIGHT entered from a Bid: drop-and-go, visibly tied to the bid
 
 - **Bid context banner** (`BlueprintTakeoff.jsx`'s sessions/landing screen) —

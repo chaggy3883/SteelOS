@@ -214,6 +214,15 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   }, 0);
   const efficiencyFactor = (Number(shopEfficiencyPct) || 0) / 100;
   const totalManHours = efficiencyFactor > 0 ? baselineManHours / efficiencyFactor : baselineManHours;
+  // One line's share of totalManHours, same math line by line (tons x the
+  // shape's hrs/ton, then the Shop Efficiency % adjustment) — shown on each
+  // line so the Bid Worksheet's "From takeoff: X hrs" on Structural
+  // Fabrication can be traced back to the lines that produced it.
+  const rowManHours = (idx) => {
+    const hoursPerTon = getShapeClass(rows[idx].shape_class).hoursPerTon || 0;
+    const baseline = calcs[idx].totalTons * hoursPerTon;
+    return efficiencyFactor > 0 ? baseline / efficiencyFactor : baseline;
+  };
   // Pushed to Bid.estimated_paint_area_sqft / estimated_galvanizing_tons on
   // save so TakeoffEngine.jsx's Bid Worksheet can auto-fill Primer (Paint)
   // and Galvanizing quantities from this takeoff instead of the estimator
@@ -522,6 +531,10 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                   <p className="text-xs text-muted-foreground">
                     Calculated Metrics: {calc.paintAreaSqIn ? `${calc.paintAreaSqIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In` : '—'}
                   </p>
+                  <p className="text-xs text-muted-foreground" title="Tons × shop hours per ton for this shape, adjusted by Shop Efficiency %">
+                    Shop hours: <span className="font-mono font-semibold text-foreground">{rowManHours(idx).toFixed(1)}</span>
+                    {calc.totalTons > 0 && ` (${calc.totalTons.toFixed(3)} tons × ${getShapeClass(row.shape_class).hoursPerTon} hrs/ton${(Number(shopEfficiencyPct) || 0) > 0 && Number(shopEfficiencyPct) !== 100 ? ` ÷ ${Number(shopEfficiencyPct)}% efficiency` : ''})`}
+                  </p>
                 </div>
 
                 <div className="col-span-3 sm:col-span-1 text-right">
@@ -582,6 +595,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 text-primary"><Clock3 className="w-4 h-4" /><span className="text-sm font-semibold">Total Estimated Man-Hours</span></div>
           <p className="text-2xl font-bold mt-2">{totalManHours.toFixed(1)}</p>
+          <p className="text-[11px] text-muted-foreground mt-1">Fills in the Structural Fabrication hours on the Bid Worksheet when saved. Each line's share is shown as "Shop hours" above.</p>
         </div>
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 text-primary"><Gauge className="w-4 h-4" /><span className="text-sm font-semibold">Total Paint Area (Sq Ft)</span></div>

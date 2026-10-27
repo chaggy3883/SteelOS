@@ -10,7 +10,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getCertStatus } from '@/lib/certAlerts';
-import { sortPiecesByPriority, hasActiveOverride } from '@/lib/shopOpsMetrics';
+import { sortPiecesByPriority, hasActiveOverride, getVoidedShopPieceIds } from '@/lib/shopOpsMetrics';
+import { stationName, nextStationInShopOrder } from '@/lib/shopStations';
+import { useShopStationConfig } from '@/lib/shopStationsStore';
+import { resolvePieceRoute, routeSourceLabel, completedStationIdsFor, skippedStepWarnings, nextStationOnRoute, ON_HOLD_BADGE_TEXT, isOnHoldPieceMark, holdWarningText } from '@/lib/shopRoutes';
+import { RouteProgressStrip, StationHistoryDialog } from '@/components/shop-floor/RouteProgress';
+import { useStartWarningsPrompt } from '@/components/shop-floor/StartWarningsDialog';
 import { matchPieceByScan } from '@/lib/pieceScan';
 import CameraQrScanner, { useIsTouchPrimaryDevice } from '@/components/shared/CameraQrScanner';
 import { LABEL_STOCK_SIZES, buildZplPayload } from '@/lib/zplLabels';
@@ -24,21 +29,18 @@ import ModuleLocked from '@/components/shared/ModuleLocked';
 import { getCncFileUrl } from '@/lib/cncFileStore';
 import { downloadFile } from '@/lib/downloadFile';
 import StockMaterialUnitDetailModal from '@/components/shared/StockMaterialUnitDetailModal';
+import { buildDrawingIndex, getPieceDrawingStatus, pieceNeedsDrawingWarning, normalizeDrawingNumber, DRAWING_BADGE_CLASSES } from '@/lib/drawingReleaseStatus';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
   CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer, Camera,
   Layers, Cpu,
 } from 'lucide-react';
 
-const STATIONS = [
-  { id: 1, name: 'Receiving' },
-  { id: 2, name: 'Shot Blaster' },
-  { id: 3, name: 'Iron Worker' },
-  { id: 4, name: 'Drill Line' },
-  { id: 5, name: 'Fab (Layout / Tack)' },
-  { id: 6, name: 'Paint' },
-];
-const stationName = (id) => STATIONS.find((s) => s.id === Number(id))?.name || `Station ${id}`;
+// Station names come from the company's configured list (Admin > Shop
+// Stations & Routes; src/lib/shopStations.js) — the same six stations this
+// file used to hard-code are the fallback, so nothing changes for a company
+// that never configures them. Station ids 5 (QA-gated Fab) and 6 (Paint) and
+// the cert-gated ids below keep their meaning.
 
 // Module 10 safety gate: certain shop-floor stations are "locked" behind a
 // specific active (non-expired) certification. A dispatcher/fabricator can't
@@ -127,6 +129,111 @@ export default function ShopFabrication() {
   const [pendingSecondScan, setPendingSecondScan] = useState(null);
   const touchPrimary = useIsTouchPrimaryDevice();
 
+  // ---- Drawing release gate (badge + confirm only; see src/lib/drawingReleaseStatus.js) ----
+  // Read-only: loads ShopDrawings + PieceMarks once so each shop-floor piece
+  // can show "Drawing not released" / "Old revision — current is X". Never
+  // blocks work — startWork paths just ask for confirmation first.
+  const [drawingGate, setDrawingGate] = useState({ index: null, byId: new Map(), byMark: new Map() });
+  useEffect(() => {
+    Promise.all([db.entities.ShopDrawing.list('-created_date', 2000), db.entities.PieceMark.list('-created_date', 5000)])
+      .then(([drawings, marks]) => setDrawingGate({
+        index: buildDrawingIndex(drawings || []),
+        byId: new Map((marks || []).map((pm) => [pm.id, pm])),
+        byMark: new Map((marks || []).map((pm) => [`${pm.project_id}|${normalizeDrawingNumber(pm.piece_mark)}`, pm])),
+      }))
+      .catch(() => {});
+  }, []);
+  const drawingStatusFor = (piece) => {
+    if (!piece || !drawingGate.index) return null;
+    const pieceMark = (selectedPieceMark && piece.id === selectedPieceId ? selectedPieceMark : null)
+      || drawingGate.byId.get(piece.piece_mark_id)
+      || drawingGate.byMark.get(`${piece.project_id}|${normalizeDrawingNumber(piece.piece_mark)}`);
+    return pieceMark ? getPieceDrawingStatus(pieceMark, drawingGate.index) : null;
+  };
+  // Folded into the single "before you start" prompt (startWarningsFor
+  // below) together with the detailer hold + skipped-route-step checks.
+  const drawingWarningFor = (piece) => {
+    const status = drawingStatusFor(piece);
+    return pieceNeedsDrawingWarning(status) ? `${status.label}\n${status.detail}.` : '';
+  };
+  const renderDrawingGateBadge = (piece) => {
+    const status = drawingStatusFor(piece);
+    if (!pieceNeedsDrawingWarning(status)) return null;
+    return <span title={status.detail} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${DRAWING_BADGE_CLASSES[status.state]}`}>{status.label}</span>;
+  };
+  // ---- end drawing release gate ----
+
+  // ---- Routes, detailer hold/void, combined start prompt ----
+  // Office-side PieceMark for a shop piece: the freshly loaded record for the
+  // selected piece, else the PieceMark map the drawing gate already loads
+  // (piece_mark_id first, project-scoped piece_mark fallback).
+  const stationConfig = useShopStationConfig();
+  const [askToStart, startWarningsDialog] = useStartWarningsPrompt();
+  const [historyPiece, setHistoryPiece] = useState(null);
+  const [completedLogs, setCompletedLogs] = useState([]);
+  useEffect(() => {
+    db.entities.station_logs.filter({ status: 'Complete' }, '-created_date', 2000).then(setCompletedLogs).catch(() => {});
+  }, []);
+  const pieceMarkFor = (piece) => {
+    if (!piece) return null;
+    return (selectedPieceMark && piece.id === selectedPieceId ? selectedPieceMark : null)
+      || drawingGate.byId.get(piece.piece_mark_id)
+      || drawingGate.byMark.get(`${piece.project_id}|${normalizeDrawingNumber(piece.piece_mark)}`)
+      || null;
+  };
+  const routeFor = (piece) => resolvePieceRoute(pieceMarkFor(piece), stationConfig);
+  const completedIdsFor = (piece) => completedStationIdsFor(piece.id, [...completedLogs, ...stationLogs]);
+  const voidedPieceIds = useMemo(() => getVoidedShopPieceIds(pieces, Array.from(drawingGate.byId.values())), [pieces, drawingGate]);
+
+  // Every warning for starting `piece` at `stationId`, as plain lines.
+  // Route completions are re-read from station_logs for this one piece so
+  // the check never misses older history outside the page's loaded window.
+  const startWarningsFor = async (piece, stationId) => {
+    const pieceMark = pieceMarkFor(piece);
+    const warnings = [drawingWarningFor(piece), holdWarningText(pieceMark)];
+    const route = resolvePieceRoute(pieceMark, stationConfig);
+    if (route) {
+      const logs = await db.entities.station_logs.filter({ piece_id: piece.id }, '-created_date', 1000).catch(() => stationLogs);
+      warnings.push(...skippedStepWarnings(route, stationId, completedStationIdsFor(piece.id, logs), stationConfig));
+    }
+    return warnings.filter(Boolean);
+  };
+  const confirmStart = async (piece, stationId) => askToStart({
+    title: `Before you start ${piece.piece_mark} at ${stationName(stationId)}`,
+    warnings: await startWarningsFor(piece, stationId),
+  });
+  const renderHoldBadge = (piece) => {
+    const pieceMark = pieceMarkFor(piece);
+    if (!isOnHoldPieceMark(pieceMark)) return null;
+    return <span title={pieceMark.removal_reason || ''} className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-orange-500/15 text-orange-700 border border-orange-500/30">{ON_HOLD_BADGE_TEXT}</span>;
+  };
+  const renderRouteProgress = (piece, compact) => {
+    const route = routeFor(piece);
+    return (
+      <RouteProgressStrip
+        route={route}
+        routeSource={routeSourceLabel(pieceMarkFor(piece), route)}
+        currentStationId={piece.current_station_id}
+        completedIds={completedIdsFor(piece)}
+        config={stationConfig}
+        compact={compact}
+        onOpenHistory={() => setHistoryPiece(piece)}
+      />
+    );
+  };
+  // "Advance to ..." target: the next stop on the piece's route when it's on
+  // one, else the next active station in shop order. Station 5 (QA-gated
+  // Fab) never shows it — it moves on through the inspection flow. With the
+  // default six stations and no routes this is exactly the old rule
+  // (stations 1-4 -> id + 1; nothing at 5 or 6).
+  const advanceTargetFor = (piece) => {
+    if (!piece || Number(piece.current_station_id) === 5) return null;
+    const route = routeFor(piece);
+    if (route && route.station_ids.includes(Number(piece.current_station_id))) return nextStationOnRoute(route, piece.current_station_id);
+    return nextStationInShopOrder(piece.current_station_id, stationConfig)?.id ?? null;
+  };
+  // ---- end routes / hold / combined prompt ----
+
   useEffect(() => { loadData(); }, []);
   useEffect(() => {
     db.auth.me().then((me) => setCurrentUser(me || null)).catch(() => setCurrentUser(null));
@@ -214,7 +321,9 @@ export default function ShopFabrication() {
   // Paused pieces have no active worker/log by definition — must be resumed
   // (Start Work) before they can advance stations or re-enter the QA gateway.
   const isPaused = selectedPiece?.workflow_status === 'Paused';
-  const pausedPieces = useMemo(() => pieces.filter((p) => p.workflow_status === 'Paused'), [pieces]);
+  // Voided pieces (removed from the detailer file) drop out of every queue.
+  const livePieces = useMemo(() => (voidedPieceIds.size ? pieces.filter((p) => !voidedPieceIds.has(p.id)) : pieces), [pieces, voidedPieceIds]);
+  const pausedPieces = useMemo(() => livePieces.filter((p) => p.workflow_status === 'Paused'), [livePieces]);
   const pieceElapsedMinutes = (pieceId) => stationLogs
     .filter((entry) => entry.piece_id === pieceId)
     .reduce((sum, entry) => sum + (entry.elapsed_minutes || 0), 0);
@@ -222,7 +331,7 @@ export default function ShopFabrication() {
   // first, then each piece's project priority_weight from the Scheduler
   // Matrix — a single shared function (shopOpsMetrics.js) keeps this in sync
   // with the Scheduler Matrix UI rather than reimplementing the sort here.
-  const sortedPieces = useMemo(() => sortPiecesByPriority(pieces, schedules, overrides), [pieces, schedules, overrides]);
+  const sortedPieces = useMemo(() => sortPiecesByPriority(livePieces, schedules, overrides), [livePieces, schedules, overrides]);
   const pieceMarkDetailRows = useMemo(() => {
     if (!selectedPieceMark) return [];
     return [
@@ -429,6 +538,10 @@ export default function ShopFabrication() {
       toast({ title: 'Piece not found', variant: 'destructive' });
       return;
     }
+    if (voidedPieceIds.has(found.id)) {
+      toast({ title: `${found.piece_mark} was voided`, description: 'It was removed from the detailer file and voided. Do not work it — check with the office.', variant: 'destructive' });
+      return;
+    }
 
     const activeLogForPiece = stationLogs.find((entry) => entry.piece_id === found.id && entry.status === 'In_Progress');
 
@@ -459,6 +572,7 @@ export default function ShopFabrication() {
     // select/open the blueprint if that succeeds, so a certification block
     // never opens the blueprint or starts the timer.
     const wasPaused = found.workflow_status === 'Paused';
+    if (!(await confirmStart(found, found.current_station_id))) return; // drawing / hold / route warnings — one confirm, never a block
     const result = await startWork(found, { silent: true });
     if (!result.ok) return;
     setSelectedPieceId(found.id);
@@ -519,6 +633,7 @@ export default function ShopFabrication() {
     // A Paused piece has no active worker on it — it must be resumed (Start
     // Work) before it can advance stations, same as isFrozen/activeLog.
     if (!selectedPiece || isFrozen || isPaused || activeLog) return;
+    if (!(await confirmStart(selectedPiece, nextStationId))) return;
     const expedited = hasActiveOverride(overrides, selectedPiece.id, 'Expedite_Part');
     if (!expedited) {
       const clearance = await assertStationCertClearance(employeeId, nextStationId);
@@ -693,6 +808,8 @@ export default function ShopFabrication() {
                   <p className="text-lg font-semibold">{selectedPiece.piece_mark}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                  {renderDrawingGateBadge(selectedPiece)}
+                  {renderHoldBadge(selectedPiece)}
                   {isFrozen && <span className="flex items-center gap-1 rounded-full bg-red-500/10 px-3 py-1 text-xs font-medium text-red-600"><Lock className="w-3 h-3" />Frozen</span>}
                   {isReceived && <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-3 py-1 text-xs font-medium text-green-700"><Lock className="w-3 h-3" />Received — Awaiting Tag</span>}
                   {isPaused && <span className="flex items-center gap-1 rounded-full bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-700"><PauseCircle className="w-3 h-3" />Paused — Anyone Can Resume</span>}
@@ -729,14 +846,14 @@ export default function ShopFabrication() {
               )}
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="gap-2" onClick={() => setShowBlueprint(true)}><ScanLine className="w-4 h-4" />View Blueprint</Button>
-                <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || !!activeLog} onClick={() => startWork()}><PlayCircle className="w-4 h-4" />Start Work</Button>
+                <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || !!activeLog} onClick={async () => { if (await confirmStart(selectedPiece, selectedPiece.current_station_id)) startWork(); }}><PlayCircle className="w-4 h-4" />Start Work</Button>
                 <Button variant="outline" className="gap-2" disabled={!activeLog} onClick={() => finishWork('Complete')}><CheckCircle2 className="w-4 h-4" />Complete</Button>
                 <Button variant="outline" className="gap-2" disabled={!activeLog} onClick={() => finishWork('Paused')}><PauseCircle className="w-4 h-4" />Pause / End Shift</Button>
               </div>
               <div className="flex flex-wrap gap-2 border-t border-border pt-3">
-                {selectedPiece.current_station_id < 5 && (
-                  <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || isPaused || !!activeLog} onClick={() => moveToStation(selectedPiece.current_station_id + 1)}>
-                    <ArrowRightCircle className="w-4 h-4" />Advance to {stationName(selectedPiece.current_station_id + 1)}
+                {advanceTargetFor(selectedPiece) != null && (
+                  <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || isPaused || !!activeLog} onClick={() => moveToStation(advanceTargetFor(selectedPiece))}>
+                    <ArrowRightCircle className="w-4 h-4" />Advance to {stationName(advanceTargetFor(selectedPiece))}
                   </Button>
                 )}
                 {selectedPiece.current_station_id === 5 && selectedPiece.workflow_status === 'In_Fabrication' && (
@@ -746,12 +863,13 @@ export default function ShopFabrication() {
                   <Button variant="outline" className="gap-2" onClick={() => requestInspection()}><ClipboardCheck className="w-4 h-4" />Ready for Weld</Button>
                 )}
                 {selectedPiece.workflow_status === 'Paint_Unlocked' && selectedPiece.current_station_id !== 6 && (
-                  <Button variant="outline" className="gap-2" onClick={() => moveToStation(6)}><ArrowRightCircle className="w-4 h-4" />Route to Paint (Station 6)</Button>
+                  <Button variant="outline" className="gap-2" onClick={() => moveToStation(6)}><ArrowRightCircle className="w-4 h-4" />Route to {stationName(6)} (Station 6)</Button>
                 )}
                 {selectedPiece.workflow_status === 'Rejected' && (
                   <span className="flex items-center gap-1 text-xs text-red-600"><Ban className="w-3.5 h-3.5" />{workflowStatusLabel('Rejected')}</span>
                 )}
               </div>
+              <div className="border-t border-border pt-3">{renderRouteProgress(selectedPiece, false)}</div>
               <PieceTimeline pieceId={selectedPiece.id} className="border-t border-border pt-3" />
             </div>
           ) : null}
@@ -841,8 +959,11 @@ export default function ShopFabrication() {
                   {hasActiveOverride(overrides, piece.id, 'Expedite_Part') && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-700 font-semibold">EXPEDITED</span>
                   )}
+                  {renderDrawingGateBadge(piece)}
+                  {renderHoldBadge(piece)}
                 </p>
                 <p className="text-muted-foreground">{piece.material_shape} • {stationName(piece.current_station_id)}</p>
+                <div className="mt-1">{renderRouteProgress(piece, true)}</div>
               </div>
               <div className="flex items-center gap-2">
                 <div className="text-right">
@@ -921,6 +1042,9 @@ export default function ShopFabrication() {
           )}
         </DialogContent>
       </Dialog>
+
+      {startWarningsDialog}
+      <StationHistoryDialog piece={historyPiece} route={historyPiece ? routeFor(historyPiece) : null} config={stationConfig} onClose={() => setHistoryPiece(null)} />
 
       <StockMaterialUnitDetailModal
         open={!!viewingStockUnitId}

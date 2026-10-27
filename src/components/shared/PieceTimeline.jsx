@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { getPieceTimeline, pieceEventLabel, formatDuration } from '@/lib/pieceTimeline';
 import { stationName } from '@/lib/shopOpsMetrics';
+import { useShopStationConfig } from '@/lib/shopStationsStore';
 
 // The one piece-history timeline for the whole app — embedded (not a modal
 // of its own) wherever a piece is opened: ShopFabrication's Active Piece
@@ -11,6 +12,8 @@ import { stationName } from '@/lib/shopOpsMetrics';
 export default function PieceTimeline({ pieceId, className = '' }) {
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
+  // Re-render with the company's configured station names/list (defaults to the original six).
+  useShopStationConfig();
 
   useEffect(() => {
     if (!pieceId) { setEvents([]); return; }

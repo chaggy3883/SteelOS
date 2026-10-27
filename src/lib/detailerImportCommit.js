@@ -31,6 +31,7 @@ import { matchFilenameToPiece, attachFileToPiece } from '@/lib/pieceFileIntake';
 import { saveDocumentFile } from '@/lib/documentBlobStore';
 import { findWholePieceRemnantMatches } from '@/lib/materialOptimizer';
 import { propagateHeatNumberToPieces } from '@/lib/heatPropagation';
+import { applyRemovalDecisions } from '@/lib/detailerImportRemovals';
 
 const PIECE_MARK_TEXT_FIELDS = ['assembly', 'material_grade', 'material_profile', 'finished_length', 'revision', 'drawing_number'];
 
@@ -86,6 +87,19 @@ export const detectRevisions = async (batch, stagedRows) => {
     const changes = REVISION_TRACKED_FIELDS
       .filter(({ key }) => row[key] != null && row[key] !== '' && valuesDiffer(existing[key], row[key]))
       .map(({ key, label }) => ({ field: key, label, oldValue: existing[key] ?? null, newValue: row[key] }));
+
+    // A piece earlier put on hold / voided because it dropped out of a
+    // detailer file (detailerImportRemovals.js) is back in this one —
+    // never silently un-void it: surface it as a revision so the reviewer
+    // confirms it, and commitBatch clears the hold/void only if confirmed.
+    if (existing.removal_status) {
+      changes.push({
+        field: 'removal_status',
+        label: 'Hold / Void',
+        oldValue: existing.removal_status === 'voided' ? 'Voided (was removed from job)' : 'On hold',
+        newValue: 'Back in the file — clear it',
+      });
+    }
 
     if (changes.length > 0) revisions.push({ row, pieceMark: existing, changes });
   });
@@ -149,8 +163,14 @@ export const findInventoryMatches = async (batch, stagedRows, skipRowIds = new S
 // is flipped to assigned/consumed. A row absent here (no match found, or a
 // match was found but declined) gets a normal freshly generated QR exactly
 // as before this feature existed.
+// options.removalDecisions: Map<PieceMark.id, 'keep'|'hold'|'void'> from
+// detailerImportRemovals.js's detectRemovedPieces, as chosen by the reviewer
+// in RevisionCompareModal.jsx — pieces in the job but missing from this
+// file. Applied after the row loop via applyRemovalDecisions; 'keep' (and
+// an empty map, the default) writes nothing. options.removalNote is an
+// optional reviewer note appended to removal_reason.
 export const commitBatch = async (batch, stagedRows, options = {}) => {
-  const { skipRowIds = new Set(), changedBy = 'Detailer Import', inventoryMatches = new Map() } = options;
+  const { skipRowIds = new Set(), changedBy = 'Detailer Import', inventoryMatches = new Map(), removalDecisions = new Map(), removalNote = '' } = options;
   const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
   const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
   // generatePiecePayload's projectLabel prefers project_number over a raw id
@@ -182,10 +202,17 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
 
     if (pieceMark) {
       const previous = pieceMark;
-      pieceMark = await db.entities.PieceMark.update(pieceMark.id, fields);
+      const changedFields = Object.entries(fields).filter(([field, value]) => valuesDiffer(previous[field], value));
+      // Only reachable for a held/voided piece when the reviewer confirmed
+      // it as a revision (detectRevisions always flags one; unconfirmed rows
+      // are in skipRowIds and never get here). Clearing is recorded by the
+      // automatic AuditLog on this update — not a StatusHistoryEntry.
+      const clearRemoval = previous.removal_status
+        ? { removal_status: null, removal_reason: null, removal_decided_by: null, removal_decided_at: null, removal_batch_id: null }
+        : {};
+      pieceMark = await db.entities.PieceMark.update(pieceMark.id, { ...fields, ...clearRemoval });
       updated += 1;
 
-      const changedFields = Object.entries(fields).filter(([field, value]) => valuesDiffer(previous[field], value));
       await Promise.all(changedFields.map(([field, value]) => logStatusChange({
         entityType: 'PieceMark',
         entityId: pieceMark.id,
@@ -291,7 +318,9 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
     }
   }
 
+  const { held: removalsHeld, voided: removalsVoided } = await applyRemovalDecisions(batch, removalDecisions, { changedBy, note: removalNote });
+
   const updatedBatch = await db.entities.DetailerImportBatch.update(batch.id, { import_status: 'committed' });
 
-  return { created, updated, skipped, revisionsSkipped, drawingsMatched, inventoryMatchesApplied, batch: updatedBatch };
+  return { created, updated, skipped, revisionsSkipped, drawingsMatched, inventoryMatchesApplied, removalsHeld, removalsVoided, batch: updatedBatch };
 };

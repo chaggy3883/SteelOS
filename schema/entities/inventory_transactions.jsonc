@@ -1,0 +1,85 @@
+{
+  "name": "inventory_transactions",
+  "type": "object",
+  "description": "Append-only stock ledger for InventoryItem. Every change to an item's quantity_on_hand / quantity_reserved / warehouse location goes through src/lib/inventoryLedger.js, which updates the item AND writes one row here. Rows are never edited or deleted (localData.js createEntityApi throws on update/updateMany/delete for this entity) — a mistake is undone by writing an opposite row whose reverses_transaction_id points at the original; whether a row is reversed is derived by looking for a row that reverses it. Ready for, but not yet used by: issue-to-job (issue/return + project_id), cycle counts (count), valuation-by-date (unit_cost + transaction_at).",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "transaction_type": {
+      "type": "string",
+      "enum": ["receive", "adjust", "move", "reserve", "release", "issue", "return", "scrap", "count"],
+      "description": "receive: material came in (ReceivingKiosk put-away). adjust: manual add/take away (reason required). move: location change only. reserve/release: set aside for / freed from a job — change quantity_reserved, not on-hand. issue/return: reserved for issue-to-job (no UI writes these yet). scrap: removed as scrap (reason required). count: physical count set the on-hand number (also used for an item's starting quantity). A reversal keeps the original row's type."
+    },
+    "inventory_item_id": {
+      "type": "string",
+      "description": "FK to InventoryItem."
+    },
+    "qty_delta": {
+      "type": "number",
+      "default": 0,
+      "description": "Signed change to the item's quantity_on_hand (0 for move/reserve/release)."
+    },
+    "qty_after": {
+      "type": "number",
+      "description": "Item's quantity_on_hand immediately after this row was applied."
+    },
+    "reserved_delta": {
+      "type": "number",
+      "default": 0,
+      "description": "Signed change to the item's quantity_reserved (non-zero only for reserve/release, or their reversals)."
+    },
+    "reserved_after": {
+      "type": "number",
+      "description": "Item's quantity_reserved immediately after this row was applied."
+    },
+    "unit_of_measure": {
+      "type": "string",
+      "description": "Snapshot of the item's unit of measure at the time of the transaction."
+    },
+    "unit_cost": {
+      "type": "number",
+      "description": "Snapshot of the item's unit_cost (or the PO line's unit_cost for a receive) — lets a later valuation-by-date report price stock as of any date."
+    },
+    "from_zone": { "type": "string", "description": "ShopFloorZone.id the material was in before (move), or blank." },
+    "from_rack": { "type": "string" },
+    "from_bin": { "type": "string" },
+    "to_zone": { "type": "string", "description": "ShopFloorZone.id the material went to (receive/move), or blank." },
+    "to_rack": { "type": "string" },
+    "to_bin": { "type": "string" },
+    "heat_number": {
+      "type": "string",
+      "description": "Heat number of the material in this transaction (carried over from receiving_logs.material_heat_number on a receive). Kept per row because one InventoryItem can hold several heats."
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Optional FK to Project — the job this material was received for / reserved for."
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["manual", "receiving_log", "purchase_order_line", "reversal", "item_created"],
+      "description": "What caused this row. receiving_log rows also carry po_id/po_line_id."
+    },
+    "source_id": {
+      "type": "string",
+      "description": "id of the source record (receiving_logs.id for a receive, the reversed row's id for a reversal)."
+    },
+    "po_id": { "type": "string", "description": "FK to purchase_orders (receive rows)." },
+    "po_line_id": { "type": "string", "description": "FK to purchase_order_lines (receive rows)." },
+    "reason": {
+      "type": "string",
+      "description": "Plain-language why. Required for adjust, scrap, count and every reversal."
+    },
+    "actor_id": { "type": "string" },
+    "actor_name": { "type": "string" },
+    "transaction_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reverses_transaction_id": {
+      "type": "string",
+      "description": "Set on a reversal row — FK to the inventory_transactions row it undoes. A row can be reversed at most once (enforced in inventoryLedger.js)."
+    }
+  },
+  "required": ["transaction_type", "inventory_item_id", "qty_delta", "transaction_at"]
+}

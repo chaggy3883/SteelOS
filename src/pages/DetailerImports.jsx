@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
+import { isVoidedPieceMark } from '@/lib/detailerImportRemovals';
 import { FileStack, Upload, Trash2, Eye, FolderOpen, FileScan, ChevronDown, ChevronRight, ClipboardCheck, AlertTriangle, Cpu, MapPin } from 'lucide-react';
 
 // CNC fabrication files (NC1, DXF) are shop-floor hand-off files, not
@@ -204,7 +205,9 @@ export default function DetailerImports() {
   // component does. Anything that doesn't match falls into
   // unmatchedCncFiles for manual assignment below.
   const matchAndAttachCncFiles = async (batch, cncPairs) => {
-    const pieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 2000).catch(() => []);
+    // Voided pieces (removed from the model on an earlier re-import) never
+    // get a CNC program auto-attached.
+    const pieceMarks = (await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 2000).catch(() => [])).filter((p) => !isVoidedPieceMark(p));
     setCncPieceMarksByProject((current) => ({ ...current, [batch.project_id]: pieceMarks }));
 
     const stillUnmatched = [];

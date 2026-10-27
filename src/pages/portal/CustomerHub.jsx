@@ -9,6 +9,7 @@ import { UploadCloud, FileText, MessageSquare, ClipboardList, DollarSign, Receip
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import { saveDocumentFile } from '@/lib/documentBlobStore';
+import { isVoidedPieceMark } from '@/lib/detailerImportRemovals';
 
 export default function CustomerHub() {
   const { toast } = useToast();
@@ -45,7 +46,9 @@ export default function CustomerHub() {
         db.entities.change_orders.filter({ project_id: projectId }, '-created_date', 50),
         db.entities.InvoiceReceivable.filter({ project_id: projectId }, '-created_date', 50),
       ]);
-      setPieces(pieceData);
+      // Voided pieces (removed from the model on a detailer re-import) aren't
+      // part of the job anymore — keep them out of the customer's % complete.
+      setPieces(pieceData.filter((p) => !isVoidedPieceMark(p)));
       setRfis(rfiData);
       setSubmittals(submittalData);
       setChangeOrders(coData);

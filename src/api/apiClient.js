@@ -83,6 +83,7 @@ const createLocalApi = () => ({
     HistoricalVariance: createEntityApi('HistoricalVariance'),
     IntelligenceRule: createEntityApi('IntelligenceRule'),
     InventoryItem: createEntityApi('InventoryItem'),
+    inventory_transactions: createEntityApi('inventory_transactions'),
     InvoiceReceivable: createEntityApi('InvoiceReceivable'),
     JobCostLedgerEntry: createEntityApi('JobCostLedgerEntry'),
     LegalAuditEvent: createEntityApi('LegalAuditEvent'),

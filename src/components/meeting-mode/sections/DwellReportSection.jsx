@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { db } from '@/api/apiClient';
 import { getStationBottlenecks, getStationDwellVariance, getStalePieces, stationName } from '@/lib/shopOpsMetrics';
+import { useShopStationConfig } from '@/lib/shopStationsStore';
 
 // Shop-floor dwell/bottleneck data only — pieces, station_logs,
 // piece_production_logs, and the production SystemSetting row are the only
@@ -15,6 +16,8 @@ export default function DwellReportSection() {
   const [pieceProductionLogs, setPieceProductionLogs] = useState([]);
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Re-render with the company's configured station names/list (defaults to the original six).
+  useShopStationConfig();
 
   useEffect(() => {
     let cancelled = false;

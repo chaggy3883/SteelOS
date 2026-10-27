@@ -17,20 +17,75 @@
     "description": {
       "type": "string"
     },
+    "revisions": {
+      "type": "array",
+      "description": "Every issue of this sheet, oldest first; the LAST entry is the current revision. Chosen over one-record-per-revision because the drawing's identity (drawing_number, sequence/area, approval + release status, Submittal attachments by id, PieceMark.drawing_number links) belongs to the sheet, not the issue. Absent/empty on drawings saved before revisions existed — src/lib/drawingReleaseStatus.js getDrawingRevisions() synthesizes one from file_name/uploaded_* (rev = current_revision or \"A\"), so no migration is needed; the array is persisted the first time a new revision is added. PDFs: the CURRENT rev's PDF is in IndexedDB (src/lib/shopDrawingBlobStore.js) under this drawing's id; older revs are archived under \"<drawingId>::rev::<revision.id>\" (see revisionFileKey). Written by src/components/projects/ShopDrawingsSection.jsx (upload + \"Add new revision\" flow).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Stable id for this revision (\"rev-initial\" for a synthesized legacy revision). Used in the archived blob key." },
+          "rev": { "type": "string", "description": "Revision letter/number as written on the sheet (\"A\", \"B\", \"0\", \"R2\"). Next rev is auto-suggested (A->B, 0->1, R2->R3)." },
+          "change_note": { "type": "string", "description": "Short plain-language description of what changed (\"First issue\" for the original)." },
+          "revised_by": { "type": "string" },
+          "revised_date": { "type": "string", "format": "date-time" },
+          "file_name": { "type": "string" }
+        }
+      }
+    },
+    "current_revision": {
+      "type": "string",
+      "description": "Mirror of revisions[last].rev, for quick reads/sorting. Compared (case/\"Rev \" prefix-insensitive) against PieceMark.revision by the release gate."
+    },
+    "approval_status": {
+      "type": "string",
+      "enum": ["not_sent", "sent_for_approval", "approved", "approved_with_notes", "revise_resubmit", "released"],
+      "default": "not_sent",
+      "description": "Where the CURRENT revision stands. Labels: Not sent / Sent for approval / Approved / Approved with notes / Revise & resubmit / Released to shop. Adding a new revision always resets this to not_sent (a released drawing drops out of the shop, and status_history records it). Absent on legacy drawings = not_sent. The shop-floor gate (src/lib/drawingReleaseStatus.js isDrawingReleased) treats a drawing as released only when this is \"released\" AND released_revision equals the current revision."
+    },
+    "approval_notes": {
+      "type": "string",
+      "description": "Reviewer's notes for \"Approved with notes\". Cleared on a plain Approved or a new revision."
+    },
+    "sent_for_approval_date": { "type": "string", "format": "date", "description": "Last date sent for approval (YYYY-MM-DD)." },
+    "approved_date": { "type": "string", "format": "date", "description": "Last approval date (Approved or Approved with notes)." },
+    "revise_resubmit_date": { "type": "string", "format": "date", "description": "Last date returned as Revise & resubmit." },
+    "released_date": { "type": "string", "format": "date", "description": "Date of the most recent release to shop. Kept after a new revision pulls the drawing back, as the record of the last release." },
+    "released_by": { "type": "string", "description": "User full_name (falls back to email) who released it." },
+    "release_number": { "type": "string", "description": "Release / transmittal number (auto-suggested R-001, R-002… per project; a bulk release gives every drawing in it the same number)." },
+    "released_revision": { "type": "string", "description": "The revision that was released. Releasing also writes PieceMark.revision = this rev on that drawing's pieces that had no rev, and on older-rev pieces only where the PM ticked them in the release dialog." },
+    "status_history": {
+      "type": "array",
+      "description": "Append-only log of approval/release events, oldest first. Shown on the drawing's detail panel.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "description": "approval_status value set by this event." },
+          "date": { "type": "string", "description": "YYYY-MM-DD (user-picked) or ISO timestamp (upload / new revision)." },
+          "by": { "type": "string" },
+          "revision": { "type": "string" },
+          "release_number": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      }
+    },
     "file_url": {
       "type": "string"
     },
     "file_name": {
-      "type": "string"
+      "type": "string",
+      "description": "File name of the CURRENT revision's PDF (mirrors revisions[last].file_name)."
     },
     "uploaded_date": {
-      "type": "string"
+      "type": "string",
+      "description": "When the CURRENT revision was uploaded."
     },
     "uploaded_by": {
-      "type": "string"
+      "type": "string",
+      "description": "Who uploaded the CURRENT revision."
     },
     "status": {
       "type": "string",
+      "description": "LEGACY sheet-level flag. The old reviewed checkbox is gone (approval_status replaces it); only \"superseded\" is still written, by \"Mark whole sheet superseded\" (a sheet replaced by a different drawing number, not a new rev). When two records share a drawing number, the release gate prefers the non-superseded one.",
       "enum": [
         "pending_review",
         "reviewed",

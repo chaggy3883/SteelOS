@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Briefcase, Wrench } from 'lucide-react';
+import { isVoidedPieceMark } from '@/lib/detailerImportRemovals';
 
 // "Use this Drop" — the one place (besides a whole-piece Detailer Import
 // match, which happens automatically) where a logged drop is deliberately
@@ -46,7 +47,7 @@ export default function UseRemnantDialog({ remnant, open, onOpenChange, projects
     if (mode !== 'project' || !projectId) { setPieceMarks([]); setPieceMarkId(''); return; }
     setLoadingPieceMarks(true);
     db.entities.PieceMark.filter({ project_id: projectId }, 'piece_mark', 2000)
-      .then(setPieceMarks)
+      .then((list) => setPieceMarks(list.filter((p) => !isVoidedPieceMark(p))))
       .catch(() => setPieceMarks([]))
       .finally(() => setLoadingPieceMarks(false));
   }, [mode, projectId]);
