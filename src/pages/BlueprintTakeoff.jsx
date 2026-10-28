@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
@@ -13,18 +13,26 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical, FileDown,
-  Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw, Ruler,
-  MousePointer2, MousePointerClick, Wrench, ChevronDown, ChevronUp,
-  Shapes, ScanSearch, Check, X, Link2, ExternalLink, ListChecks, Grid3x3,
-  Maximize2, HelpCircle, GripVertical, StickyNote, Save, Hexagon, FileSpreadsheet,
+  Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw,
+  MousePointer2, MousePointerClick,
+  ScanSearch, Check, X, Link2, ExternalLink, ListChecks, Grid3x3,
+  Maximize2, GripVertical, StickyNote, Save, Hexagon, FileSpreadsheet,
+  GitCompare, CopyPlus, FilePlus2, FileImage,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
-import { FRACTION_OPTIONS, formatFeetInchesFraction } from '@/lib/fractionInches';
+import { formatFeetInchesFraction } from '@/lib/fractionInches';
+import { buildPendingMeasurement, applyMeasureExtras, measurementRowFields, measurementSummary, toolLabel, MEASURE_TOOLS } from '@/lib/takeoffGeometry';
+import { buildLegendData } from '@/lib/takeoffLegend';
+import { presetRowFields, presetSlope } from '@/lib/takeoffRowHelpers';
+import { REVIEW_FLAG_TEXT } from '@/lib/takeoffCarryForward';
+import { useTakeoffSessionExtras } from '@/hooks/useTakeoffSessionExtras';
+import { useSymbolSearch } from '@/hooks/useSymbolSearch';
+import { useTakeoffScales } from '@/hooks/useTakeoffScales';
+import { useMeasureDraft } from '@/hooks/useMeasureDraft';
 import { buildCompactShapeProfile } from '@/lib/countShapeProfile';
 import { resolveWeightPerFt } from '@/lib/detailerImportWeight';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
@@ -44,8 +52,22 @@ import CountSetupModal from '@/components/estimating/CountSetupModal';
 import CountColorPickerModal from '@/components/estimating/CountColorPickerModal';
 import CountTallyPanel from '@/components/estimating/CountTallyPanel';
 import CountMarkerSwatch from '@/components/estimating/CountMarkerSwatch';
+import ScalePanel, { stepsForScalePick } from '@/components/estimating/ScalePanel';
+import MeasureToolButtons from '@/components/estimating/MeasureToolButtons';
+import ToolChestPanel from '@/components/estimating/ToolChestPanel';
+import ToolSetLibraryDialog from '@/components/estimating/ToolSetLibraryDialog';
+import LegendControls from '@/components/estimating/LegendControls';
+import VisualSearchPanel from '@/components/estimating/VisualSearchPanel';
+import MarkupPdfExportDialog from '@/components/estimating/MarkupPdfExportDialog';
+import RevisionCompareDialog from '@/components/estimating/RevisionCompareDialog';
+import CarryForwardDialog from '@/components/estimating/CarryForwardDialog';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
+
+// Stable empties for BlueprintCanvas props that feed its redraw effect — a
+// fresh [] / {} every render would redraw the whole overlay every render.
+const NO_ITEMS = [];
+const NO_LEGEND_SETTING = {};
 
 const emptyRow = (overrides = {}) => ({
   _key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -80,24 +102,9 @@ const rowGalvanizedTons = (r) => {
   return totalLbs / 2000;
 };
 
-// Shoelace formula on the closed Area-tool polygon (PDF-space, scale=1) —
-// pxPerFt squared converts the raw px² result into real-world sq ft the
-// same way pxPerFt alone converts a length.
-const polygonAreaSqFt = (polygon, pxPerFtValue) => {
-  if (!polygon || polygon.length < 3 || !pxPerFtValue) return 0;
-  let sum = 0;
-  for (let i = 0; i < polygon.length; i++) {
-    const p1 = polygon[i];
-    const p2 = polygon[(i + 1) % polygon.length];
-    sum += p1.pdfX * p2.pdfY - p2.pdfX * p1.pdfY;
-  }
-  return (Math.abs(sum) / 2) / (pxPerFtValue * pxPerFtValue);
-};
-
-const polygonCentroid = (polygon) => ({
-  pdfX: polygon.reduce((s, p) => s + p.pdfX, 0) / polygon.length,
-  pdfY: polygon.reduce((s, p) => s + p.pdfY, 0) / polygon.length,
-});
+// Measuring math (shoelace area with cutouts, polylines, slope, volume,
+// angle, circles) lives in src/lib/takeoffGeometry.js; per-page/viewport
+// scale in src/lib/takeoffScale.js.
 
 // A single PDF-space (scale=1) point representing "where this measurement
 // is" — the click point for Count, the midpoint for Length, the centroid
@@ -189,10 +196,11 @@ export default function BlueprintTakeoff() {
   const [steelCatalogEditorOpen, setSteelCatalogEditorOpen] = useState(false);
   // Named polygon regions an estimator can drop on the drawing (e.g. a deck
   // pour area) — keyed by name, each holding its own point list + id. Scoped
-  // to whichever PDF is currently loaded — reset alongside pxPerFt/rows any
+  // to whichever PDF is currently loaded — reset alongside the scale/rows any
   // time a different file is opened/uploaded, never persisted server-side.
   const [areas, setAreas] = useState({});
-  // Closed-but-unnamed polygon awaiting the Name This Area modal — cleared
+  // Closed-but-unnamed Area measurement (outer + cutouts, already scaled)
+  // awaiting the Name This Area modal — cleared
   // (with no entry added to `areas`) if the estimator cancels instead.
   const [pendingAreaPolygon, setPendingAreaPolygon] = useState(null);
   const [areaNameModalOpen, setAreaNameModalOpen] = useState(false);
@@ -274,15 +282,16 @@ export default function BlueprintTakeoff() {
   // on-screen pixel distance at the current zoom level.
   const [calibrationMode, setCalibrationMode] = useState(false);
   const [calibrationPoints, setCalibrationPoints] = useState([]);
-  const [calFeet, setCalFeet] = useState('');
-  const [calInches, setCalInches] = useState('');
-  const [calFraction, setCalFraction] = useState('0'); // string fraction value
-  const [pxPerFt, setPxPerFt] = useState(null);
-  // Raw inputs behind the current pxPerFt, kept for reference/debugging —
-  // pxPerFt itself is always derived back into PDF space (screenDistance /
-  // calibrationScale) so it stays correct at any zoom level, not just the
-  // zoom that was active at calibration time.
-  const [calibrationData, setCalibrationData] = useState(null);
+  // What the current two-click pick is for: { purpose: 'calibrate' |
+  // 'check' | 'viewport', target: { kind: 'page' } | { kind: 'viewport',
+  // id, name } }. ScalePanel reads the two points once both are placed.
+  const [scalePick, setScalePick] = useState(null);
+  // Per-page + per-viewport drawing scale (replaces the single session
+  // px_per_ft, which is still read as the whole-set fallback for older
+  // sessions — see takeoffScale.js migrateScaleState).
+  const scales = useTakeoffScales(takeoffId);
+  // Snap clicks to the PDF's own line work (hold Alt to place freely).
+  const [snapEnabled, setSnapEnabled] = useState(true);
   const [canvasScale, setCanvasScale] = useState(1);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
@@ -294,6 +303,9 @@ export default function BlueprintTakeoff() {
   const [pageNotes, setPageNotes] = useState({});
   const [pageInfo, setPageInfo] = useState({ pageNum: 1, numPages: 1 });
   const [notesPanelOpen, setNotesPanelOpen] = useState(true);
+  // Measuring is blocked on a page with no usable scale at all.
+  const pageCalibrated = scales.pageHasScale(pageInfo.pageNum);
+  const NOT_CALIBRATED_TOAST = { title: "This page isn't calibrated", description: 'Pick the drawing scale or Calibrate before measuring.', variant: 'destructive' };
 
   // Count/Length/Area measurement tools. All write straight into `rows`,
   // same as any other accepted_items row — source: 'measurement' is what
@@ -303,8 +315,15 @@ export default function BlueprintTakeoff() {
   // before every click; selectedPresetId tracks which one is "loaded" into
   // the tools.
   const [activeTool, setActiveTool] = useState(null);
-  const [lengthPoints, setLengthPoints] = useState([]);
-  const [areaPoints, setAreaPoints] = useState([]);
+  // Click collector for every drawn measuring tool (Length, Polylength,
+  // Perimeter, Area + cutouts, Volume, Wall Area, Angle, Radius, Diameter).
+  // Finished geometry lands in handleDraftComplete below.
+  const measureDraft = useMeasureDraft({
+    activeTool,
+    resetKey: pageInfo.pageNum,
+    onComplete: (tool, geom) => handleDraftComplete(tool, geom),
+    onReject: (message) => toast({ title: message, variant: 'destructive' }),
+  });
   // Confirmation modal that fires after every completed Count/Length/Area
   // measurement (never during calibration) — pendingMeasurement holds
   // whatever geometry that tool just produced (a click point, a two-point
@@ -315,12 +334,21 @@ export default function BlueprintTakeoff() {
   const [pendingMeasurement, setPendingMeasurement] = useState(null);
   const [toolChest, setToolChest] = useState([]);
   const [selectedPresetId, setSelectedPresetId] = useState(null);
-  const [toolChestOpen, setToolChestOpen] = useState(false);
-  const [newPresetLabel, setNewPresetLabel] = useState('');
-  const [newPresetShapeClass, setNewPresetShapeClass] = useState(SHAPE_CLASSES[0].value);
-  const [newPresetSize, setNewPresetSize] = useState('');
-  const [newPresetTool, setNewPresetTool] = useState('count');
-  const [newPresetColor, setNewPresetColor] = useState('#ef4444');
+  // The Tool Chest preset currently being measured with — its shape/size/
+  // slope seed the confirmation panel and its tool-set fields (subject,
+  // color, symbol …) are copied onto every row it confirms.
+  const activePreset = selectedPresetId ? toolChest.find((p) => p.id === selectedPresetId) || null : null;
+  // Company tool set copy, custom columns, legends, revision compare and
+  // the previous-revision link for this session (see the hook).
+  const extras = useTakeoffSessionExtras(takeoffId);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [exportPdfOpen, setExportPdfOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [carryOpen, setCarryOpen] = useState(false);
+  // Visual Search matches accepted into "a new count" wait here until the
+  // Count setup finishes, then become that tally session's first marks.
+  const pendingCountPointsRef = useRef(null);
+  const revisionInputRef = useRef(null);
 
   // Count/Bolt Count click-to-mark tally engine. One shared session model
   // for both — `kind` ('beam'|'bolt') only decides which setup fields were
@@ -363,6 +391,8 @@ export default function BlueprintTakeoff() {
   const pageNotesSaveTimerRef = useRef(null);
   const canvasRef = useRef(null);
   const highlightTimeoutRef = useRef(null);
+  // Non-AI Visual Search (template matching) on the current page.
+  const symbolSearch = useSymbolSearch({ canvasRef, pageNum: pageInfo.pageNum, pageSize });
 
   useEffect(() => () => clearTimeout(highlightTimeoutRef.current), []);
 
@@ -671,19 +701,18 @@ export default function BlueprintTakeoff() {
     setReattachError(null);
     setCalibrationMode(false);
     setCalibrationPoints([]);
-    setCalFeet('');
-    setCalInches('');
-    setCalFraction('0');
-    setPxPerFt(null);
-    setCalibrationData(null);
+    scales.reset();
+    setScalePick(null);
     setActiveTool(null);
-    setLengthPoints([]);
-    setAreaPoints([]);
+    measureDraft.reset();
     setAreas({});
     setPendingAreaPolygon(null);
     setAreaNameModalOpen(false);
     setToolChest([]);
     setSelectedPresetId(null);
+    extras.reset();
+    symbolSearch.clear();
+    pendingCountPointsRef.current = null;
     setCandidates([]);
     setCandidateSourceRow(null);
     setVisualSearchLoading(false);
@@ -716,19 +745,18 @@ export default function BlueprintTakeoff() {
     setHasStoredPdf(Boolean(takeoff.has_stored_pdf));
     setCalibrationMode(false);
     setCalibrationPoints([]);
-    setCalFeet('');
-    setCalInches('');
-    setCalFraction('0');
-    setPxPerFt(takeoff.px_per_ft ?? null);
-    setCalibrationData(null);
+    scales.loadFrom(takeoff);
+    setScalePick(null);
     setActiveTool(null);
-    setLengthPoints([]);
-    setAreaPoints([]);
+    measureDraft.reset();
     setAreas({});
     setPendingAreaPolygon(null);
     setAreaNameModalOpen(false);
     setToolChest(takeoff.tool_chest || []);
     setSelectedPresetId(null);
+    extras.loadFrom(takeoff);
+    symbolSearch.clear();
+    pendingCountPointsRef.current = null;
     setCandidates([]);
     setCandidateSourceRow(null);
     setVisualSearchLoading(false);
@@ -813,7 +841,7 @@ export default function BlueprintTakeoff() {
   // (handleBidFilesDrop) — just the UploadFile + blueprint_takeoffs.create,
   // no workspace UI state. areaId is the bid-entry flow's optional
   // ProjectSequenceArea pick; always undefined for a standalone session.
-  const createTakeoffRecord = async ({ file, name, areaId }) => {
+  const createTakeoffRecord = async ({ file, name, areaId, extra = {} }) => {
     const { file_url } = await db.integrations.Core.UploadFile({ file });
     const pickedLink = bidId ? { bid_id: null, project_id: null } : parseLinkValue(newTakeoffLinkValue);
     return db.entities.blueprint_takeoffs.create({
@@ -829,6 +857,7 @@ export default function BlueprintTakeoff() {
       accepted_items: [],
       has_stored_pdf: false,
       last_opened_at: new Date().toISOString(),
+      ...extra,
     });
   };
 
@@ -867,19 +896,18 @@ export default function BlueprintTakeoff() {
     setReattachError(null);
     setCalibrationMode(false);
     setCalibrationPoints([]);
-    setCalFeet('');
-    setCalInches('');
-    setCalFraction('0');
-    setPxPerFt(null);
-    setCalibrationData(null);
+    scales.reset();
+    setScalePick(null);
     setActiveTool(null);
-    setLengthPoints([]);
-    setAreaPoints([]);
+    measureDraft.reset();
     setAreas({});
     setPendingAreaPolygon(null);
     setAreaNameModalOpen(false);
     setToolChest([]);
     setSelectedPresetId(null);
+    extras.reset();
+    symbolSearch.clear();
+    pendingCountPointsRef.current = null;
     setCandidates([]);
     setCandidateSourceRow(null);
     setVisualSearchLoading(false);
@@ -1033,87 +1061,46 @@ export default function BlueprintTakeoff() {
     }
   };
 
-  const handleStartCalibration = () => {
+  // Starts a two-click pick on the drawing for ScalePanel — calibrate the
+  // page or a viewport, check the scale against a known dimension, or box
+  // out a new viewport.
+  const startScalePick = (purpose = 'calibrate', target = { kind: 'page' }) => {
+    if (!confirmDiscardActiveCountSession()) return;
     setActiveTool(null);
-    setLengthPoints([]);
-    setAreaPoints([]);
+    measureDraft.reset();
+    resetCountEngine();
     setCalibrationPoints([]);
+    setScalePick({ purpose, target });
     setCalibrationMode(true);
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
   };
 
+  const handleStartCalibration = () => startScalePick('calibrate', { kind: 'page' });
+
   const handleCalibrationCancel = () => {
     setCalibrationPoints([]);
     setCalibrationMode(false);
+    setScalePick(null);
+  };
+
+  const handleScaleReference = (text) => {
+    setScaleReference(text);
+    if (takeoffId) {
+      db.entities.blueprint_takeoffs.update(takeoffId, { scale_reference: text }).catch((e) => {
+        console.error('Failed to persist scale reference', e);
+      });
+    }
   };
 
   const handleCalibrationClick = ({ pdfX, pdfY }) => {
     setCalibrationPoints((prev) => (prev.length >= 2 ? prev : [...prev, { pdfX, pdfY }]));
   };
 
-  const handleConfirmCalibration = async () => {
-    const [p1, p2] = calibrationPoints;
-    if (!p1 || !p2) return;
-
-    const feet = parseFloat(calFeet) || 0;
-    const inches = parseFloat(calInches) || 0;
-    const fraction = parseFloat(calFraction) || 0;
-    const realFt = feet + (inches + fraction) / 12;
-
-    // p1/p2 are already in PDF space (scale=1) — screenDistance/calibrationScale
-    // is recorded here only so the PDF-space distance can be recovered the
-    // same way regardless of what zoom level this calibration happened at.
-    // pxPerFt is a PDF-space ratio and must never be multiplied by whatever
-    // scale happens to be live when a later Length/Area click uses it —
-    // that's what let this drift every time the estimator zoomed between
-    // calibrating and measuring.
-    const calibrationScale = canvasScale;
-    const screenDistance = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2) * calibrationScale;
-    const pdfPixelDistance = screenDistance / calibrationScale;
-    const resolvedPxPerFt = pdfPixelDistance / realFt;
-
-    if (!(realFt > 0)) {
-      toast({ title: 'Enter the dimension between your two points.', variant: 'destructive' });
-      setCalibrationPoints([]);
-      return;
-    }
-
-    if (!(screenDistance > 10)) {
-      toast({ title: 'Points are too close together', description: 'Click two clearly separated points on the drawing.', variant: 'destructive' });
-      setCalibrationPoints([]);
-      return;
-    }
-    if (!(resolvedPxPerFt > 0 && resolvedPxPerFt < 100000)) {
-      toast({ title: 'Implausible scale', description: 'That scale looks wrong — check your points and distance and try again.', variant: 'destructive' });
-      setCalibrationPoints([]);
-      return;
-    }
-
-    const fractionLabel = FRACTION_OPTIONS.find((f) => f.value === calFraction)?.label;
-    const readableDistance = `${feet}'-${inches}${calFraction !== '0' && fractionLabel ? `-${fractionLabel}` : ''}"`;
-
-    setPxPerFt(resolvedPxPerFt);
-    setCalibrationData({ pdfX1: p1.pdfX, pdfY1: p1.pdfY, pdfX2: p2.pdfX, pdfY2: p2.pdfY, screenDistance, calibrationScale });
-    setCalibrationMode(false);
-    setScaleReference(readableDistance);
-
-    if (takeoffId) {
-      try {
-        await db.entities.blueprint_takeoffs.update(takeoffId, {
-          px_per_ft: resolvedPxPerFt,
-          scale_reference: readableDistance,
-        });
-      } catch (e) {
-        console.error('Failed to persist calibration', e);
-      }
-    }
-  };
-
   // Clears every piece of Count/Bolt Count engine state — used whenever the
   // estimator switches to a different tool (or Escape) mid-setup or
-  // mid-session, same as the other tools already reset lengthPoints/
-  // areaPoints/pendingMeasurement on a switch. A live session's marks only
+  // mid-session, same as the other tools already reset the measuring draft/
+  // pendingMeasurement on a switch. A live session's marks only
   // ever exist in countSession.points until Save, so this never touches an
   // already-saved row.
   const resetCountEngine = () => {
@@ -1138,31 +1125,31 @@ export default function BlueprintTakeoff() {
   const handleSelectTool = () => {
     if (!confirmDiscardActiveCountSession()) return;
     setActiveTool(null);
-    setLengthPoints([]);
-    setAreaPoints([]);
+    measureDraft.reset();
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
     resetCountEngine();
   };
 
   // Gate every tool activation behind calibration — Count/Length/Area
-  // measurements are meaningless without pxPerFt, so there's no
+  // measurements are meaningless without a page scale, so there's no
   // partial-credit path here: either it's set and the tool goes live, or it
   // isn't and nothing changes beyond the toast telling the estimator what to
   // do first.
   const handleActivateTool = (tool) => {
-    if (pxPerFt == null) {
-      toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
+    if (!pageCalibrated) {
+      toast(NOT_CALIBRATED_TOAST);
       return;
     }
     if (!confirmDiscardActiveCountSession()) return;
     setCalibrationMode(false);
     setCalibrationPoints([]);
-    setLengthPoints([]);
-    setAreaPoints([]);
+    setScalePick(null);
+    measureDraft.reset();
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
     resetCountEngine();
+    setSelectedPresetId(null);
     setActiveTool(tool);
   };
 
@@ -1170,52 +1157,75 @@ export default function BlueprintTakeoff() {
   // ('bolt_count') tally. activeTool stays null until the color/symbol step
   // also completes (handleConfirmCountColor), so the canvas never enters
   // click-to-mark mode with an incomplete session.
-  const handleStartCountSetup = (kind) => {
-    if (pxPerFt == null) {
-      toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
+  // `preset` — the Tool Chest preset this count was started from (if any);
+  // its tool-set fields ride along to the saved row.
+  const handleStartCountSetup = (kind, preset = null) => {
+    if (!pageCalibrated) {
+      pendingCountPointsRef.current = null;
+      toast(NOT_CALIBRATED_TOAST);
       return;
     }
-    if (!confirmDiscardActiveCountSession()) return;
+    if (!confirmDiscardActiveCountSession()) { pendingCountPointsRef.current = null; return; }
     setCalibrationMode(false);
     setCalibrationPoints([]);
-    setLengthPoints([]);
-    setAreaPoints([]);
+    measureDraft.reset();
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
     setActiveTool(null);
     setCountSession(null);
-    setCountSetup({ kind, editingRowKey: null });
+    setSelectedPresetId(preset?.id || null);
+    setCountSetup({ kind, editingRowKey: null, preset });
     setCountSetupModalOpen(true);
   };
 
   // Step 2 — Shape/Size/Length (or Type/Size/Grade) collected, now pick a
-  // color (or symbol, once this page's 20-color palette is exhausted).
+  // color (or symbol, once this page's 20-color palette is exhausted). A
+  // company tool-set tool already defines its color/symbol, so that step is
+  // skipped for one.
   const handleConfirmCountSetup = (fields) => {
     setCountSetupModalOpen(false);
-    setPendingCountFields({ kind: countSetup.kind, editingRowKey: countSetup.editingRowKey, fields });
+    const preset = countSetup.preset || null;
+    const pending = {
+      kind: countSetup.kind,
+      editingRowKey: countSetup.editingRowKey,
+      preset,
+      fields: preset
+        ? { ...fields, marker_size: fields.marker_size || preset.marker_size || null, show_numbers: Boolean(fields.show_numbers || preset.show_numbers) }
+        : fields,
+    };
+    if (preset?.tool_set_tool_id) {
+      beginCountSession(pending, preset.symbol && preset.symbol !== 'circle' ? { symbol: preset.symbol } : { color: preset.color });
+      return;
+    }
+    setPendingCountFields(pending);
     setCountColorModalOpen(true);
   };
 
   const handleCancelCountSetup = () => {
     setCountSetupModalOpen(false);
     setCountSetup(null);
+    pendingCountPointsRef.current = null;
   };
 
   // Step 3 — color/symbol chosen, the click-to-mark session goes live.
-  const handleConfirmCountColor = (choice) => {
-    if (!pendingCountFields) return;
-    const { kind, editingRowKey, fields } = pendingCountFields;
+  const beginCountSession = (pending, choice) => {
+    const { kind, editingRowKey, fields, preset } = pending;
     const tool = kind === 'bolt' ? 'bolt_count' : 'count';
     const existingRow = editingRowKey ? rows.find((r) => r._key === editingRowKey) : null;
+    const pageNumber = existingRow ? (existingRow.page_number || 1) : pageInfo.pageNum;
+    // A brand-new count can start with Visual Search matches the estimator
+    // already accepted (same page only).
+    const fromSearch = pendingCountPointsRef.current;
+    pendingCountPointsRef.current = null;
     const initialPoints = existingRow
       ? (existingRow.points?.length ? existingRow.points.slice() : (existingRow.pdfX != null ? [{ pdfX: existingRow.pdfX, pdfY: existingRow.pdfY }] : []))
-      : [];
-    const pageNumber = existingRow ? (existingRow.page_number || 1) : pageInfo.pageNum;
+      : (fromSearch && fromSearch.page === pageNumber ? fromSearch.points.slice() : []);
 
     setCountSession({
       kind,
       editingRowKey,
       fields,
+      preset: preset || null,
       color: choice.color || null,
       symbol: choice.symbol || null,
       points: initialPoints,
@@ -1228,10 +1238,16 @@ export default function BlueprintTakeoff() {
     if (existingRow) canvasRef.current?.goToPage(pageNumber);
   };
 
+  const handleConfirmCountColor = (choice) => {
+    if (!pendingCountFields) return;
+    beginCountSession(pendingCountFields, choice);
+  };
+
   const handleCancelCountColor = () => {
     setCountColorModalOpen(false);
     setPendingCountFields(null);
     setCountSetup(null);
+    pendingCountPointsRef.current = null;
   };
 
   // "Add Pieces" — resumes an already-saved count/bolt_count row's session
@@ -1240,16 +1256,15 @@ export default function BlueprintTakeoff() {
   // that context already exists. Saving updates this same row instead of
   // creating a new one (see handleSaveCountSession).
   const handleResumeCount = (row) => {
-    if (pxPerFt == null) {
-      toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
+    if (!scales.pageHasScale(row.page_number || 1)) {
+      toast(NOT_CALIBRATED_TOAST);
       return;
     }
     if (!confirmDiscardActiveCountSession()) return;
     const kind = row.tool === 'bolt_count' ? 'bolt' : 'beam';
     setCalibrationMode(false);
     setCalibrationPoints([]);
-    setLengthPoints([]);
-    setAreaPoints([]);
+    measureDraft.reset();
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
     setCountSetupModalOpen(false);
@@ -1260,6 +1275,8 @@ export default function BlueprintTakeoff() {
     const fields = kind === 'bolt'
       ? { shape_type: row.shape_type, shape_code: row.shape_code || '', size_designation: row.size_designation, grade: row.grade || '' }
       : { shape_type: row.shape_type, shape_code: row.shape_code || '', size_designation: row.size_designation, length_ft: row.length_ft || 0, width_ft: row.width_ft || 0, grade: row.grade || '' };
+    fields.marker_size = row.marker_size || null;
+    fields.show_numbers = Boolean(row.show_numbers);
     const pageNumber = row.page_number || 1;
 
     setCountSession({
@@ -1301,8 +1318,9 @@ export default function BlueprintTakeoff() {
       toast({ title: 'Mark at least one piece before saving.', variant: 'destructive' });
       return;
     }
-    const { kind, editingRowKey, fields, color, symbol, points, page_number } = countSession;
+    const { kind, editingRowKey, fields, color, symbol, points, page_number, preset } = countSession;
     const tool = kind === 'bolt' ? 'bolt_count' : 'count';
+    const fromPreset = presetRowFields(preset);
 
     // Weight-per-ft — same catalog-match-then-estimate resolution Detailer
     // Import already uses (resolveWeightPerFt), just fed a compact AISC-style
@@ -1330,12 +1348,15 @@ export default function BlueprintTakeoff() {
         color,
         symbol,
         points,
+        marker_size: fields.marker_size || null,
+        show_numbers: Boolean(fields.show_numbers),
         quantity: qty,
         unit_weight_lbs_per_ft: weightPerFt,
         label: [fields.shape_type, fields.size_designation].filter(Boolean).join(' '),
       } : r));
     } else {
       const newRow = {
+        ...fromPreset,
         _key: crypto.randomUUID(),
         id: crypto.randomUUID(),
         source: 'measurement',
@@ -1348,11 +1369,14 @@ export default function BlueprintTakeoff() {
         color,
         symbol,
         points,
+        marker_size: fields.marker_size || null,
+        show_numbers: Boolean(fields.show_numbers),
         quantity: qty,
         length_ft: kind === 'beam' ? (fields.length_ft || 0) : 0,
         width_ft: kind === 'beam' ? (fields.width_ft || 0) : 0,
-        grade: fields.grade || '',
-        unit_weight_lbs_per_ft: weightPerFt,
+        grade: fields.grade || fromPreset.grade || '',
+        // A tool's typed lb/ft only fills in when the catalog found nothing.
+        unit_weight_lbs_per_ft: weightPerFt || fromPreset.unit_weight_lbs_per_ft || 0,
         notes: '',
         is_saved: true,
         is_accepted: true,
@@ -1365,70 +1389,74 @@ export default function BlueprintTakeoff() {
     setActiveTool(null);
   };
 
-  const handleMeasurementClick = ({ tool, pdfX, pdfY, isClosingClick }) => {
-    if (tool === 'length') {
-      if (lengthPoints.length === 0) {
-        setLengthPoints([{ pdfX, pdfY }]);
-        return;
-      }
-
-      const p1 = lengthPoints[0];
-      const p2 = { pdfX, pdfY };
-      // Both points and pxPerFt live in PDF space — no canvasScale factor
-      // here, or this drifts the instant the estimator zooms in/out between
-      // calibrating and clicking a length (see handleConfirmCalibration).
-      const pxDist = Math.sqrt((p2.pdfX - p1.pdfX) ** 2 + (p2.pdfY - p1.pdfY) ** 2);
-      const lengthFt = pxDist / pxPerFt;
-      setPendingMeasurement({ tool: 'length', point1: p1, point2: p2, length_ft: Math.round(lengthFt * 100) / 100 });
-      setMeasurementModalOpen(true);
+  // Every drawn tool's clicks go through useMeasureDraft. The first click
+  // decides the scale (the viewport it's in, else the page's) — a click on
+  // an uncalibrated page/viewport is refused before anything is drawn.
+  const handleMeasurementClick = ({ pdfX, pdfY, isClosingClick }) => {
+    if (isClosingClick) {
+      measureDraft.closeShape();
       return;
     }
-
-    if (tool === 'area') {
-      if (isClosingClick) {
-        // Fewer than 3 vertices can't form a polygon — ignore the closing
-        // click entirely (don't add it as a vertex either) and keep
-        // collecting points.
-        if (areaPoints.length < 3) return;
-
-        // Don't auto-place anything here — hand the closed polygon to the
-        // Name This Area modal instead, and only commit it to `areas` once
-        // the estimator saves a name for it (see handleSaveAreaName).
-        setPendingAreaPolygon(areaPoints);
-        setAreaNameModalOpen(true);
+    const pt = { pdfX, pdfY };
+    const { draft } = measureDraft;
+    if (draft.points.length === 0 && !draft.outer) {
+      const sc = scales.resolveAt(pageInfo.pageNum, pt);
+      if (!sc?.ptsPerFt) {
+        toast(sc?.blocked
+          ? { title: `${sc.name || 'This viewport'} has no scale yet`, description: 'Set its scale in the scale panel before measuring inside it.', variant: 'destructive' }
+          : NOT_CALIBRATED_TOAST);
         return;
       }
-
-      setAreaPoints((prev) => [...prev, { pdfX, pdfY }]);
     }
+    measureDraft.addPoint(pt);
+  };
+
+  // A finished drawing becomes a pending measurement at the scale that
+  // applied at its first point. Area still goes through Name This Area
+  // first (that name becomes a phase/area zone); everything else goes
+  // straight to the confirmation panel. Nothing reaches `rows` until the
+  // estimator confirms.
+  const handleDraftComplete = (tool, geom) => {
+    const first = geom.outer?.[0] || geom.points?.[0];
+    const sc = first ? scales.resolveAt(pageInfo.pageNum, first) : null;
+    if (!sc?.ptsPerFt) {
+      toast(NOT_CALIBRATED_TOAST);
+      return;
+    }
+    const pending = buildPendingMeasurement(tool, geom, sc.ptsPerFt);
+    if (!pending) return;
+    pending.scale_source = sc.source;
+    pending.scale_label = sc.label;
+    if (sc.viewportId) pending.scale_viewport_id = sc.viewportId;
+    if (tool === 'area') {
+      setPendingAreaPolygon(pending);
+      setAreaNameModalOpen(true);
+      return;
+    }
+    setPendingMeasurement(pending);
+    setMeasurementModalOpen(true);
   };
 
   const handleSaveAreaName = (name) => {
     if (pendingAreaPolygon) {
       setAreas((prev) => ({
         ...prev,
-        [name]: { id: crypto.randomUUID(), polygon: pendingAreaPolygon, pageNumber: pageInfo.pageNum },
+        [name]: { id: crypto.randomUUID(), polygon: pendingAreaPolygon.polygon_points, cutouts: pendingAreaPolygon.cutouts || [], pageNumber: pageInfo.pageNum },
       }));
       // The zone itself is committed above regardless — this only decides
       // whether it also becomes a takeoff row. zoneName pre-selects this
       // exact zone in the confirmation modal's Phase/Area dropdown.
-      setPendingMeasurement({
-        tool: 'area',
-        polygon: pendingAreaPolygon,
-        area_sq_ft: polygonAreaSqFt(pendingAreaPolygon, pxPerFt),
-        centroid: polygonCentroid(pendingAreaPolygon),
-        zoneName: name,
-      });
+      setPendingMeasurement({ ...pendingAreaPolygon, zoneName: name });
       setMeasurementModalOpen(true);
     }
     setPendingAreaPolygon(null);
-    setAreaPoints([]);
+    measureDraft.reset();
     setAreaNameModalOpen(false);
   };
 
   const handleCancelAreaName = () => {
     setPendingAreaPolygon(null);
-    setAreaPoints([]);
+    measureDraft.reset();
     setAreaNameModalOpen(false);
   };
 
@@ -1443,9 +1471,8 @@ export default function BlueprintTakeoff() {
       return null;
     }
 
-    const point = pendingMeasurement.tool === 'area' ? pendingMeasurement.centroid
-      : pendingMeasurement.tool === 'length' ? pendingMeasurement.point2
-      : pendingMeasurement;
+    const point = pendingMeasurement.tool === 'length' ? pendingMeasurement.point2
+      : pendingMeasurement.centroid || pendingMeasurement;
 
     const pageImageDataUrl = canvasRef.current.getFullPageDataUrl();
     const cropDataUrl = canvasRef.current.getCropDataUrl(point.pdfX, point.pdfY, 120);
@@ -1463,7 +1490,7 @@ export default function BlueprintTakeoff() {
   };
 
   const finishMeasurementModal = () => {
-    if (pendingMeasurement?.tool === 'length') setLengthPoints([]);
+    measureDraft.reset();
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
   };
@@ -1476,7 +1503,11 @@ export default function BlueprintTakeoff() {
   // when the estimator explicitly chose "Keep Separate" on a duplicate
   // prompt — `color` is kept in sync with it since MarkupsList's own group
   // swatches still read the hex field, not marker_color.
-  const buildMeasurementRow = (shape, size, qty, phaseArea, markerColor) => {
+  // `extras` is the confirmation panel's slope / depth / wall height —
+  // applied on top of the plan values here so the saved row carries the
+  // final quantity (see takeoffGeometry.js applyMeasureExtras).
+  const buildMeasurementRow = (shape, size, qty, phaseArea, markerColor, measureExtras) => {
+    const m = pendingMeasurement.tool === 'count' ? pendingMeasurement : applyMeasureExtras(pendingMeasurement, measureExtras || {});
     const base = {
       id: crypto.randomUUID(),
       source: 'measurement',
@@ -1484,8 +1515,7 @@ export default function BlueprintTakeoff() {
       page_number: pageInfo.pageNum,
       shape_type: shape,
       size_designation: size,
-      label: [shape, size].filter(Boolean).join(' ')
-        || (pendingMeasurement.tool === 'count' ? 'Count' : pendingMeasurement.tool === 'length' ? 'Length' : 'Area'),
+      label: [shape, size].filter(Boolean).join(' ') || toolLabel(pendingMeasurement.tool),
       color: markerColor === 'red' ? '#ef4444' : '#22c55e',
       marker_color: markerColor,
       quantity: qty,
@@ -1495,17 +1525,22 @@ export default function BlueprintTakeoff() {
       is_saved: true,
       is_accepted: true,
       unit_weight_lbs_per_ft: 0,
-      length_ft: pendingMeasurement.tool === 'length' ? pendingMeasurement.length_ft : 0,
+      length_ft: m.length_ft || 0,
     };
     base._key = base.id;
+    // Measured with a Tool Chest tool of this same kind → copy its tool-set
+    // fields (subject, color, symbol, shape class …) onto the row.
+    if (activePreset && (activePreset.measurement_type || activePreset.tool) === pendingMeasurement.tool) {
+      Object.assign(base, presetRowFields(activePreset));
+    }
 
     if (pendingMeasurement.tool === 'count') return { ...base, pdfX: pendingMeasurement.pdfX, pdfY: pendingMeasurement.pdfY };
-    if (pendingMeasurement.tool === 'length') return { ...base, point1: pendingMeasurement.point1, point2: pendingMeasurement.point2 };
     return {
       ...base,
-      pdfX: pendingMeasurement.centroid.pdfX,
-      pdfY: pendingMeasurement.centroid.pdfY,
-      area_sq_ft: pendingMeasurement.area_sq_ft,
+      ...measurementRowFields(m),
+      scale_source: m.scale_source || null,
+      scale_label: m.scale_label || null,
+      scale_viewport_id: m.scale_viewport_id || null,
     };
   };
 
@@ -1514,14 +1549,14 @@ export default function BlueprintTakeoff() {
   // nothing is written to `rows` in that case; the modal shows a
   // merge-or-keep-separate prompt and calls handleMergeDuplicate/
   // handleKeepSeparateMeasurement with the estimator's choice instead.
-  const handleConfirmMeasurement = ({ shape, size, quantity, phaseArea }) => {
+  const handleConfirmMeasurement = ({ shape, size, quantity, phaseArea, extras: measureExtras }) => {
     if (!pendingMeasurement) return { added: false };
     const qty = Math.max(1, Number(quantity) || 1);
     const anchor = measurementAnchorFromPending(pendingMeasurement);
     const duplicate = findDuplicateRow(rows, pendingMeasurement.tool, shape, size, phaseArea, anchor);
     if (duplicate) return { duplicate };
 
-    const updated = [...rows, buildMeasurementRow(shape, size, qty, phaseArea, 'green')];
+    const updated = [...rows, buildMeasurementRow(shape, size, qty, phaseArea, 'green', measureExtras)];
     setRows(updated);
     persist(updated);
     finishMeasurementModal();
@@ -1536,10 +1571,10 @@ export default function BlueprintTakeoff() {
     finishMeasurementModal();
   };
 
-  const handleKeepSeparateMeasurement = ({ shape, size, quantity, phaseArea, existingRowKey }) => {
+  const handleKeepSeparateMeasurement = ({ shape, size, quantity, phaseArea, extras: measureExtras, existingRowKey }) => {
     if (!pendingMeasurement) return;
     const qty = Math.max(1, Number(quantity) || 1);
-    const newRow = buildMeasurementRow(shape, size, qty, phaseArea, 'red');
+    const newRow = buildMeasurementRow(shape, size, qty, phaseArea, 'red', measureExtras);
     const updated = rows
       .map((r) => (r._key === existingRowKey ? { ...r, marker_color: 'red', color: '#ef4444' } : r))
       .concat(newRow);
@@ -1549,29 +1584,29 @@ export default function BlueprintTakeoff() {
   };
 
   const handleSelectPreset = (preset) => {
-    setSelectedPresetId(preset.id);
-    // A saved 'count' preset predates the click-to-mark tally engine — its
-    // shape/size fields are the old 5-class enum, not a material catalog
-    // shape_type_id, so there's no clean bridge into the new setup step.
-    // Route it into a fresh Count setup instead of silently activating a
-    // tool with no session behind it (which would make every click a no-op).
-    if (preset.tool === 'count') {
-      handleStartCountSetup('beam');
+    const type = preset.measurement_type || preset.tool;
+    // Count presets go through Count setup (the master catalog shape/size
+    // step) — a preset's shape is the old 5-class enum, not a catalog
+    // shape_type_id, so there's no clean bridge straight into a tally.
+    if (type === 'count' || type === 'bolt_count') {
+      handleStartCountSetup(type === 'bolt_count' ? 'bolt' : 'beam', preset);
       return;
     }
-    if (pxPerFt == null) {
-      toast({ title: 'Calibrate the drawing scale first — click Set Scale', variant: 'destructive' });
+    const tool = MEASURE_TOOLS[type] ? type : preset.tool;
+    if (!MEASURE_TOOLS[tool]) return;
+    if (!pageCalibrated) {
+      toast(NOT_CALIBRATED_TOAST);
       return;
     }
     if (!confirmDiscardActiveCountSession()) return;
     setCalibrationMode(false);
     setCalibrationPoints([]);
-    setLengthPoints([]);
-    setAreaPoints([]);
+    measureDraft.reset();
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
     resetCountEngine();
-    setActiveTool(preset.tool);
+    setActiveTool(tool);
+    setSelectedPresetId(preset.id);
   };
 
   const handleRemovePreset = (id) => {
@@ -1579,19 +1614,128 @@ export default function BlueprintTakeoff() {
     setSelectedPresetId((prev) => (prev === id ? null : prev));
   };
 
-  const handleAddPreset = () => {
-    if (!newPresetLabel.trim()) return;
-    const preset = {
-      id: crypto.randomUUID(),
-      tool: newPresetTool,
-      label: newPresetLabel.trim(),
-      shapeClass: newPresetShapeClass,
-      sizeDesignation: newPresetSize.trim(),
-      color: newPresetColor,
-    };
-    setToolChest((prev) => [...prev, preset]);
-    setNewPresetLabel('');
-    setNewPresetSize('');
+  // A whole company tool set (library "Load into this takeoff" or the Tool
+  // Chest picker) replaces this takeoff's presets and becomes its company
+  // columns. Already-measured rows keep what they were saved with.
+  const handleApplyToolSet = (set, presets) => {
+    if (toolChest.length > 0 && !window.confirm(`Replace the ${toolChest.length} tool${toolChest.length === 1 ? '' : 's'} in this takeoff's Tool Chest with "${set.name}"? Markups you've already measured are kept.`)) return;
+    setToolChest(presets);
+    setSelectedPresetId(null);
+    extras.setToolSet(set);
+    toast({ title: `Loaded "${set.name}"`, description: `${presets.length} tool${presets.length === 1 ? '' : 's'}, ${set.columns?.length || 0} column${set.columns?.length === 1 ? '' : 's'}.` });
+  };
+
+  // Visual Search → count marks. Matches only become marks here, after the
+  // estimator accepted them and picked a count. An existing count gets them
+  // added (marks already sitting on a spot are skipped); "a new count" goes
+  // through Count setup and the tally panel's Save like any other count.
+  const handleAddSearchMatches = (rowKey, accepted) => {
+    const pts = accepted.map((c) => ({ pdfX: c.centerPdfX, pdfY: c.centerPdfY }));
+    if (!pts.length) return;
+    if (!rowKey) {
+      pendingCountPointsRef.current = { page: pageInfo.pageNum, points: pts };
+      symbolSearch.clear();
+      handleStartCountSetup('beam');
+      return;
+    }
+    const row = rows.find((r) => r._key === rowKey);
+    if (!row) return;
+    const existing = row.points?.length ? row.points : (row.pdfX != null ? [{ pdfX: row.pdfX, pdfY: row.pdfY }] : []);
+    const near = (row.marker_size || 7) + 2;
+    const fresh = pts.filter((p) => !existing.some((q) => Math.hypot(q.pdfX - p.pdfX, q.pdfY - p.pdfY) <= near));
+    const points = [...existing, ...fresh];
+    const updated = rows.map((r) => (r._key === rowKey ? { ...r, points, quantity: points.length } : r));
+    setRows(updated);
+    persist(updated);
+    symbolSearch.clear();
+    toast({
+      title: `${fresh.length} mark${fresh.length === 1 ? '' : 's'} added to ${row.label || 'the count'}`,
+      description: pts.length - fresh.length ? `${pts.length - fresh.length} were already marked and were skipped.` : `Now ${points.length} in total.`,
+    });
+  };
+
+  const handleStartSymbolSearch = () => {
+    if (!confirmDiscardActiveCountSession()) return;
+    setActiveTool(null);
+    measureDraft.reset();
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setScalePick(null);
+    resetCountEngine();
+    symbolSearch.start();
+  };
+
+  // Load a newer issue of this drawing as its own session, linked back to
+  // this one. The new session starts with this one's tools and columns but
+  // no markups — those come over through "Bring markups forward", after
+  // comparing the sheets, so nothing is copied without the estimator seeing
+  // it.
+  const handleNewRevisionFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !takeoffId) return;
+    if (!confirmDiscardActiveCountSession()) return;
+    const link = sessionBidId ? { bid_id: sessionBidId, project_id: undefined }
+      : sessionProjectId ? { bid_id: undefined, project_id: sessionProjectId } : {};
+    try {
+      const created = await createTakeoffRecord({
+        file,
+        name: `${takeoffName || stripPdfExtension(fileName) || 'Takeoff'} — new revision`,
+        areaId: sessionAreaId,
+        extra: {
+          ...link,
+          previous_takeoff_id: takeoffId,
+          tool_chest: toolChest,
+          tool_set_id: extras.toolSet?.id || null,
+          tool_set_snapshot: extras.toolSet || null,
+          custom_columns: extras.customColumns,
+        },
+      });
+      enterNewSessionWorkspace(created, file);
+      setToolChest(created.tool_chest || []);
+      extras.loadFrom(created);
+      loadSessions();
+      toast({ title: 'New revision started', description: 'Use "Compare with older revision" to find what changed, then "Bring markups forward".' });
+    } catch (err) {
+      console.error('Failed to start a new revision', err);
+      toast({ title: 'Could not start the new revision', description: 'See console for details.', variant: 'destructive' });
+    }
+  };
+
+  const handleSaveCompare = (result) => {
+    const prev = extras.revisionCompare || {};
+    extras.setRevisionCompare({
+      previous_takeoff_id: result.previous_takeoff_id,
+      pages: {
+        ...(prev.previous_takeoff_id && prev.previous_takeoff_id !== result.previous_takeoff_id ? {} : (prev.pages || {})),
+        [result.page]: {
+          previous_takeoff_id: result.previous_takeoff_id,
+          old_page_number: result.old_page_number,
+          transform: result.transform,
+          clouds: result.clouds,
+          stats: result.stats,
+          compared_at: result.compared_at,
+        },
+      },
+    });
+    toast({ title: `${result.clouds.length} change cloud${result.clouds.length === 1 ? '' : 's'} saved for page ${result.page}` });
+  };
+
+  const handleApplyCarryForward = (newRows, { flagged }) => {
+    const updated = [...rows, ...newRows];
+    setRows(updated);
+    persist(updated);
+    setCarryOpen(false);
+    toast({
+      title: `${newRows.length} markup${newRows.length === 1 ? '' : 's'} brought forward`,
+      description: flagged ? `${flagged} landed in a changed area — they're marked "${REVIEW_FLAG_TEXT}".` : 'None landed in a changed area.',
+    });
+  };
+
+  const clearReviewFlag = (key) => {
+    const updated = rows.map((r) => (r._key === key ? { ...r, review_flag: null, review_note: null } : r));
+    setRows(updated);
+    persist(updated);
   };
 
   const handlePageNoteChange = (value) => {
@@ -1682,10 +1826,13 @@ export default function BlueprintTakeoff() {
     if (mode !== 'workspace') return;
     const onKeyDown = (e) => {
       if (e.key === 'Escape' && !e.repeat) {
+        if (symbolSearch.phase === 'picking' || symbolSearch.phase === 'searching') symbolSearch.cancel();
         if (!confirmDiscardActiveCountSession()) return;
         setActiveTool(null);
-        setLengthPoints([]);
-        setAreaPoints([]);
+        measureDraft.reset();
+        setCalibrationMode(false);
+        setCalibrationPoints([]);
+        setScalePick(null);
         setIsFullscreen(false);
         resetCountEngine();
       }
@@ -1696,7 +1843,7 @@ export default function BlueprintTakeoff() {
     // onKeyDown — it must be a dependency or this listener's closure goes
     // stale and would always see the session as it was when `mode` last
     // changed (effectively never prompting before discarding it).
-  }, [mode, countSession]);
+  }, [mode, countSession, symbolSearch.phase]);
 
   // Live catalog lookup — the "Available Size" dropdown no longer reads the
   // hardcoded SHAPE_CLASSES.sizes array, it reads whatever sizes are
@@ -1918,11 +2065,18 @@ export default function BlueprintTakeoff() {
   const handleExportMeasurementsCsv = (visibleRows) => {
     exportRowsToCsv({
       filename: `${takeoffName || 'takeoff'}_measurements`,
-      columns: ['Page', 'Shape Type', 'Size', 'Quantity', 'Phase/Area', 'Notes', 'Status'],
-      rows: visibleRows.map((r) => [
-        r.page_number || 1, r.shape_type || '', r.size_designation || '', r.quantity || 0,
-        r.phase || r.area || '', r.notes || '', r.marker_color || '',
-      ]),
+      // Company + job custom columns ride along at the end (formula
+      // columns as their calculated value).
+      columns: ['Page', 'Tool', 'Shape Type', 'Size', 'Quantity', 'Measured', 'Phase/Area', 'Notes', 'Status', 'Review', ...extras.columns.map((c) => (c.unit ? `${c.name} (${c.unit})` : c.name))],
+      rows: visibleRows.map((r) => {
+        const { values, errors } = extras.computeRow(r);
+        return [
+          r.page_number || 1, toolLabel(r.tool), r.shape_type || '', r.size_designation || '', r.quantity || 0,
+          r.tool === 'count' || r.tool === 'bolt_count' ? `${r.quantity || 0} pcs` : measurementSummary(r, formatFeetInchesFraction),
+          r.phase || r.area || '', r.notes || '', r.marker_color || '', r.review_flag ? REVIEW_FLAG_TEXT : '',
+          ...extras.columns.map((c) => (errors[c.alias] ? `#ERROR: ${errors[c.alias]}` : (values[c.alias] ?? ''))),
+        ];
+      }),
     });
   };
 
@@ -1937,6 +2091,40 @@ export default function BlueprintTakeoff() {
     setScanError(null);
     persist(demoRows);
   };
+
+  const scaleAtPoint = useMemo(() => (pt) => scales.resolveAt(pageInfo.pageNum, pt), [scales.resolveAt, pageInfo.pageNum]);
+
+  // Legend for one page from that page's confirmed markups (same data the
+  // exported PDF's legend uses).
+  const legendForPage = useCallback((page, setting = {}) => buildLegendData(
+    rows.filter((r) => r.source === 'measurement'),
+    { groupBy: setting.group_by || 'tool', toolSet: extras.toolSet || undefined, weightLookup: extras.weightLookup, pages: [page], title: 'Legend' },
+  ), [rows, extras.toolSet, extras.weightLookup]);
+  const currentLegendSetting = extras.legendSettings[pageInfo.pageNum] || NO_LEGEND_SETTING;
+  const canvasLegends = useMemo(() => (currentLegendSetting.on ? [{
+    key: pageInfo.pageNum,
+    legend: legendForPage(pageInfo.pageNum, currentLegendSetting),
+    anchor: currentLegendSetting.anchor || 'bottom-right',
+    pdfX: currentLegendSetting.pdfX,
+    pdfY: currentLegendSetting.pdfY,
+  }] : NO_ITEMS), [currentLegendSetting, legendForPage, pageInfo.pageNum]);
+  const pageMarkupCount = rows.filter((r) => r.source === 'measurement' && r.is_accepted !== false && (r.page_number || 1) === pageInfo.pageNum).length;
+  const revisionCloudsOnPage = extras.revisionCompare?.pages?.[pageInfo.pageNum]?.clouds || NO_ITEMS;
+  const countRowsOnPage = rows.filter((r) => r.source === 'measurement' && (r.tool === 'count' || r.tool === 'bolt_count') && (r.page_number || 1) === pageInfo.pageNum);
+  // Older sessions this one could be a revision of — same bid/project first.
+  const revisionCandidates = sessions
+    .filter((s) => s.id !== takeoffId)
+    .sort((a, b) => {
+      const same = (s) => (sessionBidId && s.bid_id === sessionBidId) || (sessionProjectId && s.project_id === sessionProjectId) ? 0 : 1;
+      return same(a) - same(b);
+    });
+  const previousSession = extras.previousTakeoffId ? sessions.find((s) => s.id === extras.previousTakeoffId) : null;
+  const flaggedRowCount = rows.filter((r) => r.review_flag).length;
+  // Starting values the confirmation panel takes from the active Tool
+  // Chest tool (only when it's the same kind of measurement).
+  const measurementDefaults = activePreset && pendingMeasurement && (activePreset.measurement_type || activePreset.tool) === pendingMeasurement.tool
+    ? { shape: activePreset.shapeClass, size: activePreset.sizeDesignation, slope: presetSlope(activePreset), depth_ft: activePreset.depth_ft, description: activePreset.label }
+    : null;
 
   const acceptedRows = rows.filter((r) => r.is_accepted);
   const totalWeight = acceptedRows.reduce((sum, r) => sum + (r.quantity || 0) * (r.unit_weight_lbs_per_ft || 0) * (r.length_ft || 0), 0);
@@ -1957,8 +2145,7 @@ export default function BlueprintTakeoff() {
     phase: '',
     area: '',
     ...(pendingMeasurement.tool === 'count' ? { pdfX: pendingMeasurement.pdfX, pdfY: pendingMeasurement.pdfY }
-      : pendingMeasurement.tool === 'length' ? { point1: pendingMeasurement.point1, point2: pendingMeasurement.point2 }
-      : { pdfX: pendingMeasurement.centroid.pdfX, pdfY: pendingMeasurement.centroid.pdfY }),
+      : measurementRowFields(pendingMeasurement)),
   } : null;
   // While a count/bolt_count session is resuming an existing row
   // (editingRowKey), that row's own saved dots are excluded here — the live
@@ -2035,100 +2222,26 @@ export default function BlueprintTakeoff() {
   // around it, so there's exactly one place to edit the calibration status
   // row, the calibration distance form, and the tool buttons.
   const calibrationStatusRow = (
-    <div className="flex flex-wrap items-center gap-3">
-      {pxPerFt == null ? (
-        <Badge variant="outline" className="text-amber-600 border-amber-300">Not calibrated</Badge>
-      ) : (
-        <Badge variant="outline" className="text-green-700 border-green-300">Calibrated — 1 ft = {pxPerFt.toFixed(1)} px</Badge>
-      )}
-      {calibrationMode ? (
-        <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel Calibration</Button>
-      ) : (
-        <Button size="sm" variant="outline" onClick={handleStartCalibration} disabled={!fileUrl}>
-          <Ruler className="w-3.5 h-3.5 mr-1.5" />{pxPerFt == null ? 'Set Scale' : 'Recalibrate'}
-        </Button>
-      )}
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button size="icon" variant="ghost" className="h-7 w-7" title="How to calibrate">
-            <HelpCircle className="w-4 h-4" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="text-sm space-y-2">
-          <p className="font-semibold">How to calibrate</p>
-          <ol className="list-decimal list-inside space-y-1 text-xs text-muted-foreground">
-            <li>Click Set Scale to enter calibration mode</li>
-            <li>Click the first point on a known dimension (e.g. one end of a column spacing)</li>
-            <li>Click the second point at the other end of that dimension</li>
-            <li>Type the real-world distance between those two points</li>
-            <li>Click Confirm — the drawing is now calibrated</li>
-          </ol>
-          <p className="text-xs text-amber-600 pt-1 border-t border-border">
-            Tip: Use a grid dimension or column spacing marked on the drawing for best accuracy.
-          </p>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-
-  const calFractionLabel = FRACTION_OPTIONS.find((f) => f.value === calFraction)?.label;
-  const calShowPreview = (parseFloat(calFeet) || 0) > 0 || (parseFloat(calInches) || 0) > 0;
-  const calPreviewText = `${parseFloat(calFeet) || 0}'-${parseFloat(calInches) || 0}${calFraction !== '0' && calFractionLabel ? `-${calFractionLabel}` : ''}"`;
-  const calRealFtPreview = (parseFloat(calFeet) || 0) + ((parseFloat(calInches) || 0) + (parseFloat(calFraction) || 0)) / 12;
-
-  const calibrationDistanceCard = calibrationMode && calibrationPoints.length === 2 && (
-    <Card>
-      <CardContent className="p-3 flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Real-world distance between the two points</label>
-          <div className="flex items-end gap-2">
-            <div className="flex items-center gap-1">
-              <Input
-                type="number"
-                min={0}
-                value={calFeet}
-                onChange={(e) => setCalFeet(e.target.value)}
-                placeholder="0"
-                className="w-[60px] h-8"
-                autoFocus
-              />
-              <span className="text-xs text-muted-foreground">ft</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Input
-                type="number"
-                min={0}
-                max={11}
-                value={calInches}
-                onChange={(e) => setCalInches(e.target.value)}
-                placeholder="0"
-                className="w-[60px] h-8"
-              />
-              <span className="text-xs text-muted-foreground">in</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Select value={calFraction} onValueChange={setCalFraction}>
-                <SelectTrigger className="h-8 w-20 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {FRACTION_OPTIONS.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <span className="text-xs text-muted-foreground">&quot;</span>
-            </div>
-          </div>
-          {calShowPreview && <p className="text-xs text-muted-foreground">= {calPreviewText}</p>}
-        </div>
-        <Button size="sm" onClick={handleConfirmCalibration} disabled={!(calRealFtPreview > 0)}>Confirm</Button>
-        <Button size="sm" variant="outline" onClick={handleCalibrationCancel}>Cancel</Button>
-      </CardContent>
-    </Card>
+    <ScalePanel
+      pageNum={pageInfo.pageNum}
+      numPages={pageInfo.numPages}
+      scales={scales}
+      disabled={!fileUrl}
+      canvasScale={canvasScale}
+      calibrationMode={calibrationMode}
+      calibrationPoints={calibrationPoints}
+      pick={calibrationMode ? scalePick : null}
+      onStartPick={startScalePick}
+      onCancelPick={handleCalibrationCancel}
+      onScaleReference={handleScaleReference}
+    />
   );
 
   // Select/Count/Length/Area/Calibrate + fullscreen toggle. Escape (bound in
   // an effect above) always drops back to Select and exits fullscreen, same
   // as clicking through them manually.
   const toolButtonsRow = (
-    <div className="flex items-center gap-1.5 p-1.5 rounded-lg border bg-muted/20 w-fit">
+    <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-lg border bg-muted/20 w-fit max-w-full">
       <Button size="sm" variant={activeTool === null && !calibrationMode ? 'default' : 'ghost'} onClick={handleSelectTool}>
         <MousePointer2 className="w-3.5 h-3.5 mr-1.5" />Select
       </Button>
@@ -2138,12 +2251,24 @@ export default function BlueprintTakeoff() {
       <Button size="sm" variant={activeTool === 'bolt_count' ? 'default' : 'ghost'} onClick={() => handleStartCountSetup('bolt')} disabled={!fileUrl}>
         <Hexagon className="w-3.5 h-3.5 mr-1.5" />Bolt Count
       </Button>
-      <Button size="sm" variant={activeTool === 'length' ? 'default' : 'ghost'} onClick={() => handleActivateTool('length')} disabled={!fileUrl}>
-        <Ruler className="w-3.5 h-3.5 mr-1.5" />Length
+      <Button
+        size="sm"
+        variant={symbolSearch.phase === 'picking' ? 'default' : 'ghost'}
+        onClick={handleStartSymbolSearch}
+        disabled={!fileUrl || symbolSearch.phase === 'searching'}
+        title="Box one symbol and find the others like it on this page (no AI — works offline)"
+      >
+        <ScanSearch className="w-3.5 h-3.5 mr-1.5" />Find symbols
       </Button>
-      <Button size="sm" variant={activeTool === 'area' ? 'default' : 'ghost'} onClick={() => handleActivateTool('area')} disabled={!fileUrl}>
-        <Shapes className="w-3.5 h-3.5 mr-1.5" />Area
-      </Button>
+      <MeasureToolButtons
+        activeTool={activeTool}
+        onActivate={handleActivateTool}
+        disabled={!fileUrl}
+        snapEnabled={snapEnabled}
+        onToggleSnap={() => setSnapEnabled((v) => !v)}
+        circleMode={measureDraft.circleMode}
+        onCircleMode={measureDraft.setCircleMode}
+      />
       <div className="w-px h-5 bg-border mx-1" />
       <Button size="sm" variant={calibrationMode ? 'default' : 'ghost'} onClick={handleStartCalibration} disabled={!fileUrl}>
         <Crosshair className="w-3.5 h-3.5 mr-1.5" />Calibrate
@@ -2383,6 +2508,37 @@ export default function BlueprintTakeoff() {
             )}
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setExportPdfOpen(true)} disabled={!hasStoredPdf}>
+              <FileImage className="w-3.5 h-3.5 mr-1.5" />Export marked-up PDF
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setCompareOpen(true)} disabled={!fileUrl}>
+              <GitCompare className="w-3.5 h-3.5 mr-1.5" />Compare with older revision
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => revisionInputRef.current?.click()} title="Start a new session for a newer issue of this drawing, linked to this one">
+              <FilePlus2 className="w-3.5 h-3.5 mr-1.5" />Load new revision…
+            </Button>
+            <input ref={revisionInputRef} type="file" accept=".pdf" className="hidden" onChange={handleNewRevisionFile} />
+            {extras.previousTakeoffId && (
+              <Button size="sm" variant="outline" onClick={() => setCarryOpen(true)}>
+                <CopyPlus className="w-3.5 h-3.5 mr-1.5" />Bring markups forward
+              </Button>
+            )}
+            {extras.previousTakeoffId && (
+              <span className="text-xs text-muted-foreground">
+                Revision of{' '}
+                {previousSession ? (
+                  <button type="button" className="text-primary hover:underline" onClick={() => openSession(previousSession)}>{previousSession.takeoff_name || previousSession.file_name || 'older takeoff'}</button>
+                ) : 'an older takeoff'}
+              </span>
+            )}
+            {flaggedRowCount > 0 && (
+              <button type="button" onClick={() => setGridView('measurements')} className="text-xs text-amber-700 flex items-center gap-1 hover:underline">
+                <AlertTriangle className="w-3.5 h-3.5" />{flaggedRowCount} markup{flaggedRowCount === 1 ? '' : 's'} to check — area changed
+              </button>
+            )}
+          </div>
+
           {!hasStoredPdf && !newSessionError && !pdfMissingNotice && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="w-3 h-3 animate-spin" />Storing drawing for offline resume…
@@ -2408,10 +2564,11 @@ export default function BlueprintTakeoff() {
               {!isFullscreen && (
                 <>
                   {calibrationStatusRow}
-                  {calibrationDistanceCard}
                   {toolButtonsRow}
                 </>
               )}
+
+              <VisualSearchPanel search={symbolSearch} countRowsOnPage={countRowsOnPage} onAddToCount={handleAddSearchMatches} />
 
               {(visualSearchLoading || visualSearchError || candidates.length > 0) && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 flex flex-wrap items-center justify-between gap-3">
@@ -2463,12 +2620,18 @@ export default function BlueprintTakeoff() {
                     onPageSizeChange={setPageSize}
                     onPageChange={setPageInfo}
                     activeTool={activeTool}
-                    lengthPoints={lengthPoints}
-                    areaPoints={areaPoints}
+                    draft={measureDraft.draft}
+                    circleMode={measureDraft.circleMode}
                     onMeasurementClick={handleMeasurementClick}
+                    onFinishShape={measureDraft.finish}
                     measurementItems={measurementItemsForCanvas}
                     highlightedItemKey={highlightedRowKey}
-                    pxPerFt={pxPerFt}
+                    canMeasure={pageCalibrated}
+                    getScaleAt={scaleAtPoint}
+                    viewports={scales.pageEntry(pageInfo.pageNum)?.viewports || []}
+                    snapEnabled={snapEnabled}
+                    calibrationShape={calibrationMode && scalePick?.purpose === 'viewport' ? 'rect' : 'line'}
+                    calibrationSteps={stepsForScalePick(calibrationMode ? scalePick : null)}
                     candidateMarkers={candidates}
                     onCandidateToggle={handleToggleCandidate}
                     fillHeight={isFullscreen}
@@ -2477,6 +2640,13 @@ export default function BlueprintTakeoff() {
                     activeCountSession={countSession}
                     onCountMark={handleCountMark}
                     onCountDotRemove={handleCountDotRemove}
+                    legends={canvasLegends}
+                    onLegendMove={(page, pos) => extras.setLegendSetting(page, { anchor: 'custom', pdfX: pos.pdfX, pdfY: pos.pdfY })}
+                    boxSelectMode={symbolSearch.phase === 'picking'}
+                    onBoxSelect={symbolSearch.onBoxSelect}
+                    searchCandidates={symbolSearch.phase === 'review' ? symbolSearch.visible : NO_ITEMS}
+                    onSearchCandidateClick={symbolSearch.toggle}
+                    revisionClouds={revisionCloudsOnPage}
                   />
                 </div>
               )}
@@ -2505,7 +2675,6 @@ export default function BlueprintTakeoff() {
                     </div>
                     <div className="p-3 space-y-3">
                       {calibrationStatusRow}
-                      {calibrationDistanceCard}
                       {toolButtonsRow}
                     </div>
                   </div>
@@ -2531,93 +2700,22 @@ export default function BlueprintTakeoff() {
                 </div>
               </div>
             )}
-            <div className="border rounded-lg">
-              <button
-                type="button"
-                onClick={() => setToolChestOpen((o) => !o)}
-                className="w-full flex items-center justify-between px-3 py-2 text-sm font-semibold"
-              >
-                <span className="flex items-center gap-2"><Wrench className="w-4 h-4" />Tool Chest</span>
-                {toolChestOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
-              {toolChestOpen && (
-                <div className="border-t p-3 space-y-3">
-                  {toolChest.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No saved presets yet — add one below.</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {toolChest.map((preset) => (
-                        <div
-                          key={preset.id}
-                          onClick={() => handleSelectPreset(preset)}
-                          className={`flex items-center gap-2 rounded-md border px-2 py-1.5 cursor-pointer text-xs ${selectedPresetId === preset.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'}`}
-                        >
-                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: preset.color }} />
-                          {preset.tool === 'count' && <MousePointerClick className="w-3.5 h-3.5 flex-shrink-0" />}
-                          {preset.tool === 'length' && <Ruler className="w-3.5 h-3.5 flex-shrink-0" />}
-                          {preset.tool === 'area' && <Shapes className="w-3.5 h-3.5 flex-shrink-0" />}
-                          <span className="font-medium truncate">{preset.label}</span>
-                          <span className="text-muted-foreground truncate flex-1">
-                            {preset.shapeClass}{preset.sizeDesignation ? ` — ${preset.sizeDesignation}` : ''}
-                          </span>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6 flex-shrink-0"
-                            onClick={(e) => { e.stopPropagation(); handleRemovePreset(preset.id); }}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="border-t pt-3 space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">New Preset</p>
-                    <Input
-                      placeholder="Label — e.g. W14x90 Columns"
-                      value={newPresetLabel}
-                      onChange={(e) => setNewPresetLabel(e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <Select value={newPresetShapeClass} onValueChange={setNewPresetShapeClass}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {SHAPE_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        placeholder="Size (e.g. W14X90)"
-                        value={newPresetSize}
-                        onChange={(e) => setNewPresetSize(e.target.value)}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Select value={newPresetTool} onValueChange={setNewPresetTool}>
-                        <SelectTrigger className="h-8 text-xs w-28"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="count">Count</SelectItem>
-                          <SelectItem value="length">Length</SelectItem>
-                          <SelectItem value="area">Area</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <input
-                        type="color"
-                        value={newPresetColor}
-                        onChange={(e) => setNewPresetColor(e.target.value)}
-                        className="h-8 w-10 rounded border cursor-pointer"
-                      />
-                      <Button size="sm" onClick={handleAddPreset} disabled={!newPresetLabel.trim()} className="ml-auto">
-                        <Plus className="w-3.5 h-3.5 mr-1" />Add
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <LegendControls
+              pageNum={pageInfo.pageNum}
+              setting={currentLegendSetting}
+              rowCount={pageMarkupCount}
+              onChange={(patch) => extras.setLegendSetting(pageInfo.pageNum, patch)}
+            />
+            <ToolChestPanel
+              toolChest={toolChest}
+              selectedPresetId={selectedPresetId}
+              onSelectPreset={handleSelectPreset}
+              onRemovePreset={handleRemovePreset}
+              onAddPreset={(preset) => setToolChest((prev) => [...prev, preset])}
+              activeToolSet={extras.toolSet}
+              onLoadToolSet={handleApplyToolSet}
+              onOpenLibrary={() => setLibraryOpen(true)}
+            />
             </div>
           </div>
 
@@ -2697,6 +2795,12 @@ export default function BlueprintTakeoff() {
                   sequenceAreaId={sessionAreaId}
                   onLink={(newBidId, newProjectId) => persistTakeoffLink(takeoffId, newBidId, newProjectId)}
                   initialWeights={markupWeights}
+                  columns={extras.columns}
+                  toolSetColumns={extras.toolSet?.columns || []}
+                  customColumns={extras.customColumns}
+                  computeRow={extras.computeRow}
+                  onCustomColumnsChange={extras.setCustomColumns}
+                  onRowClick={handleMeasurementRowClick}
                 />
               </div>
               <div className={gridView === 'takeoff' ? '' : 'hidden'}>
@@ -2781,10 +2885,10 @@ export default function BlueprintTakeoff() {
                           <td className="p-2"><Input type="number" min={0} value={r.unit_weight_lbs_per_ft} onChange={(e) => updateRow(r._key, 'unit_weight_lbs_per_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2"><Input type="number" min={0} value={r.length_ft} onChange={(e) => updateRow(r._key, 'length_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2 text-xs text-muted-foreground whitespace-nowrap">
-                            {r.tool === 'area' || r.tool === 'bolt_count' ? '—' : formatFeetInchesFraction(r.length_ft || 0)}
+                            {['area', 'bolt_count', 'volume', 'angle'].includes(r.tool) ? '—' : formatFeetInchesFraction(r.length_ft || 0)}
                           </td>
                           <td className="p-2 text-xs text-muted-foreground">
-                            {r.tool === 'area' ? r.area_sq_ft?.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
+                            {['area', 'wall_area', 'volume'].includes(r.tool) ? r.area_sq_ft?.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
                           </td>
                           <td className="p-2 text-xs font-medium">{rowWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                           <td className="p-2">
@@ -2900,6 +3004,7 @@ export default function BlueprintTakeoff() {
                               {col.label}{measurementSort.field === col.key && (measurementSort.dir === 'asc' ? ' ▲' : ' ▼')}
                             </th>
                           ))}
+                          <th className="p-2 font-medium">Measured</th>
                           <th className="p-2 font-medium">Grade</th>
                           <th className="p-2 font-medium">Notes</th>
                           <th className="p-2 font-medium w-20 text-center">Status</th>
@@ -2920,6 +3025,7 @@ export default function BlueprintTakeoff() {
                             <td className="p-2">{r.size_designation || '—'}</td>
                             <td className="p-2">{r.quantity || 0}</td>
                             <td className="p-2">{r.phase || r.area || '—'}</td>
+                            <td className="p-2 text-xs whitespace-nowrap">{isCountRow ? `${r.quantity || 0} pcs` : (measurementSummary(r, formatFeetInchesFraction) || '—')}</td>
                             <td className="p-2">{isCountRow ? (r.grade || '—') : '—'}</td>
                             <td className="p-2" onClick={(e) => e.stopPropagation()}>
                               <Input
@@ -2930,6 +3036,12 @@ export default function BlueprintTakeoff() {
                               />
                             </td>
                             <td className="p-2 text-center">
+                              {r.review_flag && (
+                                <span className="inline-flex items-center gap-1 mb-1 rounded border border-amber-300 bg-amber-50 text-amber-800 text-[10px] px-1.5 py-0.5 whitespace-nowrap" title={r.review_note || ''}>
+                                  <AlertTriangle className="w-3 h-3" />{REVIEW_FLAG_TEXT}
+                                  <button type="button" className="underline ml-1" onClick={(e) => { e.stopPropagation(); clearReviewFlag(r._key); }}>Checked</button>
+                                </span>
+                              )}
                               {isCountRow ? (
                                 <CountMarkerSwatch color={r.color} symbol={r.symbol} size={18} />
                               ) : (
@@ -2997,7 +3109,54 @@ export default function BlueprintTakeoff() {
         onMergeDuplicate={handleMergeDuplicate}
         onKeepSeparate={handleKeepSeparateMeasurement}
         onCancel={handleCancelMeasurement}
+        defaults={measurementDefaults}
       />
+      <ToolSetLibraryDialog
+        open={libraryOpen}
+        onOpenChange={setLibraryOpen}
+        initialToolSetId={extras.toolSet?.id}
+        onApplyTool={(preset) => setToolChest((prev) => [...prev, preset])}
+        onApplyToolSet={handleApplyToolSet}
+      />
+      {mode === 'workspace' && (
+        <>
+          <MarkupPdfExportDialog
+            open={exportPdfOpen}
+            onOpenChange={setExportPdfOpen}
+            takeoffId={takeoffId}
+            takeoffName={takeoffName || stripPdfExtension(fileName)}
+            rows={rows}
+            toolSet={extras.toolSet}
+            numPages={pageInfo.numPages || 1}
+            currentPage={pageInfo.pageNum}
+            legendSettings={extras.legendSettings}
+            legendForPage={legendForPage}
+            revisionCompare={extras.revisionCompare}
+            author={user?.full_name || user?.email || ''}
+          />
+          <RevisionCompareDialog
+            open={compareOpen}
+            onOpenChange={setCompareOpen}
+            takeoffId={takeoffId}
+            fileUrl={fileUrl}
+            currentPage={pageInfo.pageNum}
+            revisionCandidates={revisionCandidates}
+            previousTakeoffId={extras.previousTakeoffId}
+            savedPage={extras.revisionCompare?.pages?.[pageInfo.pageNum] || null}
+            onLinkPrevious={extras.setPreviousTakeoffId}
+            onSave={handleSaveCompare}
+            onOpenCarryForward={() => { setCompareOpen(false); setCarryOpen(true); }}
+          />
+          <CarryForwardDialog
+            open={carryOpen}
+            onOpenChange={setCarryOpen}
+            previousTakeoffId={extras.previousTakeoffId}
+            currentRows={rows}
+            revisionCompare={extras.revisionCompare}
+            onApply={handleApplyCarryForward}
+          />
+        </>
+      )}
       <CountSetupModal
         open={countSetupModalOpen}
         kind={countSetup?.kind}

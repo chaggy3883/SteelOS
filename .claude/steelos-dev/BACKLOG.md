@@ -5,6 +5,37 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-10-28) — IRONSIGHT closer to Revu: per-page scale, new measure tools, tool sets, custom columns, legends, PDF export, revision compare, visual search, carry-forward
+- Excluded by request: live multi-user sessions, OCR, forms, digital signatures, batch tools, 3D/IFC.
+- Measuring core: per-page scale + rectangular viewports with their own scale (page_scales); presets (arch, eng,
+  1:N) on PDF points, two-click calibrate, Check Scale with % off and one-click fix. Measuring blocked on
+  uncalibrated pages; old sessions fall back to px_per_ft unchanged.
+- New tools: Polylength, Perimeter, Area with cutouts, Volume, Wall Area, Angle, Radius/Diameter; slope (pitch or
+  degrees) on length/area. Snap to PDF line work (end/mid/on line, Alt to bypass). Counts: marker size + numbering.
+- Markups List / Push to Estimate are kind-aware (measure_quantity/measure_unit on MaterialTakeoffLine); Volume and
+  Angle never weighed. Totals now multiply by quantity; area groups no longer auto-fill lbs/ft as lbs/sf.
+- Libs (pure, Node self-checks): takeoffFormula (no eval), takeoffColumns, takeoffToolSets (Structural Steel
+  starter, JSON import/export), takeoffLegend, takeoffMarkupPdfExport (pdf-lib; flatten or editable annotations),
+  pdfRevisionOverlay, symbolTemplateMatch (worker), takeoffRowHelpers, takeoffCarryForward. New entity
+  takeoff_tool_sets (tenant-scoped). Added pdf-lib@^1.17.1.
+- Company tool sets in the Tool Chest (frozen copy on the session: tool_set_snapshot); all 11 tool types allowed in
+  presets; library writes blocked for a non-impersonating super_admin.
+- Markup columns table (company + job columns, editable cells in row.column_values, formula drill-down, totals, CSV).
+- Per-page legend (draggable); Export marked-up PDF (flatten/editable, page list, legend, change clouds).
+- Revision compare (red/blue/gray overlay, change list, 2-point line-up, clouds saved to revision_compare);
+  "Load new revision…" + "Bring markups forward" (append-only, "Check — area changed" flags).
+- Find symbols (non-AI template match): box a symbol, review/threshold/accept into a count.
+- Hand-traces: 72pt at 1/8"=1'-0" = 8'-0"; 20'x30' minus 5'x4' cutout = 580 sf; 10' at 6:12 = 11.18';
+  [Weight]*1.05/2000 on 20' W18X35 = 0.3675 tn; +10,+5 pt line-up moves a carried row +10,+5.
+- npm run build + lint clean. NOT yet clicked through in the browser.
+
+## Queued — follow-ups from IRONSIGHT Revu batch
+- Browser click-through of every new IRONSIGHT feature.
+- Local-AI "Find Similar" capture methods on BlueprintCanvas (getFullPageDataUrl/getCropDataUrl) are stubs returning null.
+- Ortho (shift-straighten) and intersection snap; recompute saved rows when a scale changes.
+- Carry-forward page remapping when sheets are renumbered; keep search matches if Count setup is cancelled.
+- Move revision-overlay math into a worker; undo for "replace Tool Chest with tool set".
+
 ## Also Closed (2026-10-27) — PowerFab gap batch 1: takeoff hours, removed pieces, stock ledger + put-away, drawing release gate, configurable stations
 
 Gaps found by a screen-by-screen comparison of Tekla PowerFab's EST/PRJ/PDC/INV/IMP

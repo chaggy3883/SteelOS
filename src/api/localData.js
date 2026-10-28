@@ -3423,6 +3423,7 @@ const TENANT_SCOPED_ENTITIES = [
   'shop_schedules',
   'station_logs',
   'steel_catalog',
+  'takeoff_tool_sets',
   'time_off_requests'
 ];
 

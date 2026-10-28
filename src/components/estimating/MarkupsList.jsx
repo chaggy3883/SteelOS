@@ -8,29 +8,62 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { ToastAction } from '@/components/ui/toast';
 import { useToast } from '@/components/ui/use-toast';
-import { CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2, Clipboard, Scale, FileDown, Printer, ListChecks, FileSpreadsheet } from 'lucide-react';
+import {
+  CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2, Clipboard, Scale, FileDown, Printer, ListChecks, FileSpreadsheet,
+  Spline, Pentagon, Box, BrickWall, TriangleRight, Radius, Diameter,
+} from 'lucide-react';
 import { getShapeClass } from '@/data/steelShapeSelector';
 import { SHAPE_CATALOG } from '@/data/steelShapes';
 import { shapeCodeToShapeClass, buildCompactShapeProfile } from '@/lib/countShapeProfile';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 import { exportRowsToCsv } from '@/lib/csvExport';
+import { toolKind } from '@/lib/takeoffGeometry';
+import MarkupColumnsTable from '@/components/estimating/MarkupColumnsTable';
 
+// Every tool that can land in the Markups List, in display order. `kind`
+// (takeoffGeometry.js toolKind) decides the math: length kinds weigh by
+// lbs/ft (AISC lookup), area kinds by an optional lbs/sq ft, and volume /
+// angle are carried as plain quantities with no weight at all — concrete
+// yards and angle callouts aren't steel tonnage.
 const TOOL_META = {
   count: { label: 'Count', icon: MousePointerClick, unitLabel: 'lbs/ft' },
   // Bolt Count shares Count's click-to-mark/color/tally engine (same icon),
   // but has no weight concept of its own — see calcGroup/buildPayload below.
   bolt_count: { label: 'Bolt Count', icon: MousePointerClick, unitLabel: null },
   length: { label: 'Length', icon: Ruler, unitLabel: 'lbs/ft' },
+  polylength: { label: 'Polylength', icon: Spline, unitLabel: 'lbs/ft' },
+  perimeter: { label: 'Perimeter', icon: Pentagon, unitLabel: 'lbs/ft' },
+  radius: { label: 'Radius (ring length)', icon: Radius, unitLabel: 'lbs/ft' },
+  diameter: { label: 'Diameter (ring length)', icon: Diameter, unitLabel: 'lbs/ft' },
   area: { label: 'Area', icon: Shapes, unitLabel: 'lbs/sq ft' },
+  wall_area: { label: 'Wall Area', icon: BrickWall, unitLabel: 'lbs/sq ft' },
+  volume: { label: 'Volume', icon: Box, unitLabel: null },
+  angle: { label: 'Angle', icon: TriangleRight, unitLabel: null },
 };
+const TOOL_ORDER = Object.keys(TOOL_META);
 
 const METRIC_LABELS = {
   count: 'Count (pcs)',
   bolt_count: 'Bolt Count (pcs)',
   length: 'Length (ft)',
+  polylength: 'Polylength (ft)',
+  perimeter: 'Perimeter (ft)',
+  radius: 'Ring length (ft)',
+  diameter: 'Ring length (ft)',
   area: 'Area (sq ft)',
+  wall_area: 'Wall area (sq ft)',
+  volume: 'Volume (cu yd)',
+  angle: 'Angles (ea)',
 };
+
+// Never weighed — no unit weight input, no tons, left out of the tonnage
+// summary entirely.
+const UNWEIGHED_KINDS = ['volume', 'angle'];
+
+// Pushed alongside the existing fields so the estimate knows what the
+// number is (MaterialTakeoffLine.measure_quantity / measure_unit).
+const MEASURE_UNIT_BY_KIND = { count: 'ea', length: 'lf', area: 'sf', volume: 'cy', angle: 'ea' };
 
 const UNASSIGNED_PHASE = 'Unassigned';
 
@@ -63,7 +96,7 @@ function lookupCatalogWeightPerFt(sizeDesignation) {
 function buildGroups(rows) {
   const map = new Map();
   rows
-    .filter((r) => r.is_accepted && (r.tool === 'count' || r.tool === 'bolt_count' || r.tool === 'length' || r.tool === 'area'))
+    .filter((r) => r.is_accepted && TOOL_META[r.tool])
     .forEach((r) => {
       // Phase folds into the group key alongside tool+label — a project
       // built in stages needs its takeoff split per stage, so the same
@@ -90,15 +123,26 @@ function buildGroups(rows) {
     });
 
   return Array.from(map.values()).map((group) => {
+    const kind = toolKind(group.tool);
     const totalCount = group.rows.reduce((sum, r) => sum + (r.quantity || 1), 0);
-    const totalLengthFt = group.rows.reduce((sum, r) => sum + (r.length_ft || 0), 0);
-    const totalAreaSqFt = group.rows.reduce((sum, r) => sum + (r.area_sq_ft || 0), 0);
+    // A drawn measurement's Quantity (the confirmation panel's "how many
+    // identical runs", or a merged duplicate) multiplies its measured value
+    // — the same way the Takeoff Grid's row weight already does (qty × wt ×
+    // length).
+    const each = (r, field) => (r[field] || 0) * (r.quantity || 1);
+    const totalLengthFt = group.rows.reduce((sum, r) => sum + each(r, 'length_ft'), 0);
+    const totalAreaSqFt = group.rows.reduce((sum, r) => sum + each(r, 'area_sq_ft'), 0);
+    const totalVolumeCuYd = group.rows.reduce((sum, r) => sum + each(r, 'volume_cu_yd'), 0);
+    const angles = group.rows.map((r) => r.angle_deg).filter((a) => a != null);
     // Bolt Count tallies pieces exactly like a beam Count does — it just
     // never derives a length/weight from that tally (see calcGroup).
-    const totalMetric = (group.tool === 'count' || group.tool === 'bolt_count') ? totalCount : group.tool === 'length' ? totalLengthFt : totalAreaSqFt;
+    const totalMetric = kind === 'count' || kind === 'angle' ? totalCount
+      : kind === 'length' ? totalLengthFt
+        : kind === 'volume' ? totalVolumeCuYd
+          : totalAreaSqFt;
     const isPushed = group.rows.length > 0 && group.rows.every((r) => r.pushed_to_estimate);
     const existingLineId = group.rows.find((r) => r.pushed_material_line_id)?.pushed_material_line_id || null;
-    return { ...group, totalCount, totalLengthFt, totalAreaSqFt, totalMetric, isPushed, existingLineId };
+    return { ...group, kind, totalCount, totalLengthFt, totalAreaSqFt, totalVolumeCuYd, angles, totalMetric, isPushed, existingLineId };
   });
 }
 
@@ -110,7 +154,15 @@ const defaultSettingFor = (group) => {
   // catalog's spaced size format ("12 x 26") rarely matches anyway.
   const rowWeight = group.rows.find((r) => r.unit_weight_lbs_per_ft > 0)?.unit_weight_lbs_per_ft;
   const compactProfile = buildCompactShapeProfile({ shapeCode: group.shape_code, sizeDesignation: group.size_designation, widthFt: group.width_ft });
-  const catalogWeight = rowWeight ?? lookupCatalogWeightPerFt(compactProfile || group.size_designation);
+  // The AISC catalog is pounds per FOOT — only meaningful for length-type
+  // groups (and Count's per-piece length). An area group's unit is pounds
+  // per SQUARE foot (deck, grating, plate), so it's left for the estimator
+  // to enter rather than silently borrowing a per-foot figure; volume and
+  // angle groups are never weighed.
+  const kind = toolKind(group.tool);
+  const catalogWeight = kind === 'length' || kind === 'count'
+    ? (rowWeight ?? lookupCatalogWeightPerFt(compactProfile || group.size_designation))
+    : null;
   return {
     multiplier: 1,
     unitWeight: catalogWeight ?? '',
@@ -152,7 +204,13 @@ const WEIGHT_BADGES = {
 // record via pushed_material_line_id rather than creating a duplicate every
 // sync). Weight settings persist onto the blueprint_takeoffs session so they
 // survive a resume, mirroring tool_chest's own 800ms debounce.
-export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName, fileName, companyId, bidId, projectId, sequenceAreaId, onLink, initialWeights }) {
+// Custom columns (company tool set + this job's own) live in
+// MarkupColumnsTable below the spreadsheet — columns/computeRow come from
+// BlueprintTakeoff's useTakeoffSessionExtras.
+export default function MarkupsList({
+  rows, onRowsChange, takeoffId, takeoffName, fileName, companyId, bidId, projectId, sequenceAreaId, onLink, initialWeights,
+  columns = [], toolSetColumns = [], customColumns = [], computeRow, onCustomColumnsChange, onRowClick,
+}) {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [settings, setSettings] = useState(() => mapInitialWeights(initialWeights));
@@ -246,9 +304,10 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
 
     let estLbs = 0;
     let weightUnknown = false;
-    if (group.tool === 'bolt_count') {
-      // Bolts are priced by count, not weight (see buildPayload) — no
-      // est. weight to compute, and never "unknown" since none was expected.
+    if (group.tool === 'bolt_count' || UNWEIGHED_KINDS.includes(group.kind)) {
+      // Bolts are priced by count, not weight (see buildPayload); volume and
+      // angle aren't steel — no est. weight to compute, and never "unknown"
+      // since none was expected.
     } else if (group.tool === 'count') {
       const typicalLength = Number(typicalLengthFt) || 0;
       if (typicalLength > 0) {
@@ -256,7 +315,7 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
       } else {
         weightUnknown = true;
       }
-    } else if (group.tool === 'length') {
+    } else if (group.kind === 'length') {
       estLbs = group.totalLengthFt * weight;
     } else {
       estLbs = group.totalAreaSqFt * weight;
@@ -296,7 +355,44 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
         source: 'ironsight',
         pushed_from_takeoff_id: takeoffId,
         quantity: finalQuantity,
+        measure_quantity: finalQuantity,
+        measure_unit: 'ea',
         notes: `${noteBase} — Bolt Count group "${group.label}": ${group.totalCount} pieces × ${multiplier} multiplier`,
+      };
+    }
+
+    // Volume (concrete, fill) and Angle aren't steel: no shape_class, no
+    // weight/tons. The measured amount rides in measure_quantity with its
+    // unit so the estimate can price it; material_type carries the
+    // estimator's own description from the confirmation panel.
+    if (group.kind === 'volume') {
+      return {
+        bid_id: effectiveBidId || undefined,
+        project_id: effectiveBidId ? undefined : (effectiveProjectId || undefined),
+        sequence_area_id: sequenceAreaId || undefined,
+        material_type: group.shape_type || group.label || 'Volume',
+        coating_type: 'No Coating',
+        source: 'ironsight',
+        pushed_from_takeoff_id: takeoffId,
+        quantity: 1,
+        measure_quantity: Math.round(finalQuantity * 100) / 100,
+        measure_unit: 'cy',
+        notes: `${noteBase} — Volume group "${group.label}": ${group.totalVolumeCuYd.toFixed(2)} cu yd × ${multiplier} multiplier`,
+      };
+    }
+    if (group.kind === 'angle') {
+      return {
+        bid_id: effectiveBidId || undefined,
+        project_id: effectiveBidId ? undefined : (effectiveProjectId || undefined),
+        sequence_area_id: sequenceAreaId || undefined,
+        material_type: group.shape_type || group.label || 'Angle',
+        coating_type: 'No Coating',
+        source: 'ironsight',
+        pushed_from_takeoff_id: takeoffId,
+        quantity: finalQuantity,
+        measure_quantity: finalQuantity,
+        measure_unit: 'ea',
+        notes: `${noteBase} — Angle group "${group.label}": ${group.angles.map((a) => `${Number(a).toFixed(1)}°`).join(', ')}`,
       };
     }
 
@@ -324,29 +420,36 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
       weight_per_ft: weight,
     };
 
-    if (group.tool === 'length') {
+    const toolName = TOOL_META[group.tool]?.label || group.tool;
+    if (group.kind === 'length') {
       return {
         ...base,
         quantity: 1,
         length_ft: finalQuantity,
+        measure_quantity: finalQuantity,
+        measure_unit: MEASURE_UNIT_BY_KIND.length,
         tons_per_piece: estTons,
         total_tons: estTons,
-        notes: `${noteBase} — Length group "${group.label}": ${group.totalLengthFt.toFixed(2)} ft × ${multiplier} multiplier`,
+        notes: `${noteBase} — ${toolName} group "${group.label}": ${group.totalLengthFt.toFixed(2)} ft × ${multiplier} multiplier`,
       };
     }
-    if (group.tool === 'area') {
+    if (group.kind === 'area') {
       return {
         ...base,
         quantity: 1,
         length_ft: 0,
+        measure_quantity: finalQuantity,
+        measure_unit: MEASURE_UNIT_BY_KIND.area,
         tons_per_piece: estTons,
         total_tons: estTons,
-        notes: `${noteBase} — Area group "${group.label}": ${group.totalAreaSqFt.toFixed(2)} sq ft × ${multiplier} multiplier`,
+        notes: `${noteBase} — ${toolName} group "${group.label}": ${group.totalAreaSqFt.toFixed(2)} sq ft × ${multiplier} multiplier`,
       };
     }
     return {
       ...base,
       quantity: finalQuantity,
+      measure_quantity: finalQuantity,
+      measure_unit: MEASURE_UNIT_BY_KIND.count,
       // The per-piece length actually captured during Count Setup (via the
       // "Typical length" setting, defaulted from it above) — this used to be
       // hardcoded to 0, silently dropping every counted beam's real length.
@@ -469,6 +572,7 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
   // and it avoids a stale-dependency footgun tying it to calcGroup's closure.
   const categoryTotals = {};
   groups.forEach((group) => {
+    if (UNWEIGHED_KINDS.includes(group.kind)) return;
     const cat = categoryFor(group.shape_type);
     const { estTons } = calcGroup(group);
     categoryTotals[cat] = (categoryTotals[cat] || 0) + estTons;
@@ -587,15 +691,10 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
   };
 
   if (groups.length === 0) {
-    return <p className="text-sm text-muted-foreground py-6 text-center">No Count, Bolt Count, Length, or Area markups yet — place a measurement with the tools above to see it here.</p>;
+    return <p className="text-sm text-muted-foreground py-6 text-center">No markups yet — count, measure, or take off an area with the tools above to see it here.</p>;
   }
 
-  const groupsByTool = {
-    count: groups.filter((g) => g.tool === 'count'),
-    bolt_count: groups.filter((g) => g.tool === 'bolt_count'),
-    length: groups.filter((g) => g.tool === 'length'),
-    area: groups.filter((g) => g.tool === 'area'),
-  };
+  const groupsByTool = Object.fromEntries(TOOL_ORDER.map((t) => [t, groups.filter((g) => g.tool === t)]));
 
   return (
     <div className="space-y-4">
@@ -694,7 +793,21 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
         </CardContent>
       </Card>
 
-      {['count', 'bolt_count', 'length', 'area'].map((tool) => {
+      {computeRow && (
+        <MarkupColumnsTable
+          rows={rows}
+          columns={columns}
+          toolSetColumns={toolSetColumns}
+          customColumns={customColumns}
+          computeRow={computeRow}
+          onRowsChange={onRowsChange}
+          onCustomColumnsChange={onCustomColumnsChange}
+          onRowClick={onRowClick}
+          takeoffName={takeoffName || fileName}
+        />
+      )}
+
+      {TOOL_ORDER.map((tool) => {
         if (groupsByTool[tool].length === 0) return null;
         const Icon = TOOL_META[tool].icon;
         return (
@@ -719,8 +832,10 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
                       <p className="text-xs text-muted-foreground">
                         {tool === 'count' && `${group.totalCount} count`}
                         {tool === 'bolt_count' && `${group.totalCount} bolts`}
-                        {tool === 'length' && `${group.totalLengthFt.toFixed(2)} ft total`}
-                        {tool === 'area' && `${group.totalAreaSqFt.toFixed(2)} sq ft total`}
+                        {group.kind === 'length' && `${group.totalLengthFt.toFixed(2)} ft total`}
+                        {group.kind === 'area' && `${group.totalAreaSqFt.toFixed(2)} sq ft total`}
+                        {group.kind === 'volume' && `${group.totalVolumeCuYd.toFixed(2)} cu yd total`}
+                        {group.kind === 'angle' && group.angles.map((a) => `${Number(a).toFixed(1)}°`).join(', ')}
                       </p>
                     </div>
 
@@ -761,7 +876,7 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
                       </div>
                     )}
 
-                    {tool !== 'bolt_count' && (
+                    {TOOL_META[tool].unitLabel && (
                       <div className="w-36">
                         <label className="text-[10px] text-muted-foreground flex items-center gap-1">
                           Unit weight ({TOOL_META[tool].unitLabel})
@@ -779,7 +894,14 @@ export default function MarkupsList({ rows, onRowsChange, takeoffId, takeoffName
                       </div>
                     )}
 
-                    {tool === 'bolt_count' ? (
+                    {UNWEIGHED_KINDS.includes(group.kind) ? (
+                      <div className="w-32">
+                        <label className="text-[10px] text-muted-foreground">Qty to push</label>
+                        <div className="h-8 flex items-center text-sm font-semibold">
+                          {group.kind === 'volume' ? `${finalQuantity.toFixed(2)} cu yd` : `${finalQuantity.toLocaleString()} ea`}
+                        </div>
+                      </div>
+                    ) : tool === 'bolt_count' ? (
                       // Bolts are priced by count, not weight — the Bid
                       // Worksheet's Bolts/Fasteners line is a manual quote
                       // amount (see buildPayload), so there's no est. weight

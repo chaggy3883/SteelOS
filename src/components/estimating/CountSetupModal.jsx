@@ -33,6 +33,15 @@ function DimensionFields({ feet, inches, fraction, onFeet, onInches, onFraction 
   );
 }
 
+// Count marker sizes (dot radius in screen px) — Medium matches the
+// original fixed size.
+export const COUNT_MARKER_SIZES = [
+  { value: 5, label: 'Small' },
+  { value: 7, label: 'Medium' },
+  { value: 10, label: 'Large' },
+  { value: 14, label: 'Extra large' },
+];
+
 // Step 1 of the Count/Bolt Count engine — asks for whichever fields this
 // `kind` needs (Shape/Size/Length[/Width]/Grade for a beam count, Type/Size/
 // Grade for a bolt count) before the color/symbol picker (CountColorPickerModal)
@@ -61,6 +70,10 @@ export default function CountSetupModal({
   const [widthInches, setWidthInches] = useState('');
   const [widthFraction, setWidthFraction] = useState('0');
   const [grade, setGrade] = useState('');
+  // Marker look — kept between setups on purpose (an estimator who likes
+  // big numbered dots shouldn't have to re-pick that for every group).
+  const [markerSize, setMarkerSize] = useState(7);
+  const [showNumbers, setShowNumbers] = useState(false);
 
   // Reset the form whenever the setup modal (re)opens — defaults to the
   // catalog's first shape/size, or the passed-in initial values when a
@@ -79,6 +92,8 @@ export default function CountSetupModal({
     setWidthInches(initialValues?.width_ft ? widthParts.inches : '');
     setWidthFraction(initialValues?.width_ft ? widthParts.fraction : '0');
     setGrade(initialValues?.grade || '');
+    if (initialValues?.marker_size) setMarkerSize(initialValues.marker_size);
+    if (initialValues?.show_numbers != null) setShowNumbers(Boolean(initialValues.show_numbers));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, kind]);
 
@@ -136,6 +151,8 @@ export default function CountSetupModal({
       shape_code: selectedShape?.shape_code || '',
       size_designation: size,
       grade,
+      marker_size: markerSize,
+      show_numbers: showNumbers,
     };
     if (kind === 'bolt') {
       onConfirm?.(base);
@@ -219,6 +236,23 @@ export default function CountSetupModal({
           ) : (
             <Input value={grade} onChange={(e) => setGrade(e.target.value)} placeholder={kind === 'bolt' ? 'e.g. A325' : 'e.g. A992'} className="mt-1 h-8" />
           )}
+        </div>
+
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <label className="text-xs font-medium text-muted-foreground">Marker size</label>
+            <select
+              value={markerSize}
+              onChange={(e) => setMarkerSize(Number(e.target.value))}
+              className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              {COUNT_MARKER_SIZES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </div>
+          <label className="flex items-center gap-1.5 text-xs h-8 cursor-pointer">
+            <input type="checkbox" checked={showNumbers} onChange={(e) => setShowNumbers(e.target.checked)} />
+            Number each mark (1, 2, 3…)
+          </label>
         </div>
       </div>
 

@@ -1,0 +1,103 @@
+{
+  // Company-wide IRONSIGHT tool sets — named, reusable collections of
+  // measurement tools + custom columns that any estimator in the company can
+  // load into a takeoff session (BlueprintTakeoff's per-session tool_chest
+  // presets are a subset of a tool's shape; see src/lib/takeoffToolSets.js
+  // toToolChestPreset). Managed in ToolSetLibraryPanel.jsx. The built-in
+  // "Structural Steel (starter)" set is NOT stored here — it's a read-only
+  // virtual entry (buildStructuralSteelStarter) the library always shows;
+  // duplicating it creates a real row. Export/import uses our own JSON format
+  // ({ format: "steelos.ironsight.toolset", format_version: 1, tool_set }).
+  "name": "takeoff_tool_sets",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "created_by": {
+      "type": "string",
+      "description": "Email (or name) of the user who created the set."
+    },
+    "is_shared": {
+      "type": "boolean",
+      "default": true,
+      "description": "true = visible to everyone in the company; false = only shown to created_by in the library."
+    },
+    "version": {
+      "type": "number",
+      "default": 1,
+      "description": "Revision counter, incremented on every saved edit so a session can tell its copied presets came from an older revision."
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "tool": { "type": "string", "enum": ["count", "bolt_count", "length", "polylength", "perimeter", "area", "wall_area", "volume", "radius", "diameter", "angle"], "description": "Measurement type — same ids as takeoffGeometry.js MEASURE_TOOLS plus the count tools." },
+          "label": { "type": "string" },
+          "subject": { "type": "string", "description": "Grouping heading for legends/markup lists (e.g. Framing, Stairs)." },
+          "color": { "type": "string", "description": "#RRGGBB line/marker color." },
+          "fill_color": { "type": "string", "description": "#RRGGBB area fill, empty for none." },
+          "fill_opacity": { "type": "number", "default": 0.25 },
+          "symbol": { "type": "string", "enum": ["circle", "square", "triangle", "diamond", "star", "pentagon", "hexagon", "cross"], "default": "circle" },
+          "symbol_size": { "type": "number", "default": 7, "description": "Count marker radius in PDF points." },
+          "show_numbers": { "type": "boolean", "default": false, "description": "Number each count mark 1, 2, 3 ..." },
+          "line_width": { "type": "number", "default": 2, "description": "PDF points." },
+          "line_style": { "type": "string", "enum": ["solid", "dashed", "dotted"], "default": "solid" },
+          "scale_override": {
+            "type": ["object", "null"],
+            "description": "Optional per-tool drawing scale, same units as blueprint_takeoffs.px_per_ft (PDF points per real foot).",
+            "properties": {
+              "scale_reference": { "type": "string" },
+              "px_per_ft": { "type": "number" }
+            }
+          },
+          "default_values": {
+            "type": "object",
+            "description": "Default custom-column values for markups made with this tool, keyed by column id.",
+            "additionalProperties": true
+          },
+          "shapeClass": { "type": "string", "description": "SHAPE_CLASSES value (steelShapeSelector.js) for AISC weight lookup." },
+          "sizeDesignation": { "type": "string" },
+          "grade": { "type": "string" },
+          "unit_weight_lbs_per_ft": { "type": ["number", "null"], "description": "Typed weight/ft that overrides the AISC lookup (e.g. pipe handrail)." },
+          "typical_length_ft": { "type": ["number", "null"], "description": "Count tools — per-piece length used to turn a count into weight." },
+          "slope_deg": { "type": ["number", "null"], "description": "Length tools — slope from horizontal; TrueLength = Length / cos(slope)." },
+          "depth_ft": { "type": ["number", "null"], "description": "Volume/area tools — depth for Volume = Area x Depth." }
+        }
+      }
+    },
+    "columns": {
+      "type": "array",
+      "description": "Custom columns (src/lib/takeoffColumns.js). Formula columns are computed, never stored per markup.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "alias": { "type": "string", "description": "Identifier used in formulas; unique per set (case-insensitive) and never a built-in name (Length, Area, Count, Qty, WtPerFt, Weight, Tons, Depth, Slope, ...)." },
+          "type": { "type": "string", "enum": ["text", "number", "date", "choice", "checkbox", "formula"] },
+          "choices": { "type": "array", "items": { "type": "string" } },
+          "decimals": { "type": "number", "default": 2 },
+          "formula": { "type": "string" },
+          "default": {},
+          "unit": { "type": "string" }
+        }
+      }
+    },
+    "created_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

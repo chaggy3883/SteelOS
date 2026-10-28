@@ -74,6 +74,14 @@
       "type": "number",
       "default": 0
     },
+    "measure_quantity": {
+      "type": "number",
+      "description": "IRONSIGHT push only — the measured amount in measure_unit (lf for length-type markups, sf for Area/Wall Area, cy for Volume, ea for Count/Bolt Count/Angle). Lets non-steel quantities (concrete yards, angle callouts) ride along without inventing a weight; steel tonnage still comes from weight_per_ft/total_tons."
+    },
+    "measure_unit": {
+      "type": "string",
+      "enum": ["ea", "lf", "sf", "cy"]
+    },
     "notes": {
       "type": "string"
     },

@@ -5,6 +5,15 @@ import { Input } from '@/components/ui/input';
 import { Loader2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCanvasTransform } from '@/hooks/useCanvasTransform';
 import { drawCountMarker } from '@/lib/countMarkerShapes';
+import { MEASURE_TOOLS } from '@/lib/takeoffGeometry';
+import { extractSegments, buildSnapIndex, findSnap, snapTolerancePdf } from '@/lib/pdfVectorSnap';
+import { renderPdfPageToImageData } from '@/lib/pdfRevisionOverlay';
+import { drawLegendOnCanvas, layoutLegendTable } from '@/lib/takeoffLegend';
+import { rowBounds } from '@/lib/takeoffCarryForward';
+import {
+  drawMeasureRow, drawDraft, drawSnapMarker, drawViewports, drawRectPreview, drawPolygonWithCutouts, drawCountNumber,
+  drawRevisionCloud, drawSearchCandidate,
+} from './measureOverlayDraw';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href;
 
@@ -20,6 +29,14 @@ const MARK_DRAG_THRESHOLD_PX = 5;
 // handleOverlayMouseMove) — right-clicking within this many px of a dot
 // removes it.
 const DOT_HIT_RADIUS_PX = 11;
+// Default Count marker radius (px) — Count Setup can pick another size per
+// group (row.marker_size).
+const DEFAULT_COUNT_MARKER_RADIUS = 7;
+// Drawn measuring tools whose clicks are collected by BlueprintTakeoff's
+// useMeasureDraft engine. Runs/shapes ('poly'/'polygon' input) close on a
+// double-click.
+const isDrawTool = (tool) => Boolean(MEASURE_TOOLS[tool]);
+const closesOnDoubleClick = (tool) => MEASURE_TOOLS[tool]?.input === 'poly' || MEASURE_TOOLS[tool]?.input === 'polygon';
 
 // Status color for a measurement marker — green once it's a saved takeoff
 // row, blue while its confirmation modal is still open (see
@@ -40,6 +57,11 @@ const itemScreenAnchor = (item, scale) => {
       x: ((item.point1.pdfX + item.point2.pdfX) / 2) * scale,
       y: ((item.point1.pdfY + item.point2.pdfY) / 2) * scale - 26,
     };
+  }
+  // Newer drawn tools put their value label on the anchor itself, so the
+  // status circle sits above it the same way Length's does.
+  if (item.tool !== 'area' && isDrawTool(item.tool) && item.pdfX != null && item.pdfY != null) {
+    return { x: item.pdfX * scale, y: item.pdfY * scale - 26 };
   }
   if ((item.tool === 'count' || item.tool === 'bolt_count') && item.points?.length) {
     return { x: item.points[0].pdfX * scale, y: item.points[0].pdfY * scale };
@@ -71,11 +93,29 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   onPageSizeChange,
   onPageChange,
   activeTool = null,
-  lengthPoints = [],
-  areaPoints = [],
+  // In-progress drawing from BlueprintTakeoff's useMeasureDraft — { points,
+  // outer, cutouts } — plus how circles are picked ('center' | 'three').
+  draft = null,
+  circleMode = 'center',
   onMeasurementClick,
+  // Enter-equivalent for the on-canvas Finish button (Area/Volume cutouts).
+  onFinishShape,
   measurementItems = [],
-  pxPerFt = null,
+  // True when the current page has any usable scale (page, older whole-set
+  // scale, or at least one scaled viewport). Measuring clicks are ignored
+  // while false — the page shows an "isn't calibrated" banner instead.
+  canMeasure = false,
+  // (pt) => resolved scale for a PDF-space point ({ ptsPerFt, label,
+  // source, name } or null) — drives the live readout and the scale chip.
+  getScaleAt = null,
+  // Scale viewports on the current page (dashed boxes with their scale).
+  viewports = [],
+  // Snap to the drawing's own line work; holding Alt places freely.
+  snapEnabled = true,
+  // 'line' (two-point calibrate/check) or 'rect' (viewport corners), plus
+  // the banner text for each step of that pick.
+  calibrationShape = 'line',
+  calibrationSteps = null,
   candidateMarkers = [],
   onCandidateToggle,
   // Count/Bolt Count only — the active, not-yet-saved tally session's dots
@@ -100,6 +140,23 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   // click most recently highlighted — see the overlay effect for how this
   // gets an extra ring/box drawn around it.
   highlightedItemKey = null,
+  // Legends on this page: [{ key, legend (takeoffLegend.buildLegendData),
+  // anchor: 'top-left'|'top-right'|'bottom-left'|'bottom-right'|'custom',
+  // pdfX, pdfY }]. Drawn at 8pt so they zoom with the sheet. In select mode
+  // a legend can be dragged; onLegendMove(key, { pdfX, pdfY }) reports where
+  // it was dropped (top-left corner, PDF space).
+  legends = [],
+  onLegendMove,
+  // Visual Search: while boxSelectMode is on, a click-drag draws a box and
+  // onBoxSelect({ x, y, width, height }) gets it in PDF space. Candidates
+  // ([{ id, pdfX, pdfY, pdfWidth, pdfHeight, score, status }]) are drawn as
+  // boxes; clicking one in select mode calls onSearchCandidateClick(id).
+  boxSelectMode = false,
+  onBoxSelect,
+  searchCandidates = [],
+  onSearchCandidateClick,
+  // Saved revision change clouds for this page (pdf-space boxes).
+  revisionClouds = [],
 }, ref) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
@@ -116,12 +173,22 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   // wrapper as the canvases, tracks the marker correctly at any pan offset.
   const [hoveredItem, setHoveredItem] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+  // Live cursor in PDF space (after snapping) and the snap target under it,
+  // drawn on their own top canvas so a mouse move never redraws every saved
+  // marker on the main overlay.
+  const [cursorPdf, setCursorPdf] = useState(null);
+  const [snapHit, setSnapHit] = useState(null);
+  const [snapIndex, setSnapIndex] = useState(null);
 
   const { scale, pan, setPan, zoomIn, zoomOut, resetTransform } = useCanvasTransform(1);
 
   const viewportRef = useRef(null);
   const baseCanvasRef = useRef(null);
   const overlayCanvasRef = useRef(null);
+  const cursorCanvasRef = useRef(null);
+  // Extracted line work per page, so flipping back to a page doesn't re-read
+  // its whole operator list. Cleared whenever a different PDF loads.
+  const snapCacheRef = useRef(new Map());
   const renderTaskRef = useRef(null);
   const dragRef = useRef(null);
   // Closes an in-progress Area polygon on a real double-click without
@@ -129,6 +196,12 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   // to (not instead of) the two ordinary click events that make it up —
   // using it directly would add two stray vertices right before closing.
   const lastAreaClickAtRef = useRef(0);
+  // Where each legend was last drawn (canvas px, current zoom) — for the
+  // select-mode drag hit test — plus the live drag position while dragging.
+  const legendBoundsRef = useRef([]);
+  const [legendDrag, setLegendDrag] = useState(null); // { key, pdfX, pdfY }
+  // Visual Search box being dragged out (PDF space corners).
+  const [boxDraft, setBoxDraft] = useState(null); // { a, b }
 
   // goToPage lets BlueprintTakeoff's takeoff table jump straight to
   // whatever page a clicked row's marker lives on. getFullPageDataUrl/
@@ -139,11 +212,19 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   // silently no-opped rather than crashed. Stubbed the same way here so
   // adding this ref for goToPage doesn't turn that into an actual runtime
   // error; not fixing that pre-existing gap as part of this change.
+  // renderPageImage renders the CURRENT page off-screen at `renderScale`
+  // (pixels per PDF point) for Visual Search's template matcher — returns
+  // { image, renderScale, pageNumber } or null before a page has loaded.
   useImperativeHandle(ref, () => ({
     goToPage: (n) => setPageNum((prev) => (Number.isFinite(n) && n >= 1 && n <= numPages ? n : prev)),
     getFullPageDataUrl: () => null,
     getCropDataUrl: () => null,
-  }), [numPages]);
+    renderPageImage: async (renderScale = 2) => {
+      if (!page) return null;
+      const image = await renderPdfPageToImageData(page, renderScale);
+      return { image, renderScale, pageNumber: page.pageNumber };
+    },
+  }), [numPages, page]);
 
   // Loads the document whenever `source` changes (a URL string, or a
   // File/Blob — both accepted so this can be wired directly to the same
@@ -178,6 +259,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
           loadingTask.destroy();
           return;
         }
+        snapCacheRef.current = new Map();
         setPdfDoc(doc);
         setNumPages(doc.numPages);
         setPageNum(1);
@@ -238,12 +320,13 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     baseCanvas.style.width = `${viewport.width}px`;
     baseCanvas.style.height = `${viewport.height}px`;
 
-    if (overlayCanvas) {
-      overlayCanvas.width = Math.ceil(viewport.width * dpr);
-      overlayCanvas.height = Math.ceil(viewport.height * dpr);
-      overlayCanvas.style.width = `${viewport.width}px`;
-      overlayCanvas.style.height = `${viewport.height}px`;
-    }
+    [overlayCanvas, cursorCanvasRef.current].forEach((c) => {
+      if (!c) return;
+      c.width = Math.ceil(viewport.width * dpr);
+      c.height = Math.ceil(viewport.height * dpr);
+      c.style.width = `${viewport.width}px`;
+      c.style.height = `${viewport.height}px`;
+    });
 
     renderTaskRef.current?.cancel();
 
@@ -267,6 +350,36 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   useEffect(() => {
     onScaleChange?.(scale);
   }, [scale, onScaleChange]);
+
+  // Snap-to-drawing: read this page's own vector line work once (cached per
+  // page) while snapping is on. Pages that are just a scanned image simply
+  // come back with no lines, and snapping quietly does nothing.
+  useEffect(() => {
+    if (!page || !snapEnabled) {
+      setSnapIndex(null);
+      return undefined;
+    }
+    // Keyed by the page proxy's own number, not pageNum — pageNum flips a
+    // render before the new page proxy arrives.
+    const pageKey = page.pageNumber;
+    const cached = snapCacheRef.current.get(pageKey);
+    if (cached) {
+      setSnapIndex(cached);
+      return undefined;
+    }
+    let cancelled = false;
+    setSnapIndex(null);
+    page.getOperatorList({ annotationMode: pdfjsLib.AnnotationMode.DISABLE })
+      .then((opList) => {
+        if (cancelled) return;
+        const segments = extractSegments(opList, page.getViewport({ scale: 1 }).transform, pdfjsLib.OPS);
+        const index = buildSnapIndex(segments);
+        snapCacheRef.current.set(pageKey, index);
+        setSnapIndex(index);
+      })
+      .catch((e) => console.warn('IRONSIGHT snap: could not read line work for this page', e));
+    return () => { cancelled = true; };
+  }, [page, snapEnabled]);
 
   // Adobe-style hand tool: holding Space enables drag-to-pan even while a
   // measurement tool is active (see handlePointerDown's panAllowedNow),
@@ -310,6 +423,8 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   // whatever's actually under the cursor now.
   useEffect(() => {
     setHoveredItem(null);
+    setCursorPdf(null);
+    setSnapHit(null);
   }, [pageNum, scale]);
 
   // Lets BlueprintTakeoff's Page Notes panel track which page is current
@@ -353,7 +468,10 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       ctx.stroke();
     };
 
-    if (calibrationMode || calibrationPoints.length > 0) {
+    if ((calibrationMode || calibrationPoints.length > 0) && calibrationShape === 'rect') {
+      if (calibrationPoints.length >= 2) drawRectPreview(ctx, calibrationPoints[0], calibrationPoints[1], scale);
+      calibrationPoints.forEach((p) => drawCrosshair(p.pdfX * scale, p.pdfY * scale, '#0891b2'));
+    } else if (calibrationMode || calibrationPoints.length > 0) {
       const points = calibrationPoints.map((p) => ({ x: p.pdfX * scale, y: p.pdfY * scale }));
       if (points.length >= 1) drawCrosshair(points[0].x, points[0].y);
       if (points.length >= 2) {
@@ -370,33 +488,11 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       }
     }
 
-    if (activeTool === 'length' && lengthPoints.length === 1) {
-      drawCrosshair(lengthPoints[0].pdfX * scale, lengthPoints[0].pdfY * scale, '#3b82f6');
-    }
+    // Scale viewports on this page — dashed boxes with their own scale.
+    drawViewports(ctx, viewports, scale);
 
-    // In-progress Area polygon — vertices placed so far, plus the segments
-    // already closed between them. The final closing segment only appears
-    // once the polygon is actually committed (drawn below from `areas`),
-    // since until then it isn't a shape yet, just a run of clicks.
-    if (activeTool === 'area' && areaPoints.length > 0) {
-      ctx.save();
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      areaPoints.forEach((p, i) => {
-        const x = p.pdfX * scale, y = p.pdfY * scale;
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-      ctx.fillStyle = '#22c55e';
-      areaPoints.forEach((p) => {
-        ctx.beginPath();
-        ctx.arc(p.pdfX * scale, p.pdfY * scale, 4, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      ctx.restore();
-    }
+    // In-progress drawing for every measuring tool (Length, Area, …) lives
+    // on the cursor canvas — see the cursor-layer effect below.
 
     // Named areas (Area tool, closed + saved via the Name This Area modal)
     // — only the ones on the page currently being viewed, since a polygon's
@@ -405,17 +501,8 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       const pts = (a.polygon || []).map((p) => ({ x: p.pdfX * scale, y: p.pdfY * scale }));
       if (pts.length < 3) return;
 
-      ctx.save();
-      ctx.beginPath();
-      pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(34, 197, 94, 0.15)';
-      ctx.fill();
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([]);
-      ctx.stroke();
-      ctx.restore();
+      // Cutouts (if any) are punched out of the fill, even-odd.
+      drawPolygonWithCutouts(ctx, a.polygon, a.cutouts, scale, { stroke: '#22c55e', fill: 'rgba(34, 197, 94, 0.15)' });
 
       const centerX = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
       const centerY = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
@@ -484,19 +571,41 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       ctx.restore();
     };
 
+    // Saved revision change clouds for this page, under the markups.
+    revisionClouds.forEach((box) => drawRevisionCloud(ctx, box, scale, '#dc2626'));
+
     measurementItems.filter((item) => item.source === 'measurement').forEach((item) => {
+      // Carried forward from an older revision into a changed area — dashed
+      // amber box until the estimator marks it checked.
+      if (item.review_flag && (item.page_number || 1) === pageNum) {
+        const b = rowBounds(item);
+        if (b) {
+          ctx.save();
+          ctx.strokeStyle = '#d97706';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 3]);
+          ctx.strokeRect(b.x * scale - 10, b.y * scale - 10, b.width * scale + 20, b.height * scale + 20);
+          ctx.restore();
+        }
+      }
       if (item.tool === 'count' || item.tool === 'bolt_count') {
         // New-style rows carry one dot per click in `points`; a legacy
         // single-click count row (pre-tally-engine) only ever had a bare
         // pdfX/pdfY — fall back to treating that as a one-point group so it
         // still renders after this redesign.
         const pts = item.points?.length ? item.points : (item.pdfX != null && item.pdfY != null ? [{ pdfX: item.pdfX, pdfY: item.pdfY }] : []);
-        pts.forEach((p) => drawCountMarker(ctx, p.pdfX * scale, p.pdfY * scale, { color: item.color, symbol: item.symbol }));
+        const radius = item.marker_size || DEFAULT_COUNT_MARKER_RADIUS;
+        pts.forEach((p, i) => {
+          drawCountMarker(ctx, p.pdfX * scale, p.pdfY * scale, { color: item.color, symbol: item.symbol }, radius);
+          if (item.show_numbers) drawCountNumber(ctx, i + 1, p.pdfX * scale, p.pdfY * scale, radius);
+        });
         if (isHighlighted(item) && pts[0]) drawHighlightRing(pts[0].pdfX * scale, pts[0].pdfY * scale);
       } else if (item.tool === 'length' && item.point1 && item.point2) {
         const p1 = { x: item.point1.pdfX * scale, y: item.point1.pdfY * scale };
         const p2 = { x: item.point2.pdfX * scale, y: item.point2.pdfY * scale };
-        const statusColor = MARKER_STATUS_COLORS[item.marker_color] || MARKER_STATUS_COLORS.blue;
+        // Measured with a tool-set tool → drawn in that tool's color (the
+        // status circle above still shows saved / duplicate).
+        const statusColor = item.tool_set_tool_id && item.color ? item.color : (MARKER_STATUS_COLORS[item.marker_color] || MARKER_STATUS_COLORS.blue);
 
         ctx.save();
         ctx.strokeStyle = statusColor;
@@ -532,8 +641,21 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         // above from `areas` — this is only the takeoff-row status circle
         // for that same closed shape, centered on its centroid.
         const x = item.pdfX * scale, y = item.pdfY * scale;
+        // Rows saved since cutouts existed carry their own outline (the
+        // named zone above only lives for the current visit).
+        if (item.polygon_points?.length >= 3) {
+          drawPolygonWithCutouts(ctx, item.polygon_points, item.cutouts, scale, { stroke: MARKER_STATUS_COLORS[item.marker_color] || MARKER_STATUS_COLORS.blue });
+        }
         drawStatusMarker(x, y, item);
         if (isHighlighted(item)) drawHighlightRing(x, y);
+      } else if (isDrawTool(item.tool) && item.pdfX != null && item.pdfY != null) {
+        // Polylength / Perimeter / Volume / Wall Area / Angle / Radius /
+        // Diameter — shape + value label at the anchor, status circle above.
+        const statusColor = item.tool_set_tool_id && item.color ? item.color : (MARKER_STATUS_COLORS[item.marker_color] || MARKER_STATUS_COLORS.blue);
+        drawMeasureRow(ctx, item, scale, statusColor);
+        const anchor = itemScreenAnchor(item, scale);
+        drawStatusMarker(anchor.x, anchor.y, item);
+        if (isHighlighted(item)) drawHighlightRing(anchor.x, anchor.y);
       }
     });
 
@@ -541,11 +663,77 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     // separate from measurementItems since nothing here is a committed
     // takeoff row until the tally panel's Save is clicked.
     if (activeCountSession?.points?.length) {
-      activeCountSession.points.forEach((p) => {
-        drawCountMarker(ctx, p.pdfX * scale, p.pdfY * scale, { color: activeCountSession.color, symbol: activeCountSession.symbol });
+      const radius = activeCountSession.fields?.marker_size || DEFAULT_COUNT_MARKER_RADIUS;
+      activeCountSession.points.forEach((p, i) => {
+        drawCountMarker(ctx, p.pdfX * scale, p.pdfY * scale, { color: activeCountSession.color, symbol: activeCountSession.symbol }, radius);
+        if (activeCountSession.fields?.show_numbers) drawCountNumber(ctx, i + 1, p.pdfX * scale, p.pdfY * scale, radius);
       });
     }
-  }, [page, scale, calibrationMode, calibrationPoints, activeTool, lengthPoints, measurementItems, areaPoints, areas, pageNum, highlightedItemKey, activeCountSession]);
+
+    searchCandidates.forEach((c) => drawSearchCandidate(ctx, c, scale));
+
+    // Legends last so they sit on top of the markups. Corner anchors are
+    // resolved here, where the table's size is known.
+    const bounds = [];
+    if (pageSize.width > 0) {
+      const fontSize = 8 * scale;
+      const measureText = (t, fs) => { ctx.font = `${fs}px Helvetica, Arial, sans-serif`; return ctx.measureText(String(t)).width; };
+      legends.forEach((l) => {
+        if (!l?.legend?.rows?.length) return;
+        const layout = layoutLegendTable(l.legend, { fontSize, measureText });
+        const margin = 18 * scale;
+        const anchor = l.anchor || 'bottom-right';
+        let x;
+        let y;
+        if (legendDrag?.key === l.key) {
+          x = legendDrag.pdfX * scale; y = legendDrag.pdfY * scale;
+        } else if (anchor === 'custom' && l.pdfX != null && l.pdfY != null) {
+          x = l.pdfX * scale; y = l.pdfY * scale;
+        } else {
+          x = anchor.includes('right') ? pageSize.width * scale - margin - layout.width : margin;
+          y = anchor.includes('bottom') ? pageSize.height * scale - margin - layout.height : margin;
+        }
+        drawLegendOnCanvas(ctx, l.legend, x, y, { fontSize });
+        bounds.push({ key: l.key, x, y, width: layout.width, height: layout.height });
+      });
+    }
+    legendBoundsRef.current = bounds;
+  }, [page, scale, calibrationMode, calibrationPoints, calibrationShape, measurementItems, areas, pageNum, highlightedItemKey, activeCountSession, viewports, revisionClouds, searchCandidates, legends, legendDrag, pageSize]);
+
+  // Cursor layer — the in-progress drawing with its rubber band to the
+  // cursor and live readout, the snap marker, and a viewport being dragged
+  // out. Redrawn on every mouse move without touching the main overlay.
+  useEffect(() => {
+    const c = cursorCanvasRef.current;
+    if (!c) return;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, c.width / dpr, c.height / dpr);
+
+    if (calibrationMode && calibrationShape === 'rect' && calibrationPoints.length === 1 && cursorPdf) {
+      drawRectPreview(ctx, calibrationPoints[0], cursorPdf, scale);
+    }
+    if (!calibrationMode && isDrawTool(activeTool) && draft) {
+      const first = draft.outer?.[0] || draft.points?.[0] || cursorPdf;
+      const ptsPerFt = first && getScaleAt ? getScaleAt(first)?.ptsPerFt : null;
+      drawDraft(ctx, { tool: activeTool, draft, cursor: cursorPdf, scale, circleMode, ptsPerFt });
+    }
+    if (calibrationMode || isDrawTool(activeTool)) drawSnapMarker(ctx, snapHit, scale);
+    if (boxDraft) drawRectPreview(ctx, boxDraft.a, boxDraft.b, scale);
+  }, [page, scale, cursorPdf, snapHit, draft, activeTool, circleMode, calibrationMode, calibrationShape, calibrationPoints, getScaleAt, boxDraft]);
+
+  // Where a click at this event should land in PDF space: snapped to the
+  // drawing's line work when snapping is on (Alt held = place freely).
+  // Rect comes from the overlay canvas itself (pointer capture can retarget
+  // events to the viewport div) — still canvas-local, never minus pan.
+  const pickPoint = (e) => {
+    const rect = (overlayCanvasRef.current || e.currentTarget).getBoundingClientRect();
+    const raw = { pdfX: (e.clientX - rect.left) / scale, pdfY: (e.clientY - rect.top) / scale };
+    if (!snapEnabled || e.altKey || !snapIndex) return { pt: raw, snap: null };
+    const snap = findSnap(snapIndex, raw, snapTolerancePdf(scale));
+    return snap ? { pt: { pdfX: snap.pdfX, pdfY: snap.pdfY }, snap } : { pt: raw, snap: null };
+  };
 
   const handleOverlayClick = (e) => {
     // React's SyntheticEvent doesn't carry offsetX/offsetY (they're not in
@@ -554,14 +742,12 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     // bounding rect instead. These are still canvas-local coordinates (the
     // CSS translate moves the whole wrapper div, not the canvas element
     // itself) — do NOT subtract pan here.
-    const rect = e.currentTarget.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    const offsetY = e.clientY - rect.top;
-    const pdfX = offsetX / scale;
-    const pdfY = offsetY / scale;
+    // pickPoint does the clientX/rect math (canvas-local, never minus pan)
+    // and snaps to the drawing's line work when snapping is on.
+    const { pt } = pickPoint(e);
+    const { pdfX, pdfY } = pt;
 
     if (calibrationMode) {
-      console.warn('[IRONSIGHT] calibration click registered', { pdfX, pdfY, pointsSoFar: calibrationPoints.length });
       onCalibrationClick?.({ pdfX, pdfY });
       return;
     }
@@ -572,17 +758,19 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     // handlePointerUp instead, so it can tell a real click apart from a
     // click-and-hold pan. This branch only ever ran for those tools before
     // the tally engine existed.
-    if (activeTool === 'length') {
-      if (pxPerFt == null) return;
-      onMeasurementClick?.({ tool: activeTool, pdfX, pdfY });
-    }
-
-    if (activeTool === 'area') {
-      if (pxPerFt == null) return;
-      const now = Date.now();
-      const isClosingClick = areaPoints.length > 0 && now - lastAreaClickAtRef.current < 400;
-      lastAreaClickAtRef.current = now;
-      onMeasurementClick?.({ tool: 'area', pdfX, pdfY, isClosingClick });
+    if (isDrawTool(activeTool)) {
+      if (!canMeasure) return;
+      // Runs/shapes close on a real double-click. The browser fires two
+      // ordinary clicks for it, so the second click of a quick pair is the
+      // "close" and isn't added as a vertex.
+      let isClosingClick = false;
+      if (closesOnDoubleClick(activeTool)) {
+        const now = Date.now();
+        const hasPoints = (draft?.points?.length || 0) > 0;
+        isClosingClick = hasPoints && now - lastAreaClickAtRef.current < 400;
+        lastAreaClickAtRef.current = isClosingClick ? 0 : now;
+      }
+      onMeasurementClick?.({ tool: activeTool, pdfX, pdfY, isClosingClick });
     }
   };
 
@@ -599,9 +787,11 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
 
     let hitIndex = -1;
     let hitDist = Infinity;
+    // Bigger markers (Count Setup's marker size) get a matching hit area.
+    const hitRadius = Math.max(DOT_HIT_RADIUS_PX, (activeCountSession.fields?.marker_size || DEFAULT_COUNT_MARKER_RADIUS) + 4);
     activeCountSession.points.forEach((p, i) => {
       const d = Math.hypot(offsetX - p.pdfX * scale, offsetY - p.pdfY * scale);
-      if (d <= DOT_HIT_RADIUS_PX && d < hitDist) {
+      if (d <= hitRadius && d < hitDist) {
         hitDist = d;
         hitIndex = i;
       }
@@ -629,9 +819,23 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
 
     setHoveredItem(hit || null);
     setHoverPos({ x: offsetX, y: offsetY });
+
+    // Live cursor + snap target, only while something is being picked.
+    if (calibrationMode || isDrawTool(activeTool)) {
+      const { pt, snap } = pickPoint(e);
+      setCursorPdf(pt);
+      setSnapHit(snap);
+    } else if (cursorPdf) {
+      setCursorPdf(null);
+      setSnapHit(null);
+    }
   };
 
-  const handleOverlayMouseLeave = () => setHoveredItem(null);
+  const handleOverlayMouseLeave = () => {
+    setHoveredItem(null);
+    setCursorPdf(null);
+    setSnapHit(null);
+  };
 
   // Select mode (no tool) always pans on click-drag, same as before. With a
   // tool active, pan is only allowed via the Space+drag hand tool, and only
@@ -640,7 +844,38 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   // Calibration never allows panning, regardless of Space.
   const panAllowedNow = !calibrationMode && (activeTool == null || (spacePressed && scale > 1));
 
+  const canvasPdfPoint = (e) => {
+    const rect = overlayCanvasRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return { pdfX: (e.clientX - rect.left) / scale, pdfY: (e.clientY - rect.top) / scale };
+  };
+
   const handlePointerDown = (e) => {
+    // Visual Search box pick — takes over every other gesture while on.
+    if (boxSelectMode && !calibrationMode) {
+      if (e.button !== 0) return;
+      const pt = canvasPdfPoint(e);
+      if (!pt) return;
+      dragRef.current = { boxSelect: true, pointerId: e.pointerId };
+      setBoxDraft({ a: pt, b: pt });
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+    // Select mode on a legend → drag the legend instead of panning.
+    if (activeTool == null && !calibrationMode && e.button === 0 && legendBoundsRef.current.length) {
+      const rect = overlayCanvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        const hit = legendBoundsRef.current.find((b) => cx >= b.x && cx <= b.x + b.width && cy >= b.y && cy <= b.y + b.height);
+        if (hit) {
+          dragRef.current = { legendKey: hit.key, startX: e.clientX, startY: e.clientY, startPdf: { pdfX: hit.x / scale, pdfY: hit.y / scale }, pointerId: e.pointerId };
+          setLegendDrag({ key: hit.key, pdfX: hit.x / scale, pdfY: hit.y / scale });
+          e.currentTarget.setPointerCapture(e.pointerId);
+          return;
+        }
+      }
+    }
     // setPointerCapture on the viewport redirects the subsequent click event
     // to the viewport div, so the overlay canvas's own onClick never fires —
     // this is what keeps a Space-held pan from also registering as a tool
@@ -663,8 +898,27 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
+  // Select mode over a Visual Search candidate box → accept/reject it.
+  // Select mode always captures the pointer for panning, so the canvas never
+  // sees a click — a pan that didn't actually move is treated as one here.
+  const hitSearchCandidate = (pt) => searchCandidates.find((c) => pt.pdfX >= c.pdfX && pt.pdfX <= c.pdfX + c.pdfWidth && pt.pdfY >= c.pdfY && pt.pdfY <= c.pdfY + c.pdfHeight);
+
   const handlePointerMove = (e) => {
     if (!dragRef.current) return;
+    if (!dragRef.current.isMarkTool && !dragRef.current.moved
+      && Math.hypot(e.clientX - (dragRef.current.startX ?? e.clientX), e.clientY - (dragRef.current.startY ?? e.clientY)) > MARK_DRAG_THRESHOLD_PX) {
+      dragRef.current.moved = true;
+    }
+    if (dragRef.current.boxSelect) {
+      const pt = canvasPdfPoint(e);
+      if (pt) setBoxDraft((d) => (d ? { ...d, b: pt } : d));
+      return;
+    }
+    if (dragRef.current.legendKey) {
+      const { startX, startY, startPdf, legendKey } = dragRef.current;
+      setLegendDrag({ key: legendKey, pdfX: startPdf.pdfX + (e.clientX - startX) / scale, pdfY: startPdf.pdfY + (e.clientY - startY) / scale });
+      return;
+    }
     const { startX, startY, startPan } = dragRef.current;
     if (dragRef.current.isMarkTool && !dragRef.current.moved) {
       if (Math.hypot(e.clientX - startX, e.clientY - startY) <= MARK_DRAG_THRESHOLD_PX) return;
@@ -678,13 +932,40 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     dragRef.current = null;
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
 
+    if (drag?.boxSelect) {
+      const box = boxDraft;
+      setBoxDraft(null);
+      if (box) {
+        const x = Math.min(box.a.pdfX, box.b.pdfX);
+        const y = Math.min(box.a.pdfY, box.b.pdfY);
+        const width = Math.abs(box.b.pdfX - box.a.pdfX);
+        const height = Math.abs(box.b.pdfY - box.a.pdfY);
+        // A stray click (no real box) isn't a pick.
+        if (width * scale >= 6 && height * scale >= 6) onBoxSelect?.({ x, y, width, height });
+      }
+      return;
+    }
+    if (drag && !drag.isMarkTool && !drag.moved && !drag.boxSelect && !drag.legendKey && activeTool == null && searchCandidates.length) {
+      const pt = canvasPdfPoint(e);
+      const hit = pt && hitSearchCandidate(pt);
+      if (hit) { onSearchCandidateClick?.(hit.id); return; }
+    }
+    if (drag?.legendKey) {
+      const moved = legendDrag;
+      setLegendDrag(null);
+      if (moved && (Math.abs(e.clientX - drag.startX) > 2 || Math.abs(e.clientY - drag.startY) > 2)) {
+        onLegendMove?.(drag.legendKey, { pdfX: moved.pdfX, pdfY: moved.pdfY });
+      }
+      return;
+    }
+
     // The pointer never moved past the drag threshold — this was a mark
     // click, not a pan. Compute pdfX/pdfY off the overlay canvas's own rect
     // (not the viewport, which is where pointer capture retargeted this
     // event) so it lines up with every other click-to-PDF-space conversion
     // in this file.
     if (drag?.isMarkTool && !drag.moved) {
-      if (pxPerFt == null) return;
+      if (!canMeasure) return;
       const rect = overlayCanvasRef.current?.getBoundingClientRect();
       if (!rect) return;
       onCountMark?.({ tool: activeTool, pdfX: (e.clientX - rect.left) / scale, pdfY: (e.clientY - rect.top) / scale });
@@ -777,7 +1058,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       <div
         ref={viewportRef}
         className={`relative overflow-hidden bg-neutral-700 ${fillHeight ? 'flex-1 min-h-0' : ''}`}
-        style={{ height: fillHeight ? undefined : VIEWPORT_HEIGHT, cursor: (calibrationMode || (activeTool != null && !panAllowedNow)) ? 'crosshair' : (dragRef.current ? 'grabbing' : 'grab') }}
+        style={{ height: fillHeight ? undefined : VIEWPORT_HEIGHT, cursor: (calibrationMode || boxSelectMode || (activeTool != null && !panAllowedNow)) ? 'crosshair' : (dragRef.current ? 'grabbing' : 'grab') }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -795,24 +1076,55 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         )}
         {calibrationMode && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-red-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
-            {calibrationPoints.length === 0 && 'Step 1 of 2 — Click point 1 on a known dimension'}
-            {calibrationPoints.length === 1 && 'Step 2 of 2 — Click point 2'}
-            {calibrationPoints.length >= 2 && 'Points captured — enter the real-world distance below'}
+            {calibrationSteps
+              ? calibrationSteps[Math.min(calibrationPoints.length, calibrationSteps.length - 1)]
+              : (
+                <>
+                  {calibrationPoints.length === 0 && 'Step 1 of 2 — Click point 1 on a known dimension'}
+                  {calibrationPoints.length === 1 && 'Step 2 of 2 — Click point 2'}
+                  {calibrationPoints.length >= 2 && 'Points captured — enter the real-world distance below'}
+                </>
+              )}
           </div>
         )}
-        {!calibrationMode && activeTool === 'length' && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
-            {lengthPoints.length === 0 ? 'Click the start of the run' : 'Click the end of the run'}
+        {!calibrationMode && isDrawTool(activeTool) && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg whitespace-nowrap flex items-center gap-2 pointer-events-none">
+            <span className="pointer-events-none">
+              {draft?.outer
+                ? 'Shape closed — draw any cutouts inside it (double-click closes each), then Finish'
+                : MEASURE_TOOLS[activeTool].input === 'poly' || MEASURE_TOOLS[activeTool].input === 'polygon'
+                  ? `${MEASURE_TOOLS[activeTool].hint} · double-click or Enter to finish · Backspace undoes a point`
+                  : MEASURE_TOOLS[activeTool].hint}
+              {snapEnabled ? ' · hold Alt to place without snapping' : ''}
+            </span>
+            {draft?.outer && (
+              <Button size="sm" variant="secondary" className="h-6 px-2 text-xs pointer-events-auto" onClick={() => onFinishShape?.()}>Finish (Enter)</Button>
+            )}
+          </div>
+        )}
+        {!calibrationMode && !canMeasure && page && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 z-10 rounded-md bg-amber-500 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
+            This page isn&apos;t calibrated — set its scale before measuring
+          </div>
+        )}
+        {page && getScaleAt && (
+          <div className="absolute bottom-2 left-2 z-10 rounded bg-black/70 text-white text-[11px] px-2 py-1 pointer-events-none whitespace-nowrap">
+            {(() => {
+              const s = getScaleAt(cursorPdf || null);
+              if (!s) return 'Scale: not set on this page';
+              if (s.blocked) return `${s.name || 'Viewport'}: scale not set`;
+              return `Scale: ${s.label}${s.source === 'viewport' ? ` (${s.name || 'viewport'})` : s.source === 'legacy' ? ' (whole set, older session)' : ''}`;
+            })()}
+          </div>
+        )}
+        {boxSelectMode && !calibrationMode && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-violet-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
+            Drag a box around ONE symbol to find the others like it · Esc to cancel
           </div>
         )}
         {!calibrationMode && (activeTool === 'count' || activeTool === 'bolt_count') && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-red-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
             Click to mark · click-and-hold to pan · right-click a dot to remove it
-          </div>
-        )}
-        {!calibrationMode && activeTool === 'area' && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-green-600 text-white text-xs font-semibold px-3 py-1.5 shadow-lg pointer-events-none whitespace-nowrap">
-            {areaPoints.length === 0 ? 'Click each corner of the area' : 'Double-click to close the shape'}
           </div>
         )}
         <div
@@ -833,6 +1145,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
             onMouseMove={handleOverlayMouseMove}
             onMouseLeave={handleOverlayMouseLeave}
           />
+          <canvas ref={cursorCanvasRef} className="absolute inset-0 pointer-events-none" />
           {hoveredItem && (
             <div
               className="absolute z-20 pointer-events-none rounded bg-black/80 text-white text-[11px] px-2 py-1 whitespace-nowrap"

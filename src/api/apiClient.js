@@ -16,6 +16,7 @@ const createLocalApi = () => ({
     ApiTokenVault: createEntityApi('ApiTokenVault'),
     ai_contract_reviews: createEntityApi('ai_contract_reviews'),
     blueprint_takeoffs: createEntityApi('blueprint_takeoffs'),
+    takeoff_tool_sets: createEntityApi('takeoff_tool_sets'),
     piece_production_logs: createEntityApi('piece_production_logs'),
     piece_timing_events: createEntityApi('piece_timing_events'),
     company_templates: createEntityApi('company_templates'),

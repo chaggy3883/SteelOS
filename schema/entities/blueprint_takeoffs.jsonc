@@ -40,7 +40,40 @@
       "type": "string"
     },
     "px_per_ft": {
-      "type": "number"
+      "type": "number",
+      "description": "LEGACY — the single whole-set scale from before per-page scale existed: PDF points (IRONSIGHT PDF space at zoom 1, 72 per inch) per real foot. Still read on load as the fallback for any page with no page_scales entry, so older sessions measure exactly as before (src/lib/takeoffScale.js migrateScaleState/resolveScaleAt). No longer written."
+    },
+    "page_scales": {
+      "type": "object",
+      "description": "Drawing scale per PDF page, keyed by page number (\"1\", \"2\", …). A measurement uses the viewport containing its first click, else the page scale, else legacy px_per_ft; with none of those the page is blocked from measuring. Written by useTakeoffScales.js right after every change (ScalePanel.jsx).",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "pts_per_ft": { "type": "number", "description": "PDF points of paper per real foot. 1/8\" = 1'-0\" -> 9; 1\" = 10' -> 7.2; 1:100 -> 8.64 (864/N)." },
+          "label": { "type": "string", "description": "Readable scale, e.g. 1/8\" = 1'-0\"." },
+          "source": { "type": "string", "enum": ["preset", "calibrated"] },
+          "preset_id": { "type": "string", "description": "takeoffScale.js SCALE_PRESETS id when source is preset." },
+          "viewports": {
+            "type": "array",
+            "description": "Rectangular areas of this page drawn at a different scale (a detail). x1/y1/x2/y2 are PDF-space corners (x1<x2, y1<y2). A viewport with no pts_per_ft blocks measuring inside it rather than falling back to the page scale.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "x1": { "type": "number" },
+                "y1": { "type": "number" },
+                "x2": { "type": "number" },
+                "y2": { "type": "number" },
+                "pts_per_ft": { "type": "number" },
+                "label": { "type": "string" },
+                "source": { "type": "string", "enum": ["preset", "calibrated"] },
+                "preset_id": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
     },
     "calibration_unit": {
       "type": "string",
@@ -48,15 +81,85 @@
     },
     "tool_chest": {
       "type": "array",
+      "description": "This takeoff's Tool Chest presets. Hand-made presets only carry id/tool/label/shapeClass/sizeDesignation/color; presets loaded from a company tool set (takeoffToolSets.toToolChestPreset) carry every tool field too (subject, symbol, symbol_size, show_numbers, line_width, line_style, fill_color, fill_opacity, scale_override, default_values, grade, unit_weight_lbs_per_ft, typical_length_ft, slope_deg, depth_ft) plus the fields below.",
       "items": {
         "type": "object",
         "properties": {
           "id": { "type": "string" },
-          "tool": { "type": "string", "enum": ["count", "length", "area"] },
+          "tool": { "type": "string", "enum": ["count", "bolt_count", "length", "polylength", "perimeter", "area", "wall_area", "volume", "radius", "diameter", "angle"] },
           "label": { "type": "string" },
           "shapeClass": { "type": "string" },
           "sizeDesignation": { "type": "string" },
-          "color": { "type": "string" }
+          "color": { "type": "string" },
+          "measurement_type": { "type": "string", "description": "Tool-set presets: the tool's own measurement type (same values as tool)." },
+          "tool_set_id": { "type": "string", "description": "takeoff_tool_sets id (or 'builtin-structural-steel') the preset was loaded from." },
+          "tool_set_tool_id": { "type": "string", "description": "id of the tool inside that tool set — copied onto every row measured with this preset." },
+          "subject": { "type": "string" },
+          "symbol": { "type": "string" },
+          "marker_size": { "type": "number" },
+          "slope": { "type": "object", "description": "Engine-shaped default slope ({ mode: 'degrees', degrees }) the confirmation panel starts from." }
+        }
+      }
+    },
+    "tool_set_id": {
+      "type": "string",
+      "description": "takeoff_tool_sets id (or 'builtin-structural-steel') last loaded into this takeoff as a whole set. Null when none."
+    },
+    "tool_set_snapshot": {
+      "type": "object",
+      "description": "Frozen copy (takeoffToolSets.createToolSet shape: name, tools[], columns[], version …) of that tool set as it was when loaded. The takeoff reads its company columns, subjects and line/fill styles from this copy, so editing or deleting the set in the library later never changes a takeoff already in progress."
+    },
+    "custom_columns": {
+      "type": "array",
+      "description": "This takeoff's own columns (takeoffColumns.js column shape: id, name, alias, type, choices, decimals, formula, default, unit). Shown after the tool set's columns; one with the same id/alias as a company column replaces it for this takeoff only (mergeColumns).",
+      "items": { "type": "object" }
+    },
+    "legend_settings": {
+      "type": "object",
+      "description": "Legend per PDF page number: { on, anchor: 'top-left'|'top-right'|'bottom-left'|'bottom-right'|'custom', pdfX, pdfY (top-left corner in PDF space when anchor is 'custom' — set by dragging it on the drawing), group_by: 'tool'|'subject' }. Used on screen and in the exported PDF.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "on": { "type": "boolean" },
+          "anchor": { "type": "string", "enum": ["top-left", "top-right", "bottom-left", "bottom-right", "custom"] },
+          "pdfX": { "type": "number" },
+          "pdfY": { "type": "number" },
+          "group_by": { "type": "string", "enum": ["tool", "subject"] }
+        }
+      }
+    },
+    "previous_takeoff_id": {
+      "type": "string",
+      "description": "The older revision's blueprint_takeoffs id when this session is a newer issue of the same drawing set (set by \"Load new revision…\" or by picking it in the compare dialog). Source for Compare and Bring markups forward."
+    },
+    "revision_compare": {
+      "type": "object",
+      "description": "Saved drawing-revision compares (RevisionCompareDialog). pages is keyed by THIS session's page number.",
+      "properties": {
+        "previous_takeoff_id": { "type": "string" },
+        "pages": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "previous_takeoff_id": { "type": "string" },
+              "old_page_number": { "type": "number" },
+              "transform": { "type": "object", "description": "Two-point line-up, old PDF space → new PDF space, affine { a, b, c, d, e, f } (x' = a·x + c·y + e, y' = b·x + d·y + f). Null = sheets compared as-is." },
+              "clouds": {
+                "type": "array",
+                "description": "Changed areas in this page's PDF space — drawn as revision clouds, optionally exported, and used to flag carried-forward markups.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "x": { "type": "number" }, "y": { "type": "number" }, "width": { "type": "number" }, "height": { "type": "number" },
+                    "kind": { "type": "string", "enum": ["added", "removed", "mixed"] }
+                  }
+                }
+              },
+              "stats": { "type": "object", "description": "{ added, removed, same } pixel counts at compare time." },
+              "compared_at": { "type": "string", "format": "date-time" }
+            }
+          }
         }
       }
     },
@@ -143,8 +246,17 @@
           },
           "tool": {
             "type": "string",
-            "enum": ["count", "bolt_count", "length", "area"],
-            "description": "'count' (beams/shapes) and 'bolt_count' (bolts/fasteners) share the same click-to-mark tally engine — see `points`/`color`/`symbol` below — parameterized only by which setup fields they prompt for (Shape/Size/Length vs. Size/Type/Grade)."
+            "enum": ["count", "bolt_count", "length", "polylength", "perimeter", "area", "volume", "wall_area", "angle", "radius", "diameter"],
+            "description": "'count' (beams/shapes) and 'bolt_count' (bolts/fasteners) share the same click-to-mark tally engine — see `points`/`color`/`symbol` below — parameterized only by which setup fields they prompt for (Shape/Size/Length vs. Size/Type/Grade). The drawn tools are defined in src/lib/takeoffGeometry.js MEASURE_TOOLS: length-kind (length, polylength, perimeter, radius, diameter -> length_ft, AISC lbs/ft applies), area-kind (area, wall_area -> area_sq_ft), volume (volume_cu_yd, never weighed), angle (angle_deg, never weighed)."
+          },
+          "marker_size": {
+            "type": "number",
+            "description": "count/bolt_count only — dot radius in screen px picked in Count Setup (5/7/10/14; null = default 7)."
+          },
+          "show_numbers": {
+            "type": "boolean",
+            "default": false,
+            "description": "count/bolt_count only — draw a running number (1, 2, 3…) next to each dot in click order."
           },
           "label": {
             "type": "string"
@@ -175,7 +287,7 @@
           },
           "pdfX": {
             "type": "number",
-            "description": "Legacy single-click count row (pre-tally-engine) or Area centroid. New count/bolt_count rows use `points` instead."
+            "description": "Legacy single-click count row (pre-tally-engine), or the anchor of a drawn measurement other than Length (Area/Perimeter/Volume centroid, polyline middle, angle vertex, circle center) — where its status marker and label sit. New count/bolt_count rows use `points` instead."
           },
           "pdfY": {
             "type": "number"
@@ -194,8 +306,75 @@
               "pdfY": { "type": "number" }
             }
           },
+          "polyline_points": {
+            "type": "array",
+            "description": "polylength/wall_area — the clicked run, PDF space, in order.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pdfX": { "type": "number" },
+                "pdfY": { "type": "number" }
+              }
+            }
+          },
+          "cutouts": {
+            "type": "array",
+            "description": "area/volume — inner polygons subtracted from polygon_points (each fully inside it).",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "pdfX": { "type": "number" },
+                  "pdfY": { "type": "number" }
+                }
+              }
+            }
+          },
+          "angle_points": {
+            "type": "array",
+            "description": "angle — [arm end, vertex, arm end], PDF space."
+          },
+          "circle": {
+            "type": "object",
+            "description": "radius/diameter — circle in PDF space.",
+            "properties": {
+              "cx": { "type": "number" },
+              "cy": { "type": "number" },
+              "r": { "type": "number" }
+            }
+          },
+          "circle_mode": { "type": "string", "enum": ["center", "three"], "description": "How the circle was picked: center + edge, or 3 points on the edge." },
+          "circle_points": { "type": "array", "description": "radius/diameter — the clicks that defined the circle." },
+          "plan_length_ft": { "type": "number", "description": "Length as drawn (flat), before slope. length_ft = plan_length_ft × slope_factor. For radius/diameter it's the ring length around the circle." },
+          "plan_area_sq_ft": { "type": "number", "description": "area/volume — net plan area (gross minus cutouts), before slope." },
+          "gross_area_sq_ft": { "type": "number", "description": "area/volume — outer shape area before cutouts." },
+          "cutout_area_sq_ft": { "type": "number", "description": "area/volume — total of all cutouts." },
+          "volume_cu_ft": { "type": "number", "description": "volume — plan_area_sq_ft × depth_ft." },
+          "volume_cu_yd": { "type": "number", "description": "volume — volume_cu_ft / 27. What Push to Estimate carries." },
+          "angle_deg": { "type": "number", "description": "angle — 0–180°." },
+          "radius_ft": { "type": "number" },
+          "diameter_ft": { "type": "number" },
+          "depth_ft": { "type": "number", "description": "volume — depth/thickness entered on confirm." },
+          "height_ft": { "type": "number", "description": "wall_area — wall height entered on confirm; area_sq_ft = length_ft × height_ft." },
+          "slope": {
+            "type": "object",
+            "description": "length/polylength/perimeter/area — { mode: 'pitch', rise, run } (6:12) or { mode: 'degrees', degrees }. Null = flat.",
+            "properties": {
+              "mode": { "type": "string", "enum": ["pitch", "degrees"] },
+              "rise": { "type": "number" },
+              "run": { "type": "number" },
+              "degrees": { "type": "number" }
+            }
+          },
+          "slope_factor": { "type": "number", "default": 1, "description": "True/plan ratio: pitch sqrt(1 + (rise/run)^2), degrees 1/cos(θ). 6:12 -> 1.1180." },
+          "scale_pts_per_ft": { "type": "number", "description": "The scale this measurement was taken at (viewport containing its first click, else page, else legacy px_per_ft). Stored so a later scale change doesn't silently rewrite saved quantities." },
+          "scale_source": { "type": "string", "enum": ["viewport", "page", "legacy"] },
+          "scale_label": { "type": "string" },
+          "scale_viewport_id": { "type": "string", "description": "page_scales[page].viewports[].id when measured inside a viewport." },
           "polygon_points": {
             "type": "array",
+            "description": "area/volume/perimeter — closed outer shape, PDF space.",
             "items": {
               "type": "object",
               "properties": {
@@ -214,8 +393,23 @@
           },
           "pushed_material_line_id": {
             "type": "string",
-            "description": "id of the MaterialTakeoffLine record this row's markup group was pushed to. Re-pushing updates this record instead of creating a duplicate."
-          }
+            "description": "id of the MaterialTakeoffLine record this row's markup group was pushed to. Re-pushing updates this record instead of creating a duplicate. Kept on markups brought forward to a newer revision, so pushing the new revision updates the same estimate line."
+          },
+          "column_values": {
+            "type": "object",
+            "description": "Typed values for this markup's non-formula custom columns, keyed by column id (formula columns are never stored — recalculated every time).",
+            "additionalProperties": {}
+          },
+          "tool_set_id": { "type": "string", "description": "Tool set the row's preset came from." },
+          "tool_set_tool_id": { "type": "string", "description": "Tool (inside tool_set_snapshot) the row was measured with — supplies its legend/export style and default column values." },
+          "subject": { "type": "string", "description": "Group heading from the tool (e.g. Framing) — legend group-by and PDF annotation subject." },
+          "measurement_type": { "type": "string", "description": "The tool's own type when it differs from `tool`." },
+          "show_numbers": { "type": "boolean", "description": "count/bolt_count — number each mark 1, 2, 3 … on the drawing." },
+          "carried_from_takeoff_id": { "type": "string", "description": "Set on markups brought forward from an older revision: that session's id." },
+          "carried_from_row_id": { "type": "string", "description": "id of the markup it was copied from (so it can't be brought over twice)." },
+          "review_flag": { "type": "string", "enum": ["area_changed"], "description": "\"Check — area changed\": brought forward into a saved change cloud. Cleared (null) when the estimator clicks Checked." },
+          "review_note": { "type": "string" },
+          "shape_class": { "type": "string", "enum": ["W-Beam", "HSS Tube", "C-Channel", "L-Angle", "PL-Plate"], "description": "steelShapeSelector SHAPE_CLASSES value. Takeoff Grid rows and rows measured with a tool-set tool (copied from the tool's shapeClass); custom-column weight lookup reads the class from the size itself first." }
         }
       }
     },
