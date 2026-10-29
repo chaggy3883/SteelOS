@@ -5,6 +5,30 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-10-29) — App-wide UI modernization: left sidebar shell, design tokens, restyled shared components
+- Inventory first: .claude/steelos-dev/NAV_INVENTORY.md (51 NavBar items, 11 groups, routes, gating rules).
+- AppLayout: compact TopBar + collapsible left sidebar (AppSidebar.jsx) built from one navConfig.js; NavBar.jsx and
+  the dead Sidebar.jsx removed. Same groups/items/routes/gating (isModuleAllowed, ['*'] while impersonating,
+  hasModule, super_admin-only link, kiosk hides Inventory + Quality & Safety). Approved changes: same-tab links;
+  Submittals, Intelligence Signals, Material Optimization and 10 Admin Setup pages added to the nav.
+- Active item = longest matching path (navMatching.js; ?tab= links match only their tab). Collapsed state remembered;
+  collapsed rail has tooltips + group flyouts; below lg it's a drawer. Fake "AI Active" badge removed.
+- Tokens in index.css/tailwind.config.js (surfaces, states, type, radius 6px, shadows, focus, motion, sidebar/header
+  sizes, z-index scale). 17 shadcn ui components restyled with no API changes; menus portaled + collision-aware.
+- Light page pass: Users create dialog (light-mode contrast bug), BidDetail save bar offset, Production bar, auth spinners.
+- Verified: build + lint clean; nav-check script 64 items vs 84 routes, 51/51 inventory rows, resolver 34/34.
+  Browser click-through (db.json backed up and restored): direct URL highlighting, ?tab=crm, select dropdown,
+  collapse persistence, light/dark, mobile drawer open/navigate/close, IRONSIGHT workspace covers the shell,
+  sidebars for admin, estimator, hr_admin, kiosk PIN, super_admin (alone, impersonating, Exit). Estimator is
+  blocked from /admin/cost-codes. Not checked: print, SubscriptionGate on a Past_Due tenant, every page visually.
+- modulePacks.js: /submittals added to every pack (next to /rfis), /material-optimization to shop packs (next to
+  /detailer-imports), /admin/pto-policies to back-office packs (with payroll) — they were hidden for every pack.
+
+## Queued — follow-ups from the UI modernization
+- Inverse-contrast menus (white popovers in dark mode) from the earlier hardening commit clash with the new look.
+- docs/entity-inventory.md still references NavBar.jsx. Customer Portal Setup and Portal Access Links share a URL.
+- Visual pass of every page in both themes; print check; Past_Due SubscriptionGate check.
+
 ## Also Closed (2026-10-28) — IRONSIGHT Revu-style workspace (our own code)
 - Full-window workspace: title bar (bid/project → drawing → Rev N), File/Edit/View/Document/Batch/Tools/Window
   menus wired to real actions with shortcuts, main + markup/measure toolbars, properties strip, left bar

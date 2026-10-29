@@ -4,28 +4,107 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens — the single source for color, type, spacing, radius,
+   elevation, focus, motion, shell dimensions and stacking order. Colors are
+   bare HSL triplets (consumed as hsl(var(--x)) / hsl(var(--x) / alpha) by
+   tailwind.config.js); everything else is a ready-to-use CSS value. Existing
+   names (--primary, --sidebar-*, --steel-*, --tenant-brand-color) keep
+   working — pages and inline styles still reference them directly. */
 @layer base {
   :root {
-    --background: 220 20% 97%;
-    --foreground: 220 25% 10%;
+    /* Surfaces & text */
+    --background: 220 16% 97%;
+    --foreground: 222 26% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 220 25% 10%;
+    --card-foreground: 222 26% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 25% 10%;
-    --primary: 213 94% 45%;
+    --popover-foreground: 222 26% 11%;
+    --surface-sunken: 220 14% 95%;
+    --surface-raised: 0 0% 100%;
+
+    /* Brand */
+    --primary: 214 84% 43%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 15% 94%;
-    --secondary-foreground: 220 25% 20%;
-    --muted: 220 15% 94%;
-    --muted-foreground: 220 10% 50%;
-    --accent: 213 94% 45%;
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 222 20% 20%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 9% 40%;
+    /* Accent stays a strong brand tone: menu/command/calendar highlights use
+       it on the inverse-contrast popover surfaces below, which need a color
+       that reads on both white and dark. */
+    --accent: 214 84% 43%;
     --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
+
+    /* Status */
+    --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 15% 88%;
-    --input: 220 15% 88%;
-    --ring: 213 94% 45%;
-    --radius: 0.5rem;
+    --error: 0 72% 50%;
+    --error-foreground: 0 0% 100%;
+    --success: 152 62% 33%;
+    --success-foreground: 0 0% 100%;
+    --warning: 36 92% 40%;
+    --warning-foreground: 0 0% 100%;
+    --info: 199 82% 39%;
+    --info-foreground: 0 0% 100%;
+
+    /* Lines & focus */
+    --border: 220 13% 88%;
+    --input: 220 13% 84%;
+    --ring: 214 84% 43%;
+    --focus-ring-width: 2px;
+    --focus-ring-offset: 2px;
+
+    /* Radius */
+    --radius: 0.375rem;
+
+    /* Elevation — restrained, short, low-opacity */
+    --shadow-xs: 0 1px 1px 0 rgb(15 23 42 / 0.04);
+    --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.06);
+    --shadow-md: 0 2px 6px -1px rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.06);
+    --shadow-lg: 0 8px 20px -6px rgb(15 23 42 / 0.12), 0 2px 6px -2px rgb(15 23 42 / 0.06);
+
+    /* Type scale */
+    --font-size-2xs: 0.6875rem;  /* 11px */
+    --font-size-xs: 0.75rem;     /* 12px */
+    --font-size-sm: 0.8125rem;   /* 13px — dense UI text */
+    --font-size-base: 0.875rem;  /* 14px */
+    --font-size-lg: 1rem;
+    --font-size-xl: 1.125rem;
+    --font-size-2xl: 1.375rem;
+
+    /* Spacing (page rhythm) */
+    --space-page-x: 1.5rem;
+    --space-page-y: 1.5rem;
+    --space-section: 1.5rem;
+
+    /* Motion */
+    --duration-fast: 120ms;
+    --duration-base: 180ms;
+    --duration-slow: 240ms;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+    /* App shell */
+    --sidebar-width: 15rem;
+    --sidebar-width-collapsed: 3.5rem;
+    --header-height: 3.5rem;
+
+    /* Stacking order. Radix layers (dropdown/popover/dialog) intentionally
+       share one level so DOM portal order decides which opened last wins —
+       a Select inside a Dialog, or a Dialog opened from a menu, both stack
+       correctly. IRONSIGHT's full-window workspace (z-40) sits above the
+       shell and below every Radix layer, so its own menus and dialogs still
+       open on top of it. */
+    --z-sticky: 10;
+    --z-shell: 30;
+    --z-workspace: 40;
+    --z-drawer: 50;
+    --z-dropdown: 50;
+    --z-popover: 50;
+    --z-dialog: 50;
+    --z-tooltip: 50;
+    --z-fullscreen: 100;
+    --z-toast: 100;
+    --z-blocking: 200;
 
     --steel-blue: 213 94% 45%;
     --steel-orange: 25 95% 55%;
@@ -33,11 +112,14 @@
     --steel-red: 0 84% 60%;
     --steel-yellow: 45 93% 55%;
 
-    --sidebar-bg: 220 25% 14%;
-    --sidebar-fg: 220 15% 75%;
-    --sidebar-active: 213 94% 45%;
-    --sidebar-hover: 220 20% 20%;
-    --sidebar-border: 220 20% 20%;
+    /* Navigation sidebar */
+    --sidebar-bg: 0 0% 100%;
+    --sidebar-fg: 222 14% 30%;
+    --sidebar-fg-muted: 220 9% 46%;
+    --sidebar-active: 214 84% 43%;
+    --sidebar-active-bg: 214 84% 43% / 0.08;
+    --sidebar-hover: 220 14% 95%;
+    --sidebar-border: 220 13% 90%;
 
     --font-heading: 'Inter', ui-sans-serif, system-ui, sans-serif;
     --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
@@ -48,33 +130,65 @@
   }
 
   .dark {
-    --background: 220 25% 8%;
-    --foreground: 220 15% 92%;
-    --card: 220 22% 12%;
-    --card-foreground: 220 15% 92%;
-    --popover: 220 22% 12%;
-    --popover-foreground: 220 15% 92%;
-    --primary: 213 94% 55%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 20% 18%;
-    --secondary-foreground: 220 15% 80%;
-    --muted: 220 20% 16%;
-    --muted-foreground: 220 10% 55%;
-    --accent: 213 94% 55%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 70% 55%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 220 20% 20%;
-    --input: 220 20% 26%;
-    --ring: 213 94% 55%;
+    --background: 222 24% 7%;
+    --foreground: 220 14% 92%;
+    --card: 222 20% 10%;
+    --card-foreground: 220 14% 92%;
+    --popover: 222 20% 11%;
+    --popover-foreground: 220 14% 92%;
+    --surface-sunken: 222 22% 8%;
+    --surface-raised: 222 18% 13%;
 
-    --sidebar-bg: 220 28% 10%;
-    --sidebar-fg: 220 15% 65%;
-    --sidebar-active: 213 94% 55%;
-    --sidebar-hover: 220 22% 16%;
-    --sidebar-border: 220 22% 16%;
+    --primary: 213 82% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 16%;
+    --secondary-foreground: 220 14% 85%;
+    --muted: 220 16% 14%;
+    --muted-foreground: 220 10% 62%;
+    --accent: 213 82% 52%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 68% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --error: 0 68% 52%;
+    --error-foreground: 0 0% 100%;
+    --success: 152 52% 44%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 90% 50%;
+    --warning-foreground: 222 30% 8%;
+    --info: 199 78% 52%;
+    --info-foreground: 222 30% 8%;
+
+    --border: 220 14% 18%;
+    --input: 220 14% 24%;
+    --ring: 213 82% 58%;
+
+    --shadow-xs: 0 1px 1px 0 rgb(0 0 0 / 0.25);
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 2px 6px -1px rgb(0 0 0 / 0.35), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 8px 20px -6px rgb(0 0 0 / 0.45), 0 2px 6px -2px rgb(0 0 0 / 0.3);
+
+    --sidebar-bg: 222 22% 9%;
+    --sidebar-fg: 220 12% 74%;
+    --sidebar-fg-muted: 220 9% 52%;
+    --sidebar-active: 213 82% 62%;
+    --sidebar-active-bg: 213 82% 52% / 0.14;
+    --sidebar-hover: 222 18% 13%;
+    --sidebar-border: 222 18% 14%;
 
     color-scheme: dark;
+  }
+}
+
+/* Honor reduced-motion for transitions app-wide. Spinners keep turning —
+   a frozen spinner reads as a hung page. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin),
+  *:not(.animate-spin)::before,
+  *:not(.animate-spin)::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
 
@@ -153,7 +267,7 @@
 
 /* Universal print support for any window.print() call made while a Radix
    Dialog is open. AppLayout.jsx's root
-   element, NavBar.jsx's <nav>, and TopBar.jsx's <header> already hide
+   element, AppSidebar.jsx's <aside>, and TopBar.jsx's <header> already hide
    themselves and let <main> fill the page via Tailwind's print: variant
    (print:hidden / print:h-auto / print:overflow-visible / print:flex-none)
    — nothing to duplicate here. What's NOT covered by that: Radix Dialog
@@ -164,6 +278,9 @@
    height-capped box into a normal full-width block that can flow and
    paginate across multiple printed pages. */
 @media print {
+  /* .dialog-overlay marks the Dialog/AlertDialog/Sheet backdrops in
+     src/components/ui; the bg-black/80 selector still covers drawer.jsx. */
+  .dialog-overlay,
   .fixed.inset-0.bg-black\/80 {
     display: none !important;
   }
@@ -199,14 +316,25 @@
   .sidebar-fg { color: hsl(var(--sidebar-fg)); }
   .sidebar-border { border-color: hsl(var(--sidebar-border)); }
   .sidebar-hover:hover { background-color: hsl(var(--sidebar-hover)); }
-  .sidebar-active { background-color: hsl(var(--steel-blue) / 0.15); color: hsl(var(--steel-blue)); }
+  .sidebar-active { background-color: hsl(var(--sidebar-active-bg)); color: hsl(var(--sidebar-active)); }
 
   .steel-card {
     @apply bg-card border border-border rounded-lg shadow-sm;
   }
 
+  /* Kept as a class name (300+ call sites, mostly primary buttons and icon
+     tiles) but now a flat brand fill — no gradient. Interactive elements
+     get a hover/active step; static tiles are unaffected. */
   .steel-gradient {
-    background: linear-gradient(135deg, hsl(var(--steel-blue)) 0%, hsl(213 80% 35%) 100%);
+    background: hsl(var(--primary));
+  }
+  button.steel-gradient:not(:disabled):hover,
+  a.steel-gradient:hover {
+    background: hsl(var(--primary) / 0.9);
+  }
+  button.steel-gradient:not(:disabled):active,
+  a.steel-gradient:active {
+    background: hsl(var(--primary) / 0.82);
   }
 
   .status-pass { @apply bg-green-500/10 text-green-600 dark:text-green-400; }

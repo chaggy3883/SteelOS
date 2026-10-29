@@ -894,7 +894,7 @@ export default function BidDetail() {
         </TabsContent>
       </Tabs>
 
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-card/95 backdrop-blur px-6 py-3 flex justify-end">
+      <div className="fixed bottom-0 left-0 lg:left-[var(--shell-content-left,0px)] right-0 z-40 border-t border-border bg-card/95 backdrop-blur px-6 py-3 flex justify-end">
         <Button onClick={handleSaveEstimate} disabled={savingEstimate} className="steel-gradient text-white border-0 min-w-40">
           {savingEstimate ? 'Saving…' : 'Save Estimate'}
         </Button>

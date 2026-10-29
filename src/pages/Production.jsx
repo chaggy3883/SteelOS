@@ -649,7 +649,7 @@ export default function Production() {
             <span className="text-muted-foreground">{progressPct}% by weight</span>
           </div>
           <div className="h-3 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-blue-500 to-green-500 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+            <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${progressPct}%` }} />
           </div>
           <div className="flex justify-between text-xs text-muted-foreground mt-1">
             <span>{completedWeight.toLocaleString()} lbs shipped/erected</span>

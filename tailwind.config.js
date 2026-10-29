@@ -4,10 +4,55 @@ module.exports = {
   content: ["./index.html", "./src/**/*.{ts,tsx,js,jsx}"],
   theme: {
     extend: {
+      // Every value below reads a token from src/index.css (light + .dark),
+      // so restyling happens there, not here.
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)'
+      },
+      // Restrained elevation: the larger Tailwind steps collapse onto the
+      // same short token shadow so heavy drop shadows can't creep back in
+      // page by page.
+      boxShadow: {
+        xs: 'var(--shadow-xs)',
+        sm: 'var(--shadow-sm)',
+        DEFAULT: 'var(--shadow-sm)',
+        md: 'var(--shadow-md)',
+        lg: 'var(--shadow-lg)',
+        xl: 'var(--shadow-lg)',
+        '2xl': 'var(--shadow-lg)'
+      },
+      fontSize: {
+        '2xs': ['var(--font-size-2xs)', { lineHeight: '1rem' }]
+      },
+      spacing: {
+        header: 'var(--header-height)',
+        sidebar: 'var(--sidebar-width)',
+        'sidebar-collapsed': 'var(--sidebar-width-collapsed)',
+        'page-x': 'var(--space-page-x)',
+        'page-y': 'var(--space-page-y)'
+      },
+      zIndex: {
+        sticky: 'var(--z-sticky)',
+        shell: 'var(--z-shell)',
+        workspace: 'var(--z-workspace)',
+        drawer: 'var(--z-drawer)',
+        dropdown: 'var(--z-dropdown)',
+        popover: 'var(--z-popover)',
+        dialog: 'var(--z-dialog)',
+        tooltip: 'var(--z-tooltip)',
+        fullscreen: 'var(--z-fullscreen)',
+        toast: 'var(--z-toast)',
+        blocking: 'var(--z-blocking)'
+      },
+      transitionDuration: {
+        fast: 'var(--duration-fast)',
+        base: 'var(--duration-base)',
+        slow: 'var(--duration-slow)'
+      },
+      transitionTimingFunction: {
+        standard: 'var(--ease-standard)'
       },
       colors: {
         background: 'hsl(var(--background))',
@@ -39,6 +84,35 @@ module.exports = {
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))'
+        },
+        success: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))'
+        },
+        warning: {
+          DEFAULT: 'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))'
+        },
+        info: {
+          DEFAULT: 'hsl(var(--info))',
+          foreground: 'hsl(var(--info-foreground))'
+        },
+        error: {
+          DEFAULT: 'hsl(var(--error))',
+          foreground: 'hsl(var(--error-foreground))'
+        },
+        surface: {
+          sunken: 'hsl(var(--surface-sunken))',
+          raised: 'hsl(var(--surface-raised))'
+        },
+        sidebar: {
+          DEFAULT: 'hsl(var(--sidebar-bg))',
+          foreground: 'hsl(var(--sidebar-fg))',
+          muted: 'hsl(var(--sidebar-fg-muted))',
+          active: 'hsl(var(--sidebar-active))',
+          'active-bg': 'hsl(var(--sidebar-active-bg))',
+          hover: 'hsl(var(--sidebar-hover))',
+          border: 'hsl(var(--sidebar-border))'
         },
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

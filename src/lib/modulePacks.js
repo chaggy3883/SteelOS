@@ -50,6 +50,7 @@ const TRUE_MINIMAL_SHARED = [
   '/intelligence',
   '/intelligence-signals',
   '/rfis',
+  '/submittals',
   '/portal/login',
   '/users',
   '/settings',
@@ -79,6 +80,7 @@ const BACK_OFFICE_MODULES = [
   '/payroll/setup',
   '/payroll/garnishments',
   '/payroll/401k-contributions',
+  '/admin/pto-policies',
   '/human-resources',
   '/purchasing',
   '/purchasing/module',
@@ -105,6 +107,7 @@ const SHOP_FAB_ONLY_MODULES = [
   '/shipping',
   '/purchasing/receiving-kiosk',
   '/detailer-imports',
+  '/material-optimization',
 ];
 
 // Jobsite/erection-site: fleet, rigging, crane/equipment maintenance. A

@@ -154,7 +154,7 @@ export default function Users() {
                 <Plus className="w-4 h-4 mr-2" /> Create User
               </Button>
             </DialogTrigger>
-            <DialogContent className="fixed top-10 left-1/2 -translate-x-1/2 translate-y-0 max-h-[85vh] w-full max-w-md bg-slate-900 border border-slate-800 rounded-lg shadow-2xl flex flex-col p-6 overflow-y-auto scrollbar-thin">
+            <DialogContent className="fixed top-10 left-1/2 -translate-x-1/2 translate-y-0 max-h-[85vh] w-full max-w-md bg-card border border-border rounded-lg shadow-lg flex flex-col p-6 overflow-y-auto scrollbar-thin">
               <DialogHeader>
                 <DialogTitle>Create New User</DialogTitle>
               </DialogHeader>

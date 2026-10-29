@@ -344,8 +344,8 @@ Generate at least 15-20 realistic findings covering different risk areas.`;
         title="Project Intelligence Engine"
         subtitle="AI-powered document analysis for structural steel projects"
         actions={
-          <div className="flex items-center gap-2 text-xs text-blue-400 bg-blue-500/10 px-3 py-1.5 rounded-lg border border-blue-500/20">
-            <Zap className="w-3.5 h-3.5 animate-pulse" />
+          <div className="flex items-center gap-2 text-xs text-info bg-info/10 px-3 py-1.5 rounded-md border border-info/20">
+            <Zap className="w-3.5 h-3.5" />
             Steel Knowledge Layer Active
           </div>
         }

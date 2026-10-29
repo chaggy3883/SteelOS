@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Layers, ShieldAlert } from 'lucide-react';
+import { Bell, Sun, Moon, ChevronDown, LogOut, Settings, Layers, ShieldAlert, Menu } from 'lucide-react';
 import { db } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,7 +12,7 @@ import GlobalSearchPalette from '@/components/search/GlobalSearchPalette';
 import { isImpersonating, stopImpersonation } from '@/lib/tenantContext';
 import { endUserSession } from '@/lib/userSessionTracking';
 
-export default function TopBar({ darkMode, setDarkMode, user, company, onImpersonationChange }) {
+export default function TopBar({ darkMode, setDarkMode, user, company, onImpersonationChange, mobileNavOpen, onOpenMobileNav }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const navigate = useNavigate();
@@ -73,57 +73,83 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
   // from logo_url's baked pixel dimensions: the image is already scaled at
   // the source, this just lets a bigger saved scale also render bigger here
   // instead of every tenant's logo looking identical in the header regardless
-  // of what they picked in the Super-Admin dashboard.
+  // of what they picked in the Super-Admin dashboard. The CSS min() keeps
+  // the same bound against the (now slimmer) header height.
   const logoScalePct = company?.logo_scale_pct || 100;
   const headerLogoSizePx = Math.min(60, Math.max(24, Math.round(40 * (logoScalePct / 100))));
+  const headerLogoMaxHeight = `min(${headerLogoSizePx}px, calc(var(--header-height) - 0.75rem))`;
 
   return (
-    <header className="h-14 sm:h-16 bg-card border-b border-border flex items-center justify-between px-2 sm:px-4 lg:px-6 flex-shrink-0 print:hidden flex-wrap sm:flex-nowrap">
+    <header className="h-header bg-card border-b border-border flex items-center gap-2 sm:gap-3 px-2 sm:px-4 flex-shrink-0 print:hidden">
+      {/* Small screens: opens the navigation drawer */}
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onOpenMobileNav}
+        className="lg:hidden h-8 w-8"
+        aria-label="Open navigation"
+        aria-haspopup="dialog"
+        aria-expanded={!!mobileNavOpen}
+      >
+        <Menu className="w-4 h-4" />
+      </Button>
+
       {/* Logo */}
-      <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-        <div className="w-8 h-8 rounded-lg steel-gradient flex items-center justify-center">
-          <Layers className="w-4 h-4 text-white" />
+      <div className="flex items-center gap-2.5 flex-shrink-0 min-w-0">
+        <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center flex-shrink-0" aria-hidden="true">
+          <Layers className="w-4 h-4 text-primary-foreground" />
         </div>
-        <div className="hidden sm:block">
-          <span className="font-bold text-lg tracking-tight text-foreground">Steel</span>
-          <span className="font-bold text-lg tracking-tight text-primary">OS</span>
+        <div className="hidden sm:block leading-none">
+          <span className="font-semibold text-[15px] tracking-tight text-foreground">Steel</span>
+          <span className="font-semibold text-[15px] tracking-tight text-primary">OS</span>
         </div>
         {company?.logo_url && (
-          <div
-            className="flex items-center justify-center p-1 bg-card rounded-md border border-input max-w-[240px] overflow-hidden flex-shrink-0"
-            style={{ maxHeight: `${headerLogoSizePx}px` }}
-          >
-            <img
-              src={company.logo_url}
-              alt={`${company.name} logo`}
-              className="max-w-[240px] w-auto h-auto object-contain"
-              style={{ maxHeight: `${headerLogoSizePx}px` }}
-            />
-          </div>
+          <>
+            <div className="hidden sm:block h-6 w-px bg-border flex-shrink-0" aria-hidden="true" />
+            <div
+              className="flex items-center justify-center p-0.5 rounded-md max-w-[240px] overflow-hidden flex-shrink-0"
+              style={{ maxHeight: headerLogoMaxHeight }}
+            >
+              <img
+                src={company.logo_url}
+                alt={`${company.name} logo`}
+                className="max-w-[240px] w-auto h-auto object-contain"
+                style={{ maxHeight: headerLogoMaxHeight }}
+              />
+            </div>
+          </>
         )}
       </div>
 
       {/* Global Search — Command Palette */}
-      <div className="hidden sm:flex items-center gap-1 sm:gap-3 flex-1 max-w-xs sm:max-w-md ml-2 sm:ml-4">
+      <div className="hidden sm:flex items-center flex-1 min-w-0 max-w-md ml-2 lg:ml-6">
         <GlobalSearchPalette />
       </div>
 
-      {isImpersonating() && (
-        <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs font-medium text-yellow-700 flex-shrink-0">
-          <ShieldAlert className="w-3.5 h-3.5" />
-          Impersonating {company?.name || 'tenant'}
-          <button onClick={handleExitImpersonation} className="underline hover:no-underline">Exit</button>
-        </div>
-      )}
-
       {/* Right side */}
-      <div className="flex items-center gap-1 sm:gap-2">
+      <div className="flex items-center gap-1 ml-auto">
+        {isImpersonating() && (
+          <div className="hidden md:flex items-center gap-2 h-8 px-2.5 mr-1 rounded-md bg-warning/10 border border-warning/30 text-xs font-medium text-warning max-w-[18rem]">
+            <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
+            <span className="truncate">Impersonating {company?.name || 'tenant'}</span>
+            <button
+              type="button"
+              onClick={handleExitImpersonation}
+              className="flex-shrink-0 underline underline-offset-2 hover:no-underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Exit
+            </button>
+          </div>
+        )}
+
         {/* Dark mode */}
         <Button
           variant="ghost"
           size="icon"
           onClick={() => setDarkMode(!darkMode)}
-          className="rounded-lg"
+          className="h-8 w-8"
+          aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </Button>
@@ -131,10 +157,15 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
         {/* Notifications */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative rounded-lg">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative h-8 w-8"
+              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+            >
               <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
-                <Badge className="absolute -top-1 -right-1 w-4 h-4 p-0 flex items-center justify-center text-[10px] bg-red-500 text-white border-0">
+                <Badge className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 py-0 flex items-center justify-center text-[10px] leading-none bg-destructive text-destructive-foreground border-0 shadow-none hover:bg-destructive">
                   {unreadCount}
                 </Badge>
               )}
@@ -146,7 +177,7 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
               <div className="px-3 py-4 text-sm text-muted-foreground text-center">No new notifications</div>
             ) : (
               notifications.slice(0, 5).map((n) => (
-                <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 py-3 cursor-pointer" onClick={() => handleNotificationClick(n)}>
+                <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 py-2.5 cursor-pointer" onClick={() => handleNotificationClick(n)}>
                   <span className="font-medium text-sm">{n.title}</span>
                   <span className="text-xs text-muted-foreground">{n.message}</span>
                 </DropdownMenuItem>
@@ -158,18 +189,18 @@ export default function TopBar({ darkMode, setDarkMode, user, company, onImperso
         {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex items-center gap-2 rounded-lg px-3">
-              <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold">
+            <Button variant="ghost" className="flex items-center gap-2 h-8 px-1.5 sm:px-2" aria-label={`Account menu for ${user?.full_name || 'User'}`}>
+              <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[11px] font-semibold" aria-hidden="true">
                 {user?.full_name?.charAt(0) || 'U'}
               </div>
-              <span className="text-sm font-medium hidden md:block">{user?.full_name || 'User'}</span>
-              <ChevronDown className="w-3 h-3 text-muted-foreground" />
+              <span className="text-sm font-medium hidden md:block max-w-[10rem] truncate">{user?.full_name || 'User'}</span>
+              <ChevronDown className="w-3 h-3 text-muted-foreground" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[calc(100vw-16px)] sm:w-48">
+          <DropdownMenuContent align="end" className="w-[calc(100vw-16px)] sm:w-56">
             <div className="px-3 py-2">
-              <p className="text-sm font-medium">{user?.full_name}</p>
-              <p className="text-xs text-muted-foreground">{user?.email}</p>
+              <p className="text-sm font-medium truncate">{user?.full_name}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => navigate('/settings')}>
