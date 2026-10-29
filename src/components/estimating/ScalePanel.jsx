@@ -89,6 +89,9 @@ export default function ScalePanel({
   onStartPick,
   onCancelPick,
   onScaleReference,
+  // The workspace confirms a two-click calibration in its Scale dialog
+  // (length + which pages); this panel then only handles Check and viewports.
+  calibrateInDialog = false,
 }) {
   const { toast } = useToast();
   const [applyAllPages, setApplyAllPages] = useState(false);
@@ -293,7 +296,7 @@ export default function ScalePanel({
         </div>
       )}
 
-      {pointsReady && pick?.purpose === 'calibrate' && (
+      {pointsReady && pick?.purpose === 'calibrate' && !calibrateInDialog && (
         <Card>
           <CardContent className="p-3 flex flex-wrap items-end gap-3">
             <div className="space-y-1">

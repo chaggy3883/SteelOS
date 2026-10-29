@@ -32,11 +32,11 @@ function PresetIcon({ preset }) {
 // buttons are what that blocks).
 export default function ToolChestPanel({
   toolChest, selectedPresetId, onSelectPreset, onRemovePreset, onAddPreset,
-  activeToolSet, onLoadToolSet, onOpenLibrary,
+  activeToolSet, onLoadToolSet, onOpenLibrary, defaultOpen = false,
 }) {
   const { user } = useAuth();
   const me = user?.email || user?.full_name || '';
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [companySets, setCompanySets] = useState([]);
   const [pickedSetId, setPickedSetId] = useState('');
   const [label, setLabel] = useState('');

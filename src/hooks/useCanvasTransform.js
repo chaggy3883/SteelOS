@@ -1,17 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
+import { clampZoom, zoomAt, ZOOM_STEP } from '@/lib/ironsightView';
 
-const MIN_SCALE = 0.1;
-const MAX_SCALE = 8;
-const ZOOM_STEP = 1.25;
-
-// Single source of truth for the zoom/pan transform between PDF-page space
+// Single source of truth for IRONSIGHT's zoom/pan between PDF-page space
 // (the page's native point coordinates at scale=1 — stable regardless of
-// zoom or pan) and on-screen canvas pixel space. Every measurement tool
-// added in later phases (scale calibration, length/count/area) needs to
-// convert a click position to a PDF-page coordinate and back, so that math
-// lives here once rather than being re-derived per tool.
+// zoom or pan) and the canvas viewport. The math itself (anchor-preserving
+// zoom, rotation, the inverse used for clicks) lives in
+// src/lib/ironsightView.js so it can be checked by hand.
 //
-// canvasPixel = pdfPoint * scale + pan
+// viewportPixel = rotate(pdfPoint * scale) + pan
 export function useCanvasTransform(initialScale = 1) {
   const [scale, setScale] = useState(initialScale);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -22,31 +18,15 @@ export function useCanvasTransform(initialScale = 1) {
   const transformRef = useRef({ scale, pan });
   transformRef.current = { scale, pan };
 
-  const pdfToScreen = useCallback((pdfX, pdfY) => {
-    const { scale: s, pan: p } = transformRef.current;
-    return { x: pdfX * s + p.x, y: pdfY * s + p.y };
-  }, []);
-
-  const screenToPdf = useCallback((screenX, screenY) => {
-    const { scale: s, pan: p } = transformRef.current;
-    return { x: (screenX - p.x) / s, y: (screenY - p.y) / s };
-  }, []);
-
-  // Changes scale while keeping `screenAnchor` (e.g. the viewport's center,
-  // or the cursor position) fixed over the same PDF-space point — without
-  // this, every zoom step drifts the view toward the top-left corner.
+  // Changes scale while keeping `screenAnchor` (the cursor, or the
+  // viewport's center) fixed over the same PDF-space point — without this,
+  // every zoom step drifts the view toward the top-left corner. Updates the
+  // ref immediately so several wheel ticks in one frame compound correctly.
   const zoomTo = useCallback((nextScale, screenAnchor) => {
-    const { scale: prevScale, pan: prevPan } = transformRef.current;
-    const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, nextScale));
-    if (screenAnchor) {
-      const anchorPdfX = (screenAnchor.x - prevPan.x) / prevScale;
-      const anchorPdfY = (screenAnchor.y - prevPan.y) / prevScale;
-      setPan({
-        x: screenAnchor.x - anchorPdfX * clamped,
-        y: screenAnchor.y - anchorPdfY * clamped,
-      });
-    }
-    setScale(clamped);
+    const next = zoomAt(transformRef.current, nextScale, screenAnchor);
+    transformRef.current = next;
+    setPan(next.pan);
+    setScale(next.scale);
   }, []);
 
   const zoomIn = useCallback((screenAnchor) => zoomTo(transformRef.current.scale * ZOOM_STEP, screenAnchor), [zoomTo]);
@@ -56,10 +36,15 @@ export function useCanvasTransform(initialScale = 1) {
     setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
   }, []);
 
-  const resetTransform = useCallback((toScale = 1) => {
-    setScale(Math.min(MAX_SCALE, Math.max(MIN_SCALE, toScale)));
-    setPan({ x: 0, y: 0 });
+  // Jump straight to a view (fit page, restore last view, zoom to a markup).
+  const setView = useCallback(({ scale: s, pan: p }) => {
+    const next = { scale: clampZoom(s), pan: { x: p?.x || 0, y: p?.y || 0 } };
+    transformRef.current = next;
+    setScale(next.scale);
+    setPan(next.pan);
   }, []);
 
-  return { scale, pan, setPan, panBy, zoomIn, zoomOut, zoomTo, resetTransform, pdfToScreen, screenToPdf };
+  const resetTransform = useCallback((toScale = 1) => setView({ scale: toScale, pan: { x: 0, y: 0 } }), [setView]);
+
+  return { scale, pan, setPan, panBy, zoomIn, zoomOut, zoomTo, setView, resetTransform, transformRef };
 }

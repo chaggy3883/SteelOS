@@ -24,13 +24,21 @@
 //     points: [{ pdfX, pdfY }], cutouts?: [[{ pdfX, pdfY }]],
 //     color, fill_color?, fill_opacity?, opacity?, line_width?, line_style?: 'solid'|'dashed'|'dotted',
 //     cloud?: boolean (rect only — revision cloud), symbol?, symbol_size?, show_numbers?, number_start?,
-//     text?, font_size?, text_color?, label?, subject?, contents?, author?, id? }
+//     text?, font_size?, text_color?, label?, subject?, contents?, author?, id?,
+//     arrow_end? (line/polyline — arrowhead at the last point) }
+//   plus three general-markup kinds (see markupsFromDrawingMarkups):
+//     'freetext' — kind 'textbox'|'typewriter'|'callout', points [top-left, bottom-right]
+//                  (typewriter: [anchor]), text, font (pdf-lib standard font name), align,
+//                  underline, border, fill_color, leader? (callout arrow tip)
+//     'note'     — points [corner], contents (the comment)
+//     'stamp'    — points [top-left, bottom-right], stamp_label, stamp_sub, stamp_id
 // Legends: { page_number, legend (takeoffLegend.buildLegendData), font_size?, and either pdfX/pdfY (top-left)
 //   or anchor: 'bottom-right'|'bottom-left'|'top-right'|'top-left' (+ margin, default 18pt) }
 
 import { PDFDocument, PDFName, PDFString, PDFHexString, StandardFonts } from 'pdf-lib';
 import { getPdf } from './pdfBlobStore.js';
 import { layoutLegendTable, symbolPolygon, formatFeetInches } from './takeoffLegend.js';
+import { layoutTextMarkup, calloutKnee, findStamp, NOTE_SIZE } from './drawingMarkups.js';
 
 // ------------------------------------------------------------------ geometry
 
@@ -174,9 +182,14 @@ class OpWriter {
     const pts = cloudPoints(x0, y0, x1, y1, arc);
     return this.path(pts, true);
   }
+  /** { font, key } for a standard font name (falls back to the default font). */
+  fontEntry(fontName) {
+    const entry = fontName && this.ctx.fonts?.get(fontName);
+    return entry || { font: this.ctx.font, key: this.ctx.fontKey };
+  }
   /** Upright text whose top-left is at viewport (x, yTop). */
-  text(str, x, yTop, size, hex = '#0f172a') {
-    const { font, fontKey } = this.ctx;
+  text(str, x, yTop, size, hex = '#0f172a', fontName = null) {
+    const { font, key: fontKey } = this.fontEntry(fontName);
     const safe = sanitizeText(font, str);
     if (!safe) return this;
     const base = this.u(x, yTop + size * 0.8);
@@ -187,7 +200,10 @@ class OpWriter {
     const [r, g, b] = hexToRgb(hex);
     return this.push(`BT /${fontKey} ${f(size)} Tf ${f(r)} ${f(g)} ${f(b)} rg ${f(dx)} ${f(dy)} ${f(-dy)} ${f(dx)} ${f(base.x)} ${f(base.y)} Tm ${font.encodeText(safe).toString()} Tj ET`);
   }
-  textWidth(str, size) { return this.ctx.font.widthOfTextAtSize(sanitizeText(this.ctx.font, str), size); }
+  textWidth(str, size, fontName = null) {
+    const { font } = this.fontEntry(fontName);
+    return font.widthOfTextAtSize(sanitizeText(font, str), size);
+  }
   toString() { return this.ops.join('\n'); }
   rect(pad = 0) {
     const [a, b, c, d] = this.bounds;
@@ -247,6 +263,111 @@ const centroid = (pts) => {
   return { x: pts.reduce((s, p) => s + p.pdfX, 0) / n, y: pts.reduce((s, p) => s + p.pdfY, 0) / n };
 };
 
+/** Filled arrowhead pointing at `tip`, coming from `from` (viewport space). */
+function drawArrowHead(w, from, tip, size, hex, opacity = 1) {
+  const len = Math.hypot(tip.pdfX - from.pdfX, tip.pdfY - from.pdfY);
+  if (!(len > 0)) return;
+  const ux = (tip.pdfX - from.pdfX) / len; const uy = (tip.pdfY - from.pdfY) / len;
+  const bx = tip.pdfX - ux * size; const by = tip.pdfY - uy * size;
+  const half = size * 0.45;
+  w.save().alpha(opacity, opacity).fill(hex)
+    .path([tip, { pdfX: bx - uy * half, pdfY: by + ux * half }, { pdfX: bx + uy * half, pdfY: by - ux * half }], true)
+    .push('f').restore();
+}
+
+// pdf-lib standard font for a family + bold/italic.
+const STD_FONT_NAMES = {
+  Helvetica: ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique'],
+  Times: ['Times-Roman', 'Times-Bold', 'Times-Italic', 'Times-BoldItalic'],
+  Courier: ['Courier', 'Courier-Bold', 'Courier-Oblique', 'Courier-BoldOblique'],
+};
+export function standardFontName(family = 'Helvetica', bold = false, italic = false) {
+  const set = STD_FONT_NAMES[family] || STD_FONT_NAMES.Helvetica;
+  return set[(bold ? 1 : 0) + (italic ? 2 : 0)];
+}
+
+const rectPoints = (x, y, wd, ht) => [{ pdfX: x, pdfY: y }, { pdfX: x + wd, pdfY: y }, { pdfX: x + wd, pdfY: y + ht }, { pdfX: x, pdfY: y + ht }];
+
+// Text box / typewriter / callout: optional fill + border box, word-wrapped
+// lines (the same wrap the canvas uses — drawingMarkups.layoutTextMarkup,
+// measured with the PDF font), and a callout's leader with an arrowhead.
+function drawFreeText(w, m) {
+  const pts = (m.points || []).filter((p) => Number.isFinite(p?.pdfX) && Number.isFinite(p?.pdfY));
+  if (!pts.length || !String(m.text || '').trim()) return false;
+  const fs = Number(m.font_size) > 0 ? Number(m.font_size) : 12;
+  const fontName = m.font || 'Helvetica';
+  const lay = layoutTextMarkup(
+    { type: m.kind || 'textbox', points: pts, text: m.text, style: { font_size: fs } },
+    (s) => w.textWidth(s, fs, fontName),
+  );
+  const { color, width, style, opacity } = lineOpts(m);
+  const boxW = lay.width; const boxH = lay.height;
+  if (m.kind !== 'typewriter') {
+    if (m.fill_color) w.save().alpha(m.fill_opacity ?? 1, 1).fill(m.fill_color).path(rectPoints(lay.x, lay.y, boxW, boxH), true).push('f').restore();
+    if (m.border !== false && width > 0) w.save().alpha(1, opacity).stroke(color).width(width).dash(style, width).path(rectPoints(lay.x, lay.y, boxW, boxH), true).push('S').restore();
+    if (m.kind === 'callout' && m.leader && Number.isFinite(m.leader.pdfX)) {
+      const knee = calloutKnee({ x: lay.x, y: lay.y, width: boxW, height: boxH }, m.leader);
+      const lw = Math.max(0.75, width || 1);
+      w.save().alpha(1, opacity).stroke(color).width(lw).dash('solid', lw).path([knee, m.leader], false).push('S').restore();
+      drawArrowHead(w, knee, m.leader, Math.max(6, lw * 4), color, opacity);
+    }
+  }
+  const textHex = m.text_color || '#111827';
+  lay.lines.forEach((line, i) => {
+    if (!line) return;
+    const tw = w.textWidth(line, fs, fontName);
+    const tx = m.align === 'center' ? lay.x + (boxW - tw) / 2 : m.align === 'right' ? lay.x + boxW - lay.pad - tw : lay.x + lay.pad;
+    const ty = lay.y + lay.pad + i * lay.lineHeight + (lay.lineHeight - fs) / 2;
+    w.text(line, tx, ty, fs, textHex, fontName);
+    if (m.underline) {
+      const uy = ty + fs * 0.95;
+      w.save().stroke(textHex).width(Math.max(0.5, fs / 16)).dash('solid', 1).path([{ pdfX: tx, pdfY: uy }, { pdfX: tx + tw, pdfY: uy }], false).push('S').restore();
+    }
+  });
+  return true;
+}
+
+// Sticky-note icon: a small folded note sheet.
+function drawNoteIcon(w, m) {
+  const p = (m.points || [])[0];
+  if (!p || !Number.isFinite(p.pdfX)) return false;
+  const s = NOTE_SIZE; const x = p.pdfX; const y = p.pdfY; const fold = s * 0.3;
+  const body = [{ pdfX: x, pdfY: y }, { pdfX: x + s - fold, pdfY: y }, { pdfX: x + s, pdfY: y + fold }, { pdfX: x + s, pdfY: y + s }, { pdfX: x, pdfY: y + s }];
+  w.save().fill(m.color || '#f59e0b').stroke('#78350f').width(0.75).dash('solid', 1).path(body, true).push('B').restore();
+  w.save().stroke('#78350f').width(0.6);
+  [0.42, 0.6, 0.78].forEach((t) => w.path([{ pdfX: x + s * 0.18, pdfY: y + s * t }, { pdfX: x + s * 0.82, pdfY: y + s * t }], false).push('S'));
+  w.restore();
+  return true;
+}
+
+// IRONSIGHT stamp: double frame, big label, small "IRONSIGHT · date · who" line.
+function drawStamp(w, m) {
+  const pts = (m.points || []).filter((p) => Number.isFinite(p?.pdfX));
+  if (pts.length < 2) return false;
+  const x = Math.min(pts[0].pdfX, pts[1].pdfX); const y = Math.min(pts[0].pdfY, pts[1].pdfY);
+  const wd = Math.abs(pts[1].pdfX - pts[0].pdfX); const ht = Math.abs(pts[1].pdfY - pts[0].pdfY);
+  const color = m.color || '#15803d';
+  const lw = Math.max(1, Number(m.line_width) || 2);
+  const opacity = m.opacity ?? 1;
+  w.save().alpha(opacity, opacity).stroke(color).width(lw).dash('solid', lw).path(rectPoints(x, y, wd, ht), true).push('S').restore();
+  const inset = lw * 2;
+  w.save().alpha(opacity, opacity).stroke(color).width(Math.max(0.5, lw / 2)).dash('solid', 1).path(rectPoints(x + inset, y + inset, wd - inset * 2, ht - inset * 2), true).push('S').restore();
+  const label = m.stamp_label || 'APPROVED';
+  const bold = 'Helvetica-Bold';
+  const maxW = wd - inset * 4;
+  const widthAt = (size) => w.textWidth(label, size, bold);
+  let fs = Math.max(6, ht * 0.42);
+  if (widthAt(fs) > maxW) fs = Math.max(5, fs * (maxW / widthAt(fs)));
+  w.text(label, x + (wd - widthAt(fs)) / 2, y + ht * 0.14, fs, color, bold);
+  if (m.stamp_sub) {
+    let ss = Math.max(4, Math.min(ht * 0.18, fs * 0.45));
+    let sw = w.textWidth(m.stamp_sub, ss);
+    if (sw > maxW && sw > 0) { ss *= maxW / sw; sw = w.textWidth(m.stamp_sub, ss); }
+    w.text(m.stamp_sub, x + (wd - sw) / 2, y + ht - inset - ss * 1.4, ss, color);
+  }
+  return true;
+}
+
 /** Draw one markup into a writer. Returns false when the markup has no usable geometry. */
 function drawMarkup(w, m) {
   const pts = (m.points || []).filter((p) => Number.isFinite(p?.pdfX) && Number.isFinite(p?.pdfY));
@@ -257,6 +378,7 @@ function drawMarkup(w, m) {
     case 'polyline': {
       if (pts.length < 2) return false;
       w.save().alpha(1, opacity).stroke(color).width(width).dash(style, width).path(pts, false).push('S').restore();
+      if (m.arrow_end) drawArrowHead(w, pts[pts.length - 2], pts[pts.length - 1], Math.max(6, width * 4), color, opacity);
       if (m.text) {
         const mid = Math.floor((pts.length - 1) / 2);
         const a = pts[mid]; const b = pts[mid + 1];
@@ -317,6 +439,9 @@ function drawMarkup(w, m) {
       lines.forEach((line, i) => w.text(line, pts[0].pdfX, pts[0].pdfY + i * fontSize * 1.2, fontSize, m.text_color || color));
       return true;
     }
+    case 'freetext': return drawFreeText(w, m);
+    case 'note': return drawNoteIcon(w, m);
+    case 'stamp': return drawStamp(w, m);
     default:
       return false;
   }
@@ -384,6 +509,9 @@ const annotSubtype = (m) => {
     case 'rect': return 'Square';
     case 'ellipse': return 'Circle';
     case 'text': return 'FreeText';
+    case 'freetext': return 'FreeText';
+    case 'note': return 'Text';
+    case 'stamp': return 'Stamp';
     default: return null;
   }
 };
@@ -421,17 +549,33 @@ function buildAnnotation(doc, page, geom, shared, m, writer, extra = {}) {
     AP: { N: ctx.register(ap) },
   };
   if (m.opacity != null && m.opacity < 1) dict.CA = m.opacity;
-  if (subtype === 'Line') { dict.L = userPts(m.points.slice(0, 2)); dict.LE = ['None', 'None']; }
+  if (subtype === 'Line') { dict.L = userPts(m.points.slice(0, 2)); dict.LE = ['None', m.arrow_end ? 'OpenArrow' : 'None']; }
   if (subtype === 'PolyLine' || subtype === 'Polygon') dict.Vertices = userPts(extra.vertices || m.points);
+  if (subtype === 'PolyLine' && m.arrow_end) dict.LE = ['None', 'OpenArrow'];
+  if (subtype === 'Text') { dict.Name = 'Comment'; dict.Open = false; }
   if ((subtype === 'Polygon' || subtype === 'Square' || subtype === 'Circle') && m.fill_color) dict.IC = hexToRgb(m.fill_color);
   if (subtype === 'Square' && m.cloud) dict.BE = { S: 'C', I: 1 };
   const obj = ctx.obj(dict);
   if (subtype === 'FreeText') {
     const fs = Number(m.font_size) > 0 ? Number(m.font_size) : 8;
     const [tr, tg, tb] = hexToRgb(m.text_color || m.color || '#0f172a');
-    obj.set(PDFName.of('DA'), PDFString.of(`/${shared.fontKey} ${f(fs)} Tf ${f(tr)} ${f(tg)} ${f(tb)} rg`));
+    const daKey = (m.font && shared.fontKeys?.get(m.font)) || shared.fontKey;
+    obj.set(PDFName.of('DA'), PDFString.of(`/${daKey} ${f(fs)} Tf ${f(tr)} ${f(tg)} ${f(tb)} rg`));
     obj.set(PDFName.of('DR'), shared.resources);
-    obj.set(PDFName.of('IT'), PDFName.of('FreeTextTypeWriter'));
+    // Measurement labels and typewriter text have no box; a text box is
+    // plain FreeText; a callout carries its leader (CL) for other viewers.
+    const intent = m.type === 'freetext'
+      ? (m.kind === 'typewriter' ? 'FreeTextTypeWriter' : m.kind === 'callout' ? 'FreeTextCallout' : null)
+      : 'FreeTextTypeWriter';
+    if (intent) obj.set(PDFName.of('IT'), PDFName.of(intent));
+    if (m.type === 'freetext') {
+      obj.set(PDFName.of('Q'), ctx.obj(m.align === 'center' ? 1 : m.align === 'right' ? 2 : 0));
+      if (m.kind !== 'typewriter' && m.border !== false && width > 0) obj.set(PDFName.of('BS'), ctx.obj({ Type: 'Border', W: width, S: 'S' }));
+      if (m.kind === 'callout' && extra.calloutLine) {
+        obj.set(PDFName.of('CL'), ctx.obj(userPts(extra.calloutLine)));
+        obj.set(PDFName.of('LE'), PDFName.of('OpenArrow'));
+      }
+    }
   }
   const contents = extra.contents ?? m.contents ?? [m.label, m.text].filter(Boolean).join(': ');
   if (contents) obj.set(PDFName.of('Contents'), textObj(contents));
@@ -481,8 +625,23 @@ function addMarkupAnnotations(doc, page, geom, shared, m, idx) {
   }
   const w = newWriter();
   const withoutText = { ...m, text: null };
-  if (!drawMarkup(w, m.type === 'text' ? m : withoutText)) return 0;
-  const parent = buildAnnotation(doc, page, geom, shared, m, w, { nm });
+  // Text boxes, notes and stamps draw their own words into their appearance.
+  const ownsText = ['text', 'freetext', 'stamp', 'note'].includes(m.type);
+  if (!drawMarkup(w, ownsText ? m : withoutText)) return 0;
+  let calloutLine = null;
+  if (m.type === 'freetext' && m.kind === 'callout' && m.leader && Number.isFinite(m.leader.pdfX)) {
+    const fs = Number(m.font_size) > 0 ? Number(m.font_size) : 12;
+    const lay = layoutTextMarkup({ type: 'callout', points: m.points, text: m.text, style: { font_size: fs } }, (str) => w.textWidth(str, fs, m.font));
+    calloutLine = [m.leader, calloutKnee({ x: lay.x, y: lay.y, width: lay.width, height: lay.height }, m.leader)];
+  }
+  const parent = buildAnnotation(doc, page, geom, shared, m, w, {
+    nm,
+    calloutLine,
+    contents: m.type === 'freetext' ? m.text
+      : m.type === 'note' ? (m.contents || '')
+        : m.type === 'stamp' ? [m.stamp_label, m.stamp_sub].filter(Boolean).join(' — ') : undefined,
+    name: m.type === 'stamp' ? `Ironsight${String(m.stamp_id || 'Stamp').replace(/[^A-Za-z0-9]/g, '')}` : undefined,
+  });
   let n = 1;
   if (m.type === 'polygon') {
     (m.cutouts || []).forEach((hole, i) => {
@@ -493,7 +652,7 @@ function addMarkupAnnotations(doc, page, geom, shared, m, idx) {
       n += 1;
     });
   }
-  if (m.text && m.type !== 'text') {
+  if (m.text && !ownsText) {
     // Measurement label as a FreeText grouped with its markup.
     const lw = newWriter();
     const fs = Number(m.font_size) > 0 ? Number(m.font_size) : 8;
@@ -522,6 +681,17 @@ export async function exportMarkedUpPdf(pdfBytes, opts = {}) {
   const { markups = [], legends = [], mode = 'burn', author = '', title } = opts;
   const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: false, updateMetadata: false });
   const font = await doc.embedFont(StandardFonts.Helvetica);
+  // Text boxes / callouts / stamps can ask for other standard fonts (bold,
+  // italic, Times, Courier) — embed only the ones actually used.
+  const extraFontNames = new Set();
+  markups.forEach((m) => {
+    if (m.type === 'freetext' && m.font && m.font !== 'Helvetica') extraFontNames.add(m.font);
+    if (m.type === 'stamp') extraFontNames.add('Helvetica-Bold');
+  });
+  const embedded = new Map([['Helvetica', font]]);
+  for (const name of extraFontNames) {
+    if (Object.values(StandardFonts).includes(name)) embedded.set(name, await doc.embedFont(name));
+  }
   const pages = doc.getPages();
   let drawn = 0;
   let skipped = 0;
@@ -549,7 +719,16 @@ export async function exportMarkedUpPdf(pdfBytes, opts = {}) {
       // ExtGStates are added to it as markups need them.
       fontKey = 'Helv';
       const extG = ctx.obj({});
-      const resources = ctx.register(ctx.obj({ Font: { Helv: font.ref }, ExtGState: extG }));
+      const fontDict = { Helv: font.ref };
+      const fontKeys = new Map([['Helvetica', 'Helv']]);
+      let fontN = 0;
+      embedded.forEach((ef, name) => {
+        if (name === 'Helvetica') return;
+        fontN += 1;
+        fontDict[`IrF${fontN}`] = ef.ref;
+        fontKeys.set(name, `IrF${fontN}`);
+      });
+      const resources = ctx.register(ctx.obj({ Font: fontDict, ExtGState: extG }));
       gsKey = (fa, sa) => {
         const k = `${f(fa)}/${f(sa)}`;
         if (!gsCache.has(k)) {
@@ -559,7 +738,7 @@ export async function exportMarkedUpPdf(pdfBytes, opts = {}) {
         }
         return gsCache.get(k);
       };
-      shared = { fontKey, resources, writerCtx: null };
+      shared = { fontKey, fontKeys, resources, writerCtx: null };
     } else {
       fontKey = stripSlash(page.node.newFontDictionary('IrHelv', font.ref));
       gsKey = (fa, sa) => {
@@ -568,7 +747,13 @@ export async function exportMarkedUpPdf(pdfBytes, opts = {}) {
         return gsCache.get(k);
       };
     }
-    const writerCtx = { font, fontKey, gsKey };
+    const fonts = new Map();
+    embedded.forEach((ef, name) => {
+      if (name === 'Helvetica') { fonts.set(name, { font: ef, key: fontKey }); return; }
+      const key = mode === 'annotations' ? shared.fontKeys.get(name) : stripSlash(page.node.newFontDictionary('IrFont', ef.ref));
+      fonts.set(name, { font: ef, key });
+    });
+    const writerCtx = { font, fontKey, gsKey, fonts };
 
     if (mode === 'annotations') {
       shared.writerCtx = writerCtx;
@@ -690,6 +875,87 @@ export function markupsFromAcceptedItems(items = [], opts = {}) {
     }
     if (kind === 'angle' && item.angle_points?.length === 3) {
       out.push({ ...base, type: 'polyline', points: item.angle_points, text: withMeasurementText && item.angle_deg != null ? `${Number(item.angle_deg).toFixed(1)}°` : null });
+    }
+  });
+  return out;
+}
+
+/**
+ * Turn blueprint_takeoffs.drawing_markups (general markups — drawingMarkups.js)
+ * into normalized markups. Pen/highlight → polyline; arrow → line with an
+ * arrowhead; cloud → rect with cloud; text box / typewriter / callout →
+ * 'freetext'; note → 'note'; stamp → 'stamp'. Each markup's own style
+ * (color, fill, opacity, width, line style, font) carries over.
+ * @param {Array} items
+ * @param {{ author?: string }} [opts]
+ */
+export function markupsFromDrawingMarkups(items = [], opts = {}) {
+  const { author = '' } = opts;
+  const out = [];
+  items.forEach((m, idx) => {
+    if (!m || !Array.isArray(m.points) || !m.points.length) return;
+    const st = m.style || {};
+    const base = {
+      id: m.id || `markup-${idx}`,
+      page_number: Number(m.page_number ?? 1),
+      points: m.points,
+      color: st.color || '#dc2626',
+      opacity: st.opacity ?? 1,
+      line_width: Number(st.line_width) >= 0 ? Number(st.line_width) : 2,
+      line_style: st.line_style || 'solid',
+      fill_color: st.fill_color || '',
+      fill_opacity: st.fill_opacity ?? 0.25,
+      label: m.subject || '',
+      subject: m.subject || '',
+      contents: m.comment || '',
+      author: m.author || author,
+    };
+    switch (m.type) {
+      case 'pen':
+      case 'highlight':
+      case 'polyline':
+        if (m.points.length >= 2) out.push({ ...base, type: 'polyline', fill_color: '' });
+        break;
+      case 'line':
+      case 'arrow':
+        if (m.points.length >= 2) out.push({ ...base, type: 'line', fill_color: '', arrow_end: m.type === 'arrow' });
+        break;
+      case 'polygon':
+        if (m.points.length >= 3) out.push({ ...base, type: 'polygon' });
+        break;
+      case 'rect':
+      case 'ellipse':
+      case 'cloud':
+        if (m.points.length >= 2) out.push({ ...base, type: m.type === 'ellipse' ? 'ellipse' : 'rect', cloud: m.type === 'cloud', cloud_arc: 10 });
+        break;
+      case 'textbox':
+      case 'typewriter':
+      case 'callout':
+        out.push({
+          ...base,
+          type: 'freetext',
+          kind: m.type,
+          text: m.text || '',
+          font_size: Number(st.font_size) > 0 ? Number(st.font_size) : 12,
+          font: standardFontName(st.font_family, st.bold, st.italic),
+          align: st.align || 'left',
+          underline: Boolean(st.underline),
+          border: m.type === 'typewriter' ? false : st.border !== false,
+          text_color: st.text_color || '#111827',
+          leader: m.type === 'callout' ? m.leader : null,
+          contents: m.text || '',
+        });
+        break;
+      case 'note':
+        out.push({ ...base, type: 'note', contents: m.comment || m.text || '' });
+        break;
+      case 'stamp': {
+        const def = findStamp(m.stamp);
+        const when = m.created_at ? new Date(m.created_at).toLocaleDateString('en-US') : '';
+        out.push({ ...base, type: 'stamp', stamp_id: def.id, stamp_label: def.label, stamp_sub: ['IRONSIGHT', when, m.author || author].filter(Boolean).join(' | ') });
+        break;
+      }
+      default:
     }
   });
   return out;

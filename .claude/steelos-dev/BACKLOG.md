@@ -5,6 +5,34 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-10-28) — IRONSIGHT Revu-style workspace (our own code)
+- Full-window workspace: title bar (bid/project → drawing → Rev N), File/Edit/View/Document/Batch/Tools/Window
+  menus wired to real actions with shortcuts, main + markup/measure toolbars, properties strip, left bar
+  (thumbnails w/ scale badge, PDF bookmarks, PDF layers, text search), right bar (Properties, Tool Chest,
+  Measurements, Find symbols), resizable bottom panel (Markups List w/ custom columns, Estimate & tonnage,
+  Takeoff grid, Confirmed), status bar (pages, zoom presets, scale at cursor, ft-in coords, Snap/Grid/Ortho,
+  Single/Continuous). Layout + prefs per user in localStorage; last page/zoom per session.
+- Canvas: wheel/Ctrl+wheel zoom at cursor 5%–6400%, middle-drag/Space/Pan tool, select box + move, handles,
+  double-click edit, context menus, view rotation, continuous previews. Select-mode left-drag now box-selects.
+- Typing on the drawing + general markups (blueprint_takeoffs.drawing_markups — never takeoff rows): pen,
+  highlight, line, arrow, polyline, polygon, rect, ellipse, cloud, text box, typewriter, callout, note, IRONSIGHT
+  stamps; in-place editing; PDF export (editable annotations or flattened). Undo/redo, cut/copy/paste, lock, z-order.
+- Calibrate like Revu: 2 clicks (snap, Shift = straight) → dialog (ft-in-fraction or metric; this page / all /
+  1-3,5 / viewport); Scale dialog (presets + custom ratio); uncalibrated page prompts instead of failing.
+- Fixed: other pages' takeoff markers were drawn on every page.
+- Hand-traces: wheel zoom keeps PDF (400,300) under the cursor; 216pt = 24'-0" → 9 pts/ft, 72pt → 8'-0" at 100%
+  and 250%; a text box made at 200% lands at the same PDF coords at 100%.
+- Disabled as "Not available": OCR, forms, signatures, 3D, batch merge/replace/flatten/sign, tiled windows.
+- npm run build + lint clean. NOT yet clicked through in the browser.
+
+## Queued — follow-ups from the Revu-style workspace
+- Browser click-through of the whole workspace (mouse, menus, shortcuts, calibration dialog, text editing, export).
+- Continuous view: draw markups on neighbouring pages and allow tools there.
+- Print with takeoff markers; rotate pages in the exported PDF (pdf-lib).
+- Undo for typed edits in Properties / grids; arrow-key nudge for selected markups.
+- Remove the empty text box left behind when the page changes mid-edit; retire MeasureToolButtons.jsx.
+- Move more of BlueprintTakeoff.jsx (~3,900 lines) into ironsight-workspace components.
+
 ## Also Closed (2026-10-28) — IRONSIGHT closer to Revu: per-page scale, new measure tools, tool sets, custom columns, legends, PDF export, revision compare, visual search, carry-forward
 - Excluded by request: live multi-user sessions, OCR, forms, digital signatures, batch tools, 3D/IFC.
 - Measuring core: per-page scale + rectangular viewports with their own scale (page_scales); presets (arch, eng,

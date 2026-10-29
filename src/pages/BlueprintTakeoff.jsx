@@ -7,7 +7,6 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { simulateAiBatchTakeoff } from '@/lib/aiIntelligenceEngine';
 import { savePdf, getPdf } from '@/lib/pdfBlobStore';
 import { findSimilarSymbols } from '@/lib/localAiClient';
-import PageHeader from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,11 +15,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import {
   Loader2, UploadCloud, ScanLine, Plus, Trash2, FileStack, FlaskConical, FileDown,
-  Crosshair, FolderOpen, ArrowLeft, AlertTriangle, RotateCw,
-  MousePointer2, MousePointerClick,
-  ScanSearch, Check, X, Link2, ExternalLink, ListChecks, Grid3x3,
-  Maximize2, GripVertical, StickyNote, Save, Hexagon, FileSpreadsheet,
-  GitCompare, CopyPlus, FilePlus2, FileImage,
+  FolderOpen, ArrowLeft, AlertTriangle, RotateCw,
+  MousePointerClick, Crosshair,
+  ScanSearch, Check, X, Link2, ExternalLink, ListChecks,
+  Save, FileSpreadsheet, ChevronRight,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
 import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
@@ -53,7 +51,6 @@ import CountColorPickerModal from '@/components/estimating/CountColorPickerModal
 import CountTallyPanel from '@/components/estimating/CountTallyPanel';
 import CountMarkerSwatch from '@/components/estimating/CountMarkerSwatch';
 import ScalePanel, { stepsForScalePick } from '@/components/estimating/ScalePanel';
-import MeasureToolButtons from '@/components/estimating/MeasureToolButtons';
 import ToolChestPanel from '@/components/estimating/ToolChestPanel';
 import ToolSetLibraryDialog from '@/components/estimating/ToolSetLibraryDialog';
 import LegendControls from '@/components/estimating/LegendControls';
@@ -61,6 +58,20 @@ import VisualSearchPanel from '@/components/estimating/VisualSearchPanel';
 import MarkupPdfExportDialog from '@/components/estimating/MarkupPdfExportDialog';
 import RevisionCompareDialog from '@/components/estimating/RevisionCompareDialog';
 import CarryForwardDialog from '@/components/estimating/CarryForwardDialog';
+import IronsightWorkspace from '@/components/estimating/ironsight-workspace/IronsightWorkspace';
+import { buildWorkspaceMenus } from '@/components/estimating/ironsight-workspace/workspaceMenus';
+import { useWorkspaceShortcuts } from '@/components/estimating/ironsight-workspace/workspaceShortcuts';
+import MarkupsListPanel, { buildListEntries } from '@/components/estimating/ironsight-workspace/MarkupsListPanel';
+import PropertiesPanel from '@/components/estimating/ironsight-workspace/PropertiesPanel';
+import ScaleDialog from '@/components/estimating/ironsight-workspace/ScaleDialog';
+import PreferencesDialog from '@/components/estimating/ironsight-workspace/PreferencesDialog';
+import { measureText as measureMarkupText, drawDrawingMarkup } from '@/components/estimating/ironsight-workspace/markupCanvasDraw';
+import { useDrawingMarkups, useUndoHistory } from '@/hooks/useDrawingMarkups';
+import { useWorkspaceLayout, createLiveStore, loadViewState, saveViewState } from '@/hooks/useWorkspaceLayout';
+import {
+  createMarkup, styleFor, translateMarkup, fitTextBoxHeight, markupBounds, isTextMarkup, markupTypeLabel, findStamp, MARKUP_TYPES,
+} from '@/lib/drawingMarkups';
+import { rowBounds } from '@/lib/takeoffCarryForward';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
@@ -251,29 +262,43 @@ export default function BlueprintTakeoff() {
   // back via its own 800ms-debounced write to blueprint_takeoffs.
   const [markupWeights, setMarkupWeights] = useState({});
 
-  // Fullscreen drawing workspace — the canvas fills the viewport and the
-  // toolbar becomes a small floating, draggable panel instead of an inline
-  // row. floatingPanelPos tracks the panel's screen position; the drag
-  // itself is handled with document-level listeners registered on
-  // mousedown (see handlePanelDragStart) rather than extra state, since the
-  // listeners' own closures already carry the drag's start position.
+  // ---- Revu-style workspace (src/components/estimating/ironsight-workspace) ----
+  // Panel layout + preferences remembered per user on this device.
+  const { layout, setLayout, resetLayout, prefs, setPrefs } = useWorkspaceLayout(user?.id || user?.email);
+  // General drawing markups (never takeoff rows) and undo/redo over both.
+  const markups = useDrawingMarkups(takeoffId);
+  const history = useUndoHistory(100);
+  const [selectedKeys, setSelectedKeys] = useState([]); // 'm:<markup id>' | 'r:<row _key>'
+  const [editingTextId, setEditingTextId] = useState(null);
+  const newTextIdRef = useRef(null); // a text markup that was just created (empty → removed on commit)
+  const [markupTool, setMarkupTool] = useState(null);
+  const [stampKind, setStampKind] = useState('approved');
+  const [navTool, setNavTool] = useState('select');
+  const clipboardRef = useRef([]);
+  const [clipboardCount, setClipboardCount] = useState(0);
+  const pasteCountRef = useRef(0);
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [pageLabels, setPageLabels] = useState(null);
+  const [ocConfig, setOcConfig] = useState(null);
+  const [ocVersion, setOcVersion] = useState(0);
+  const [search, setSearch] = useState({ query: '', hits: [], activeId: null });
+  const [searchFocusToken, setSearchFocusToken] = useState(0);
+  const [rotations, setRotations] = useState({});
+  const [initialView, setInitialView] = useState(null);
+  const [scaleDialog, setScaleDialog] = useState(null); // { mode: 'calibrate' | 'scale' | 'required' }
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [openDrawingIds, setOpenDrawingIds] = useState([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [floatingPanelPos, setFloatingPanelPos] = useState({ x: 16, y: 72 });
-
-  const handlePanelDragStart = (e) => {
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startPos = floatingPanelPos;
-    const handleMove = (moveEvent) => {
-      setFloatingPanelPos({ x: startPos.x + (moveEvent.clientX - startX), y: startPos.y + (moveEvent.clientY - startY) });
-    };
-    const handleUp = () => {
-      document.removeEventListener('mousemove', handleMove);
-      document.removeEventListener('mouseup', handleUp);
-    };
-    document.addEventListener('mousemove', handleMove);
-    document.addEventListener('mouseup', handleUp);
-  };
+  const shellRef = useRef(null);
+  const projectFileInputRef = useRef(null);
+  // What to start once the page gets a scale (the tool the estimator picked
+  // on an uncalibrated page): { kind: 'tool', tool } | { kind: 'count', countKind } | { kind: 'preset', preset }.
+  const pendingAfterScaleRef = useRef(null);
+  // Live values for the status bar (cursor, zoom) — kept out of React state
+  // so a mouse move doesn't re-render this whole page.
+  const [cursorStore] = useState(() => createLiveStore(null));
+  const [viewStore] = useState(() => createLiveStore({ scale: 1, page: 1, numPages: 1 }));
 
   // Two-point scale calibration. calibrationPoints are stored in PDF space
   // (scale=1) so they stay valid across zoom/pan; canvasScale mirrors
@@ -291,7 +316,8 @@ export default function BlueprintTakeoff() {
   // sessions — see takeoffScale.js migrateScaleState).
   const scales = useTakeoffScales(takeoffId);
   // Snap clicks to the PDF's own line work (hold Alt to place freely).
-  const [snapEnabled, setSnapEnabled] = useState(true);
+  // (now a remembered preference — View > Snap to content / status bar.)
+  const snapEnabled = prefs.snap !== false;
   const [canvasScale, setCanvasScale] = useState(1);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
 
@@ -302,10 +328,16 @@ export default function BlueprintTakeoff() {
   // component owning any of the page-turning logic itself.
   const [pageNotes, setPageNotes] = useState({});
   const [pageInfo, setPageInfo] = useState({ pageNum: 1, numPages: 1 });
-  const [notesPanelOpen, setNotesPanelOpen] = useState(true);
   // Measuring is blocked on a page with no usable scale at all.
   const pageCalibrated = scales.pageHasScale(pageInfo.pageNum);
   const NOT_CALIBRATED_TOAST = { title: "This page isn't calibrated", description: 'Pick the drawing scale or Calibrate before measuring.', variant: 'destructive' };
+  // Picking a measuring tool on an uncalibrated page opens the Scale dialog
+  // (calibrate or pick a scale) instead of failing quietly; once the page
+  // has a scale, the tool that was picked starts (see the effect below).
+  const requireScale = (pending) => {
+    pendingAfterScaleRef.current = pending;
+    setScaleDialog({ mode: 'required' });
+  };
 
   // Count/Length/Area measurement tools. All write straight into `rows`,
   // same as any other accepted_items row — source: 'measurement' is what
@@ -731,6 +763,8 @@ export default function BlueprintTakeoff() {
     setPendingCountFields(null);
     setCountColorModalOpen(false);
     setCountSession(null);
+    markups.reset();
+    resetWorkspaceUi(null);
   };
 
   const openSession = async (takeoff) => {
@@ -775,6 +809,9 @@ export default function BlueprintTakeoff() {
     setMarkupWeights(takeoff.markup_weights || {});
     setPageNotes(takeoff.page_notes || {});
     setPageInfo({ pageNum: 1, numPages: 1 });
+    markups.loadFrom(takeoff);
+    // Reopen on the page / zoom this session was left at.
+    resetWorkspaceUi(loadViewState(takeoff.id));
 
     let url = null;
     if (takeoff.has_stored_pdf) {
@@ -926,6 +963,8 @@ export default function BlueprintTakeoff() {
     setMarkupWeights({});
     setPageNotes({});
     setPageInfo({ pageNum: 1, numPages: 1 });
+    markups.reset();
+    resetWorkspaceUi(null);
     setMode('workspace');
 
     // Open the workspace immediately — the PDF write to IndexedDB happens
@@ -1067,6 +1106,7 @@ export default function BlueprintTakeoff() {
   const startScalePick = (purpose = 'calibrate', target = { kind: 'page' }) => {
     if (!confirmDiscardActiveCountSession()) return;
     setActiveTool(null);
+    setMarkupTool(null);
     measureDraft.reset();
     resetCountEngine();
     setCalibrationPoints([]);
@@ -1074,6 +1114,9 @@ export default function BlueprintTakeoff() {
     setCalibrationMode(true);
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
+    setScaleDialog(null);
+    // Check Scale and viewports finish in the scale panel — bring it up.
+    if (purpose !== 'calibrate') setLayout({ rightOpen: true, rightTab: 'measurements' });
   };
 
   const handleStartCalibration = () => startScalePick('calibrate', { kind: 'page' });
@@ -1125,6 +1168,11 @@ export default function BlueprintTakeoff() {
   const handleSelectTool = () => {
     if (!confirmDiscardActiveCountSession()) return;
     setActiveTool(null);
+    setMarkupTool(null);
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setScalePick(null);
+    if (symbolSearch.phase === 'picking') symbolSearch.cancel();
     measureDraft.reset();
     setMeasurementModalOpen(false);
     setPendingMeasurement(null);
@@ -1138,10 +1186,11 @@ export default function BlueprintTakeoff() {
   // do first.
   const handleActivateTool = (tool) => {
     if (!pageCalibrated) {
-      toast(NOT_CALIBRATED_TOAST);
+      requireScale({ kind: 'tool', tool });
       return;
     }
     if (!confirmDiscardActiveCountSession()) return;
+    setMarkupTool(null);
     setCalibrationMode(false);
     setCalibrationPoints([]);
     setScalePick(null);
@@ -1161,11 +1210,11 @@ export default function BlueprintTakeoff() {
   // its tool-set fields ride along to the saved row.
   const handleStartCountSetup = (kind, preset = null) => {
     if (!pageCalibrated) {
-      pendingCountPointsRef.current = null;
-      toast(NOT_CALIBRATED_TOAST);
+      requireScale({ kind: 'count', countKind: kind, preset });
       return;
     }
     if (!confirmDiscardActiveCountSession()) { pendingCountPointsRef.current = null; return; }
+    setMarkupTool(null);
     setCalibrationMode(false);
     setCalibrationPoints([]);
     measureDraft.reset();
@@ -1383,6 +1432,7 @@ export default function BlueprintTakeoff() {
       };
       updated = [...rows, newRow];
     }
+    recordHistory();
     setRows(updated);
     persist(updated);
     setCountSession(null);
@@ -1557,6 +1607,7 @@ export default function BlueprintTakeoff() {
     if (duplicate) return { duplicate };
 
     const updated = [...rows, buildMeasurementRow(shape, size, qty, phaseArea, 'green', measureExtras)];
+    recordHistory();
     setRows(updated);
     persist(updated);
     finishMeasurementModal();
@@ -1566,6 +1617,7 @@ export default function BlueprintTakeoff() {
   const handleMergeDuplicate = (existingRowKey, additionalQty) => {
     const addQty = Math.max(1, Number(additionalQty) || 1);
     const updated = rows.map((r) => (r._key === existingRowKey ? { ...r, quantity: (r.quantity || 0) + addQty } : r));
+    recordHistory();
     setRows(updated);
     persist(updated);
     finishMeasurementModal();
@@ -1578,12 +1630,19 @@ export default function BlueprintTakeoff() {
     const updated = rows
       .map((r) => (r._key === existingRowKey ? { ...r, marker_color: 'red', color: '#ef4444' } : r))
       .concat(newRow);
+    recordHistory();
     setRows(updated);
     persist(updated);
     finishMeasurementModal();
   };
 
   const handleSelectPreset = (preset) => {
+    // A markup style saved to the Tool Chest (right-click > Add to Tool
+    // Chest on a drawing markup) starts that markup tool with its style.
+    if (preset.tool === 'markup') {
+      startMarkupTool(preset.markup_type, preset.style);
+      return;
+    }
     const type = preset.measurement_type || preset.tool;
     // Count presets go through Count setup (the master catalog shape/size
     // step) — a preset's shape is the old 5-class enum, not a catalog
@@ -1595,10 +1654,11 @@ export default function BlueprintTakeoff() {
     const tool = MEASURE_TOOLS[type] ? type : preset.tool;
     if (!MEASURE_TOOLS[tool]) return;
     if (!pageCalibrated) {
-      toast(NOT_CALIBRATED_TOAST);
+      requireScale({ kind: 'preset', preset });
       return;
     }
     if (!confirmDiscardActiveCountSession()) return;
+    setMarkupTool(null);
     setCalibrationMode(false);
     setCalibrationPoints([]);
     measureDraft.reset();
@@ -1645,6 +1705,7 @@ export default function BlueprintTakeoff() {
     const fresh = pts.filter((p) => !existing.some((q) => Math.hypot(q.pdfX - p.pdfX, q.pdfY - p.pdfY) <= near));
     const points = [...existing, ...fresh];
     const updated = rows.map((r) => (r._key === rowKey ? { ...r, points, quantity: points.length } : r));
+    recordHistory();
     setRows(updated);
     persist(updated);
     symbolSearch.clear();
@@ -1723,6 +1784,7 @@ export default function BlueprintTakeoff() {
 
   const handleApplyCarryForward = (newRows, { flagged }) => {
     const updated = [...rows, ...newRows];
+    recordHistory();
     setRows(updated);
     persist(updated);
     setCarryOpen(false);
@@ -1734,6 +1796,7 @@ export default function BlueprintTakeoff() {
 
   const clearReviewFlag = (key) => {
     const updated = rows.map((r) => (r._key === key ? { ...r, review_flag: null, review_note: null } : r));
+    recordHistory();
     setRows(updated);
     persist(updated);
   };
@@ -1815,6 +1878,7 @@ export default function BlueprintTakeoff() {
       is_accepted: true,
     }));
     const updated = [...rows, ...newRows];
+    recordHistory();
     setRows(updated);
     persist(updated);
     handleClearCandidates();
@@ -1826,14 +1890,20 @@ export default function BlueprintTakeoff() {
     if (mode !== 'workspace') return;
     const onKeyDown = (e) => {
       if (e.key === 'Escape' && !e.repeat) {
+        // Typing (text box, a field) or a dialog/menu: Escape is theirs.
+        const t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+        if (t?.closest?.('[role="dialog"],[role="menu"]')) return;
         if (symbolSearch.phase === 'picking' || symbolSearch.phase === 'searching') symbolSearch.cancel();
         if (!confirmDiscardActiveCountSession()) return;
         setActiveTool(null);
+        setMarkupTool(null);
         measureDraft.reset();
         setCalibrationMode(false);
         setCalibrationPoints([]);
         setScalePick(null);
-        setIsFullscreen(false);
+        setContextMenu(null);
+        pendingAfterScaleRef.current = null;
         resetCountEngine();
       }
     };
@@ -1999,6 +2069,7 @@ export default function BlueprintTakeoff() {
 
   const removeRow = (key) => {
     const newRows = rows.filter((r) => r._key !== key);
+    recordHistory();
     setRows(newRows);
     persist(newRows);
   };
@@ -2006,10 +2077,10 @@ export default function BlueprintTakeoff() {
   // Jumps to the row's page (if it's on a different one than currently
   // shown) and flashes a highlight ring/box around its marker for ~1.6s —
   // see BlueprintCanvas's isHighlighted/drawHighlightRing/drawHighlightBox.
+  // Now also zooms in on it (and selects it), like clicking a Markups List row.
   const handleMeasurementRowClick = (row) => {
-    if (row.page_number && row.page_number !== pageInfo.pageNum) {
-      canvasRef.current?.goToPage(row.page_number);
-    }
+    zoomToItem(Number(row.page_number || 1), rowBounds(row));
+    setSelectedKeys([`r:${row._key}`]);
     setHighlightedRowKey(row._key);
     if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
     highlightTimeoutRef.current = setTimeout(() => setHighlightedRowKey(null), 1600);
@@ -2030,6 +2101,7 @@ export default function BlueprintTakeoff() {
     const updated = remaining.map((r) => (
       r.marker_color === 'red' && !stillHasDuplicate(r) ? { ...r, marker_color: 'green', color: '#22c55e' } : r
     ));
+    recordHistory();
     setRows(updated);
     persist(updated);
     if (highlightedRowKey === row._key) setHighlightedRowKey(null);
@@ -2136,6 +2208,7 @@ export default function BlueprintTakeoff() {
   // `rows` — it's appended to whatever's passed as measurementItems rather
   // than replacing it, so it draws alongside every already-saved marker.
   const pendingMeasurementMarker = measurementModalOpen && pendingMeasurement ? {
+    page_number: pageInfo.pageNum,
     source: 'measurement',
     tool: pendingMeasurement.tool,
     marker_color: 'blue',
@@ -2217,362 +2290,728 @@ export default function BlueprintTakeoff() {
     ? 'Your account has no company assigned — contact an admin before linking a bid or project'
     : 'No bids or projects found — load demo data first';
 
-  // Shared between the normal inline toolbar and the floating panel shown in
-  // fullscreen — same state/handlers either way, just a different container
-  // around it, so there's exactly one place to edit the calibration status
-  // row, the calibration distance form, and the tool buttons.
-  const calibrationStatusRow = (
-    <ScalePanel
-      pageNum={pageInfo.pageNum}
-      numPages={pageInfo.numPages}
-      scales={scales}
-      disabled={!fileUrl}
-      canvasScale={canvasScale}
-      calibrationMode={calibrationMode}
-      calibrationPoints={calibrationPoints}
-      pick={calibrationMode ? scalePick : null}
-      onStartPick={startScalePick}
-      onCancelPick={handleCalibrationCancel}
-      onScaleReference={handleScaleReference}
-    />
+  // ===================================================================
+  // Revu-style workspace wiring (layout and pieces live in
+  // src/components/estimating/ironsight-workspace/). Everything below
+  // feeds IronsightWorkspace; BlueprintTakeoff keeps owning the data.
+  // ===================================================================
+
+  // Before each markup/row change, so Edit > Undo can put it back.
+  const recordHistory = () => history.record({ markups: markups.markups, rows });
+
+  // Fresh per-drawing UI state; `viewState` = last page/zoom saved for it.
+  function resetWorkspaceUi(viewState) {
+    history.clear();
+    setSelectedKeys([]);
+    setEditingTextId(null);
+    newTextIdRef.current = null;
+    setMarkupTool(null);
+    setNavTool('select');
+    setSearch({ query: '', hits: [], activeId: null });
+    setContextMenu(null);
+    setScaleDialog(null);
+    pendingAfterScaleRef.current = null;
+    setRotations(viewState?.rotations || {});
+    setInitialView(viewState?.page ? { page: viewState.page, scale: viewState.scale, pan: viewState.pan } : null);
+  }
+
+  const pageNum = pageInfo.pageNum;
+  const pageRotation = rotations[pageNum] || 0;
+  const markupsOnPage = useMemo(() => markups.markups.filter((m) => Number(m.page_number || 1) === pageNum), [markups.markups, pageNum]);
+
+  // Page labels + PDF layers come from the loaded document.
+  useEffect(() => {
+    setPageLabels(null);
+    setOcConfig(null);
+    if (!pdfDoc) return undefined;
+    let cancelled = false;
+    pdfDoc.getPageLabels().then((l) => { if (!cancelled) setPageLabels(l?.length ? l : null); }).catch(() => {});
+    pdfDoc.getOptionalContentConfig().then((cfg) => { if (!cancelled) setOcConfig(cfg?.getOrder?.()?.length ? cfg : null); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [pdfDoc]);
+
+  // Once the page has a scale, start whatever tool was waiting for it.
+  useEffect(() => {
+    if (!pageCalibrated || !pendingAfterScaleRef.current) return;
+    const p = pendingAfterScaleRef.current;
+    pendingAfterScaleRef.current = null;
+    if (p.kind === 'tool') handleActivateTool(p.tool);
+    else if (p.kind === 'count') handleStartCountSetup(p.countKind, p.preset || null);
+    else if (p.kind === 'preset') handleSelectPreset(p.preset);
+    // Only when the page becomes calibrated.
+  }, [pageCalibrated]);
+
+  // Two calibration clicks placed → the Calibrate dialog (length + pages).
+  useEffect(() => {
+    if (calibrationMode && scalePick?.purpose === 'calibrate' && calibrationPoints.length === 2) setScaleDialog({ mode: 'calibrate' });
+  }, [calibrationMode, scalePick, calibrationPoints]);
+
+  // Selection only ever holds items on the page being shown.
+  useEffect(() => {
+    setEditingTextId(null);
+    setSelectedKeys((keys) => keys.filter((k) => (k.startsWith('m:')
+      ? Number(markups.markups.find((m) => m.id === k.slice(2))?.page_number || 0) === pageNum
+      : Number(rows.find((r) => r._key === k.slice(2))?.page_number || 1) === pageNum)));
+    // Re-check only on a page change.
+  }, [pageNum]);
+
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+
+  useEffect(() => {
+    if (takeoffId) setOpenDrawingIds((ids) => (ids.includes(takeoffId) ? ids : [...ids, takeoffId]));
+  }, [takeoffId]);
+
+  // Remember page / zoom / pan (and view rotations) per session.
+  const rotationsRef = useRef(rotations);
+  rotationsRef.current = rotations;
+  const handleViewChange = useCallback((v) => {
+    if (takeoffId) saveViewState(takeoffId, { page: v.page, scale: v.scale, pan: v.pan, rotations: rotationsRef.current });
+  }, [takeoffId]);
+
+  const itemForKey = (key) => (key.startsWith('m:')
+    ? { kind: 'markup', key, item: markups.markups.find((m) => m.id === key.slice(2)) }
+    : { kind: 'row', key, item: rows.find((r) => r._key === key.slice(2)) });
+  const selectedItems = selectedKeys.map(itemForKey).filter((s) => s.item);
+  const selectedMarkups = selectedItems.filter((s) => s.kind === 'markup').map((s) => s.item);
+
+  // Go to an item's page and frame it (pad = PDF points around it).
+  const zoomToItem = (page, bounds, pad = 24) => {
+    if (!canvasRef.current) return;
+    const rect = bounds ? { x: bounds.x - pad, y: bounds.y - pad, width: Math.max(bounds.width, 1) + pad * 2, height: Math.max(bounds.height, 1) + pad * 2 } : null;
+    if (page !== pageNum) canvasRef.current.goToPage(page, rect ? { rect } : null);
+    else if (rect) canvasRef.current.zoomToRect(rect);
+  };
+  const boundsForItem = (s) => (s.kind === 'markup' ? markupBounds(s.item, measureMarkupText) : rowBounds(s.item));
+  const showItem = (s) => zoomToItem(Number(s.item.page_number || 1), boundsForItem(s));
+
+  // ---- markup tools ----
+  const styleForTool = (type) => {
+    const textDefaults = MARKUP_TYPES[type]?.text ? { font_family: prefs.font_family, font_size: prefs.font_size } : {};
+    const st = { ...styleFor(type), ...textDefaults, ...(prefs.toolStyles?.[type] || {}) };
+    if (type === 'stamp') st.color = findStamp(stampKind).color;
+    return st;
+  };
+
+  const startMarkupTool = (type, styleOverride = null) => {
+    if (!fileUrl) return;
+    if (!confirmDiscardActiveCountSession()) return;
+    setActiveTool(null);
+    measureDraft.reset();
+    resetCountEngine();
+    setCalibrationMode(false);
+    setCalibrationPoints([]);
+    setScalePick(null);
+    if (symbolSearch.phase === 'picking') symbolSearch.cancel();
+    if (styleOverride) setPrefs((p) => ({ toolStyles: { ...(p.toolStyles || {}), [type]: styleOverride } }));
+    setEditingTextId(null);
+    setMarkupTool(type);
+  };
+
+  const authorName = user?.full_name || user?.email || '';
+
+  const handleCreateMarkup = ({ type, points, page_number, leader }) => {
+    const m = createMarkup(type, { page_number, points, leader, style: styleForTool(type), stamp: stampKind, author: authorName });
+    recordHistory();
+    markups.add(m);
+    setSelectedKeys([`m:${m.id}`]);
+    if (isTextMarkup(m) || type === 'note') {
+      newTextIdRef.current = m.id;
+      setEditingTextId(m.id);
+    }
+    // Pen and highlight stay on for the next stroke; everything else goes back to Select.
+    if (type !== 'pen' && type !== 'highlight') setMarkupTool(null);
+  };
+
+  const handleTextCommit = (id, value) => {
+    setEditingTextId(null);
+    const m = markups.markups.find((x) => x.id === id);
+    const wasNew = newTextIdRef.current === id;
+    newTextIdRef.current = null;
+    if (!m) return;
+    if (m.type === 'note') {
+      if ((m.comment || '') !== value) {
+        if (!wasNew) recordHistory();
+        markups.update(id, { comment: value });
+      }
+      return;
+    }
+    if (!value.trim() && wasNew) {
+      markups.remove([id]);
+      setSelectedKeys([]);
+      return;
+    }
+    if ((m.text || '') === value) return;
+    if (!wasNew) recordHistory();
+    markups.update(id, (cur) => fitTextBoxHeight({ ...cur, text: value }, measureMarkupText));
+  };
+
+  const handleMoveMarkups = ({ ids, dx, dy }) => {
+    recordHistory();
+    markups.updateMany(Object.fromEntries(ids.map((id) => [id, (m) => translateMarkup(m, dx, dy)])));
+  };
+  const handleMarkupHandleDrag = (id, next) => {
+    recordHistory();
+    markups.update(id, () => (isTextMarkup(next) ? fitTextBoxHeight(next, measureMarkupText) : next));
+  };
+
+  const handleStripChange = (patch) => {
+    const editable = selectedMarkups.filter((m) => !m.locked);
+    if (editable.length) {
+      recordHistory();
+      markups.updateMany(Object.fromEntries(editable.map((m) => [m.id, (cur) => ({ ...cur, style: { ...cur.style, ...patch } })])));
+      const t = editable[0].type;
+      setPrefs((p) => ({ toolStyles: { ...(p.toolStyles || {}), [t]: { ...(p.toolStyles?.[t] || {}), ...patch } } }));
+    } else if (markupTool) {
+      setPrefs((p) => ({ toolStyles: { ...(p.toolStyles || {}), [markupTool]: { ...(p.toolStyles?.[markupTool] || {}), ...patch } } }));
+    }
+  };
+
+  // Same "is its same-spot twin still here" rule handleDeleteMeasurementRow uses.
+  const stillHasDuplicate = (candidate, list) => list.some((r) => {
+    if (r._key === candidate._key || r.tool !== candidate.tool || r.shape_type !== candidate.shape_type) return false;
+    if (r.size_designation !== candidate.size_designation || (r.phase || '') !== (candidate.phase || '')) return false;
+    const a = measurementAnchorFromRow(candidate);
+    const b = measurementAnchorFromRow(r);
+    return a && b && Math.hypot(a.pdfX - b.pdfX, a.pdfY - b.pdfY) <= DUPLICATE_SPOT_THRESHOLD_PDF;
+  });
+
+  const deleteKeys = (keys) => {
+    const items = keys.map(itemForKey).filter((s) => s.item && !s.item.locked);
+    if (!items.length) {
+      if (keys.length) toast({ title: "Locked items can't be deleted", description: 'Unlock them first (right-click > Unlock).' });
+      return;
+    }
+    recordHistory();
+    const mIds = items.filter((s) => s.kind === 'markup').map((s) => s.item.id);
+    if (mIds.length) markups.remove(mIds);
+    const rKeys = new Set(items.filter((s) => s.kind === 'row').map((s) => s.item._key));
+    if (rKeys.size) {
+      const remaining = rows.filter((r) => !rKeys.has(r._key));
+      const updated = remaining.map((r) => (r.marker_color === 'red' && !stillHasDuplicate(r, remaining) ? { ...r, marker_color: 'green', color: '#22c55e' } : r));
+      setRows(updated);
+      persist(updated);
+    }
+    setSelectedKeys((prev) => prev.filter((k) => !keys.includes(k)));
+  };
+
+  const toggleLock = (keys = selectedKeys) => {
+    const items = keys.map(itemForKey).filter((s) => s.item);
+    if (!items.length) return;
+    const lock = !items.some((s) => s.item.locked);
+    recordHistory();
+    const mIds = items.filter((s) => s.kind === 'markup').map((s) => s.item.id);
+    if (mIds.length) markups.updateMany(Object.fromEntries(mIds.map((id) => [id, { locked: lock }])));
+    const rKeys = new Set(items.filter((s) => s.kind === 'row').map((s) => s.item._key));
+    if (rKeys.size) {
+      const updated = rows.map((r) => (rKeys.has(r._key) ? { ...r, locked: lock } : r));
+      setRows(updated);
+      persist(updated);
+    }
+  };
+
+  const copyMarkups = (list = selectedMarkups) => {
+    if (!list.length) return;
+    clipboardRef.current = list.map((m) => JSON.parse(JSON.stringify(m)));
+    pasteCountRef.current = 0;
+    setClipboardCount(clipboardRef.current.length);
+  };
+  const cutMarkups = () => {
+    copyMarkups();
+    deleteKeys(selectedMarkups.map((m) => `m:${m.id}`));
+  };
+  // Pastes onto the page being shown — offset a little each time, or with
+  // its top-left at `at` (right-click > Paste here).
+  const pasteMarkups = (at = null) => {
+    if (!clipboardRef.current.length || !fileUrl) return;
+    pasteCountRef.current += 1;
+    let dx = 12 * pasteCountRef.current;
+    let dy = dx;
+    if (at) {
+      const b = markupBounds(clipboardRef.current[0], measureMarkupText);
+      if (b) { dx = at.pdfX - b.x; dy = at.pdfY - b.y; }
+    }
+    const now = new Date().toISOString();
+    const copies = clipboardRef.current.map((m) => ({
+      ...translateMarkup(m, dx, dy), id: crypto.randomUUID(), page_number: pageNum, locked: false, created_at: now, updated_at: now, author: authorName || m.author,
+    }));
+    recordHistory();
+    markups.add(copies);
+    setSelectedKeys(copies.map((m) => `m:${m.id}`));
+  };
+
+  const selectAllOnPage = () => setSelectedKeys([
+    ...markupsOnPage.map((m) => `m:${m.id}`),
+    ...rows.filter((r) => r.source === 'measurement' && Number(r.page_number || 1) === pageNum).map((r) => `r:${r._key}`),
+  ]);
+
+  const restoreSnapshot = (snap) => {
+    if (!snap) return;
+    markups.replaceAll(snap.markups);
+    if (snap.rows !== rows) {
+      setRows(snap.rows);
+      persist(snap.rows);
+    }
+    setSelectedKeys([]);
+    setEditingTextId(null);
+  };
+  const handleUndo = () => restoreSnapshot(history.undo({ markups: markups.markups, rows }));
+  const handleRedo = () => restoreSnapshot(history.redo({ markups: markups.markups, rows }));
+
+  const reorderMarkups = (ids, where) => {
+    if (!ids.length) return;
+    recordHistory();
+    markups.reorder(ids, where);
+  };
+
+  const addToToolChest = (s) => {
+    if (s.kind === 'row') {
+      const r = s.item;
+      setToolChest((prev) => [...prev, {
+        id: crypto.randomUUID(),
+        tool: r.tool,
+        label: r.label || [r.shape_type, r.size_designation].filter(Boolean).join(' ') || toolLabel(r.tool),
+        shapeClass: r.shape_class || 'W-Beam',
+        sizeDesignation: r.size_designation || '',
+        color: r.color || '#ef4444',
+      }]);
+    } else {
+      const m = s.item;
+      setToolChest((prev) => [...prev, { id: crypto.randomUUID(), tool: 'markup', markup_type: m.type, label: m.subject || markupTypeLabel(m.type), color: m.style?.color, style: { ...m.style } }]);
+    }
+    toast({ title: 'Added to the Tool Chest' });
+    setLayout({ rightOpen: true, rightTab: 'toolchest' });
+  };
+
+  const handleMarkupDoubleClick = (key) => {
+    const s = itemForKey(key);
+    if (!s.item) return;
+    setSelectedKeys([key]);
+    if (s.kind === 'markup' && (isTextMarkup(s.item) || s.item.type === 'note') && !s.item.locked) {
+      setEditingTextId(s.item.id);
+      return;
+    }
+    setLayout({ rightOpen: true, rightTab: 'properties' });
+  };
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  const handleCanvasContextMenu = ({ clientX, clientY, pdf, key }) => {
+    if (key) {
+      const s = itemForKey(key);
+      if (!s.item) return;
+      const isMarkup = s.kind === 'markup';
+      const keys = selectedKeys.includes(key) ? selectedKeys : [key];
+      const markupList = keys.map(itemForKey).filter((x) => x.kind === 'markup' && x.item).map((x) => x.item);
+      setContextMenu({
+        x: clientX,
+        y: clientY,
+        title: isMarkup ? markupTypeLabel(s.item.type) : `${toolLabel(s.item.tool)}${s.item.label ? ` — ${s.item.label}` : ''}`,
+        items: [
+          { label: 'Properties', onSelect: () => setLayout({ rightOpen: true, rightTab: 'properties' }) },
+          ...(isMarkup && (isTextMarkup(s.item) || s.item.type === 'note')
+            ? [{ label: s.item.type === 'note' ? 'Open note' : 'Edit text', disabled: s.item.locked, hint: 'Locked', onSelect: () => setEditingTextId(s.item.id) }]
+            : []),
+          { label: 'Zoom to', onSelect: () => showItem(s) },
+          { separator: true },
+          { label: 'Copy', keys: 'Ctrl+C', disabled: !markupList.length, hint: 'Drawing markups only', onSelect: () => copyMarkups(markupList) },
+          { label: 'Delete', keys: 'Delete', disabled: s.item.locked, hint: 'Locked', onSelect: () => deleteKeys(keys) },
+          { separator: true },
+          { label: 'Bring to front', disabled: !markupList.length, hint: 'Drawing markups only', onSelect: () => reorderMarkups(markupList.map((m) => m.id), 'front') },
+          { label: 'Send to back', disabled: !markupList.length, hint: 'Drawing markups only', onSelect: () => reorderMarkups(markupList.map((m) => m.id), 'back') },
+          { separator: true },
+          { label: 'Add to Tool Chest', onSelect: () => addToToolChest(s) },
+          { label: s.item.locked ? 'Unlock' : 'Lock', onSelect: () => toggleLock(keys) },
+        ],
+      });
+      return;
+    }
+    setContextMenu({
+      x: clientX,
+      y: clientY,
+      title: `Page ${pageNum}`,
+      items: [
+        { label: 'Pan', keys: 'H', onSelect: () => { handleSelectTool(); setNavTool('pan'); } },
+        { label: 'Select', keys: 'V', onSelect: () => { handleSelectTool(); setNavTool('select'); } },
+        { separator: true },
+        { label: 'Zoom to fit', keys: 'Ctrl+0', onSelect: () => canvasRef.current?.fitPage() },
+        { label: 'Zoom to width', keys: 'Ctrl+2', onSelect: () => canvasRef.current?.fitWidth() },
+        { separator: true },
+        { label: 'Calibrate', keys: 'Shift+K', onSelect: handleStartCalibration },
+        { label: 'Drawing scale…', onSelect: () => setScaleDialog({ mode: 'scale' }) },
+        ...(clipboardCount ? [{ separator: true }, { label: `Paste here (${clipboardCount})`, onSelect: () => pasteMarkups(pdf) }] : []),
+      ],
+    });
+  };
+
+  // ---- navigation / view ----
+  const goToPage = (n) => canvasRef.current?.goToPage(n);
+  const rotateView = (delta) => setRotations((prev) => {
+    const next = { ...prev, [pageNum]: ((((prev[pageNum] || 0) + delta) % 360) + 360) % 360 };
+    if (takeoffId) saveViewState(takeoffId, { ...(loadViewState(takeoffId) || {}), rotations: next });
+    return next;
+  });
+  const resetRotation = () => rotateView(-(rotations[pageNum] || 0));
+  const toggleLayer = (id, visible) => {
+    ocConfig?.setVisibility(id, visible);
+    setOcVersion((v) => v + 1);
+  };
+  const togglePanel = (which) => setLayout((l) => ({ [`${which}Open`]: !l[`${which}Open`] }));
+  const toggleFullscreen = () => {
+    try {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else shellRef.current?.requestFullscreen?.();
+    } catch (e) {
+      console.warn('Full screen not available', e);
+    }
+  };
+  const findText = () => {
+    setLayout({ leftOpen: true, leftTab: 'search' });
+    setSearchFocusToken((n) => n + 1);
+  };
+  const goToSearchHit = (h) => zoomToItem(h.page, { x: h.x, y: h.y, width: h.width, height: h.height }, 160);
+
+  const applyScaleFromDialog = ({ pages, viewportId, scale, readable }) => {
+    if (viewportId) scales.updateViewport(pageNum, viewportId, scale);
+    else scales.setPageScale(pages, scale);
+    handleScaleReference(readable);
+    toast({ title: `Scale set: ${scale.label}`, description: viewportId ? 'Viewport on this page' : pages.length === 1 ? `Page ${pages[0]}` : `${pages.length} pages` });
+    setScaleDialog(null);
+    handleCalibrationCancel();
+  };
+  const handleScaleDialogOpenChange = (open) => {
+    if (open) return;
+    setScaleDialog(null);
+    pendingAfterScaleRef.current = null;
+    if (calibrationMode && scalePick?.purpose === 'calibrate') handleCalibrationCancel();
+  };
+  const startCalibrateFromDialog = () => {
+    setScaleDialog(null); // keeps any tool waiting for the scale
+    startScalePick('calibrate', { kind: 'page' });
+  };
+
+  const handlePrint = async () => {
+    if (!pdfDoc) return;
+    try {
+      const page = await pdfDoc.getPage(pageNum);
+      const vp = page.getViewport({ scale: 2 });
+      const c = document.createElement('canvas');
+      c.width = Math.ceil(vp.width);
+      c.height = Math.ceil(vp.height);
+      const ctx = c.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      markupsOnPage.forEach((m) => drawDrawingMarkup(ctx, m, 2));
+      const url = c.toDataURL('image/png');
+      const iframe = document.createElement('iframe');
+      Object.assign(iframe.style, { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' });
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow.document;
+      doc.open();
+      doc.write(`<!doctype html><html><head><title>Page ${pageNum}</title><style>@page{margin:0.25in}body{margin:0}img{width:100%;height:auto}</style></head><body><img src="${url}"></body></html>`);
+      doc.close();
+      const img = doc.querySelector('img');
+      const go = () => { iframe.contentWindow.focus(); iframe.contentWindow.print(); setTimeout(() => iframe.remove(), 2000); };
+      if (img.complete) go(); else img.onload = go;
+    } catch (e) {
+      console.error('Print failed', e);
+      toast({ title: 'Could not print this page', variant: 'destructive' });
+    }
+  };
+
+  const handleSaveAll = async () => {
+    if (!takeoffId) return;
+    try {
+      await persist(rows);
+      markups.flush();
+      await db.entities.blueprint_takeoffs.update(takeoffId, { drawing_markups: markups.markups, page_notes: pageNotes });
+      toast({ title: 'Saved', description: `${rows.filter((r) => r.source === 'measurement').length} takeoff rows and ${markups.markups.length} drawing markups.` });
+    } catch (e) {
+      console.error('Save failed', e);
+      toast({ title: 'Could not save', variant: 'destructive' });
+    }
+  };
+
+  const listEntries = useMemo(() => buildListEntries(rows, markups.markups, extras.computeRow, extras.columns), [rows, markups.markups, extras.computeRow, extras.columns]);
+
+  const handleExportListCsv = () => exportRowsToCsv({
+    filename: `${takeoffName || 'takeoff'}_markups_list`,
+    columns: ['Type', 'Subject', 'Page', 'Measured / text', 'Qty', 'Author', 'Date', 'Status', ...extras.columns.map((c) => (c.unit ? `${c.name} (${c.unit})` : c.name))],
+    rows: listEntries.map((e) => [
+      e.kind === 'markup' ? `Markup (${e.subtype})` : e.type, e.subject, e.page, e.measured, e.qty ?? '', e.author, e.date, e.status,
+      ...extras.columns.map((c) => (e.kind === 'row' ? (e.errors[c.alias] ? `#ERROR: ${e.errors[c.alias]}` : (e.values[c.alias] ?? '')) : '')),
+    ]),
+  });
+
+  // ---- drawings in this project / bid ----
+  const sameJob = (s) => (sessionBidId && s.bid_id === sessionBidId) || (sessionProjectId && s.project_id === sessionProjectId)
+    || (!sessionBidId && !sessionProjectId && bidId && s.bid_id === bidId);
+  const projectSessions = sessions.filter((s) => s.id !== takeoffId && sameJob(s));
+  const switchToSession = (s) => {
+    if (!s || s.id === takeoffId) return;
+    if (!confirmDiscardActiveCountSession()) return;
+    openSession(s);
+  };
+  const handleProjectFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!confirmDiscardActiveCountSession()) return;
+    const link = sessionBidId ? { bid_id: sessionBidId, project_id: undefined }
+      : sessionProjectId ? { bid_id: undefined, project_id: sessionProjectId } : {};
+    try {
+      const created = await createTakeoffRecord({ file, name: stripPdfExtension(file.name) || file.name, areaId: sessionAreaId, extra: link });
+      enterNewSessionWorkspace(created, file);
+      loadSessions();
+      toast({ title: 'Drawing opened', description: link.bid_id || link.project_id ? 'Linked to the same job as the drawing you were on.' : 'Not linked to a job yet.' });
+    } catch (err) {
+      console.error('Failed to open drawing', err);
+      toast({ title: 'Could not open that drawing', description: 'See console for details.', variant: 'destructive' });
+    }
+  };
+
+  const leaveWorkspace = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    handleBackToSessions();
+  };
+
+  const linkedName = sessionBidId
+    ? (activeBids.find((b) => b.id === sessionBidId)?.job_name || (bid?.id === sessionBidId ? bid?.job_name : '') || 'Bid')
+    : sessionProjectId ? (activeProjects.find((p) => p.id === sessionProjectId)?.name || 'Project') : null;
+  const linkedPath = sessionBidId ? `/estimating/${sessionBidId}` : sessionProjectId ? `/projects/${sessionProjectId}` : null;
+  const goToLinked = () => {
+    if (!linkedPath) return;
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    navigate(linkedPath);
+  };
+  // Revision number = how many older sessions this one chains back through.
+  let revNumber = 0;
+  for (let cur = extras.previousTakeoffId; cur && revNumber < 50; revNumber += 1) {
+    cur = sessions.find((s) => s.id === cur)?.previous_takeoff_id || null;
+  }
+
+  const scaleLabelForPage = (n) => {
+    const sc = scales.resolveAt(n, null);
+    if (sc?.ptsPerFt) return { label: sc.label, ok: true };
+    const vps = scales.pageEntry(n)?.viewports || [];
+    if (vps.some((v) => v.pts_per_ft > 0)) return { label: 'Viewports only', ok: true };
+    return { label: 'No scale', ok: false };
+  };
+  const pageScaleText = scaleLabelForPage(pageNum).label;
+  const currentLegendOn = Boolean(currentLegendSetting.on);
+
+  // One action object for the toolbars and the menus.
+  const ws = {
+    hasFile: Boolean(fileUrl),
+    hasSession: Boolean(takeoffId),
+    hasStoredPdf,
+    hasPrevious: Boolean(extras.previousTakeoffId),
+    pageNum,
+    numPages: pageInfo.numPages || 1,
+    pageLabels,
+    pageRotation,
+    pageCalibrated,
+    layout,
+    continuous: Boolean(prefs.continuous),
+    grid: Boolean(prefs.grid),
+    snap: snapEnabled,
+    ortho: Boolean(prefs.ortho),
+    isFullscreen,
+    scanning,
+    legendOn: currentLegendOn,
+    linkLabel: linkedName,
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
+    canCopy: selectedMarkups.length > 0,
+    canPaste: clipboardCount > 0,
+    hasSelection: selectedKeys.length > 0,
+    navTool,
+    isSelect: navTool === 'select' && !activeTool && !markupTool && !calibrationMode,
+    anyToolLive: Boolean(activeTool || markupTool || calibrationMode),
+    markupTool,
+    activeTool,
+    calibrationMode,
+    pickPurpose: scalePick?.purpose,
+    symbolPicking: symbolSearch.phase === 'picking',
+    stampKind,
+    circleMode: measureDraft.circleMode,
+    setCircleMode: measureDraft.setCircleMode,
+    markupLabel: markupTypeLabel,
+    recent: projectSessions.slice(0, 20).map((s) => ({ id: s.id, label: `${s.takeoff_name || s.file_name || 'Untitled'}${s.has_stored_pdf ? '' : ' (PDF not on this device)'}`, onSelect: () => switchToSession(s) })),
+    openDrawings: openDrawingIds.map((id) => {
+      const s = id === takeoffId ? null : sessions.find((x) => x.id === id);
+      return { id, label: id === takeoffId ? (takeoffName || fileName || 'This drawing') : (s?.takeoff_name || s?.file_name || 'Drawing'), checked: id === takeoffId, onSelect: () => (s ? switchToSession(s) : null) };
+    }),
+    openDrawing: () => projectFileInputRef.current?.click(),
+    loadRevision: () => revisionInputRef.current?.click(),
+    save: handleSaveAll,
+    exportPdf: () => setExportPdfOpen(true),
+    exportCsv: handleExportListCsv,
+    print: handlePrint,
+    close: leaveWorkspace,
+    goToLink: goToLinked,
+    undo: handleUndo,
+    redo: handleRedo,
+    cut: cutMarkups,
+    copy: () => copyMarkups(),
+    paste: () => pasteMarkups(),
+    deleteSelection: () => deleteKeys(selectedKeys),
+    selectAll: selectAllOnPage,
+    selectNone: () => setSelectedKeys([]),
+    preferences: () => setPrefsOpen(true),
+    zoomIn: () => canvasRef.current?.zoomIn(),
+    zoomOut: () => canvasRef.current?.zoomOut(),
+    fitPage: () => canvasRef.current?.fitPage(),
+    fitWidth: () => canvasRef.current?.fitWidth(),
+    actualSize: () => canvasRef.current?.actualSize(),
+    setContinuous: (v) => setPrefs({ continuous: v }),
+    rotateView: (d) => rotateView(typeof d === 'number' ? d : 90),
+    resetRotation,
+    togglePanel,
+    resetLayout,
+    toggleGrid: () => setPrefs((p) => ({ grid: !p.grid })),
+    toggleSnap: () => setPrefs((p) => ({ snap: !(p.snap !== false) })),
+    toggleOrtho: () => setPrefs((p) => ({ ortho: !p.ortho })),
+    toggleFullscreen,
+    findText,
+    goToPage,
+    compare: () => setCompareOpen(true),
+    carryForward: () => setCarryOpen(true),
+    applyScaleMany: () => setScaleDialog({ mode: 'scale' }),
+    selectTool: () => { handleSelectTool(); setNavTool('select'); },
+    panTool: () => { handleSelectTool(); setNavTool('pan'); },
+    zoomTool: () => { handleSelectTool(); setNavTool('zoom'); },
+    startMarkup: (type) => startMarkupTool(type),
+    setStampKind,
+    startMeasure: (tool) => handleActivateTool(tool),
+    startCount: (kind) => handleStartCountSetup(kind),
+    calibrate: handleStartCalibration,
+    openScale: () => setScaleDialog({ mode: 'scale' }),
+    checkScale: () => startScalePick('check', null),
+    addViewport: () => startScalePick('viewport', null),
+    findSymbols: () => { setLayout({ rightOpen: true, rightTab: 'symbols' }); handleStartSymbolSearch(); },
+    toggleLegend: () => extras.setLegendSetting(pageNum, { on: !currentLegendOn }),
+    openToolChest: () => setLayout({ rightOpen: true, rightTab: 'toolchest' }),
+    runLocalAi: () => { setLayout({ bottomOpen: true, bottomTab: 'takeoff' }); handleProcessFullDocument(); },
+    steelCatalog: () => setSteelCatalogEditorOpen(true),
+  };
+
+  const menus = buildWorkspaceMenus(ws);
+  useWorkspaceShortcuts(menus, mode === 'workspace' && !scaleDialog && !prefsOpen && !measurementModalOpen);
+
+  // ---- workspace pieces (JSX) ----
+  const FILLABLE = ['polygon', 'rect', 'ellipse', 'cloud', 'textbox', 'callout'];
+  const stripStyle = selectedMarkups.length ? selectedMarkups[0].style : markupTool ? styleForTool(markupTool) : null;
+  const stripTypes = selectedMarkups.length ? selectedMarkups.map((m) => m.type) : markupTool ? [markupTool] : [];
+  const strip = stripStyle ? {
+    title: selectedMarkups.length
+      ? (selectedMarkups.length === 1 ? markupTypeLabel(selectedMarkups[0].type) : `${selectedMarkups.length} markups`)
+      : `${markupTypeLabel(markupTool)} — next one`,
+    style: stripStyle,
+    showText: stripTypes.some((t) => MARKUP_TYPES[t]?.text),
+    showFill: stripTypes.some((t) => FILLABLE.includes(t)),
+    showLine: stripTypes.some((t) => t !== 'note' && t !== 'typewriter'),
+    locked: selectedMarkups.length > 0 && selectedMarkups.every((m) => m.locked),
+    onChange: handleStripChange,
+  } : null;
+
+  const linkSelect = (
+    <Select value={workspaceLinkDraft} onValueChange={handleLinkWorkspaceNow}>
+      <SelectTrigger className="h-6 text-[11px] w-40 bg-slate-800 border-slate-600 text-slate-100"><SelectValue placeholder="Link to a bid or project…" /></SelectTrigger>
+      <SelectContent>
+        {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
+        {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
+        {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
+      </SelectContent>
+    </Select>
   );
 
-  // Select/Count/Length/Area/Calibrate + fullscreen toggle. Escape (bound in
-  // an effect above) always drops back to Select and exits fullscreen, same
-  // as clicking through them manually.
-  const toolButtonsRow = (
-    <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-lg border bg-muted/20 w-fit max-w-full">
-      <Button size="sm" variant={activeTool === null && !calibrationMode ? 'default' : 'ghost'} onClick={handleSelectTool}>
-        <MousePointer2 className="w-3.5 h-3.5 mr-1.5" />Select
-      </Button>
-      <Button size="sm" variant={activeTool === 'count' ? 'default' : 'ghost'} onClick={() => handleStartCountSetup('beam')} disabled={!fileUrl}>
-        <MousePointerClick className="w-3.5 h-3.5 mr-1.5" />Count
-      </Button>
-      <Button size="sm" variant={activeTool === 'bolt_count' ? 'default' : 'ghost'} onClick={() => handleStartCountSetup('bolt')} disabled={!fileUrl}>
-        <Hexagon className="w-3.5 h-3.5 mr-1.5" />Bolt Count
-      </Button>
-      <Button
-        size="sm"
-        variant={symbolSearch.phase === 'picking' ? 'default' : 'ghost'}
-        onClick={handleStartSymbolSearch}
-        disabled={!fileUrl || symbolSearch.phase === 'searching'}
-        title="Box one symbol and find the others like it on this page (no AI — works offline)"
-      >
-        <ScanSearch className="w-3.5 h-3.5 mr-1.5" />Find symbols
-      </Button>
-      <MeasureToolButtons
-        activeTool={activeTool}
-        onActivate={handleActivateTool}
-        disabled={!fileUrl}
-        snapEnabled={snapEnabled}
-        onToggleSnap={() => setSnapEnabled((v) => !v)}
-        circleMode={measureDraft.circleMode}
-        onCircleMode={measureDraft.setCircleMode}
-      />
-      <div className="w-px h-5 bg-border mx-1" />
-      <Button size="sm" variant={calibrationMode ? 'default' : 'ghost'} onClick={handleStartCalibration} disabled={!fileUrl}>
-        <Crosshair className="w-3.5 h-3.5 mr-1.5" />Calibrate
-      </Button>
-      <div className="w-px h-5 bg-border mx-1" />
-      <Button size="sm" variant={notesPanelOpen ? 'default' : 'ghost'} onClick={() => setNotesPanelOpen((o) => !o)} title={notesPanelOpen ? 'Hide page notes' : 'Show page notes'}>
-        <StickyNote className="w-3.5 h-3.5" />
-      </Button>
-      <div className="w-px h-5 bg-border mx-1" />
-      <Button size="sm" variant="ghost" onClick={() => setSteelCatalogEditorOpen(true)} title="Edit steel size catalog">
-        <ListChecks className="w-3.5 h-3.5 mr-1.5" />Steel Catalog
-      </Button>
-      <div className="w-px h-5 bg-border mx-1" />
-      <Button size="sm" variant={isFullscreen ? 'default' : 'ghost'} onClick={() => setIsFullscreen((f) => !f)} disabled={!fileUrl} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
-        <Maximize2 className="w-3.5 h-3.5" />
-      </Button>
+  // Title bar: project or bid → drawing → revision, with the way back.
+  const titleBar = (
+    <div className="h-9 flex items-center gap-2 px-3 bg-slate-900 text-slate-100 text-xs flex-shrink-0">
+      <svg width="18" height="18" viewBox="0 0 44 44" fill="none" aria-hidden="true" className="flex-shrink-0">
+        <circle cx="22" cy="22" r="16" stroke="#f59e0b" strokeWidth="3" />
+        <circle cx="22" cy="22" r="4" fill="#f59e0b" />
+        <line x1="22" y1="1" x2="22" y2="10" stroke="#f59e0b" strokeWidth="3" />
+        <line x1="22" y1="34" x2="22" y2="43" stroke="#f59e0b" strokeWidth="3" />
+        <line x1="1" y1="22" x2="10" y2="22" stroke="#f59e0b" strokeWidth="3" />
+        <line x1="34" y1="22" x2="43" y2="22" stroke="#f59e0b" strokeWidth="3" />
+      </svg>
+      <span className="font-bold tracking-wide">IRONSIGHT</span>
+      <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+      {linkedName ? (
+        <button type="button" onClick={goToLinked} className="hover:underline flex items-center gap-1 text-amber-300" title={`Open the ${sessionBidId ? 'bid' : 'project'}`}>
+          <ExternalLink className="w-3 h-3" />{sessionBidId ? 'Bid' : 'Project'}: {linkedName}
+        </button>
+      ) : (
+        <span className="flex items-center gap-1.5"><Link2 className="w-3 h-3" />Not linked {linkSelect}</span>
+      )}
+      <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+      {editingTakeoffName ? (
+        <Input
+          autoFocus
+          value={takeoffNameDraft}
+          onChange={(e) => setTakeoffNameDraft(e.target.value)}
+          onBlur={commitTakeoffNameEdit}
+          onKeyDown={(e) => { if (e.key === 'Enter') commitTakeoffNameEdit(); if (e.key === 'Escape') setEditingTakeoffName(false); }}
+          className="h-6 text-xs font-semibold w-64 text-foreground"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => { setTakeoffNameDraft(takeoffName); setEditingTakeoffName(true); }}
+          className="font-semibold truncate max-w-[320px] hover:underline decoration-dotted underline-offset-2"
+          title="Click to rename"
+        >
+          {takeoffName || fileName || 'Untitled takeoff'}
+        </button>
+      )}
+      <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+      <span className="text-slate-300 whitespace-nowrap">
+        Rev {revNumber}
+        {extras.previousTakeoffId && (
+          <>
+            {' '}— revision of{' '}
+            {previousSession
+              ? <button type="button" className="underline" onClick={() => switchToSession(previousSession)}>{previousSession.takeoff_name || previousSession.file_name || 'older takeoff'}</button>
+              : 'an older takeoff'}
+          </>
+        )}
+      </span>
+      {sessionAreaId && <span className="text-slate-400 whitespace-nowrap">· Area: {bidAreas.find((a) => a.id === sessionAreaId)?.name || 'Assigned'}</span>}
+      <div className="ml-auto flex items-center gap-2">
+        {!hasStoredPdf && !pdfMissingNotice && fileUrl && <span className="flex items-center gap-1 text-slate-400"><Loader2 className="w-3 h-3 animate-spin" />Storing drawing…</span>}
+        {flaggedRowCount > 0 && (
+          <button type="button" onClick={() => setLayout({ bottomOpen: true, bottomTab: 'confirmed' })} className="text-amber-300 flex items-center gap-1 hover:underline">
+            <AlertTriangle className="w-3.5 h-3.5" />{flaggedRowCount} to check
+          </button>
+        )}
+        <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 bg-transparent border-slate-600 text-slate-100 hover:bg-slate-800 hover:text-white" onClick={leaveWorkspace}>
+          <ArrowLeft className="w-3 h-3 mr-1" />Sessions
+        </Button>
+      </div>
     </div>
   );
 
-  return (
-    <div className="p-6 w-full max-w-none space-y-4 animate-fade-in">
-      {mode === 'sessions' ? (
-        <div className="bg-slate-900 rounded-lg px-6 py-5 flex items-center gap-4">
-          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true" className="flex-shrink-0">
-            <circle cx="22" cy="22" r="16" stroke="#f59e0b" strokeWidth="2" />
-            <circle cx="22" cy="22" r="3" fill="#f59e0b" />
-            <line x1="22" y1="1" x2="22" y2="10" stroke="#f59e0b" strokeWidth="2" />
-            <line x1="22" y1="34" x2="22" y2="43" stroke="#f59e0b" strokeWidth="2" />
-            <line x1="1" y1="22" x2="10" y2="22" stroke="#f59e0b" strokeWidth="2" />
-            <line x1="34" y1="22" x2="43" y2="22" stroke="#f59e0b" strokeWidth="2" />
-          </svg>
-          <div>
-            <h1 className="text-3xl font-bold text-white tracking-tight leading-none">IRONSIGHT</h1>
-            <p className="text-sm text-slate-400 mt-1">
-              {bidId
-                ? (bid ? `Takeoff for Bid ${[bid.bid_number, bid.job_name].filter(Boolean).join(': ')}` : 'Loading bid…')
-                : 'Structural Steel Takeoff Platform'}
-            </p>
-          </div>
-        </div>
-      ) : (
-        <PageHeader
-          title="IRONSIGHT"
-          subtitle="Drawing takeoff and measurement"
-          icon={Crosshair}
-          actions={
-            <Button variant="outline" size="sm" onClick={handleBackToSessions}>
-              <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />Back to sessions
-            </Button>
-          }
-        />
-      )}
-
-      {mode === 'sessions' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
-              <FolderOpen className="w-4 h-4" />{bidId ? "This Bid's Takeoff Sessions" : 'Resume a takeoff'}
-            </h3>
-            {sessionsLoading ? (
-              <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading sessions…</p>
-            ) : bidSessions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No takeoff sessions yet — start one on the right.</p>
-            ) : (
-              <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
-                {bidSessions.map((s) => {
-                  const itemCount = (s.accepted_items || []).length;
-                  return (
-                    <Card key={s.id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => openSession(s)}>
-                      <CardContent className="p-4 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-semibold truncate" title={s.takeoff_name || s.file_name || 'Untitled takeoff'}>{s.takeoff_name || s.file_name || 'Untitled takeoff'}</p>
-                          {s._linkedLabel ? (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); navigate(s._linkedType === 'project' ? `/projects/${s._linkedId}` : `/estimating/${s._linkedId}`); }}
-                              className="text-xs text-primary truncate hover:underline flex items-center gap-1"
-                            >
-                              <ExternalLink className="w-3 h-3 flex-shrink-0" />{s._linkedLabel}
-                            </button>
-                          ) : (
-                            <div className="flex items-center gap-1.5 mt-0.5" onClick={(e) => e.stopPropagation()}>
-                              <span className="text-xs text-muted-foreground">Not linked</span>
-                              <Select value={sessionLinkDraft[s.id] || ''} onValueChange={(v) => handleLinkSessionNow(s.id, v)}>
-                                <SelectTrigger className="h-6 text-[11px] w-32"><SelectValue placeholder="Link now…" /></SelectTrigger>
-                                <SelectContent>
-                                  {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
-                                  {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
-                                  {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {itemCount} item{itemCount === 1 ? '' : 's'} · {s.sheet_count || 1} sheet{(s.sheet_count || 1) === 1 ? '' : 's'}
-                          </p>
-                          {!s.has_stored_pdf && (
-                            <Badge variant="outline" className="mt-1.5 text-amber-600 border-amber-300">PDF not stored — measurements only</Badge>
-                          )}
-                        </div>
-                        <span className="text-xs text-muted-foreground flex-shrink-0 whitespace-nowrap">
-                          {s.last_opened_at ? formatDistanceToNow(new Date(s.last_opened_at), { addSuffix: true }) : 'never opened'}
-                        </span>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
-              <Plus className="w-4 h-4" />Start a new takeoff
-            </h3>
-            {bidId ? (
-              <>
-                {bidAreas.length > 0 && (
-                  <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Which area is this set for? (optional)</label>
-                    <Select value={pendingDropAreaId || 'unassigned'} onValueChange={(v) => setPendingDropAreaId(v === 'unassigned' ? null : v)}>
-                      <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="unassigned">Unassigned</SelectItem>
-                        {bidAreas.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <div
-                  onClick={() => bidFileInputRef.current?.click()}
-                  onDrop={handleBidDrop}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  className={`rounded-lg border-2 border-dashed p-12 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border bg-muted/20 hover:bg-muted/30'}`}
-                >
-                  <input ref={bidFileInputRef} type="file" accept=".pdf,image/*" multiple className="hidden" onChange={handleBidBrowseSelect} />
-                  {creatingSession ? <Loader2 className="w-12 h-12 text-primary animate-spin" /> : <UploadCloud className="w-12 h-12 text-primary" />}
-                  <p className="font-semibold text-base">Drag & drop blueprints here to start</p>
-                  <p className="text-xs text-muted-foreground">or click to browse — drop several files to create one session per sheet set, all linked to this bid. Name defaults from the file, editable later.</p>
-                </div>
-                {newSessionError && <p className="text-sm text-amber-600">{newSessionError}</p>}
-              </>
-            ) : (
-              <>
-                <Input
-                  placeholder='Takeoff name — e.g. "Scott Park Phase II — Sheets S1-S8"'
-                  value={newTakeoffName}
-                  onChange={(e) => setNewTakeoffName(e.target.value)}
-                />
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Link to Bid or Project (optional)</label>
-                  <Select value={newTakeoffLinkValue} onValueChange={setNewTakeoffLinkValue}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Not linked" /></SelectTrigger>
-                    <SelectContent>
-                      {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
-                      {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name} ({b.bid_number})</SelectItem>)}
-                      {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div
-                  onClick={handleNewDropzoneClick}
-                  onDrop={handleNewDrop}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  className={`rounded-lg border-2 border-dashed p-8 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border bg-muted/20 hover:bg-muted/30'}`}
-                >
-                  <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleNewBrowseSelect} />
-                  {creatingSession ? <Loader2 className="w-10 h-10 text-primary animate-spin" /> : <UploadCloud className="w-10 h-10 text-primary" />}
-                  <p className="font-semibold">Drag & drop the blueprint package here</p>
-                  <p className="text-xs text-muted-foreground">or click to browse — multi-page PDFs and drawing sets accepted</p>
-                </div>
-                {newSessionError && <p className="text-sm text-amber-600">{newSessionError}</p>}
-              </>
-            )}
-          </div>
+  const banners = (
+    <>
+      <input ref={revisionInputRef} type="file" accept=".pdf" className="hidden" onChange={handleNewRevisionFile} />
+      <input ref={projectFileInputRef} type="file" accept=".pdf" className="hidden" onChange={handleProjectFile} />
+      <input ref={reattachInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleReattachPdf} />
+      {newSessionError && <p className="text-xs text-amber-700 bg-amber-50 border-b border-amber-200 px-3 py-1">{newSessionError}</p>}
+      {pdfMissingNotice && (
+        <div className="border-b border-amber-300 bg-amber-50 text-amber-800 px-3 py-1.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <span className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 flex-shrink-0" />This session&apos;s PDF isn&apos;t stored on this device — measurements were restored, but the drawing needs to be re-attached.</span>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => reattachInputRef.current?.click()}><RotateCw className="w-3.5 h-3.5 mr-1.5" />Re-attach PDF</Button>
         </div>
       )}
-
-      {mode === 'workspace' && (
-        <ErrorBoundary
-          label="ironsight-workspace"
-          title="IRONSIGHT hit an unexpected error"
-          onReset={handleWorkspaceErrorReset}
-          resetLabel="Back to sessions"
-        >
-        <>
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            {editingTakeoffName ? (
-              <Input
-                autoFocus
-                value={takeoffNameDraft}
-                onChange={(e) => setTakeoffNameDraft(e.target.value)}
-                onBlur={commitTakeoffNameEdit}
-                onKeyDown={(e) => { if (e.key === 'Enter') commitTakeoffNameEdit(); if (e.key === 'Escape') setEditingTakeoffName(false); }}
-                className="h-7 text-sm font-semibold w-64"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => { setTakeoffNameDraft(takeoffName); setEditingTakeoffName(true); }}
-                className="font-semibold truncate hover:underline decoration-dotted underline-offset-2"
-                title="Click to rename"
-              >
-                {takeoffName || fileName || 'Untitled takeoff'}
-              </button>
-            )}
-            {sessionAreaId && (
-              <>
-                <span className="text-muted-foreground">·</span>
-                <span className="text-xs text-muted-foreground">Area: {bidAreas.find((a) => a.id === sessionAreaId)?.name || 'Assigned'}</span>
-              </>
-            )}
-            <span className="text-muted-foreground">·</span>
-            <span className="text-xs text-muted-foreground flex items-center gap-1"><Link2 className="w-3 h-3" />Linked to:</span>
-            {sessionBidId ? (
-              <button type="button" onClick={() => navigate(`/estimating/${sessionBidId}`)} className="text-xs text-primary hover:underline flex items-center gap-1">
-                <ExternalLink className="w-3 h-3" />{activeBids.find((b) => b.id === sessionBidId)?.job_name || 'Bid'}
-              </button>
-            ) : sessionProjectId ? (
-              <button type="button" onClick={() => navigate(`/projects/${sessionProjectId}`)} className="text-xs text-primary hover:underline flex items-center gap-1">
-                <ExternalLink className="w-3 h-3" />{activeProjects.find((p) => p.id === sessionProjectId)?.name || 'Project'}
-              </button>
-            ) : (
-              <>
-                <span className="text-xs text-muted-foreground">Not linked</span>
-                <Select value={workspaceLinkDraft} onValueChange={handleLinkWorkspaceNow}>
-                  <SelectTrigger className="h-7 text-xs w-40"><SelectValue placeholder="Link now…" /></SelectTrigger>
-                  <SelectContent>
-                    {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
-                    {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
-                    {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => setExportPdfOpen(true)} disabled={!hasStoredPdf}>
-              <FileImage className="w-3.5 h-3.5 mr-1.5" />Export marked-up PDF
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setCompareOpen(true)} disabled={!fileUrl}>
-              <GitCompare className="w-3.5 h-3.5 mr-1.5" />Compare with older revision
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => revisionInputRef.current?.click()} title="Start a new session for a newer issue of this drawing, linked to this one">
-              <FilePlus2 className="w-3.5 h-3.5 mr-1.5" />Load new revision…
-            </Button>
-            <input ref={revisionInputRef} type="file" accept=".pdf" className="hidden" onChange={handleNewRevisionFile} />
-            {extras.previousTakeoffId && (
-              <Button size="sm" variant="outline" onClick={() => setCarryOpen(true)}>
-                <CopyPlus className="w-3.5 h-3.5 mr-1.5" />Bring markups forward
-              </Button>
-            )}
-            {extras.previousTakeoffId && (
-              <span className="text-xs text-muted-foreground">
-                Revision of{' '}
-                {previousSession ? (
-                  <button type="button" className="text-primary hover:underline" onClick={() => openSession(previousSession)}>{previousSession.takeoff_name || previousSession.file_name || 'older takeoff'}</button>
-                ) : 'an older takeoff'}
-              </span>
-            )}
-            {flaggedRowCount > 0 && (
-              <button type="button" onClick={() => setGridView('measurements')} className="text-xs text-amber-700 flex items-center gap-1 hover:underline">
-                <AlertTriangle className="w-3.5 h-3.5" />{flaggedRowCount} markup{flaggedRowCount === 1 ? '' : 's'} to check — area changed
-              </button>
-            )}
-          </div>
-
-          {!hasStoredPdf && !newSessionError && !pdfMissingNotice && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="w-3 h-3 animate-spin" />Storing drawing for offline resume…
-            </div>
-          )}
-
-          {pdfMissingNotice && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                This session's PDF isn't stored on this device — measurements were restored, but the drawing needs to be re-attached.
-              </p>
-              <Button size="sm" variant="outline" onClick={() => reattachInputRef.current?.click()}>
-                <RotateCw className="w-3.5 h-3.5 mr-1.5" />Re-attach PDF
-              </Button>
-              <input ref={reattachInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleReattachPdf} />
-            </div>
-          )}
-          {reattachError && <p className="text-sm text-amber-600">{reattachError}</p>}
-
-          <div className={isFullscreen ? 'fixed inset-0 z-50 bg-black flex' : 'flex flex-col lg:flex-row gap-4 items-start'}>
-            <div className={isFullscreen ? 'flex-1 min-h-0 relative' : 'flex-1 min-w-0 space-y-3'}>
-              {!isFullscreen && (
-                <>
-                  {calibrationStatusRow}
-                  {toolButtonsRow}
-                </>
-              )}
-
-              <VisualSearchPanel search={symbolSearch} countRowsOnPage={countRowsOnPage} onAddToCount={handleAddSearchMatches} />
-
-              {(visualSearchLoading || visualSearchError || candidates.length > 0) && (
-                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 flex flex-wrap items-center justify-between gap-3">
-                  {visualSearchLoading && (
+      {reattachError && <p className="text-xs text-amber-700 px-3 py-1">{reattachError}</p>}
+      {(visualSearchLoading || visualSearchError || candidates.length > 0) && (
+        <div className="border-b px-2 py-1">
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 flex flex-wrap items-center justify-between gap-3">
+            {visualSearchLoading && (
                     <p className="text-sm text-amber-800 flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" />Scanning page for matches…
                     </p>
@@ -2598,213 +3037,200 @@ export default function BlueprintTakeoff() {
                   {!visualSearchLoading && visualSearchError && (
                     <Button size="sm" variant="outline" onClick={handleClearCandidates}>Dismiss</Button>
                   )}
-                </div>
-              )}
-
-              {/* Visual PDF viewer, plus scale calibration and the Count/
-                  Length/Area measurement tools. Only rendered for actual PDF
-                  uploads; image uploads have nothing for pdfjs to open. In
-                  fullscreen this wrapper is absolutely positioned to fill its
-                  fixed-inset-0 ancestor, and BlueprintCanvas itself switches
-                  to fillHeight so its viewport grows to match instead of
-                  staying capped at its normal ~640px height. */}
-              {fileUrl && /\.pdf$/i.test(fileName || '') && (
-                <div className={isFullscreen ? 'absolute inset-0' : ''}>
-                  <BlueprintCanvas
-                    ref={canvasRef}
-                    source={fileUrl}
-                    calibrationMode={calibrationMode}
-                    calibrationPoints={calibrationPoints}
-                    onCalibrationClick={handleCalibrationClick}
-                    onScaleChange={setCanvasScale}
-                    onPageSizeChange={setPageSize}
-                    onPageChange={setPageInfo}
-                    activeTool={activeTool}
-                    draft={measureDraft.draft}
-                    circleMode={measureDraft.circleMode}
-                    onMeasurementClick={handleMeasurementClick}
-                    onFinishShape={measureDraft.finish}
-                    measurementItems={measurementItemsForCanvas}
-                    highlightedItemKey={highlightedRowKey}
-                    canMeasure={pageCalibrated}
-                    getScaleAt={scaleAtPoint}
-                    viewports={scales.pageEntry(pageInfo.pageNum)?.viewports || []}
-                    snapEnabled={snapEnabled}
-                    calibrationShape={calibrationMode && scalePick?.purpose === 'viewport' ? 'rect' : 'line'}
-                    calibrationSteps={stepsForScalePick(calibrationMode ? scalePick : null)}
-                    candidateMarkers={candidates}
-                    onCandidateToggle={handleToggleCandidate}
-                    fillHeight={isFullscreen}
-                    steelCatalog={steelCatalog}
-                    areas={areas}
-                    activeCountSession={countSession}
-                    onCountMark={handleCountMark}
-                    onCountDotRemove={handleCountDotRemove}
-                    legends={canvasLegends}
-                    onLegendMove={(page, pos) => extras.setLegendSetting(page, { anchor: 'custom', pdfX: pos.pdfX, pdfY: pos.pdfY })}
-                    boxSelectMode={symbolSearch.phase === 'picking'}
-                    onBoxSelect={symbolSearch.onBoxSelect}
-                    searchCandidates={symbolSearch.phase === 'review' ? symbolSearch.visible : NO_ITEMS}
-                    onSearchCandidateClick={symbolSearch.toggle}
-                    revisionClouds={revisionCloudsOnPage}
-                  />
-                </div>
-              )}
-
-              {isFullscreen && (
-                <>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={() => setIsFullscreen(false)}
-                    title="Exit fullscreen (Esc)"
-                    className="fixed top-4 right-4 z-[60] bg-slate-900 text-white border-slate-700 hover:bg-slate-800 hover:text-white"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-
-                  <div
-                    style={{ position: 'fixed', left: floatingPanelPos.x, top: floatingPanelPos.y }}
-                    className="z-[60] w-80 max-h-[85vh] overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 shadow-2xl"
-                  >
-                    <div
-                      onMouseDown={handlePanelDragStart}
-                      className="flex items-center gap-2 px-3 py-2 border-b border-slate-700 text-xs font-semibold uppercase tracking-wide text-slate-300 cursor-move select-none"
-                    >
-                      <GripVertical className="w-4 h-4" />IRONSIGHT Tools
-                    </div>
-                    <div className="p-3 space-y-3">
-                      {calibrationStatusRow}
-                      {toolButtonsRow}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className={isFullscreen ? 'hidden' : 'w-full lg:w-72 flex-shrink-0 space-y-4'}>
-            {notesPanelOpen && (
-              <div className="border rounded-lg">
-                <div className="flex items-center gap-2 px-3 py-2 text-sm font-semibold border-b">
-                  <StickyNote className="w-4 h-4" />
-                  Page Notes — Page {pageInfo.pageNum} of {pageInfo.numPages || 1}
-                </div>
-                <div className="p-3">
-                  <textarea
-                    key={pageInfo.pageNum}
-                    value={pageNotes[pageInfo.pageNum] || ''}
-                    onChange={(e) => handlePageNoteChange(e.target.value)}
-                    placeholder="Notes for this page…"
-                    className="w-full h-32 rounded-md border border-input bg-background px-2 py-1.5 text-sm resize-y"
-                  />
-                </div>
-              </div>
-            )}
-            <LegendControls
-              pageNum={pageInfo.pageNum}
-              setting={currentLegendSetting}
-              rowCount={pageMarkupCount}
-              onChange={(patch) => extras.setLegendSetting(pageInfo.pageNum, patch)}
-            />
-            <ToolChestPanel
-              toolChest={toolChest}
-              selectedPresetId={selectedPresetId}
-              onSelectPreset={handleSelectPreset}
-              onRemovePreset={handleRemovePreset}
-              onAddPreset={(preset) => setToolChest((prev) => [...prev, preset])}
-              activeToolSet={extras.toolSet}
-              onLoadToolSet={handleApplyToolSet}
-              onOpenLibrary={() => setLibraryOpen(true)}
-            />
-            </div>
           </div>
+        </div>
+      )}
+    </>
+  );
 
-          {/* Single-action batch trigger */}
-          <Button
-            onClick={handleProcessFullDocument}
-            disabled={!fileUrl || scanning}
-            className="w-full h-16 text-lg font-extrabold uppercase tracking-wide steel-gradient text-white border-0"
-          >
-            {scanning ? <Loader2 className="w-6 h-6 mr-3 animate-spin" /> : <ScanLine className="w-6 h-6 mr-3" />}
-            PROCESS FULL DOCUMENT TAKEOFF
-          </Button>
+  const canvasNode = fileUrl && /\.pdf$/i.test(fileName || '') ? (
+    <BlueprintCanvas
+      ref={canvasRef}
+      source={fileUrl}
+      fillHeight
+      calibrationMode={calibrationMode}
+      calibrationPoints={calibrationPoints}
+      onCalibrationClick={handleCalibrationClick}
+      onScaleChange={setCanvasScale}
+      onPageSizeChange={setPageSize}
+      onPageChange={setPageInfo}
+      activeTool={activeTool}
+      draft={measureDraft.draft}
+      circleMode={measureDraft.circleMode}
+      onMeasurementClick={handleMeasurementClick}
+      onFinishShape={measureDraft.finish}
+      measurementItems={measurementItemsForCanvas}
+      highlightedItemKey={highlightedRowKey}
+      canMeasure={pageCalibrated}
+      getScaleAt={scaleAtPoint}
+      viewports={scales.pageEntry(pageNum)?.viewports || NO_ITEMS}
+      snapEnabled={snapEnabled}
+      ortho={Boolean(prefs.ortho)}
+      calibrationShape={calibrationMode && scalePick?.purpose === 'viewport' ? 'rect' : 'line'}
+      calibrationSteps={stepsForScalePick(calibrationMode ? scalePick : null)}
+      areas={areas}
+      activeCountSession={countSession}
+      onCountMark={handleCountMark}
+      onCountDotRemove={handleCountDotRemove}
+      legends={canvasLegends}
+      onLegendMove={(page, pos) => extras.setLegendSetting(page, { anchor: 'custom', pdfX: pos.pdfX, pdfY: pos.pdfY })}
+      boxSelectMode={symbolSearch.phase === 'picking'}
+      onBoxSelect={symbolSearch.onBoxSelect}
+      searchCandidates={symbolSearch.phase === 'review' ? symbolSearch.visible : NO_ITEMS}
+      onSearchCandidateClick={symbolSearch.toggle}
+      revisionClouds={revisionCloudsOnPage}
+      navTool={navTool}
+      markupTool={markupTool}
+      markupStyle={markupTool ? styleForTool(markupTool) : null}
+      drawingMarkups={markupsOnPage}
+      selectedKeys={selectedKeys}
+      onSelectionChange={setSelectedKeys}
+      onCreateMarkup={handleCreateMarkup}
+      onMoveMarkups={handleMoveMarkups}
+      onMarkupHandleDrag={handleMarkupHandleDrag}
+      onMarkupDoubleClick={handleMarkupDoubleClick}
+      onCanvasContextMenu={handleCanvasContextMenu}
+      editingTextId={editingTextId}
+      onTextCommit={handleTextCommit}
+      showGrid={Boolean(prefs.grid)}
+      continuous={Boolean(prefs.continuous)}
+      rotation={pageRotation}
+      ocConfig={ocConfig}
+      ocVersion={ocVersion}
+      searchHits={search.hits.filter((h) => h.page === pageNum)}
+      activeSearchHitId={search.activeId}
+      initialView={initialView}
+      onViewChange={handleViewChange}
+      cursorStore={cursorStore}
+      viewStore={viewStore}
+      onDocumentLoad={setPdfDoc}
+    />
+  ) : (
+    <div className="h-full flex items-center justify-center bg-neutral-600 text-sm text-neutral-200 px-6 text-center">
+      {fileUrl ? 'This file is an image, not a PDF — the drawing viewer opens PDFs. Rows can still be added in the Takeoff grid below.' : pdfMissingNotice ? 'Re-attach the PDF to see the drawing.' : 'Loading the drawing…'}
+    </div>
+  );
 
-          {fileUrl && (
-            <div className="flex items-center justify-end">
-              <Button variant="outline" size="sm" onClick={loadDemoRows} disabled={scanning}>
-                <FlaskConical className="w-3.5 h-3.5 mr-1.5" />Load Demo Rows (sample data, not a real scan)
-              </Button>
-            </div>
-          )}
+  const leftProps = {
+    pdfDoc,
+    numPages: pageInfo.numPages || 1,
+    pageNum,
+    pageLabels,
+    scaleInfoFor: scaleLabelForPage,
+    onGoToPage: goToPage,
+    onScaleClick: (n) => { goToPage(n); setScaleDialog({ mode: 'scale' }); },
+    ocConfig,
+    ocVersion,
+    onToggleLayer: toggleLayer,
+    search,
+    onSearchChange: setSearch,
+    onGoToHit: goToSearchHit,
+    searchFocusToken,
+  };
 
-          {scanning && (
-            <div className="w-full rounded-lg border-2 border-primary bg-primary text-primary-foreground px-4 py-3 flex items-center gap-3 animate-pulse">
-              <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" />
-              <p className="text-sm font-bold uppercase tracking-wide">
-                AI Vision Core Analyzing Entire Multi-Sheet Blueprint Package. Processing Elements Across All Drawing Pages...
-              </p>
-            </div>
-          )}
-          {scanError && <p className="text-sm text-amber-600">{scanError}</p>}
-          {excelExportError && <p className="text-sm text-amber-600">{excelExportError}</p>}
+  const rightContent = {
+    properties: (
+      <PropertiesPanel
+        selected={selectedItems}
+        onMarkupChange={(id, patch) => { recordHistory(); markups.update(id, patch); }}
+        onRowChange={(key, field, value) => updateRow(key, field, value)}
+        onDelete={() => deleteKeys(selectedKeys)}
+        onToggleLock={() => toggleLock()}
+        onEditText={(id) => setEditingTextId(id)}
+        onShowRow={showItem}
+        pageNum={pageNum}
+        numPages={pageInfo.numPages || 1}
+        pageScaleText={pageScaleText}
+        onOpenScale={() => setScaleDialog({ mode: 'scale' })}
+        pageNote={pageNotes[pageNum]}
+        onPageNoteChange={handlePageNoteChange}
+      />
+    ),
+    toolchest: (
+      <ToolChestPanel
+        defaultOpen
+        toolChest={toolChest}
+        selectedPresetId={selectedPresetId}
+        onSelectPreset={handleSelectPreset}
+        onRemovePreset={handleRemovePreset}
+        onAddPreset={(preset) => setToolChest((prev) => [...prev, preset])}
+        activeToolSet={extras.toolSet}
+        onLoadToolSet={handleApplyToolSet}
+        onOpenLibrary={() => setLibraryOpen(true)}
+      />
+    ),
+    measurements: (
+      <>
+        <ScalePanel
+          pageNum={pageNum}
+          numPages={pageInfo.numPages}
+          scales={scales}
+          disabled={!fileUrl}
+          canvasScale={canvasScale}
+          calibrationMode={calibrationMode}
+          calibrationPoints={calibrationPoints}
+          pick={calibrationMode ? scalePick : null}
+          onStartPick={startScalePick}
+          onCancelPick={handleCalibrationCancel}
+          onScaleReference={handleScaleReference}
+          calibrateInDialog
+        />
+        <Button size="sm" variant="outline" className="w-full" onClick={() => setScaleDialog({ mode: 'scale' })} disabled={!fileUrl}>
+          <Crosshair className="w-3.5 h-3.5 mr-1.5" />Drawing scale / custom ratio…
+        </Button>
+        <LegendControls
+          pageNum={pageNum}
+          setting={currentLegendSetting}
+          rowCount={pageMarkupCount}
+          onChange={(patch) => extras.setLegendSetting(pageNum, patch)}
+        />
+      </>
+    ),
+    symbols: (
+      <>
+        <Button
+          size="sm"
+          className="w-full"
+          variant={symbolSearch.phase === 'picking' ? 'default' : 'outline'}
+          onClick={handleStartSymbolSearch}
+          disabled={!fileUrl || symbolSearch.phase === 'searching'}
+        >
+          <ScanSearch className="w-3.5 h-3.5 mr-1.5" />Box a symbol to find the others
+        </Button>
+        <p className="text-[11px] text-muted-foreground">No AI — matches the picture of the symbol on this page, works offline. Matches only become counts after you accept them.</p>
+        <VisualSearchPanel search={symbolSearch} countRowsOnPage={countRowsOnPage} onAddToCount={handleAddSearchMatches} />
+      </>
+    ),
+  };
 
-          {rows.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-sm flex items-center gap-2">
-                  <FileStack className="w-4 h-4 text-primary" />
-                  Unified Quantity Takeoff — {sheetCount || 1} sheet{(sheetCount || 1) === 1 ? '' : 's'}, {rows.length} item{rows.length === 1 ? '' : 's'}
-                </h3>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={handleExportRequisitionPdf}><FileDown className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO PDF</Button>
-                  <Button size="sm" variant="outline" onClick={handleExportRequisitionXlsx}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO EXCEL</Button>
-                  <Button size="sm" variant="outline" onClick={handleExportExcelTemplate} disabled={exportingExcel}>
-                    {exportingExcel ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <FileDown className="w-3.5 h-3.5 mr-1" />}
-                    EXPORT TO EXCEL TEMPLATE
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={addManualRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Row</Button>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 p-1.5 rounded-lg border bg-muted/20 w-fit">
-                <Button size="sm" variant={gridView === 'takeoff' ? 'default' : 'ghost'} onClick={() => setGridView('takeoff')}>
-                  <Grid3x3 className="w-3.5 h-3.5 mr-1.5" />Takeoff Grid
-                </Button>
-                <Button size="sm" variant={gridView === 'markups' ? 'default' : 'ghost'} onClick={() => setGridView('markups')}>
-                  <ListChecks className="w-3.5 h-3.5 mr-1.5" />Markups List
-                </Button>
-                <Button size="sm" variant={gridView === 'measurements' ? 'default' : 'ghost'} onClick={() => setGridView('measurements')}>
-                  <MousePointerClick className="w-3.5 h-3.5 mr-1.5" />Confirmed Measurements
-                </Button>
-              </div>
-
-              {/* Both panels stay mounted (toggled via `hidden`) rather than a
-                  ternary — MarkupsList owns local edit state (qty
-                  multipliers, in-flight weight overrides) that a tab switch
-                  shouldn't silently reset before its own debounce saves. */}
-              <div className={gridView === 'markups' ? '' : 'hidden'}>
-                <MarkupsList
-                  rows={rows}
-                  onRowsChange={(newRows) => { setRows(newRows); persist(newRows); }}
-                  takeoffId={takeoffId}
-                  takeoffName={takeoffName}
-                  fileName={fileName}
-                  companyId={user?.company_id}
-                  bidId={sessionBidId}
-                  projectId={sessionProjectId}
-                  sequenceAreaId={sessionAreaId}
-                  onLink={(newBidId, newProjectId) => persistTakeoffLink(takeoffId, newBidId, newProjectId)}
-                  initialWeights={markupWeights}
-                  columns={extras.columns}
-                  toolSetColumns={extras.toolSet?.columns || []}
-                  customColumns={extras.customColumns}
-                  computeRow={extras.computeRow}
-                  onCustomColumnsChange={extras.setCustomColumns}
-                  onRowClick={handleMeasurementRowClick}
-                />
-              </div>
-              <div className={gridView === 'takeoff' ? '' : 'hidden'}>
-              {rows.some((r) => r.is_demo) && (
+  const takeoffTab = (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="font-semibold text-sm flex items-center gap-2 mr-auto">
+          <FileStack className="w-4 h-4 text-primary" />
+          Unified Quantity Takeoff — {sheetCount || 1} sheet{(sheetCount || 1) === 1 ? '' : 's'}, {rows.length} item{rows.length === 1 ? '' : 's'}
+        </h3>
+        <Button size="sm" onClick={handleProcessFullDocument} disabled={!fileUrl || scanning}>
+          {scanning ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <ScanLine className="w-3.5 h-3.5 mr-1" />}Detect with local AI (whole document)
+        </Button>
+        <Button size="sm" variant="outline" onClick={loadDemoRows} disabled={scanning || !fileUrl}><FlaskConical className="w-3.5 h-3.5 mr-1" />Load Demo Rows (sample data)</Button>
+        <Button size="sm" variant="outline" onClick={handleExportRequisitionPdf} disabled={!rows.length}><FileDown className="w-3.5 h-3.5 mr-1" />Requisition PDF</Button>
+        <Button size="sm" variant="outline" onClick={handleExportRequisitionXlsx} disabled={!rows.length}><FileSpreadsheet className="w-3.5 h-3.5 mr-1" />Requisition Excel</Button>
+        <Button size="sm" variant="outline" onClick={handleExportExcelTemplate} disabled={exportingExcel || !rows.length}>
+          {exportingExcel ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <FileDown className="w-3.5 h-3.5 mr-1" />}Excel bid template
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setSteelCatalogEditorOpen(true)}><ListChecks className="w-3.5 h-3.5 mr-1" />Steel catalog</Button>
+        <Button size="sm" variant="outline" onClick={addManualRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Row</Button>
+      </div>
+      {scanning && (
+        <div className="w-full rounded-lg border-2 border-primary bg-primary text-primary-foreground px-4 py-2 flex items-center gap-3 animate-pulse">
+          <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" />
+          <p className="text-sm font-bold">Local AI is reading every sheet in the drawing set… results come back here for review before anything is used.</p>
+        </div>
+      )}
+      {scanError && <p className="text-sm text-amber-600">{scanError}</p>}
+      {excelExportError && <p className="text-sm text-amber-600">{excelExportError}</p>}
+      {rows.some((r) => r.is_demo) && (
                 <p className="text-xs font-medium text-amber-600 flex items-center gap-1.5">
                   <FlaskConical className="w-3.5 h-3.5" />Sample rows loaded for layout testing — these are not real blueprint detections and should not be used for an actual bid.
                 </p>
@@ -2941,10 +3367,12 @@ export default function BlueprintTakeoff() {
                   🪙 Total Galvanized Mass: {totalGalvanizedTons.toLocaleString(undefined, { maximumFractionDigits: 2 })} Tons
                 </p>
               </div>
-              </div>
+    </div>
+  );
 
-              <div className={gridView === 'measurements' ? '' : 'hidden'}>
-                <div className="flex items-center justify-between mb-2">
+  const confirmedTab = (
+    <div>
+      <div className="flex items-center justify-between mb-2">
                   <h4 className="text-sm font-semibold flex items-center gap-2">
                     <MousePointerClick className="w-4 h-4 text-primary" />
                     Confirmed Measurements — {measurementRows.length} row{measurementRows.length === 1 ? '' : 's'}
@@ -3082,10 +3510,272 @@ export default function BlueprintTakeoff() {
                     </table>
                   </div>
                 )}
+    </div>
+  );
+
+  const bottomTabs = [
+    {
+      id: 'markups',
+      label: 'Markups List',
+      badge: listEntries.length || null,
+      scroll: false,
+      content: (
+        <MarkupsListPanel
+          entries={listEntries}
+          columns={extras.columns}
+          selectedKeys={selectedKeys}
+          currentPage={pageNum}
+          takeoffName={takeoffName}
+          onRowClick={(e, { additive }) => {
+            setSelectedKeys((prev) => (additive ? (prev.includes(e.key) ? prev.filter((k) => k !== e.key) : [...prev, e.key]) : [e.key]));
+            showItem({ kind: e.kind, item: e.item });
+          }}
+        />
+      ),
+    },
+    {
+      id: 'estimate',
+      label: 'Estimate & tonnage',
+      content: (
+        <MarkupsList
+          rows={rows}
+          onRowsChange={(newRows) => { setRows(newRows); persist(newRows); }}
+          takeoffId={takeoffId}
+          takeoffName={takeoffName}
+          fileName={fileName}
+          companyId={user?.company_id}
+          bidId={sessionBidId}
+          projectId={sessionProjectId}
+          sequenceAreaId={sessionAreaId}
+          onLink={(newBidId, newProjectId) => persistTakeoffLink(takeoffId, newBidId, newProjectId)}
+          initialWeights={markupWeights}
+          columns={extras.columns}
+          toolSetColumns={extras.toolSet?.columns || []}
+          customColumns={extras.customColumns}
+          computeRow={extras.computeRow}
+          onCustomColumnsChange={extras.setCustomColumns}
+          onRowClick={handleMeasurementRowClick}
+        />
+      ),
+    },
+    { id: 'takeoff', label: 'Takeoff grid', badge: rows.length || null, content: takeoffTab },
+    { id: 'confirmed', label: 'Confirmed measurements', badge: measurementRows.length || null, content: confirmedTab },
+  ];
+
+  const drawingTabs = openDrawingIds.map((id) => {
+    const s = id === takeoffId ? null : sessions.find((x) => x.id === id);
+    return {
+      id,
+      active: id === takeoffId,
+      label: id === takeoffId ? (takeoffName || fileName || 'This drawing') : (s?.takeoff_name || s?.file_name || 'Drawing'),
+      onSelect: () => (s ? switchToSession(s) : null),
+      onClose: () => setOpenDrawingIds((ids) => ids.filter((x) => x !== id)),
+    };
+  });
+
+  const statusBarProps = {
+    pageNum,
+    numPages: pageInfo.numPages || 1,
+    pageLabel: pageLabels?.[pageNum - 1] && pageLabels[pageNum - 1] !== String(pageNum) ? pageLabels[pageNum - 1] : null,
+    onGoToPage: goToPage,
+    viewStore,
+    cursorStore,
+    onZoomPreset: (z) => {
+      if (z === 'page') canvasRef.current?.fitPage();
+      else if (z === 'width') canvasRef.current?.fitWidth();
+      else canvasRef.current?.zoomToScale(z);
+    },
+    resolveScale: scaleAtPoint,
+    onOpenScale: () => setScaleDialog({ mode: 'scale' }),
+    units: prefs.units,
+    snap: snapEnabled,
+    grid: Boolean(prefs.grid),
+    ortho: Boolean(prefs.ortho),
+    continuous: Boolean(prefs.continuous),
+    hasFile: Boolean(fileUrl),
+    onToggle: (what) => {
+      if (what === 'snap') ws.toggleSnap();
+      else if (what === 'grid') ws.toggleGrid();
+      else if (what === 'ortho') ws.toggleOrtho();
+      else setPrefs({ continuous: what === 'continuous' });
+    },
+  };
+
+  return (
+    <div className="p-6 w-full max-w-none space-y-4 animate-fade-in">
+      {mode === 'sessions' && (
+        <div className="bg-slate-900 rounded-lg px-6 py-5 flex items-center gap-4">
+          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true" className="flex-shrink-0">
+            <circle cx="22" cy="22" r="16" stroke="#f59e0b" strokeWidth="2" />
+            <circle cx="22" cy="22" r="3" fill="#f59e0b" />
+            <line x1="22" y1="1" x2="22" y2="10" stroke="#f59e0b" strokeWidth="2" />
+            <line x1="22" y1="34" x2="22" y2="43" stroke="#f59e0b" strokeWidth="2" />
+            <line x1="1" y1="22" x2="10" y2="22" stroke="#f59e0b" strokeWidth="2" />
+            <line x1="34" y1="22" x2="43" y2="22" stroke="#f59e0b" strokeWidth="2" />
+          </svg>
+          <div>
+            <h1 className="text-3xl font-bold text-white tracking-tight leading-none">IRONSIGHT</h1>
+            <p className="text-sm text-slate-400 mt-1">
+              {bidId
+                ? (bid ? `Takeoff for Bid ${[bid.bid_number, bid.job_name].filter(Boolean).join(': ')}` : 'Loading bid…')
+                : 'Structural Steel Takeoff Platform'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {mode === 'sessions' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
+              <FolderOpen className="w-4 h-4" />{bidId ? "This Bid's Takeoff Sessions" : 'Resume a takeoff'}
+            </h3>
+            {sessionsLoading ? (
+              <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading sessions…</p>
+            ) : bidSessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No takeoff sessions yet — start one on the right.</p>
+            ) : (
+              <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
+                {bidSessions.map((s) => {
+                  const itemCount = (s.accepted_items || []).length;
+                  return (
+                    <Card key={s.id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => openSession(s)}>
+                      <CardContent className="p-4 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold truncate" title={s.takeoff_name || s.file_name || 'Untitled takeoff'}>{s.takeoff_name || s.file_name || 'Untitled takeoff'}</p>
+                          {s._linkedLabel ? (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); navigate(s._linkedType === 'project' ? `/projects/${s._linkedId}` : `/estimating/${s._linkedId}`); }}
+                              className="text-xs text-primary truncate hover:underline flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-3 h-3 flex-shrink-0" />{s._linkedLabel}
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-1.5 mt-0.5" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-xs text-muted-foreground">Not linked</span>
+                              <Select value={sessionLinkDraft[s.id] || ''} onValueChange={(v) => handleLinkSessionNow(s.id, v)}>
+                                <SelectTrigger className="h-6 text-[11px] w-32"><SelectValue placeholder="Link now…" /></SelectTrigger>
+                                <SelectContent>
+                                  {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
+                                  {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name}</SelectItem>)}
+                                  {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {itemCount} item{itemCount === 1 ? '' : 's'} · {s.sheet_count || 1} sheet{(s.sheet_count || 1) === 1 ? '' : 's'}
+                          </p>
+                          {!s.has_stored_pdf && (
+                            <Badge variant="outline" className="mt-1.5 text-amber-600 border-amber-300">PDF not stored — measurements only</Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground flex-shrink-0 whitespace-nowrap">
+                          {s.last_opened_at ? formatDistanceToNow(new Date(s.last_opened_at), { addSuffix: true }) : 'never opened'}
+                        </span>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
-            </div>
-          )}
-        </>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
+              <Plus className="w-4 h-4" />Start a new takeoff
+            </h3>
+            {bidId ? (
+              <>
+                {bidAreas.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Which area is this set for? (optional)</label>
+                    <Select value={pendingDropAreaId || 'unassigned'} onValueChange={(v) => setPendingDropAreaId(v === 'unassigned' ? null : v)}>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                        {bidAreas.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <div
+                  onClick={() => bidFileInputRef.current?.click()}
+                  onDrop={handleBidDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  className={`rounded-lg border-2 border-dashed p-12 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border bg-muted/20 hover:bg-muted/30'}`}
+                >
+                  <input ref={bidFileInputRef} type="file" accept=".pdf,image/*" multiple className="hidden" onChange={handleBidBrowseSelect} />
+                  {creatingSession ? <Loader2 className="w-12 h-12 text-primary animate-spin" /> : <UploadCloud className="w-12 h-12 text-primary" />}
+                  <p className="font-semibold text-base">Drag & drop blueprints here to start</p>
+                  <p className="text-xs text-muted-foreground">or click to browse — drop several files to create one session per sheet set, all linked to this bid. Name defaults from the file, editable later.</p>
+                </div>
+                {newSessionError && <p className="text-sm text-amber-600">{newSessionError}</p>}
+              </>
+            ) : (
+              <>
+                <Input
+                  placeholder='Takeoff name — e.g. "Scott Park Phase II — Sheets S1-S8"'
+                  value={newTakeoffName}
+                  onChange={(e) => setNewTakeoffName(e.target.value)}
+                />
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Link to Bid or Project (optional)</label>
+                  <Select value={newTakeoffLinkValue} onValueChange={setNewTakeoffLinkValue}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Not linked" /></SelectTrigger>
+                    <SelectContent>
+                      {noLinkTargets && <SelectItem value="__none__" disabled>{noLinkTargetsMessage}</SelectItem>}
+                      {activeBids.map((b) => <SelectItem key={`bid:${b.id}`} value={`bid:${b.id}`}>{b.job_name} ({b.bid_number})</SelectItem>)}
+                      {activeProjects.map((p) => <SelectItem key={`project:${p.id}`} value={`project:${p.id}`}>{p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div
+                  onClick={handleNewDropzoneClick}
+                  onDrop={handleNewDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  className={`rounded-lg border-2 border-dashed p-8 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border bg-muted/20 hover:bg-muted/30'}`}
+                >
+                  <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleNewBrowseSelect} />
+                  {creatingSession ? <Loader2 className="w-10 h-10 text-primary animate-spin" /> : <UploadCloud className="w-10 h-10 text-primary" />}
+                  <p className="font-semibold">Drag & drop the blueprint package here</p>
+                  <p className="text-xs text-muted-foreground">or click to browse — multi-page PDFs and drawing sets accepted</p>
+                </div>
+                {newSessionError && <p className="text-sm text-amber-600">{newSessionError}</p>}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {mode === 'workspace' && (
+        <ErrorBoundary
+          label="ironsight-workspace"
+          title="IRONSIGHT hit an unexpected error"
+          onReset={handleWorkspaceErrorReset}
+          resetLabel="Back to sessions"
+        >
+          <IronsightWorkspace
+            ref={shellRef}
+            titleBar={titleBar}
+            menus={menus}
+            toolbar={ws}
+            strip={strip}
+            drawingTabs={drawingTabs}
+            left={leftProps}
+            rightContent={rightContent}
+            banners={banners}
+            canvas={canvasNode}
+            bottomTabs={bottomTabs}
+            statusBar={statusBarProps}
+            layout={layout}
+            setLayout={setLayout}
+            contextMenu={contextMenu}
+            onCloseContextMenu={closeContextMenu}
+          />
         </ErrorBoundary>
       )}
       <SteelCatalogEditor
@@ -3133,6 +3823,28 @@ export default function BlueprintTakeoff() {
             legendForPage={legendForPage}
             revisionCompare={extras.revisionCompare}
             author={user?.full_name || user?.email || ''}
+            drawingMarkups={markups.markups}
+          />
+          <ScaleDialog
+            open={Boolean(scaleDialog)}
+            mode={scaleDialog?.mode || 'scale'}
+            onOpenChange={handleScaleDialogOpenChange}
+            pageNum={pageNum}
+            numPages={pageInfo.numPages || 1}
+            points={scaleDialog?.mode === 'calibrate' ? calibrationPoints : []}
+            viewports={scales.pageEntry(pageNum)?.viewports || NO_ITEMS}
+            canvasScale={canvasScale}
+            defaultUnits={prefs.units}
+            currentLabel={pageScaleText}
+            onApply={applyScaleFromDialog}
+            onStartCalibrate={startCalibrateFromDialog}
+          />
+          <PreferencesDialog
+            open={prefsOpen}
+            onOpenChange={setPrefsOpen}
+            prefs={prefs}
+            onChange={setPrefs}
+            onResetLayout={resetLayout}
           />
           <RevisionCompareDialog
             open={compareOpen}

@@ -4,23 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, FileDown } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { exportMarkedUpPdf, markupsFromAcceptedItems, loadTakeoffPdfBytes, downloadPdfBytes } from '@/lib/takeoffMarkupPdfExport';
+import { exportMarkedUpPdf, markupsFromAcceptedItems, markupsFromDrawingMarkups, loadTakeoffPdfBytes, downloadPdfBytes } from '@/lib/takeoffMarkupPdfExport';
+import { parsePageList } from '@/lib/drawingMarkups';
 import { revisionCloudMarkups } from '@/lib/pdfRevisionOverlay';
-
-// "1-3, 5" → [1, 2, 3, 5] within 1..max; null when the text isn't a page list.
-function parsePageList(text, max) {
-  const out = new Set();
-  const parts = String(text || '').split(',').map((p) => p.trim()).filter(Boolean);
-  if (!parts.length) return null;
-  for (const part of parts) {
-    const m = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(part);
-    if (!m) return null;
-    const a = Number(m[1]);
-    const b = m[2] ? Number(m[2]) : a;
-    for (let p = Math.min(a, b); p <= Math.max(a, b); p += 1) if (p >= 1 && p <= max) out.add(p);
-  }
-  return [...out].sort((x, y) => x - y);
-}
 
 const ANCHOR_FOR_EXPORT = new Set(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
 
@@ -32,6 +18,8 @@ const ANCHOR_FOR_EXPORT = new Set(['top-left', 'top-right', 'bottom-left', 'bott
 export default function MarkupPdfExportDialog({
   open, onOpenChange, takeoffId, takeoffName, rows, toolSet, numPages = 1, currentPage = 1,
   legendSettings = {}, legendForPage, revisionCompare, author,
+  // General drawing markups (text boxes, clouds, stamps …) — exported too.
+  drawingMarkups = [], initialPageText = null,
 }) {
   const { toast } = useToast();
   const [mode, setMode] = useState('burn');
@@ -41,7 +29,12 @@ export default function MarkupPdfExportDialog({
   const [includeClouds, setIncludeClouds] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { if (open) { setPageText(String(currentPage)); setBusy(false); } }, [open, currentPage]);
+  useEffect(() => {
+    if (!open) return;
+    setPageText(initialPageText || String(currentPage));
+    if (initialPageText) setPageChoice('list');
+    setBusy(false);
+  }, [open, currentPage, initialPageText]);
 
   const cloudPages = Object.entries(revisionCompare?.pages || {}).filter(([, p]) => p?.clouds?.length);
   const pages = pageChoice === 'all' ? Array.from({ length: numPages }, (_, i) => i + 1)
@@ -49,6 +42,7 @@ export default function MarkupPdfExportDialog({
       : parsePageList(pageText, numPages);
   const pageSet = new Set(pages || []);
   const markupCount = rows.filter((r) => r.source === 'measurement' && r.is_accepted !== false && pageSet.has(Number(r.page_number || 1))).length;
+  const drawingCount = drawingMarkups.filter((m) => pageSet.has(Number(m.page_number || 1))).length;
 
   const handleExport = async () => {
     if (!pages?.length) { toast({ title: 'Check the page list', description: 'Use page numbers like 1-3, 5.', variant: 'destructive' }); return; }
@@ -61,6 +55,7 @@ export default function MarkupPdfExportDialog({
       }
       const pageRows = rows.filter((r) => pageSet.has(Number(r.page_number || 1)));
       const markups = markupsFromAcceptedItems(pageRows.filter((r) => r.source === 'measurement'), { toolSet, author });
+      markups.push(...markupsFromDrawingMarkups(drawingMarkups.filter((m) => pageSet.has(Number(m.page_number || 1))), { author }));
       if (includeClouds) {
         cloudPages.forEach(([pageNum, p]) => {
           if (!pageSet.has(Number(pageNum))) return;
@@ -138,7 +133,7 @@ export default function MarkupPdfExportDialog({
               <Input className="h-8 w-40" value={pageText} onChange={(e) => { setPageText(e.target.value); setPageChoice('list'); }} placeholder="1-3, 5" />
             </div>
             {pageChoice === 'list' && pages === null && <p className="text-xs text-red-600">Use page numbers like 1-3, 5.</p>}
-            <p className="text-xs text-muted-foreground">{markupCount} confirmed markup{markupCount === 1 ? '' : 's'} on {pages?.length || 0} page{pages?.length === 1 ? '' : 's'}.</p>
+            <p className="text-xs text-muted-foreground">{markupCount} confirmed markup{markupCount === 1 ? '' : 's'} and {drawingCount} drawing note{drawingCount === 1 ? '' : 's'} (text, clouds, stamps…) on {pages?.length || 0} page{pages?.length === 1 ? '' : 's'}.</p>
           </div>
 
           <div className="space-y-2">

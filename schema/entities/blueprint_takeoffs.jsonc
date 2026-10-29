@@ -86,7 +86,9 @@
         "type": "object",
         "properties": {
           "id": { "type": "string" },
-          "tool": { "type": "string", "enum": ["count", "bolt_count", "length", "polylength", "perimeter", "area", "wall_area", "volume", "radius", "diameter", "angle"] },
+          "tool": { "type": "string", "enum": ["count", "bolt_count", "length", "polylength", "perimeter", "area", "wall_area", "volume", "radius", "diameter", "angle", "markup"], "description": "'markup' = a drawing-markup style saved with right-click > Add to Tool Chest (see markup_type / style); picking it starts that markup tool. Never a takeoff row." },
+          "markup_type": { "type": "string", "description": "tool 'markup' only — drawing_markups[].type to draw." },
+          "style": { "type": "object", "description": "tool 'markup' only — drawing_markups[].style to draw with." },
           "label": { "type": "string" },
           "shapeClass": { "type": "string" },
           "sizeDesignation": { "type": "string" },
@@ -179,6 +181,177 @@
           "unit_weight_lbs_per_ft": { "type": "number", "default": 0 },
           "typical_length_ft": { "type": "number", "default": 0, "description": "Count groups only — an assumed per-piece length (e.g. column height) needed to turn a piece count into a weight, since the Count tool itself never measures length." },
           "weight_source": { "type": "string", "enum": ["aisc", "manual", "override"], "default": "manual" }
+        }
+      }
+    },
+    "drawing_markups": {
+      "type": "array",
+      "description": "General drawing markups (Revu-style workspace — src/lib/drawingMarkups.js): pen, highlight, lines, arrows, shapes, clouds, text boxes, typewriter text, callouts, sticky notes and IRONSIGHT stamps. NOT takeoff rows: they never reach accepted_items, Push to Estimate or any tonnage total. Shown in the Markups List as type 'Markup' and exported with the marked-up PDF (FreeText / Text / Stamp / Line / PolyLine / Polygon / Square / Circle annotations in editable mode; drawn in flatten mode). Array order is z-order (last = on top). Saved 600ms after the last change by useDrawingMarkups.js.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "pen",
+              "highlight",
+              "line",
+              "arrow",
+              "polyline",
+              "polygon",
+              "rect",
+              "ellipse",
+              "cloud",
+              "textbox",
+              "typewriter",
+              "callout",
+              "note",
+              "stamp"
+            ]
+          },
+          "page_number": {
+            "type": "number",
+            "default": 1
+          },
+          "points": {
+            "type": "array",
+            "description": "PDF space (zoom 1, PDF points, y down — same as accepted_items). pen/highlight/polyline/polygon: every vertex; line/arrow: [start, end]; rect/ellipse/cloud/textbox/callout/stamp: [top-left, bottom-right] (text boxes grow downward to fit their text); typewriter/note: [top-left corner].",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pdfX": {
+                  "type": "number"
+                },
+                "pdfY": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "leader": {
+            "type": "object",
+            "description": "callout only — the arrow tip, PDF space. The leader leaves from the middle of the nearest box side.",
+            "properties": {
+              "pdfX": {
+                "type": "number"
+              },
+              "pdfY": {
+                "type": "number"
+              }
+            }
+          },
+          "text": {
+            "type": "string",
+            "description": "textbox/typewriter/callout — the typed text (newlines kept; text boxes word-wrap to their width)."
+          },
+          "comment": {
+            "type": "string",
+            "description": "note — the sticky note's comment; any other markup — an optional comment (PDF annotation Contents)."
+          },
+          "stamp": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "reviewed",
+              "for_takeoff",
+              "not_in_scope",
+              "revised",
+              "hold"
+            ],
+            "description": "stamp only — which IRONSIGHT stamp."
+          },
+          "style": {
+            "type": "object",
+            "properties": {
+              "color": {
+                "type": "string",
+                "description": "Line / border color (hex)."
+              },
+              "fill_color": {
+                "type": "string",
+                "description": "Fill (hex); empty = no fill."
+              },
+              "opacity": {
+                "type": "number",
+                "description": "0–1, whole markup."
+              },
+              "fill_opacity": {
+                "type": "number",
+                "description": "0–1, fill only."
+              },
+              "line_width": {
+                "type": "number",
+                "description": "PDF points (scales with zoom, like paper)."
+              },
+              "line_style": {
+                "type": "string",
+                "enum": [
+                  "solid",
+                  "dashed",
+                  "dotted"
+                ]
+              },
+              "font_family": {
+                "type": "string",
+                "enum": [
+                  "Helvetica",
+                  "Times",
+                  "Courier"
+                ]
+              },
+              "font_size": {
+                "type": "number",
+                "description": "PDF points."
+              },
+              "bold": {
+                "type": "boolean"
+              },
+              "italic": {
+                "type": "boolean"
+              },
+              "underline": {
+                "type": "boolean"
+              },
+              "align": {
+                "type": "string",
+                "enum": [
+                  "left",
+                  "center",
+                  "right"
+                ]
+              },
+              "text_color": {
+                "type": "string"
+              },
+              "border": {
+                "type": "boolean",
+                "description": "textbox/callout — draw the box outline."
+              }
+            }
+          },
+          "subject": {
+            "type": "string",
+            "description": "Shown in the Markups List; PDF annotation subject."
+          },
+          "author": {
+            "type": "string"
+          },
+          "locked": {
+            "type": "boolean",
+            "default": false,
+            "description": "Locked markups can't be moved, resized, edited or deleted until unlocked."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       }
     },
@@ -409,6 +582,7 @@
           "carried_from_row_id": { "type": "string", "description": "id of the markup it was copied from (so it can't be brought over twice)." },
           "review_flag": { "type": "string", "enum": ["area_changed"], "description": "\"Check — area changed\": brought forward into a saved change cloud. Cleared (null) when the estimator clicks Checked." },
           "review_note": { "type": "string" },
+          "locked": { "type": "boolean", "default": false, "description": "Locked from the workspace (right-click > Lock / Properties): can't be deleted from the drawing, the Delete key or Properties, and its fields can't be edited in Properties, until unlocked. Takeoff rows are never dragged on the drawing either way." },
           "shape_class": { "type": "string", "enum": ["W-Beam", "HSS Tube", "C-Channel", "L-Angle", "PL-Plate"], "description": "steelShapeSelector SHAPE_CLASSES value. Takeoff Grid rows and rows measured with a tool-set tool (copied from the tool's shapeClass); custom-column weight lookup reads the class from the size itself first." }
         }
       }
