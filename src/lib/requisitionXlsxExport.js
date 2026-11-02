@@ -27,3 +27,32 @@ export function exportRequisitionToXlsx({ title, subtitle, columns, rows }) {
 
   return { filename: `${safeName}.xlsx` };
 }
+
+// Excel mirror of exportCombinedOrderToPdf (requisitionPdfExport.js): one
+// sheet each for the order list, cut lists, drop/scrap summary and flagged
+// pieces, from the same stockCombiner.js buildOrderExportTables rows.
+export function exportCombinedOrderToXlsx({ title, subtitle, tables, settingsText }) {
+  const workbook = XLSX.utils.book_new();
+  const addSheet = (name, { columns, rows, totalRow }, withHeader) => {
+    const aoa = [];
+    if (withHeader) {
+      aoa.push([title]);
+      if (subtitle) aoa.push([subtitle]);
+      if (settingsText) aoa.push([settingsText]);
+      aoa.push([]);
+    }
+    aoa.push(columns);
+    (rows || []).forEach((row) => aoa.push(row));
+    if (totalRow) aoa.push(totalRow);
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(aoa), name);
+  };
+  addSheet('Order List', tables.order, true);
+  addSheet('Cut Lists', tables.cuts, false);
+  addSheet('Drop & Scrap', tables.drops, false);
+  if (tables.flagged.rows.length) addSheet('Splice or Special', tables.flagged, false);
+  const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+
+  const safeName = String(title || 'combined-order').replace(/[^a-z0-9-]+/gi, '_');
+  downloadWorkbook(bytes, `${safeName}.xlsx`);
+  return { filename: `${safeName}.xlsx` };
+}

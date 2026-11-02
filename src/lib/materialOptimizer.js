@@ -10,8 +10,10 @@
 // brute-force optimal solver — for a real shop's piece counts, FFD gets
 // close to optimal in linear-ish time and stays predictable/debuggable,
 // which matters more here than squeezing out the last percent of yield.
-import { parseStructuralLength } from '@/lib/structuralLength';
-import { normalizeScanValue } from '@/lib/pieceScan';
+// Relative imports (not '@/lib/...') so this file also loads in plain Node
+// for the combining checks — stockCombiner.js reuses optimizeCutPlan.
+import { parseStructuralLength } from './structuralLength.js';
+import { normalizeScanValue } from './pieceScan.js';
 
 // PieceMark.finished_length is free text (see PieceMark.jsonc) — this is the
 // one place it gets turned into a number, and only in memory for planning;
@@ -57,7 +59,11 @@ function expandUnits(piecesInGroup) {
   const units = [];
   const unpackablePieces = [];
   (piecesInGroup || []).forEach((piece) => {
-    const lengthIn = getPieceLengthInches(piece);
+    // cut_length_in (a number, inches) wins when present — the takeoff
+    // combining step (stockCombiner.js) already has exact inches and
+    // shouldn't round-trip them through finished_length text. PieceMark rows
+    // never carry it, so the Material Optimization page is unchanged.
+    const lengthIn = Number.isFinite(piece?.cut_length_in) ? piece.cut_length_in : getPieceLengthInches(piece);
     const quantity = Math.max(1, Number(piece.quantity) || 1);
     if (lengthIn == null || lengthIn <= 0) {
       unpackablePieces.push({ piece_id: piece.id, length_in: lengthIn, reason: lengthIn == null ? 'Unparseable finished_length' : 'Zero or negative length' });

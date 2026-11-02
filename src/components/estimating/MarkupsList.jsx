@@ -10,7 +10,7 @@ import { ToastAction } from '@/components/ui/toast';
 import { useToast } from '@/components/ui/use-toast';
 import {
   CheckCircle2, Send, Link2, MousePointerClick, Ruler, Shapes, Loader2, Clipboard, Scale, FileDown, Printer, ListChecks, FileSpreadsheet,
-  Spline, Pentagon, Box, BrickWall, TriangleRight, Radius, Diameter,
+  Spline, Pentagon, Box, BrickWall, TriangleRight, Radius, Diameter, Combine,
 } from 'lucide-react';
 import { getShapeClass } from '@/data/steelShapeSelector';
 import { SHAPE_CATALOG } from '@/data/steelShapes';
@@ -20,6 +20,8 @@ import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 import { exportRowsToCsv } from '@/lib/csvExport';
 import { toolKind } from '@/lib/takeoffGeometry';
 import MarkupColumnsTable from '@/components/estimating/MarkupColumnsTable';
+import CombineForOrderingDialog from '@/components/estimating/CombineForOrderingDialog';
+import { calcCatalogRow, compactProfile, entryFamily } from '@/lib/materialEntryMath';
 
 // Every tool that can land in the Markups List, in display order. `kind`
 // (takeoffGeometry.js toolKind) decides the math: length kinds weigh by
@@ -222,6 +224,7 @@ export default function MarkupsList({
   const [pendingPushTarget, setPendingPushTarget] = useState(null);
   const [linking, setLinking] = useState(false);
   const [pushingKey, setPushingKey] = useState(null);
+  const [combineOpen, setCombineOpen] = useState(false);
   const weightsSaveTimerRef = useRef(null);
 
   useEffect(() => {
@@ -690,6 +693,52 @@ export default function MarkupsList({
     }
   };
 
+  // "Combine for ordering" input — the same piece shape FullTakeoff.jsx
+  // builds, so both feed one engine and one review screen. Built from each
+  // group's individual measured runs (not the summed length Push to
+  // Estimate sends), with the group's multiplier applied to piece counts
+  // and its unit weight (lb/ft) carried along. Counted plate parts (a
+  // plate-family shape with a captured width) are nested as plates; area,
+  // volume, angle and bolt groups have no piece dimensions and are listed
+  // as not combined.
+  const combineInput = (() => {
+    const pieces = [];
+    const excluded = [];
+    groups.forEach((group) => {
+      const label = `${TOOL_META[group.tool]?.label || group.tool}: ${group.label}`;
+      const { multiplier, unitWeight, typicalLengthFt } = getSetting(group);
+      const mult = Number(multiplier) || 0;
+      const code = String(group.shape_code || '').toUpperCase();
+      const profile = code ? compactProfile(code, group.size_designation) : String(group.size_designation || '').toUpperCase().replace(/s+/g, '');
+      const seq = { sequence_key: group.phase || '', sequence_label: group.phase || UNASSIGNED_PHASE };
+      if (group.tool === 'bolt_count') { excluded.push({ label, reason: 'Bolts are ordered by count — nothing to combine' }); return; }
+      if (group.kind !== 'length' && group.tool !== 'count') { excluded.push({ label, reason: `${group.kind === 'area' ? 'Area' : group.kind === 'volume' ? 'Volume' : 'Angle'} markup — no piece sizes to combine` }); return; }
+      if (!profile) { excluded.push({ label, reason: 'No shape/size on this markup' }); return; }
+      if (group.tool === 'count') {
+        const qty = Math.round(group.totalCount * mult);
+        const lengthIn = (Number(typicalLengthFt) || 0) * 12;
+        if (qty <= 0 || !(lengthIn > 0)) { excluded.push({ label, reason: 'Count needs a typical length and quantity' }); return; }
+        if (code && entryFamily(code) === 'plate') {
+          const widthIn = (Number(group.width_ft) || 0) * 12;
+          if (!(widthIn > 0)) { excluded.push({ label, reason: 'Plate count has no width captured' }); return; }
+          const category = code.startsWith('SS') ? 'Stainless' : code.startsWith('AL') ? 'Aluminum' : 'Structural Steel';
+          const c = calcCatalogRow({ shape_code: code, size_value: group.size_designation, width_in: widthIn, length_in: lengthIn, quantity: 1 }, { shapeType: { shape_code: code, category } });
+          pieces.push({ id: `${group.key}::count`, source_label: label, family: 'plate', shape_code: code, profile: c.profile, grade: group.grade || '', ...seq, thickness_in: c.thicknessIn || 0, width_in: widthIn, length_in: lengthIn, quantity: qty, lb_per_sq_in: (c.unitWeight || 0) / 144 });
+          return;
+        }
+        pieces.push({ id: `${group.key}::count`, source_label: label, family: 'linear', shape_code: code, profile, grade: group.grade || '', ...seq, length_in: lengthIn, quantity: qty, weight_per_ft: Number(unitWeight) || 0 });
+        return;
+      }
+      group.rows.forEach((r, i) => {
+        const qty = Math.round((r.quantity || 1) * mult);
+        const lengthIn = (Number(r.length_ft) || 0) * 12;
+        if (qty <= 0 || !(lengthIn > 0)) { excluded.push({ label: `${label} run ${i + 1}`, reason: 'No length or quantity' }); return; }
+        pieces.push({ id: `${group.key}::${r._key || i}`, source_label: `${label} run ${i + 1}`, family: 'linear', shape_code: code, profile, grade: group.grade || '', ...seq, length_in: lengthIn, quantity: qty, weight_per_ft: Number(unitWeight) || 0 });
+      });
+    });
+    return { pieces, excluded };
+  })();
+
   if (groups.length === 0) {
     return <p className="text-sm text-muted-foreground py-6 text-center">No markups yet — count, measure, or take off an area with the tools above to see it here.</p>;
   }
@@ -723,7 +772,10 @@ export default function MarkupsList({
         </div>
       )}
 
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        <Button size="sm" variant="outline" onClick={() => setCombineOpen(true)} title="Pack same-size pieces into stock lengths and sheets before ordering">
+          <Combine className="w-3.5 h-3.5 mr-1.5" />Combine for ordering
+        </Button>
         <Button size="sm" onClick={handlePushAll} disabled={pushingKey != null}>
           {pushingKey === 'ALL' ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Send className="w-3.5 h-3.5 mr-1.5" />}Push All
         </Button>
@@ -973,6 +1025,18 @@ export default function MarkupsList({
           )}
         </CardContent>
       </Card>
+
+      <CombineForOrderingDialog
+        open={combineOpen}
+        onOpenChange={setCombineOpen}
+        source="ironsight"
+        bidId={bidId}
+        takeoffSessionId={takeoffId}
+        title={takeoffName || fileName || 'IRONSIGHT takeoff'}
+        subtitle={`IRONSIGHT${linkedJobLabel ? ` — ${linkedJobLabel}` : ''}, ${combineInput.pieces.length} piece line${combineInput.pieces.length === 1 ? '' : 's'} to combine`}
+        pieces={combineInput.pieces}
+        excluded={combineInput.excluded}
+      />
     </div>
   );
 }

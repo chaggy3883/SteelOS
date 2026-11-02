@@ -3381,6 +3381,7 @@ const TENANT_SCOPED_ENTITIES = [
   'calendar_events',
   'candidate_documents',
   'candidate_profiles',
+  'combining_runs',
   'company_templates',
   'contract_exception_lines',
   'credit_card_expenses',

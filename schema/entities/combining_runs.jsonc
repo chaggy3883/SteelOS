@@ -1,0 +1,66 @@
+{
+  // Saved "Combine for ordering" runs (CombineForOrderingDialog.jsx, math in
+  // src/lib/stockCombiner.js + plateNester.js). A run packs a takeoff's
+  // pieces into stock lengths (linear) and sheets (plate) and records what
+  // to order, the cut lists and the drop/scrap. It is a separate result the
+  // estimator reviews before exporting or ordering — saving a run never
+  // changes the MaterialTakeoffLine rows or IRONSIGHT markups it came from.
+  "name": "combining_runs",
+  "type": "object",
+  "properties": {
+    "company_id": {
+      "type": "string"
+    },
+    "bid_id": {
+      "type": "string",
+      "description": "Bid the pieces came from (Full Takeoff), or the bid the IRONSIGHT session is linked to. Blank for an unlinked IRONSIGHT session."
+    },
+    "takeoff_session_id": {
+      "type": "string",
+      "description": "blueprint_takeoffs id when source is 'ironsight'."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["manual", "ironsight"],
+      "description": "manual = Full Takeoff rows; ironsight = an IRONSIGHT session's Markups List."
+    },
+    "name": {
+      "type": "string"
+    },
+    "created_by": {
+      "type": "string"
+    },
+    "used_for_pricing": {
+      "type": "boolean",
+      "default": false,
+      "description": "The one run (per bid, or per IRONSIGHT session when unlinked) the estimator marked as the basis for material pricing. Marking another run clears this on the others."
+    },
+    "settings": {
+      "type": "object",
+      "description": "Settings the run used: stock_lengths_ft, forced_stock_length_ft, kerf_in, squaring_in, clamp_in, usable_drop_in, sheets [{width_in, length_in}], forced_sheet, plate_kerf_in, edge_trim_in, allow_rotate, usable_plate_drop_in, within_sequence, price_per_cwt, group_overrides."
+    },
+    "input_pieces": {
+      "type": "array",
+      "description": "Snapshot of the pieces combined (id, source_label, family, shape_code, profile, grade, sequence_key/label, length_in, width_in, thickness_in, quantity, weight_per_ft, lb_per_sq_in), so a saved run reopens exactly as it was even after the takeoff changes.",
+      "items": { "type": "object" }
+    },
+    "excluded": {
+      "type": "array",
+      "description": "Takeoff lines the run left out and why (each items, rows with no length, IRONSIGHT area/volume markups, ...).",
+      "items": { "type": "object" }
+    },
+    "groups": {
+      "type": "array",
+      "description": "One result per shape + size + grade (+ sequence) group: order_line, stock_length_in or sheet, bars/sheets with cut positions and drop (usable or scrap), alternatives compared, flagged pieces (needs splice / special order) and totals (stock_qty, drop_pct, ordered/used/usable-drop/scrap lbs, ordered_tons, scrap_tons, qty_combined, pct_combined, cost, cost_basis).",
+      "items": { "type": "object" }
+    },
+    "totals": {
+      "type": "object",
+      "description": "Run totals across groups (stockCombiner.js runTotals): stock_qty, bars, sheets, ordered_lbs, used_lbs, usable_drop_lbs, scrap_lbs, ordered_tons, scrap_tons, drop_pct (weight basis), qty_total, qty_combined, pct_combined, flagged_count, cost."
+    }
+  },
+  "required": [
+    "source",
+    "name"
+  ]
+}

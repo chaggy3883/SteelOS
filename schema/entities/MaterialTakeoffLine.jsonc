@@ -98,6 +98,67 @@
       "type": "string",
       "description": "Links back to the blueprint_takeoffs (IRONSIGHT) session this line was pushed from, when source is 'ironsight'."
     },
+    "shape_code": {
+      "type": "string",
+      "description": "Full Takeoff catalog entry: the master catalog MaterialShapeType.shape_code (W, HSS, PL, FB, AB, ...). Set on every row entered through the catalog pickers; absent on rows saved before them (those use shape_class only and are calculated exactly as before — see materialEntryMath.js calcLegacyRow)."
+    },
+    "shape_description": {
+      "type": "string",
+      "description": "MaterialShapeType.description at the time the row was saved (display only)."
+    },
+    "size_value": {
+      "type": "string",
+      "description": "The MaterialSizeOption.size_value picked (e.g. '12 x 26', '1/2 x'). material_size keeps the compact profile (e.g. 'W12X26', 'PL1/2X24')."
+    },
+    "entry_family": {
+      "type": "string",
+      "enum": ["linear", "plate", "each"],
+      "description": "Which fields the row uses: linear = length x qty, plate = thickness (from the size) x width x length x qty, each = qty only."
+    },
+    "length_in": {
+      "type": "number",
+      "description": "Catalog rows: piece length in inches (linear and plate). length_raw keeps what was typed (e.g. 20'-6 1/2 in); length_ft is length_in / 12."
+    },
+    "width_in": {
+      "type": "number",
+      "description": "Plate-family rows: piece width in inches."
+    },
+    "thickness_in": {
+      "type": "number",
+      "description": "Plate-family rows: thickness in inches, read from the size (gauge sizes use the sheet gauge table) unless typed."
+    },
+    "weight_per_each": {
+      "type": "number",
+      "description": "Each-family rows: lb per piece used for the row's weight."
+    },
+    "weight_per_sq_ft": {
+      "type": "number",
+      "description": "Plate-family rows: lb per sq ft used for the row's weight."
+    },
+    "weight_source": {
+      "type": "string",
+      "enum": ["catalog", "aisc", "aisc_estimate", "computed", "override", "missing"],
+      "description": "Where the unit weight came from: steel_catalog weight_per_ft, the AISC Shapes Database v16.0 table (aiscShapes.js, exact), the old AISC estimator (steelShapeSelector.js), computed from the size's dimensions at 490/501/169 lb/cu ft (carbon/stainless/aluminum), typed on the row, or missing (row shows 'weight needed' and counts 0 lb until one is typed)."
+    },
+    "weight_override": {
+      "type": "number",
+      "description": "Typed unit weight that beats every looked-up/computed one. Unit follows entry_family: lb/ft (linear), lb/sq ft (plate), lb/ea (each)."
+    },
+    "total_weight_lbs": {
+      "type": "number",
+      "default": 0,
+      "description": "Row weight in lb (total_tons x 2000)."
+    },
+    "sq_in_area": {
+      "type": "number",
+      "default": 0,
+      "description": "Plate area sq in: width x length x qty for plate-family rows (0 for others; old PL-Plate strip rows use strip width x length x qty)."
+    },
+    "sq_in_surface": {
+      "type": "number",
+      "default": 0,
+      "description": "Surface (paint) area sq in for the whole row whatever the coating — steelShapeMath perimeter where it has one, else the shape's own perimeter x length x qty; plate = both faces + edges. paint_area_sq_in stays the Paint-only figure pushed to the bid."
+    },
     "sequence_area_id": {
       "type": "string",
       "description": "Nullable FK to ProjectSequenceArea. Optional — assigns this takeoff line to one of the bid's already-defined Areas (see BidAreaManager.jsx), same entity/id ProjectDetail.jsx's Sequence/Area piece assignment uses. Null/unset means Unassigned, the default for bids with no Areas defined. Carried forward unchanged when the bid is won (createProjectFromWonBid, BidDetail.jsx) since the referenced ProjectSequenceArea keeps its id across the bid-to-project carryover."

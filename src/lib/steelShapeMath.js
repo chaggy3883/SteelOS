@@ -2,7 +2,9 @@
 // Takeoff grid and the Full Takeoff manual bid-line grid. Perimeters are
 // derived from the shape designation string itself via regex, not a real
 // AISC dimension table — good enough for an early paint-area estimate, not
-// a substitute for shop drawings.
+// a substitute for shop drawings. Standard shapes found in the AISC Shapes
+// Database v16.0 (aiscShapes.js) use AISC's own perimeter instead.
+import { findAiscShape } from './aiscShapes.js';
 
 // W-shapes: no threshold is given for "large column" vs "shallow section",
 // so this treats 12in+ nominal depth (columns/heavier beams) as flange
@@ -72,6 +74,11 @@ function hssCatalogPerimeterIn(shape, catalogRows) {
 
 function resolvePerimeterIn(shapeString, catalogRows) {
   const shape = String(shapeString || '').trim().toUpperCase();
+
+  // Standard shapes: AISC Shapes Database v16.0 perimeter (exact), ahead of
+  // every rough rule below.
+  const aisc = findAiscShape(shape);
+  if (aisc?.perimeterIn > 0) return aisc.perimeterIn;
 
   if (shape.startsWith('HSS')) {
     return hssCatalogPerimeterIn(shape, catalogRows) ?? hssPerimeterIn(shape) ?? BASELINE_FALLBACK_PERIMETER_IN;

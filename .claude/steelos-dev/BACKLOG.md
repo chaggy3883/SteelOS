@@ -5,6 +5,34 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-10-30) — Catalog material entry, Combine for ordering (Mult/Nest), Full Breakdown parity (our own code)
+- Full Takeoff manual entry: searchable Material/Size/Grade from the master catalog (95 codes, ~3,986 sizes, 221 grades),
+  family default grades + free entry. Linear = ft-in length x qty; plate types = thickness x W x L x qty; hardware = qty.
+  Weight: steel_catalog -> AISC estimator -> computed (490/501/169 lb/cu ft) -> "Weight needed" + typed value.
+  Weight lb, tons, Plate area sq in, Surface sq in per line and in totals, all drill-down. Old 5-class rows unchanged.
+- Combine for ordering (Full Takeoff + IRONSIGHT Markups List): Mult (FFD, kerf/squaring/clamp, usable-drop threshold,
+  best or forced stock length) and Nest (plateNester.js shelf FFD, rotation, edge trim, best or forced sheet). Order
+  lines, cut lists, nest diagrams, % drop, ordered/used/scrap tons, cost; splice flags; saved runs (combining_runs),
+  used-for-pricing, compare two; order list PDF/Excel. Takeoff rows never changed by a run.
+- Full Breakdown PDF/Excel carry every Bid Worksheet item in worksheet order (bidInternalBreakdownData.js; worksheet
+  math shared via bidWorksheetCalc.js). Export now follows the live worksheet (total, tax, bond, newest row per category).
+- Verified: lib checks all pass (W12x26 10 @ 18'-6" = 4,810 lb / 2.405 t; PL1/2 24x36 x4 = 3,456 sq in / 490.0 lb;
+  Mult 4 bars 8.125% drop; Nest 1 sheet 77.5%; old W10X33 row 0.66 t); breakdown parity 0 missing; build + lint clean.
+  Browser (db.json backed up/restored): picked W / 12 x 26 / A992, 18'-6" x 10 -> 4,810 lb, 2.405 t; Combine -> 5 x 40'
+  bars, 7.50% drop, 2.600 t ordered, cut list + diagram, Save run; breakdown PDF (4 pages) and Excel generate.
+  Not checked: plate/each lines in the UI, IRONSIGHT's Combine button, run compare, order list files by eye.
+
+- AISC accuracy (2026-11-02): src/data/aiscShapes.data.js generated from the AISC Shapes Database v16.0 (1,660 single
+  shapes: W, S, M, HP, C, MC, L, WT, MT, ST, HSS, Pipe; lb/ft + perimeter PB, or pi x OD / rounded HSS / ST formula),
+  read through src/lib/aiscShapes.js. Weight order is now steel_catalog -> AISC -> computed -> old estimator.
+  estimateWeightPerFt and steelShapeMath read AISC first too, so IRONSIGHT and old HSS/angle rows use true weights.
+  Checks: W12x26 perimeter 49.4 in (was 72); HSS6x6x3/8 27.48 lb/ft (was 30.6); L4x4x1/2 12.8; Pipe4STD 10.8.
+
+## Queued — follow-ups from catalog entry / combining
+- Weights for bolts/nuts/washers/anchors, grating, deck, expanded metal; pipe over 12"; rebar exact table.
+- Register MillPricing for combining cost; load a run into a multi-line requisition/PO (none exists yet).
+- Nest IRONSIGHT area markups (needs rectangle dims); pass live tax edits to the breakdown export.
+
 ## Also Closed (2026-10-29) — App-wide UI modernization: left sidebar shell, design tokens, restyled shared components
 - Inventory first: .claude/steelos-dev/NAV_INVENTORY.md (51 NavBar items, 11 groups, routes, gating rules).
 - AppLayout: compact TopBar + collapsible left sidebar (AppSidebar.jsx) built from one navConfig.js; NavBar.jsx and

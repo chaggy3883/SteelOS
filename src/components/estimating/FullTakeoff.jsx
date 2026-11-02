@@ -1,72 +1,86 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Calculator, Gauge, Clock3, Save, Plus, Trash2, Minus, Download, FileDown, FileSpreadsheet } from 'lucide-react';
+import { Calculator, Gauge, Clock3, Save, Plus, Trash2, Minus, Download, FileDown, FileSpreadsheet, Combine, AlertTriangle, Scale, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { SHAPE_CLASSES, getShapeClass, estimateWeightPerFt } from '@/data/steelShapeSelector';
-import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
+import { getShapeClass } from '@/data/steelShapeSelector';
+import {
+  calcCatalogRow, calcLegacyRow, entryFamily, defaultGradeFor, parseLengthToInches, parseDimToken, splitSizeTokens,
+  formatFtIn, formatInches, LEGACY_SHAPE_CLASS_TO_CODE, CODE_TO_LEGACY_SHAPE_CLASS, WEIGHT_SOURCE_LABELS,
+} from '@/lib/materialEntryMath';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
+import { ShapePicker, SizePicker, GradePicker } from '@/components/estimating/CatalogMaterialPicker';
+import MathDrill from '@/components/estimating/MathDrill';
+import CombineForOrderingDialog from '@/components/estimating/CombineForOrderingDialog';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
-// Bridges MaterialTakeoffLine's own 5-value shape_class enum to the master
-// material catalog's much finer shape_code taxonomy (MaterialShapeType —
-// ~95 detailer-style codes) so the Grade dropdown can look up
-// MaterialGradeOption for "whatever's selected in Shape Classification Type"
-// above. These 5 codes are the catalog's own Wideflange/HSS/Channel/Angle/
-// Plate entries — chosen because their descriptions match this enum 1:1,
-// not an arbitrary mapping.
-const SHAPE_CLASS_TO_MATERIAL_CODE = {
-  'W-Beam': 'W',
-  'HSS Tube': 'HSS',
-  'C-Channel': 'C',
-  'L-Angle': 'L',
-  'PL-Plate': 'PL',
-};
+// Rows come in two kinds:
+//   - catalog rows (shape_code set): Material / Size / Grade picked from the
+//     master Material Catalog (MaterialShapeType ~95 codes, MaterialSizeOption,
+//     MaterialGradeOption), weighed by materialEntryMath.js calcCatalogRow;
+//   - older rows saved with only the 5-value shape_class (W-Beam / HSS Tube /
+//     C-Channel / L-Angle / PL-Plate) — shown under the matching catalog code
+//     (W/HSS/C/L/PL) but still calculated by calcLegacyRow, the old rowCalc
+//     unchanged, so a saved bid's tons, hours and paint area never move.
+//     Picking a new material or size on one turns it into a catalog row.
 
-function emptyRow() {
+const fmtNum = (v, d = 0) => (Number.isFinite(v) ? v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : '—');
+
+// Width/length/thickness boxes on plate rows read a bare number as INCHES
+// (24 = 24"); a foot mark switches to ft-in (2'-0"). The Length box on
+// linear rows reads a bare number as FEET, as the old decimal-ft box did.
+function parseInchEntry(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  if (s.includes("'")) return parseLengthToInches(s);
+  return parseDimToken(s.replace(/"$/, ''));
+}
+
+function emptyRow(shapeType, sizes = [], grades = []) {
+  const code = shapeType?.shape_code || 'W';
   return {
     id: null,
-    shape_class: 'W-Beam',
-    material_size: getShapeClass('W-Beam').sizes[0],
-    grade: '',
-    length_ft: '',
+    legacy: false,
+    shape_code: code,
+    size_value: sizes[0] || '',
+    grade: defaultGradeFor(code, grades),
+    length_raw: '',
+    length_in: null,
+    width_raw: '',
+    width_in: null,
+    thickness_raw: '',
+    thickness_in: null,
     quantity: '',
+    weight_override: '',
     coating_type: 'No Coating',
     sequence_area_id: null,
   };
-}
-
-function rowCalc(row, catalogRows) {
-  const lengthFt = Number(row.length_ft) || 0;
-  const weightPerFt = estimateWeightPerFt(row.shape_class, row.material_size);
-  const qty = Number(row.quantity) || 0;
-  const tonsPerPiece = lengthFt && weightPerFt ? (lengthFt * weightPerFt) / 2000 : 0;
-  const totalTons = tonsPerPiece * qty;
-  const paintAreaSqIn = row.coating_type === 'Paint' ? calculateSteelSurfaceArea(row.material_size, lengthFt, qty, catalogRows) : 0;
-  return { lengthFt, weightPerFt, tonsPerPiece, totalTons, paintAreaSqIn };
 }
 
 const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   const { toast } = useToast();
   const [rows, setRows] = useState([]);
   const [catalog, setCatalog] = useState([]);
-  const [gradesByShapeClass, setGradesByShapeClass] = useState({});
+  const [shapeTypes, setShapeTypes] = useState([]);
+  const [sizesByCode, setSizesByCode] = useState({});
+  const [gradesByCode, setGradesByCode] = useState({});
   const [shopEfficiencyPct, setShopEfficiencyPct] = useState(bid?.shop_efficiency_pct ?? 100);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [sequenceAreas, setSequenceAreas] = useState([]);
   const [areaFilter, setAreaFilter] = useState('all'); // 'all' | 'unassigned' | area.id
+  const [combineOpen, setCombineOpen] = useState(false);
 
   useEffect(() => { loadRows(); }, [bid?.id]);
   useEffect(() => {
-    db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
+    db.entities.steel_catalog.list('size_designation', 2000).then(setCatalog).catch(() => setCatalog([]));
   }, []);
 
   // Bid-stage Areas (see BidAreaManager.jsx's "Build Areas" tab) — same
@@ -80,67 +94,83 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
       .catch(() => setSequenceAreas([]));
   }, [bid?.id]);
 
-  // Grade dropdown source: the master Material Catalog (MaterialShapeType +
-  // MaterialGradeOption), bridged via SHAPE_CLASS_TO_MATERIAL_CODE. Loaded
-  // once — this grid's 5 shape classes never change at runtime.
+  // The whole master Material Catalog, loaded once: every active
+  // MaterialShapeType plus its sizes and grades, keyed by shape_code.
   useEffect(() => {
     (async () => {
       try {
-        const codes = Object.values(SHAPE_CLASS_TO_MATERIAL_CODE);
-        const shapeTypes = await db.entities.MaterialShapeType.filter({ is_active: true }, 'shape_code', 500);
-        const relevantTypes = shapeTypes.filter((s) => codes.includes(s.shape_code));
-        if (relevantTypes.length === 0) return;
-        const grades = await db.entities.MaterialGradeOption.list('sort_order', 5000);
-        const gradesByTypeId = new Map();
-        grades.forEach((g) => {
-          if (g.is_active === false) return;
-          if (!gradesByTypeId.has(g.shape_type_id)) gradesByTypeId.set(g.shape_type_id, []);
-          gradesByTypeId.get(g.shape_type_id).push(g.grade_value);
-        });
-        const byShapeClass = {};
-        Object.entries(SHAPE_CLASS_TO_MATERIAL_CODE).forEach(([shapeClass, code]) => {
-          const type = relevantTypes.find((s) => s.shape_code === code);
-          if (type) byShapeClass[shapeClass] = gradesByTypeId.get(type.id) || [];
-        });
-        setGradesByShapeClass(byShapeClass);
+        const [types, sizes, grades] = await Promise.all([
+          db.entities.MaterialShapeType.filter({ is_active: true }, 'shape_code', 500),
+          db.entities.MaterialSizeOption.list('sort_order', 10000),
+          db.entities.MaterialGradeOption.list('sort_order', 5000),
+        ]);
+        const codeById = new Map(types.map((t) => [t.id, t.shape_code]));
+        const bucket = (list, field) => {
+          const out = {};
+          [...list].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).forEach((o) => {
+            if (o.is_active === false) return;
+            const code = codeById.get(o.shape_type_id);
+            if (!code) return;
+            (out[code] = out[code] || []).push(o[field]);
+          });
+          return out;
+        };
+        setShapeTypes(types);
+        setSizesByCode(bucket(sizes, 'size_value'));
+        setGradesByCode(bucket(grades, 'grade_value'));
       } catch (e) {
-        setGradesByShapeClass({});
+        setShapeTypes([]);
       }
     })();
   }, []);
 
-  // Live catalog lookup — the "Available Size" dropdown no longer reads the
-  // hardcoded SHAPE_CLASSES.sizes array, it reads whatever sizes are
-  // currently in steel_catalog for this class (built-ins + anything an
-  // admin added via the Steel Inventory Catalog panel).
-  const sizesForClass = (shapeClass) => {
-    const fromCatalog = catalog.filter((c) => c.shape_class === shapeClass).map((c) => c.size_designation);
-    return fromCatalog.length > 0 ? fromCatalog : getShapeClass(shapeClass).sizes;
-  };
+  const shapeTypesByCode = useMemo(() => new Map(shapeTypes.map((s) => [s.shape_code, s])), [shapeTypes]);
 
   const loadRows = async () => {
     if (!bid?.id) return;
     setLoading(true);
     try {
       const existing = await db.entities.MaterialTakeoffLine.filter({ bid_id: bid.id }, '-created_date', 200);
-      // This grid is hardcoded to the 5 structural SHAPE_CLASSES (its Shape
-      // Classification dropdown, weight math, etc. all assume one) — a line
-      // pushed with no shape_class (MarkupsList.jsx's Bolt Count branch,
-      // intentionally left unset since bolts have no structural shape/weight)
-      // would otherwise silently default to 'W-Beam' here and, worse, get
-      // overwritten with bogus W-Beam material_type/weight_per_ft the next
-      // time this tab is saved, since handleSave rewrites every row it
-      // loaded. Excluding shape_class-less rows keeps this beam/HSS/channel/
-      // angle/plate grid exactly as it worked before Bolt Count existed.
-      const structuralRows = existing.filter((r) => r.shape_class);
-      setRows(structuralRows.length ? structuralRows.map((r) => {
+      // Rows with neither a catalog shape_code nor a 5-class shape_class
+      // (MarkupsList.jsx's Bolt Count / Volume / Angle pushes, intentionally
+      // left without a structural shape) stay out of this grid as before —
+      // handleSave rewrites every row it loaded, so loading one would
+      // overwrite it with values it never had.
+      const gridRows = existing.filter((r) => r.shape_code || r.shape_class);
+      setRows(gridRows.length ? gridRows.map((r) => {
+        if (r.shape_code) {
+          const lengthIn = r.length_in ?? (r.length_ft != null ? Number(r.length_ft) * 12 : null);
+          const family = r.entry_family || entryFamily(r.shape_code);
+          return {
+            id: r.id,
+            legacy: false,
+            shape_code: r.shape_code,
+            size_value: r.size_value || '',
+            grade: r.grade || '',
+            length_raw: r.length_raw || (lengthIn ? (family === 'plate' ? formatInches(lengthIn) : formatFtIn(lengthIn)) : ''),
+            length_in: lengthIn,
+            width_raw: r.width_in ? formatInches(r.width_in) : '',
+            width_in: r.width_in ?? null,
+            thickness_raw: '',
+            thickness_in: null,
+            thickness_saved: r.thickness_in ?? null,
+            quantity: r.quantity ?? '',
+            weight_override: r.weight_override ?? '',
+            coating_type: r.coating_type || 'No Coating',
+            source: r.source || 'manual',
+            sequence_area_id: r.sequence_area_id || null,
+          };
+        }
         const shapeClass = r.shape_class || 'W-Beam';
+        const lengthFt = r.length_ft ?? r.length_decimal_ft ?? '';
         return {
           id: r.id,
+          legacy: true,
           shape_class: shapeClass,
           material_size: r.material_size || getShapeClass(shapeClass).sizes[0],
           grade: r.grade || '',
-          length_ft: r.length_ft ?? r.length_decimal_ft ?? '',
+          length_ft: lengthFt,
+          length_raw: lengthFt === '' ? '' : String(lengthFt),
           quantity: r.quantity ?? '',
           coating_type: r.coating_type || 'No Coating',
           source: r.source || 'manual',
@@ -155,24 +185,73 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     }
   };
 
+  const newRow = () => {
+    const shape = shapeTypesByCode.get('W');
+    return emptyRow(shape, sizesByCode.W || [], gradesByCode.W || []);
+  };
+
   // Defaults a new line to whichever Area is currently filtered/grouped on,
   // so adding a line while scoped to one Area doesn't drop it into
   // Unassigned and out of view — 'all'/'unassigned' both mean no default.
   const addRow = () => {
     const defaultAreaId = areaFilter !== 'all' && areaFilter !== 'unassigned' ? areaFilter : null;
-    setRows((prev) => [...prev, { ...emptyRow(), sequence_area_id: defaultAreaId }]);
+    setRows((prev) => [...prev, { ...newRow(), sequence_area_id: defaultAreaId }]);
     setDirty(true);
   };
   const removeRow = (idx) => { setRows((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)); setDirty(true); };
 
-  const updateRow = (idx, field, value) => {
+  const updateRow = (idx, patch) => {
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+    setDirty(true);
+  };
+
+  // Picking a material resets size/grade to that shape's first size and
+  // family default grade, and clears per-shape entries (thickness, typed
+  // weight). An older 5-class row becomes a catalog row here; its length
+  // and quantity carry over.
+  const changeShape = (idx, shapeType) => {
+    const code = shapeType.shape_code;
     setRows((prev) => prev.map((r, i) => {
       if (i !== idx) return r;
-      const updated = { ...r, [field]: value };
-      if (field === 'shape_class') {
-        updated.material_size = sizesForClass(value)[0] || '';
+      const lengthIn = r.legacy ? (Number(r.length_ft) || 0) * 12 || null : r.length_in;
+      const family = entryFamily(code, shapeType.category);
+      return {
+        ...r,
+        legacy: false,
+        shape_code: code,
+        size_value: (sizesByCode[code] || [])[0] || '',
+        grade: defaultGradeFor(code, gradesByCode[code] || []),
+        length_in: lengthIn,
+        length_raw: lengthIn ? (family === 'plate' ? formatInches(lengthIn) : formatFtIn(lengthIn)) : '',
+        width_raw: r.legacy ? '' : r.width_raw,
+        width_in: r.legacy ? null : r.width_in,
+        thickness_raw: '',
+        thickness_in: null,
+        thickness_saved: null,
+        weight_override: '',
+      };
+    }));
+    setDirty(true);
+  };
+
+  const changeSize = (idx, sizeValue) => {
+    setRows((prev) => prev.map((r, i) => {
+      if (i !== idx) return r;
+      if (r.legacy) {
+        // Same as picking the mapped material first, then this size.
+        const code = LEGACY_SHAPE_CLASS_TO_CODE[r.shape_class] || 'W';
+        const lengthIn = (Number(r.length_ft) || 0) * 12 || null;
+        return { ...r, legacy: false, shape_code: code, size_value: sizeValue, grade: r.grade || defaultGradeFor(code, gradesByCode[code] || []), length_in: lengthIn, length_raw: lengthIn ? formatFtIn(lengthIn) : '', width_raw: '', width_in: null, thickness_raw: '', thickness_in: null, weight_override: '' };
       }
-      return updated;
+      const next = { ...r, size_value: sizeValue, thickness_raw: '', thickness_in: null, thickness_saved: null };
+      // Floor-plate style sizes that carry width/length ("1/4\" x 25\" x 25\"")
+      // fill those boxes when they're still empty.
+      if (entryFamily(r.shape_code, shapeTypesByCode.get(r.shape_code)?.category) === 'plate') {
+        const dims = splitSizeTokens(sizeValue).slice(1).map((t) => parseDimToken(t));
+        if (!r.width_in && dims[0] > 0) { next.width_in = dims[0]; next.width_raw = formatInches(dims[0]); }
+        if (!r.length_in && dims[1] > 0) { next.length_in = dims[1]; next.length_raw = formatInches(dims[1]); }
+      }
+      return next;
     }));
     setDirty(true);
   };
@@ -182,7 +261,12 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     setDirty(true);
   };
 
-  const calcs = useMemo(() => rows.map((row) => rowCalc(row, catalog)), [rows, catalog]);
+  const calcs = useMemo(() => rows.map((row) => {
+    if (row.legacy) return calcLegacyRow(row, catalog);
+    const shapeType = shapeTypesByCode.get(row.shape_code) || { shape_code: row.shape_code };
+    const thickness = row.thickness_in ?? row.thickness_saved ?? null;
+    return calcCatalogRow({ ...row, thickness_in: thickness }, { shapeType, catalogRows: catalog });
+  }), [rows, catalog, shapeTypesByCode]);
 
   // Area filter/grouping — same "group by ProjectSequenceArea, Unassigned
   // last" shape as ProjectDetail.jsx's Sequence/Area piece assignment
@@ -207,11 +291,17 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     return areaFilter === 'all' ? groups : groups.filter(([key]) => key === areaFilter);
   }, [rows, sequenceAreas, sequenceAreasById, areaFilter]);
 
-  const totalTons = calcs.reduce((sum, c) => sum + c.totalTons, 0);
-  const baselineManHours = rows.reduce((sum, row, i) => {
-    const hoursPerTon = getShapeClass(row.shape_class).hoursPerTon || 0;
-    return sum + calcs[i].totalTons * hoursPerTon;
-  }, 0);
+  const lineLabel = (row, idx) => {
+    if (row.legacy) return `Line ${idx + 1} — ${row.material_size}`;
+    return `Line ${idx + 1} — ${calcs[idx]?.profile || row.shape_code}`;
+  };
+
+  const totalTons = calcs.reduce((sum, c) => sum + c.tons, 0);
+  const totalLbs = calcs.reduce((sum, c) => sum + (c.totalLbs || 0), 0);
+  const totalPlateAreaSqIn = calcs.reduce((sum, c) => sum + (c.plateAreaSqIn || 0), 0);
+  const totalSurfaceSqIn = calcs.reduce((sum, c) => sum + (c.surfaceSqIn || 0), 0);
+  const needsWeightCount = calcs.filter((c) => c.needsWeight).length;
+  const baselineManHours = calcs.reduce((sum, c) => sum + c.tons * (c.hoursPerTon || 0), 0);
   const efficiencyFactor = (Number(shopEfficiencyPct) || 0) / 100;
   const totalManHours = efficiencyFactor > 0 ? baselineManHours / efficiencyFactor : baselineManHours;
   // One line's share of totalManHours, same math line by line (tons x the
@@ -219,39 +309,79 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   // line so the Bid Worksheet's "From takeoff: X hrs" on Structural
   // Fabrication can be traced back to the lines that produced it.
   const rowManHours = (idx) => {
-    const hoursPerTon = getShapeClass(rows[idx].shape_class).hoursPerTon || 0;
-    const baseline = calcs[idx].totalTons * hoursPerTon;
+    const baseline = calcs[idx].tons * (calcs[idx].hoursPerTon || 0);
     return efficiencyFactor > 0 ? baseline / efficiencyFactor : baseline;
   };
   // Pushed to Bid.estimated_paint_area_sqft / estimated_galvanizing_tons on
   // save so TakeoffEngine.jsx's Bid Worksheet can auto-fill Primer (Paint)
   // and Galvanizing quantities from this takeoff instead of the estimator
   // re-deriving them by hand. paintAreaSqIn is already 0 for any row not
-  // coated 'Paint' (see rowCalc), so summing every row is correct as-is.
-  const totalPaintAreaSqFt = calcs.reduce((sum, c) => sum + c.paintAreaSqIn, 0) / 144;
-  const totalGalvanizedTons = rows.reduce((sum, row, i) => (row.coating_type === 'Galvanized' ? sum + calcs[i].totalTons : sum), 0);
+  // coated 'Paint', so summing every row is correct as-is.
+  const totalPaintAreaSqFt = calcs.reduce((sum, c) => sum + (c.paintAreaSqIn || 0), 0) / 144;
+  const totalGalvanizedTons = rows.reduce((sum, row, i) => (row.coating_type === 'Galvanized' ? sum + calcs[i].tons : sum), 0);
 
   const handleSave = async () => {
     if (!bid?.id) return;
     setSaving(true);
     try {
       const ops = rows.map((row, i) => {
-        const { lengthFt, weightPerFt, tonsPerPiece, totalTons: rowTotalTons, paintAreaSqIn } = calcs[i];
-        const payload = {
-          bid_id: bid.id,
-          shape_class: row.shape_class,
-          material_type: getShapeClass(row.shape_class).label,
-          material_size: row.material_size,
-          grade: row.grade || '',
-          length_ft: lengthFt || 0,
-          quantity: Number(row.quantity) || 0,
-          weight_per_ft: weightPerFt || 0,
-          tons_per_piece: tonsPerPiece || 0,
-          total_tons: rowTotalTons || 0,
-          coating_type: row.coating_type || 'No Coating',
-          paint_area_sq_in: paintAreaSqIn || 0,
-          sequence_area_id: row.sequence_area_id || null,
-        };
+        const c = calcs[i];
+        let payload;
+        if (row.legacy) {
+          // Exactly the old payload, plus the three display totals.
+          payload = {
+            bid_id: bid.id,
+            shape_class: row.shape_class,
+            material_type: getShapeClass(row.shape_class).label,
+            material_size: row.material_size,
+            grade: row.grade || '',
+            length_ft: c.lengthFt || 0,
+            quantity: Number(row.quantity) || 0,
+            weight_per_ft: c.weightPerFt || 0,
+            tons_per_piece: c.tonsPerPiece || 0,
+            total_tons: c.totalTons || 0,
+            coating_type: row.coating_type || 'No Coating',
+            paint_area_sq_in: c.paintAreaSqIn || 0,
+            sequence_area_id: row.sequence_area_id || null,
+            total_weight_lbs: c.totalLbs || 0,
+            sq_in_area: c.plateAreaSqIn || 0,
+            sq_in_surface: c.surfaceSqIn || 0,
+          };
+        } else {
+          const shapeType = shapeTypesByCode.get(row.shape_code);
+          const qty = Number(row.quantity) || 0;
+          const override = Number(row.weight_override);
+          payload = {
+            bid_id: bid.id,
+            shape_code: row.shape_code,
+            shape_description: shapeType?.description || '',
+            shape_class: CODE_TO_LEGACY_SHAPE_CLASS[row.shape_code] || null,
+            material_type: shapeType?.description || row.shape_code,
+            material_size: c.profile,
+            size_value: row.size_value || '',
+            entry_family: c.family,
+            grade: row.grade || '',
+            length_raw: c.family === 'each' ? '' : (row.length_raw || ''),
+            length_in: c.family === 'each' ? 0 : (c.lengthIn || 0),
+            length_ft: c.family === 'each' ? 0 : (c.lengthFt || 0),
+            width_in: c.family === 'plate' ? (c.widthIn || 0) : null,
+            thickness_in: c.family === 'plate' ? (c.thicknessIn ?? null) : null,
+            quantity: qty,
+            weight_per_ft: c.family === 'linear' ? (c.unitWeight || 0) : 0,
+            weight_per_sq_ft: c.family === 'plate' ? (c.unitWeight || 0) : null,
+            weight_per_each: c.family === 'each' ? (c.unitWeight || 0) : null,
+            weight_source: c.weightSource,
+            weight_override: row.weight_override !== '' && Number.isFinite(override) && override > 0 ? override : null,
+            tons_per_piece: qty ? c.tons / qty : 0,
+            total_tons: c.tons || 0,
+            total_weight_lbs: c.totalLbs || 0,
+            sq_in_area: c.plateAreaSqIn || 0,
+            sq_in_surface: c.surfaceSqIn || 0,
+            coating_type: row.coating_type || 'No Coating',
+            paint_area_sq_in: c.paintAreaSqIn || 0,
+            sequence_area_id: row.sequence_area_id || null,
+          };
+        }
         if (row.id) return db.entities.MaterialTakeoffLine.update(row.id, payload);
         return db.entities.MaterialTakeoffLine.create(payload);
       });
@@ -279,16 +409,29 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     isDirty: () => dirty,
   }));
 
+  // Export columns are unchanged from the 5-class grid. A catalog row fills
+  // them the same way: its code + description as the shape type, the
+  // compact size (plate includes its width), its length in ft.
+  const shapeTypeLabel = (row) => (row.legacy ? getShapeClass(row.shape_class).label : `${row.shape_code} — ${shapeTypesByCode.get(row.shape_code)?.description || ''}`);
+  const sizeLabel = (row, i) => (row.legacy ? row.material_size : (calcs[i].profile || row.size_value));
+  const lengthFtOf = (row, i) => (row.legacy ? (row.length_ft || 0) : Number((calcs[i].lengthFt || 0).toFixed(4)));
+  const unitWeightText = (row, i) => {
+    const c = calcs[i];
+    if (row.legacy) return c.weightPerFt ? c.weightPerFt.toFixed(1) : '0';
+    if (c.needsWeight) return 'weight needed';
+    return c.family === 'linear' ? c.unitWeight.toFixed(1) : `${c.unitWeight.toFixed(2)} ${c.weightUnit}`;
+  };
+
   // "Unpriced" on purpose — this goes to suppliers for a quote, so cost/margin
   // columns are deliberately left out. The computed paint area rides along
   // as its own column, same as every other quantity/spec field.
   const handleExportUnpricedCsv = () => {
     const header = ['Material Type', 'Size', 'Grade', 'Length', 'Quantity', 'Coating', 'Paint Area (Sq In)'];
     const csvRows = [header, ...rows.map((row, i) => [
-      getShapeClass(row.shape_class).label,
-      row.material_size,
+      shapeTypeLabel(row),
+      sizeLabel(row, i),
       row.grade || '',
-      row.length_ft || 0,
+      lengthFtOf(row, i),
       row.quantity || 0,
       row.coating_type || 'No Coating',
       calcs[i].paintAreaSqIn ? calcs[i].paintAreaSqIn.toFixed(0) : '0',
@@ -309,14 +452,14 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
       subtitle: `${bid?.bid_number || 'Bid TBD'} — ${bid?.job_name || ''} — unpriced, for supplier quoting`,
       columns: ['Shape Type', 'Selected Size', 'Length (ft)', 'Weight (lb/ft)', 'Qty', 'Coating', 'Calculated Metrics'],
       rows: rows.map((row, i) => [
-        getShapeClass(row.shape_class).label,
-        row.material_size,
-        row.length_ft || 0,
-        calcs[i].weightPerFt ? calcs[i].weightPerFt.toFixed(1) : '0',
+        shapeTypeLabel(row),
+        sizeLabel(row, i),
+        lengthFtOf(row, i),
+        unitWeightText(row, i),
         row.quantity || 0,
         row.coating_type || 'No Coating',
         row.coating_type === 'Paint' ? `${calcs[i].paintAreaSqIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In`
-          : row.coating_type === 'Galvanized' ? `${calcs[i].totalTons.toFixed(3)} Tons`
+          : row.coating_type === 'Galvanized' ? `${calcs[i].tons.toFixed(3)} Tons`
           : '—',
       ]),
     });
@@ -328,30 +471,67 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
       subtitle: `${bid?.bid_number || 'Bid TBD'} — ${bid?.job_name || ''} — unpriced, for supplier quoting`,
       columns: ['Shape Type', 'Selected Size', 'Length (ft)', 'Weight (lb/ft)', 'Qty', 'Coating', 'Calculated Metrics'],
       rows: rows.map((row, i) => [
-        getShapeClass(row.shape_class).label,
-        row.material_size,
-        row.length_ft || 0,
-        calcs[i].weightPerFt || 0,
+        shapeTypeLabel(row),
+        sizeLabel(row, i),
+        lengthFtOf(row, i),
+        row.legacy ? (calcs[i].weightPerFt || 0) : (calcs[i].family === 'linear' ? (calcs[i].unitWeight || 0) : unitWeightText(row, i)),
         row.quantity || 0,
         row.coating_type || 'No Coating',
         row.coating_type === 'Paint' ? calcs[i].paintAreaSqIn
-          : row.coating_type === 'Galvanized' ? calcs[i].totalTons
+          : row.coating_type === 'Galvanized' ? calcs[i].tons
           : '—',
       ]),
     });
   };
 
+  // Pieces for "Combine for ordering": linear rows (old and new) become
+  // lengths, plate rows become parts; each items and IRONSIGHT-pushed lines
+  // (stored as one summed length — combine those from IRONSIGHT, which
+  // keeps the individual runs) are listed as not combined.
+  const combineInput = useMemo(() => {
+    const pieces = [];
+    const excluded = [];
+    rows.forEach((row, idx) => {
+      const c = calcs[idx];
+      const label = lineLabel(row, idx);
+      const area = row.sequence_area_id && sequenceAreasById.get(row.sequence_area_id);
+      const seq = { sequence_key: area ? area.id : '', sequence_label: area ? area.name : 'Unassigned' };
+      const qty = Math.round(Number(row.quantity) || 0);
+      if (row.source === 'ironsight') { excluded.push({ label, reason: 'Pushed from IRONSIGHT as one summed length — run Combine from that IRONSIGHT session instead' }); return; }
+      if (c.family === 'each') { excluded.push({ label, reason: 'Ordered by count — nothing to combine' }); return; }
+      if (qty <= 0) { excluded.push({ label, reason: 'No quantity' }); return; }
+      if (row.legacy) {
+        if (!(c.lengthFt > 0)) { excluded.push({ label, reason: 'No length' }); return; }
+        pieces.push({ id: `row-${idx}`, source_label: label, family: 'linear', shape_code: LEGACY_SHAPE_CLASS_TO_CODE[row.shape_class] || '', profile: row.material_size, grade: row.grade || '', ...seq, length_in: c.lengthFt * 12, quantity: qty, weight_per_ft: c.weightPerFt || 0 });
+        return;
+      }
+      if (c.family === 'plate') {
+        if (!(c.widthIn > 0) || !(c.lengthIn > 0)) { excluded.push({ label, reason: 'Plate needs width and length' }); return; }
+        pieces.push({ id: `row-${idx}`, source_label: label, family: 'plate', shape_code: row.shape_code, profile: c.profile, grade: row.grade || '', ...seq, thickness_in: c.thicknessIn || 0, width_in: c.widthIn, length_in: c.lengthIn, quantity: qty, lb_per_sq_in: (c.unitWeight || 0) / 144 });
+        return;
+      }
+      if (!(c.lengthIn > 0)) { excluded.push({ label, reason: 'No length' }); return; }
+      pieces.push({ id: `row-${idx}`, source_label: label, family: 'linear', shape_code: row.shape_code, profile: c.profile, grade: row.grade || '', ...seq, length_in: c.lengthIn, quantity: qty, weight_per_ft: c.unitWeight || 0 });
+    });
+    return { pieces, excluded };
+  }, [rows, calcs, sequenceAreasById]);
+
   if (loading) return <div className="h-64 bg-muted rounded-xl animate-pulse" />;
+
+  const sumLines = (field, label, unit, d) => [
+    ...rows.map((row, i) => `${lineLabel(row, i)}: ${fmtNum(calcs[i][field] || 0, d)} ${unit}`),
+    `Total ${label}: ${fmtNum(calcs.reduce((s, c) => s + (c[field] || 0), 0), d)} ${unit}`,
+  ];
 
   return (
     <div className="space-y-4">
       <div className="steel-card p-5">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Calculator className="w-5 h-5 text-primary" />
             <h4 className="font-semibold">Material Takeoff</h4>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {sequenceAreas.length > 0 && (
               <Select value={areaFilter} onValueChange={setAreaFilter}>
                 <SelectTrigger className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
@@ -362,6 +542,9 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                 </SelectContent>
               </Select>
             )}
+            <Button variant="outline" size="sm" onClick={() => setCombineOpen(true)}>
+              <Combine className="w-3.5 h-3.5 mr-1" />Combine for ordering
+            </Button>
             <Button variant="outline" size="sm" onClick={handleExportRequisitionPdf}>
               <FileDown className="w-3.5 h-3.5 mr-1" />EXPORT REQUISITION TO PDF
             </Button>
@@ -394,123 +577,103 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                 <div className="space-y-2">
                 {items.map(({ row, idx }) => {
                   const calc = calcs[idx];
+                  const code = row.legacy ? (LEGACY_SHAPE_CLASS_TO_CODE[row.shape_class] || 'W') : row.shape_code;
+                  const family = row.legacy ? 'linear' : calc.family;
+                  const sizeThickness = !row.legacy && family === 'plate' ? calc.thicknessIn : null;
+                  const lengthHint = row.legacy
+                    ? (row.length_raw && !(calc.lengthFt > 0) ? "Can't read that length" : calc.lengthFt > 0 ? `= ${formatFtIn(calc.lengthFt * 12)}` : '')
+                    : (row.length_raw && !(calc.lengthIn > 0) ? "Can't read that length" : calc.lengthIn > 0 ? `= ${family === 'plate' ? formatInches(calc.lengthIn) : formatFtIn(calc.lengthIn)}` : '');
                   return (
                     <div key={idx} className="grid grid-cols-12 gap-2 items-end rounded-lg border border-border p-2">
-                {row.source === 'ironsight' && (
-                  <div className="col-span-12">
-                    <Badge variant="outline" className="text-blue-600 border-blue-300 text-[10px]">IRONSIGHT</Badge>
+                {(row.source === 'ironsight' || row.legacy) && (
+                  <div className="col-span-12 flex items-center gap-2">
+                    {row.source === 'ironsight' && <Badge variant="outline" className="text-blue-600 border-blue-300 text-[10px]">IRONSIGHT</Badge>}
+                    {row.legacy && <span className="text-[10px] text-muted-foreground">Older line ({row.shape_class} {row.material_size}) — calculated exactly as before. Pick a material or size to switch it to the full catalog.</span>}
                   </div>
                 )}
-                <div className="col-span-6 sm:col-span-3">
-                  <Label className="text-xs">Shape Classification Type</Label>
-                  <Select value={row.shape_class} onValueChange={(v) => updateRow(idx, 'shape_class', v)}>
-                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {SHAPE_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                <div className="col-span-12 sm:col-span-3">
+                  <Label className="text-xs">Material / Shape</Label>
+                  <div className="mt-1"><ShapePicker shapeTypes={shapeTypes} value={code} onChange={(s) => changeShape(idx, s)} /></div>
                 </div>
 
                 <div className="col-span-6 sm:col-span-2">
-                  <Label className="text-xs">Available Size</Label>
-                  <Select value={row.material_size} onValueChange={(v) => updateRow(idx, 'material_size', v)}>
-                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select size" /></SelectTrigger>
-                    <SelectContent>
-                      {sizesForClass(row.shape_class).map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs">Size</Label>
+                  <div className="mt-1">
+                    <SizePicker sizes={sizesByCode[code] || []} value={row.legacy ? row.material_size : row.size_value} onChange={(v) => changeSize(idx, v)} />
+                  </div>
                 </div>
 
                 <div className="col-span-6 sm:col-span-2">
                   <Label className="text-xs">Grade</Label>
-                  {(() => {
-                    const availableGrades = gradesByShapeClass[row.shape_class] || [];
-                    // No grades configured yet in the Material Catalog admin
-                    // page for this shape — fall back to free text rather
-                    // than blocking entry with an empty dropdown.
-                    if (availableGrades.length === 0) {
-                      return (
-                        <>
-                          <Input
-                            value={row.grade}
-                            onChange={(e) => updateRow(idx, 'grade', e.target.value)}
-                            className="mt-1 h-8 text-sm"
-                            placeholder="Enter grade"
-                          />
-                          <p className="text-[10px] text-muted-foreground mt-0.5">No grades configured for this shape yet — free text.</p>
-                        </>
-                      );
-                    }
-                    // A row loaded from an existing bid may carry a custom
-                    // grade string typed before this dropdown existed (or one
-                    // outside this shape's configured list) — treat anything
-                    // not in the list as "Other" automatically so it's never
-                    // silently dropped, matching the requirement to keep a
-                    // free-text escape hatch.
-                    const isOther = !!row.grade_is_other || (!!row.grade && !availableGrades.includes(row.grade));
-                    return (
-                      <>
-                        <Select
-                          value={isOther ? 'Other' : row.grade}
-                          onValueChange={(v) => {
-                            if (v === 'Other') {
-                              updateRow(idx, 'grade_is_other', true);
-                            } else {
-                              updateRow(idx, 'grade', v);
-                              updateRow(idx, 'grade_is_other', false);
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select grade" /></SelectTrigger>
-                          <SelectContent>
-                            {availableGrades.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
-                            <SelectItem value="Other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {isOther && (
-                          <Input
-                            value={row.grade}
-                            onChange={(e) => updateRow(idx, 'grade', e.target.value)}
-                            className="mt-1 h-8 text-sm"
-                            placeholder="Enter grade"
-                          />
-                        )}
-                      </>
-                    );
-                  })()}
+                  <GradePicker key={`${idx}-${code}`} className="mt-1" grades={gradesByCode[code] || []} value={row.grade} onChange={(v) => updateRow(idx, { grade: v })} />
                 </div>
+
+                {family === 'linear' && (
+                  <div className="col-span-6 sm:col-span-3">
+                    <Label className="text-xs">Length (ft-in, e.g. 20'-6 1/2")</Label>
+                    <Input
+                      value={row.length_raw ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const inches = parseLengthToInches(raw);
+                        if (row.legacy) updateRow(idx, { length_raw: raw, length_ft: inches == null ? '' : inches / 12 });
+                        else updateRow(idx, { length_raw: raw, length_in: inches });
+                      }}
+                      className="mt-1 h-8 text-sm"
+                      placeholder={`20'-6 1/2"`}
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-0.5 h-3">{lengthHint}</p>
+                  </div>
+                )}
+                {family === 'plate' && (
+                  <div className="col-span-12 sm:col-span-3 grid grid-cols-3 gap-1">
+                    <div>
+                      <Label className="text-xs">Thick (in)</Label>
+                      <Input
+                        value={row.thickness_raw ?? ''}
+                        onChange={(e) => updateRow(idx, { thickness_raw: e.target.value, thickness_in: parseInchEntry(e.target.value) })}
+                        className="mt-1 h-8 text-sm px-1.5"
+                        placeholder={sizeThickness ? formatInches(sizeThickness) : 'from size'}
+                        title="Read from the size — type to change"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Width (in)</Label>
+                      <Input value={row.width_raw ?? ''} onChange={(e) => updateRow(idx, { width_raw: e.target.value, width_in: parseInchEntry(e.target.value) })} className="mt-1 h-8 text-sm px-1.5" placeholder="24" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Length (in)</Label>
+                      <Input value={row.length_raw ?? ''} onChange={(e) => updateRow(idx, { length_raw: e.target.value, length_in: parseInchEntry(e.target.value) })} className="mt-1 h-8 text-sm px-1.5" placeholder="36" />
+                    </div>
+                    <p className="col-span-3 text-[10px] text-muted-foreground h-3">{calc.thicknessIn ? `${formatInches(calc.thicknessIn)} thick` : 'No thickness in the size — type one'}{calc.widthIn > 0 && calc.lengthIn > 0 ? ` · ${formatInches(calc.widthIn)} × ${formatInches(calc.lengthIn)}` : ''}</p>
+                  </div>
+                )}
+                {family === 'each' && (
+                  <div className="col-span-6 sm:col-span-3">
+                    <Label className="text-xs">Entry</Label>
+                    <p className="mt-1 h-8 flex items-center text-xs text-muted-foreground">Quantity only (each)</p>
+                  </div>
+                )}
 
                 <div className="col-span-6 sm:col-span-2">
-                  <Label className="text-xs">Length (decimal ft)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={row.length_ft}
-                    onChange={(e) => updateRow(idx, 'length_ft', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
-                    className="mt-1 h-8 text-sm"
-                    placeholder="20.5"
-                  />
-                </div>
-
-                <div className="col-span-8 sm:col-span-2">
                   <Label className="text-xs">Qty</Label>
                   <div className="flex items-center gap-1 mt-1">
-                    <Button type="button" variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => updateRow(idx, 'quantity', Math.max(0, (Number(row.quantity) || 0) - 1))}>
+                    <Button type="button" variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => updateRow(idx, { quantity: Math.max(0, (Number(row.quantity) || 0) - 1) })}>
                       <Minus className="w-3.5 h-3.5" />
                     </Button>
-                    <Input type="number" value={row.quantity} onChange={(e) => updateRow(idx, 'quantity', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))} className="h-8 text-sm text-center px-1" />
-                    <Button type="button" variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => updateRow(idx, 'quantity', (Number(row.quantity) || 0) + 1)}>
+                    <Input type="number" value={row.quantity} onChange={(e) => updateRow(idx, { quantity: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) })} className="h-8 text-sm text-center px-1" />
+                    <Button type="button" variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => updateRow(idx, { quantity: (Number(row.quantity) || 0) + 1 })}>
                       <Plus className="w-3.5 h-3.5" />
                     </Button>
                   </div>
                 </div>
 
-                <div className="col-span-12 flex items-center gap-3 border-t border-border/60 pt-2 mt-1">
+                <div className="col-span-12 flex items-center gap-x-4 gap-y-1 flex-wrap border-t border-border/60 pt-2 mt-1">
                   <div className="flex items-center gap-1.5">
                     <Label className="text-xs whitespace-nowrap">Coating</Label>
                     <select
                       value={row.coating_type || 'No Coating'}
-                      onChange={(e) => updateRow(idx, 'coating_type', e.target.value)}
+                      onChange={(e) => updateRow(idx, { coating_type: e.target.value })}
                       className="h-7 rounded-md border border-input bg-background px-2 text-xs"
                     >
                       {COATING_TYPES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -519,7 +682,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                   {sequenceAreas.length > 0 && (
                     <div className="flex items-center gap-1.5">
                       <Label className="text-xs whitespace-nowrap">Area</Label>
-                      <Select value={row.sequence_area_id || 'unassigned'} onValueChange={(v) => updateRow(idx, 'sequence_area_id', v === 'unassigned' ? null : v)}>
+                      <Select value={row.sequence_area_id || 'unassigned'} onValueChange={(v) => updateRow(idx, { sequence_area_id: v === 'unassigned' ? null : v })}>
                         <SelectTrigger className="h-7 w-40 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {sequenceAreas.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
@@ -528,21 +691,64 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                       </Select>
                     </div>
                   )}
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    {calc.needsWeight
+                      ? <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300"><AlertTriangle className="w-3 h-3 mr-0.5" />Weight needed</Badge>
+                      : <Badge variant="outline" className="text-[10px]">{WEIGHT_SOURCE_LABELS[calc.weightSource] || calc.weightSource}</Badge>}
+                    <MathDrill value={calc.needsWeight ? '—' : `${fmtNum(calc.unitWeight, family === 'linear' ? 2 : 3)} ${calc.weightUnit}`} title="Unit weight" lines={calc.steps?.weight?.slice(0, 1)} align="start" />
+                  </span>
+                  {!row.legacy && (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Label className="text-xs whitespace-nowrap">Typed {calc.weightUnit}</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={row.weight_override ?? ''}
+                        onChange={(e) => updateRow(idx, { weight_override: e.target.value })}
+                        className={`h-7 w-20 text-xs ${calc.needsWeight ? 'border-amber-400' : ''}`}
+                        placeholder={calc.needsWeight ? 'needed' : 'override'}
+                      />
+                    </span>
+                  )}
                   <p className="text-xs text-muted-foreground">
-                    Calculated Metrics: {calc.paintAreaSqIn ? `${calc.paintAreaSqIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In` : '—'}
+                    Weight: <MathDrill value={`${fmtNum(calc.totalLbs, 1)} lb`} title="Weight (lb)" lines={calc.steps?.weight} className="text-foreground" align="start" />
                   </p>
-                  <p className="text-xs text-muted-foreground" title="Tons × shop hours per ton for this shape, adjusted by Shop Efficiency %">
-                    Shop hours: <span className="font-mono font-semibold text-foreground">{rowManHours(idx).toFixed(1)}</span>
-                    {calc.totalTons > 0 && ` (${calc.totalTons.toFixed(3)} tons × ${getShapeClass(row.shape_class).hoursPerTon} hrs/ton${(Number(shopEfficiencyPct) || 0) > 0 && Number(shopEfficiencyPct) !== 100 ? ` ÷ ${Number(shopEfficiencyPct)}% efficiency` : ''})`}
+                  {(family === 'plate' || calc.plateAreaSqIn > 0) && (
+                    <p className="text-xs text-muted-foreground">
+                      Plate area sq in: <MathDrill value={fmtNum(calc.plateAreaSqIn, 0)} title="Plate area (sq in)" lines={calc.steps?.plateArea} className="text-foreground" align="start" />
+                    </p>
+                  )}
+                  {family !== 'each' && (
+                    <p className="text-xs text-muted-foreground">
+                      Surface sq in: <MathDrill value={calc.surfaceSqIn == null ? '—' : fmtNum(calc.surfaceSqIn, 0)} title="Surface (paint) area, sq in" lines={calc.steps?.surface} className="text-foreground" align="start" />
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Calculated Metrics: {calc.paintAreaSqIn ? `${calc.paintAreaSqIn.toLocaleString(undefined, { maximumFractionDigits: 0 })} Sq In paint` : '—'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Shop hours:{' '}
+                    <MathDrill
+                      value={rowManHours(idx).toFixed(1)}
+                      title="Shop hours"
+                      lines={[
+                        `${calc.tons.toFixed(4)} tons × ${calc.hoursPerTon} hrs/ton${row.legacy ? ` (${row.shape_class})` : calc.hoursClass ? ` (rate for ${calc.hoursClass})` : ' (hardware: 0)'} = ${(calc.tons * (calc.hoursPerTon || 0)).toFixed(3)} hrs`,
+                        (Number(shopEfficiencyPct) || 0) > 0 && Number(shopEfficiencyPct) !== 100 ? `÷ ${Number(shopEfficiencyPct)}% shop efficiency = ${rowManHours(idx).toFixed(3)} hrs` : '',
+                      ]}
+                      className="text-foreground font-semibold"
+                      align="start"
+                    />
                   </p>
                 </div>
 
-                <div className="col-span-3 sm:col-span-1 text-right">
+                <div className="col-span-9 sm:col-span-11 text-right">
                   <Label className="text-xs">Tons</Label>
-                  <p className="mt-1 h-8 flex items-center justify-end font-mono text-sm font-bold">{calc.totalTons.toFixed(3)}</p>
+                  <p className="mt-1 h-8 flex items-center justify-end text-sm font-bold">
+                    <MathDrill value={calc.tons.toFixed(3)} title="Tons" lines={[...(calc.steps?.weight || []), ...(calc.steps?.tons || [])]} />
+                  </p>
                 </div>
 
-                <div className="col-span-1 flex justify-end">
+                <div className="col-span-3 sm:col-span-1 flex justify-end">
                   <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600" onClick={() => removeRow(idx)}>
                     <Trash2 className="w-4 h-4" />
                   </Button>
@@ -587,24 +793,44 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
         <p className="text-xs text-muted-foreground mt-1">Applied to baseline man-hours/ton. 100% = baseline; below 100% (less efficient) increases hours; above 100% decreases them.</p>
       </div>
 
+      {needsWeightCount > 0 && (
+        <p className="text-xs text-amber-700 flex items-center gap-1 px-1">
+          <AlertTriangle className="w-3.5 h-3.5" />{needsWeightCount} line{needsWeightCount === 1 ? ' has' : 's have'} no weight yet and count 0 lb in the totals until one is typed.
+        </p>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 text-primary"><Gauge className="w-4 h-4" /><span className="text-sm font-semibold">Total Estimated Tons</span></div>
-          <p className="text-2xl font-bold mt-2">{totalTons.toFixed(2)}</p>
+          <p className="text-2xl font-bold mt-2"><MathDrill value={totalTons.toFixed(2)} title="Total tons" lines={sumLines('tons', 'tons', 'tons', 4)} align="start" /></p>
+        </div>
+        <div className="steel-card p-4">
+          <div className="flex items-center gap-2 text-primary"><Scale className="w-4 h-4" /><span className="text-sm font-semibold">Total Weight (lb)</span></div>
+          <p className="text-2xl font-bold mt-2"><MathDrill value={fmtNum(totalLbs, 0)} title="Total weight" lines={[...sumLines('totalLbs', 'weight', 'lb', 1), `${fmtNum(totalLbs, 1)} lb ÷ 2000 = ${totalTons.toFixed(4)} tons`]} align="start" /></p>
+        </div>
+        <div className="steel-card p-4">
+          <div className="flex items-center gap-2 text-primary"><Square className="w-4 h-4" /><span className="text-sm font-semibold">Plate Area (Sq In)</span></div>
+          <p className="text-2xl font-bold mt-2"><MathDrill value={fmtNum(totalPlateAreaSqIn, 0)} title="Plate area" lines={sumLines('plateAreaSqIn', 'plate area', 'sq in', 0)} align="start" /></p>
+          <p className="text-[11px] text-muted-foreground mt-1">Width × length × qty of plate-type lines.</p>
+        </div>
+        <div className="steel-card p-4">
+          <div className="flex items-center gap-2 text-primary"><Square className="w-4 h-4" /><span className="text-sm font-semibold">Surface Area (Sq In)</span></div>
+          <p className="text-2xl font-bold mt-2"><MathDrill value={fmtNum(totalSurfaceSqIn, 0)} title="Surface area" lines={sumLines('surfaceSqIn', 'surface', 'sq in', 0)} align="start" /></p>
+          <p className="text-[11px] text-muted-foreground mt-1">Every line, any coating. Only Paint lines feed the paint area below.</p>
         </div>
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 text-primary"><Clock3 className="w-4 h-4" /><span className="text-sm font-semibold">Total Estimated Man-Hours</span></div>
-          <p className="text-2xl font-bold mt-2">{totalManHours.toFixed(1)}</p>
+          <p className="text-2xl font-bold mt-2"><MathDrill value={totalManHours.toFixed(1)} title="Man-hours" lines={[...rows.map((row, i) => `${lineLabel(row, i)}: ${rowManHours(i).toFixed(2)} hrs`), `Total: ${totalManHours.toFixed(2)} hrs`]} align="start" /></p>
           <p className="text-[11px] text-muted-foreground mt-1">Fills in the Structural Fabrication hours on the Bid Worksheet when saved. Each line's share is shown as "Shop hours" above.</p>
         </div>
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 text-primary"><Gauge className="w-4 h-4" /><span className="text-sm font-semibold">Total Paint Area (Sq Ft)</span></div>
-          <p className="text-2xl font-bold mt-2">{totalPaintAreaSqFt.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+          <p className="text-2xl font-bold mt-2"><MathDrill value={totalPaintAreaSqFt.toLocaleString(undefined, { maximumFractionDigits: 0 })} title="Paint area" lines={[...sumLines('paintAreaSqIn', 'paint area', 'sq in', 0), `÷ 144 = ${fmtNum(totalPaintAreaSqFt, 1)} sq ft`]} align="start" /></p>
           <p className="text-[11px] text-muted-foreground mt-1">Auto-fills Primer (Paint) qty on the Bid Worksheet.</p>
         </div>
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 text-primary"><Gauge className="w-4 h-4" /><span className="text-sm font-semibold">Total Galvanized Tons</span></div>
-          <p className="text-2xl font-bold mt-2">{totalGalvanizedTons.toFixed(2)}</p>
+          <p className="text-2xl font-bold mt-2"><MathDrill value={totalGalvanizedTons.toFixed(2)} title="Galvanized tons" lines={[...rows.map((row, i) => (row.coating_type === 'Galvanized' ? `${lineLabel(row, i)}: ${calcs[i].tons.toFixed(4)} tons` : null)).filter(Boolean), `Total: ${totalGalvanizedTons.toFixed(4)} tons`]} align="start" /></p>
           <p className="text-[11px] text-muted-foreground mt-1">Auto-fills Galvanizing qty on the Bid Worksheet.</p>
         </div>
       </div>
@@ -614,6 +840,17 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
           <Save className="w-4 h-4 mr-2" />{saving ? 'Saving…' : 'Save Material Takeoff'}
         </Button>
       </div>
+
+      <CombineForOrderingDialog
+        open={combineOpen}
+        onOpenChange={setCombineOpen}
+        source="manual"
+        bidId={bid?.id}
+        title={`${bid?.bid_number || 'Bid'} — ${bid?.job_name || ''}`}
+        subtitle={`Full Takeoff, ${combineInput.pieces.length} line${combineInput.pieces.length === 1 ? '' : 's'} to combine${dirty ? ' (includes unsaved edits)' : ''}`}
+        pieces={combineInput.pieces}
+        excluded={combineInput.excluded}
+      />
     </div>
   );
 });

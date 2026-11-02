@@ -14,7 +14,7 @@ import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import { calculateDistance } from '@/lib/mileageService';
-import { calculateBondAmount, bondRateForContractValue, LEED_SURCHARGE_LEVELS, LEED_RATE_CATEGORY_KEY, calculateLeedSurcharge, resolveLeedHourlyRate, calculatePaymentPlatformFee, PAYMENT_PLATFORM_FEE_RATE } from '@/lib/bidWorksheetCalc';
+import { LEED_SURCHARGE_LEVELS, LEED_RATE_CATEGORY_KEY, resolveLeedHourlyRate, PAYMENT_PLATFORM_FEE_RATE, FAB_HOURS_CATEGORY_KEY, roundTakeoffHours, lineMarkupMultiplier, buildWorksheetLineMap, matchDeliveryTier, computeWorksheetTotals } from '@/lib/bidWorksheetCalc';
 import { buildCostCategoryRateMap, currentCostCategoryRate } from '@/lib/bidWorksheetRateEngine';
 
 const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
@@ -31,8 +31,8 @@ const FABRICATION_ONLY_CATEGORIES = ['structural_material', 'structural_fabricat
 // bid's Shop Efficiency %, saved as Bid.estimated_man_hours). Rounded to one
 // decimal, the same way the Full Takeoff's "Total Estimated Man-Hours" card
 // shows it, so the two screens always read the same number.
-const FAB_HOURS_CATEGORY_KEY = 'structural_fabrication';
-const roundTakeoffHours = (hours) => Math.round((Number(hours) || 0) * 10) / 10;
+// FAB_HOURS_CATEGORY_KEY/roundTakeoffHours live in bidWorksheetCalc.js now,
+// shared with the Full Breakdown export.
 const formatHours = (hours) => roundTakeoffHours(hours).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 // Categories whose rate field is filled from a company-configurable default
@@ -210,9 +210,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
     return () => { cancelled = true; clearTimeout(timer); };
   }, [jobsiteAddress, companyAddress]);
 
-  const matchedFreightTier = freightDistance != null
-    ? freightTiers.find((t) => freightDistance >= (t.min_miles ?? 0) && freightDistance <= (t.max_miles ?? Infinity))
-    : null;
+  const matchedFreightTier = matchDeliveryTier(freightTiers, freightDistance);
   const maxTierMiles = freightTiers.length > 0 ? Math.max(...freightTiers.map((t) => t.max_miles ?? 0)) : null;
   const freightNoTierReason = freightDistance != null && !matchedFreightTier && maxTierMiles != null
     ? `Mileage exceeds ${maxTierMiles} miles — no matching tier; price Jobsite Freight manually.`
@@ -298,64 +296,16 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
       // line saved before per-line markup existed (found.markup_percentage
       // is undefined there), so opening an older bid doesn't silently zero
       // out the markup it was actually quoted at.
-      const bidMarkupPct = parseFloat(bid?.markup_percentage) || 0;
-      const map = {};
-      COST_CATEGORIES.forEach(cat => {
-        const found = existing.find(e => e.cost_category === cat.key);
-        const categoryDefaultMarkupPct = cat.default_markup_pct ?? bidMarkupPct;
-        // Primer (Paint)/Galvanizing quantities default from the Full Takeoff's
-        // own paint-area/galvanized-tonnage totals (Bid.estimated_paint_area_sqft/
-        // estimated_galvanizing_tons) the same way BIM/AI-parsed lines auto-fill
-        // elsewhere — only while the line has never been hand-edited here
-        // (no saved row, or a saved row still is_auto_filled && !is_overridden),
-        // and only when the takeoff actually produced a positive number, so a
-        // bid with no takeoff run yet still starts blank instead of "AUTO 0".
-        // Structural Fabrication hours follow the same rule from the takeoff's
-        // shop man-hours (see FAB_HOURS_CATEGORY_KEY above). One extra case
-        // for that line only: a saved row that is still blank (0 hours, never
-        // auto-filled, never overridden) also picks up the takeoff hours —
-        // handleSave writes a row for every category, so any bid whose
-        // worksheet was saved before its takeoff existed has exactly that
-        // blank row, and it would otherwise never fill in.
-        const autoQty = cat.key === 'primer_paint' ? Number(bid?.estimated_paint_area_sqft) || 0
-          : cat.key === 'galvanizing' ? Number(bid?.estimated_galvanizing_tons) || 0
-          : cat.key === FAB_HOURS_CATEGORY_KEY ? takeoffFabHours
-          : 0;
-        const isBlankFabRow = cat.key === FAB_HOURS_CATEGORY_KEY && found && !found.is_auto_filled && !found.is_overridden && !(Number(found.quantity) > 0);
-        if (autoQty > 0 && (!found || (found.is_auto_filled && !found.is_overridden) || isBlankFabRow)) {
-          const base = found || {
-            quantity: 0,
-            unit_cost: RATE_DEFAULT_CATEGORY_KEYS.includes(cat.key) ? (defaultRateByCategory.get(cat.key) ?? 0) : 0,
-            coverage_rate: 300,
-            markup_percentage: categoryDefaultMarkupPct,
-            id: null,
-          };
-          const unitCost = base.unit_cost || 0;
-          const coverageRate = base.coverage_rate ?? 300;
-          map[cat.key] = {
-            ...base,
-            quantity: autoQty,
-            coverage_rate: coverageRate,
-            markup_percentage: base.markup_percentage ?? categoryDefaultMarkupPct,
-            total_cost: cat.inputMode === 'coverage' ? (autoQty / (coverageRate || 300)) * unitCost : autoQty * unitCost,
-            is_auto_filled: true,
-            is_overridden: false,
-            source: 'calculated',
-          };
-          return;
-        }
-        map[cat.key] = found
-          ? { ...found, coverage_rate: found.coverage_rate ?? 300, markup_percentage: found.markup_percentage ?? categoryDefaultMarkupPct }
-          : {
-              quantity: 0,
-              unit_cost: RATE_DEFAULT_CATEGORY_KEYS.includes(cat.key) ? (defaultRateByCategory.get(cat.key) ?? 0) : 0,
-              total_cost: 0,
-              coverage_rate: 300,
-              markup_percentage: categoryDefaultMarkupPct,
-              is_auto_filled: false,
-              source: 'manual',
-              id: null,
-            };
+      // Map building (default markup per category, Full Takeoff auto-fill of
+      // Primer (Paint)/Galvanizing/Structural Fabrication quantities) lives in
+      // bidWorksheetCalc.js's buildWorksheetLineMap, shared with the Full
+      // Breakdown export so both read the exact same lines.
+      const map = buildWorksheetLineMap({
+        categories: COST_CATEGORIES,
+        existing,
+        bid,
+        defaultRateByCategory,
+        rateDefaultKeys: RATE_DEFAULT_CATEGORY_KEYS,
       });
       setLines(map);
     } catch (e) {
@@ -453,69 +403,41 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
   const updateTexturaEnabled = (checked) => { setTexturaEnabled(checked); setDirty(true); };
   const updateMarkupPct = (value) => { setMarkupPct(value); setDirty(true); };
 
-  const subtotal = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0), 0);
-  // Each line item now carries its own markup % (set in the Cost Breakdown
-  // table below) — Quoted Price = Line Total * lineMarkupMultiplier. Every
-  // downstream figure (tax, bond, grand total) is the SUM of each line's own
-  // quoted price, not one bid-wide multiplier. Tax is still charged on the
-  // marked-up (sell) price, not raw cost, matching how this business actually
-  // prices a job.
-  const lineMarkupMultiplier = (line) => 1 + ((parseFloat(line?.markup_percentage) || 0) / 100);
-  const subtotalWithMarkup = Object.values(lines).reduce((s, l) => s + (l.total_cost || 0) * lineMarkupMultiplier(l), 0);
-  const markupAmount = subtotalWithMarkup - subtotal;
-  // The bottom-of-worksheet summary shows the dollar-weighted average markup
-  // (markupAmount / subtotal), not a plain arithmetic mean of the per-line
-  // percentages — most of the 28 categories are unused (0 cost) on any given
-  // bid, and a plain mean across all of them would be dragged toward zero
-  // regardless of what markup is actually being charged on real dollars.
-  const averageMarkupPct = subtotal > 0 ? (markupAmount / subtotal) * 100 : 0;
-  const overrideTotal = parseFloat(overrides.insurance) || 0;
-  const grandTotal = subtotalWithMarkup + overrideTotal;
-  // Gated directly on bid.tax_exempt (the single source of truth — the
-  // inverse of Base Info's top-level "Tax Enabled" toggle, see BidDetail.jsx)
-  // rather than on taxInfo.rate alone: taxInfo is populated by an async effect
-  // below, so this keeps the on/off state itself synchronous and immediate
-  // even in the brief window before that effect resolves.
-  const calculatedTaxRate = bid?.tax_exempt ? 0 : taxInfo.rate;
+  // Every total below comes from bidWorksheetCalc.js's computeWorksheetTotals
+  // (shared with the Full Breakdown PDF/Excel export). Each line item carries
+  // its own markup % — Quoted Price = Line Total * lineMarkupMultiplier — and
+  // every downstream figure (tax, bond, grand total) is the SUM of each line's
+  // own quoted price. Tax is charged on the marked-up (sell) price. The
+  // summary's markup % is the dollar-weighted average (markupAmount /
+  // subtotal). Tax is gated on bid.tax_exempt (the single source of truth,
+  // the inverse of Base Info's "Tax Enabled" toggle) so on/off is immediate
+  // even before the async taxInfo effect resolves. Taxable/non-taxable is the
+  // is_taxable flag on COST_CATEGORIES. Joist & Deck uses its own
+  // joist_deck_tax_rate, gated by the same tax_exempt flag. Bond and the
+  // Procore/Textura fees are each layered on top of the total before them.
   const joistDeckTaxRate = getJoistDeckTaxRate(bid, taxInfo.rate);
-  // Taxable/non-taxable is a data flag on COST_CATEGORIES (is_taxable, default
-  // true) rather than a hardcoded category-key list — steel_erection,
-  // outsourced_misc_material_erection, and joist_deck are the only categories
-  // flagged is_taxable: false today, matching the exact set this replaces.
-  // Each line's cost is scaled by its own markup multiplier before tax, same
-  // as the subtotal above.
-  const structuralTaxAmount = Object.entries(lines).reduce((sum, [categoryKey, line]) => {
-    const cat = COST_CATEGORIES.find((c) => c.key === categoryKey);
-    if (cat?.is_taxable === false) return sum;
-    return sum + Number(line?.total_cost || 0) * lineMarkupMultiplier(line) * calculatedTaxRate;
-  }, 0);
-  // Joist & Deck no longer has its own on/off toggle (the old "Joist & Deck
-  // Taxable" switch in Administrative Overrides was a second, independently-
-  // wired tax gate — removed so every tax line reads from the single top
-  // "Tax Enabled" toggle). It still uses its own joist_deck_tax_rate, just
-  // gated by the same tax_exempt flag as everything else.
-  const joistDeckTaxAmount = bid?.tax_exempt ? 0 : Number(lines['joist_deck']?.total_cost || 0) * lineMarkupMultiplier(lines['joist_deck']) * joistDeckTaxRate;
-  const taxAmount = structuralTaxAmount + joistDeckTaxAmount;
-  const insuranceAllocation = (parseFloat(insuranceInputs.general_liability) || 0) + (parseFloat(insuranceInputs.umbrella) || 0) + (parseFloat(insuranceInputs.professional_liability) || 0);
-  const includedInsuranceAllocation = insuranceEnabled ? insuranceAllocation : 0;
-  const leedSurchargeAmount = calculateLeedSurcharge(overrides.leed_level, leedHourlyRate);
-  // Bid's running total before the bond itself and before the Procore/Textura
-  // fees (both of which are layered on top of everything else, so neither can
-  // be part of its own base) — the "current total" the bond tier and the fee
-  // % are each applied against.
-  const preBondTotal = grandTotal + taxAmount + includedInsuranceAllocation + leedSurchargeAmount;
-  const computedBondAmount = calculateBondAmount(preBondTotal);
-  const bondOverrideValue = overrides.bond === '' || overrides.bond === null || overrides.bond === undefined
-    ? null
-    : parseFloat(overrides.bond);
-  const effectiveBondAmount = (bondOverrideValue != null && !Number.isNaN(bondOverrideValue)) ? bondOverrideValue : computedBondAmount;
-  const includedBondAmount = bondEnabled ? effectiveBondAmount : 0;
-  const preFeeTotal = preBondTotal + includedBondAmount;
-  const procorePlatformFee = calculatePaymentPlatformFee(preFeeTotal, calculatedTaxRate);
-  const texturaPlatformFee = calculatePaymentPlatformFee(preFeeTotal, calculatedTaxRate);
-  const includedProcoreFee = procorePayEnabled ? procorePlatformFee.total : 0;
-  const includedTexturaFee = texturaEnabled ? texturaPlatformFee.total : 0;
-  const totalWithTax = preFeeTotal + includedProcoreFee + includedTexturaFee;
+  const {
+    subtotal, markupAmount, averageMarkupPct, overrideTotal,
+    calculatedTaxRate, structuralTaxAmount, joistDeckTaxAmount,
+    includedInsuranceAllocation, leedSurchargeAmount,
+    bondRate, computedBondAmount, bondOverrideValue, includedBondAmount,
+    procorePlatformFee, texturaPlatformFee, includedProcoreFee, includedTexturaFee, totalWithTax,
+  } = computeWorksheetTotals({
+    categories: COST_CATEGORIES,
+    lines,
+    bid,
+    taxRate: taxInfo.rate,
+    joistDeckTaxRate,
+    insuranceOverride: overrides.insurance,
+    bondOverride: overrides.bond,
+    leedLevel: overrides.leed_level,
+    leedHourlyRate,
+    insuranceInputs,
+    insuranceEnabled,
+    bondEnabled,
+    procorePayEnabled,
+    texturaEnabled,
+  });
   const canOpenDocuments = currentUserRoles.some(r => ['admin', 'estimator', 'president', 'ceo', 'finance_department'].includes(normalizeRoleName(r)));
 
   const handleSave = async () => {
@@ -886,7 +808,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
               <div>
                 <p className="text-sm font-medium">Performance/Payment Bond</p>
                 <p className="text-xs text-muted-foreground">
-                  {(bondRateForContractValue(preBondTotal) * 100).toFixed(3)}% tiered rate — ${computedBondAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })} calculated
+                  {(bondRate * 100).toFixed(3)}% tiered rate — ${computedBondAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })} calculated
                 </p>
               </div>
               <Switch checked={bondEnabled} onCheckedChange={updateBondEnabled} />

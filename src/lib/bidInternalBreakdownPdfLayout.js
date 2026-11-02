@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_IN } from './pdfLayout.js';
 import { drawLetterheadImage } from '@/lib/letterheadDraw';
+import { formatBreakdownValue } from './bidInternalBreakdownData.js';
 
 // Pure PDF layout for the internal financial breakdown — see
 // bidProposalPdfLayout.js for why this is a separate, app-import-free module
@@ -102,103 +103,149 @@ function drawJobInfoBox(doc, startY, bid) {
   return startY + boxH + 0.3;
 }
 
+// Line-items table: Category (with how the line is entered, its source
+// flag and any note on a small second line), Qty, Unit Cost / Price, Line
+// Total, Markup %, Quoted Price — the worksheet's own columns.
 const LINE_ITEM_COLUMNS = [
-  { key: 'label', label: 'Cost Category', x: MARGIN, align: 'left' },
+  { key: 'label', label: 'Category (Quantity / Rate entered as)', x: MARGIN, align: 'left' },
   { key: 'qty', label: 'Qty', x: MARGIN + 3.4, align: 'right' },
-  { key: 'unitCost', label: 'Unit Cost', x: MARGIN + 4.3, align: 'right' },
+  { key: 'unitCost', label: 'Unit Cost / Price', x: MARGIN + 4.35, align: 'right' },
   { key: 'lineTotal', label: 'Line Total', x: MARGIN + 5.3, align: 'right' },
-  { key: 'markupPct', label: 'Markup %', x: MARGIN + 6.2, align: 'right' },
+  { key: 'markupPct', label: 'Markup %', x: MARGIN + 6.1, align: 'right' },
   { key: 'quotedPrice', label: 'Quoted Price', x: CONTENT_RIGHT, align: 'right' },
 ];
 
-function drawLineItemsTable(doc, startY, rows, totals) {
-  let y = startY;
+function drawSectionTitle(doc, y, title) {
+  y = ensureSpace(doc, y, 0.6);
+  doc.setFont(undefined, 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(0);
+  doc.text(title, MARGIN, y);
+  doc.setDrawColor(150);
+  doc.setLineWidth(0.012);
+  doc.line(MARGIN, y + 0.07, CONTENT_RIGHT, y + 0.07);
+  doc.setFont(undefined, 'normal');
+  return y + 0.3;
+}
+
+function drawLineHeader(doc, y) {
   doc.setFont(undefined, 'bold');
   doc.setFontSize(8);
   LINE_ITEM_COLUMNS.forEach((c) => doc.text(c.label, c.x, y, { align: c.align }));
   doc.setDrawColor(0);
   doc.setLineWidth(0.02);
   doc.line(MARGIN, y + 0.06, CONTENT_RIGHT, y + 0.06);
-  y += 0.24;
+  return y + 0.24;
+}
 
-  const drawDataRow = (row, opts = {}) => {
-    doc.setFont(undefined, opts.bold ? 'bold' : 'normal');
+function drawLineItemsSection(doc, startY, section) {
+  let y = startY;
+  (section.preRows || []).forEach((row) => { y = drawValueRow(doc, y, row); });
+  y = drawLineHeader(doc, y + 0.05);
+
+  section.rows.forEach((row) => {
+    const sub = [row.basis, row.coverageRate != null ? `${row.coverageRate} sqft/gal` : '', row.source, row.note].filter(Boolean).join(' · ');
+    const subLines = sub ? doc.splitTextToSize(sub, 3.0) : [];
+    const rowH = 0.2 + subLines.length * 0.13;
+    const preBreakY = y;
+    y = ensureSpace(doc, y, rowH + 0.04);
+    if (y < preBreakY) y = drawLineHeader(doc, y);
+    const cells = {
+      label: row.label,
+      qty: row.quantityUnit ? `${row.quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${row.quantityUnit}` : row.quantity.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+      unitCost: fmt(row.unitCost),
+      lineTotal: fmt(row.lineTotal),
+      markupPct: fmtPct(row.markupPct),
+      quotedPrice: fmt(row.quotedPrice),
+    };
+    doc.setFont(undefined, 'normal');
     doc.setFontSize(8.5);
-    LINE_ITEM_COLUMNS.forEach((c) => doc.text(String(row[c.key] ?? '—'), c.x, y, { align: c.align }));
+    LINE_ITEM_COLUMNS.forEach((c) => doc.text(String(cells[c.key]), c.x, y, { align: c.align }));
+    if (subLines.length) {
+      doc.setFontSize(7);
+      doc.setTextColor(110);
+      doc.text(subLines, MARGIN + 0.1, y + 0.13);
+      doc.setTextColor(0);
+    }
     doc.setDrawColor(225);
     doc.setLineWidth(0.006);
-    if (!opts.noRule) doc.line(MARGIN, y + 0.06, CONTENT_RIGHT, y + 0.06);
-    y += 0.2;
-  };
-
-  rows.forEach((row) => {
-    const preBreakY = y;
-    y = ensureSpace(doc, y, 0.24);
-    if (y < preBreakY) {
-      // Fresh page — repeat the column header before resuming the table.
-      doc.setFont(undefined, 'bold');
-      doc.setFontSize(8);
-      LINE_ITEM_COLUMNS.forEach((c) => doc.text(c.label, c.x, y, { align: c.align }));
-      doc.setDrawColor(0);
-      doc.setLineWidth(0.02);
-      doc.line(MARGIN, y + 0.06, CONTENT_RIGHT, y + 0.06);
-      y += 0.24;
-    }
-    drawDataRow(row);
+    doc.line(MARGIN, y + rowH - 0.14, CONTENT_RIGHT, y + rowH - 0.14);
+    y += rowH;
   });
 
   y = ensureSpace(doc, y, 0.3);
   doc.setDrawColor(0);
   doc.setLineWidth(0.02);
   doc.line(MARGIN, y - 0.1, CONTENT_RIGHT, y - 0.1);
-  drawDataRow({ label: 'Subtotal', qty: '', unitCost: '', lineTotal: fmt(totals.subtotal), markupPct: fmtPct(totals.averageMarkupPct), quotedPrice: fmt(totals.subtotalWithMarkup) }, { bold: true, noRule: true });
+  doc.setFont(undefined, 'bold');
+  doc.setFontSize(8.5);
+  const s = section.subtotal;
+  doc.text(s.label, MARGIN, y);
+  doc.text(fmt(s.lineTotal), LINE_ITEM_COLUMNS[3].x, y, { align: 'right' });
+  doc.text(`avg ${fmtPct(s.markupPct)}`, LINE_ITEM_COLUMNS[4].x, y, { align: 'right' });
+  doc.text(fmt(s.quotedPrice), CONTENT_RIGHT, y, { align: 'right' });
   doc.setFont(undefined, 'normal');
-  return y + 0.3;
+  return y + 0.35;
 }
 
-function drawSummaryTable(doc, startY, summary) {
+// One label/value row; `block` rows (Inclusions, Exclusions, …) print the
+// label then the full wrapped text underneath instead of a right-aligned value.
+function drawValueRow(doc, startY, row) {
   let y = startY;
-  const rows = [
-    ['Line Item Subtotal', fmt(summary.subtotal)],
-    [`Profit Markup (avg ${fmtPct(summary.averageMarkupPct)})`, fmt(summary.markupAmount)],
-    ['Administrative Overrides', fmt(summary.overrideTotal)],
-    [`Bond Estimate${!summary.bondEnabled ? ' (off)' : ''}`, fmt(summary.bondEnabled ? summary.bondAmount : 0)],
-    [`Insurance Allocation${!summary.insuranceEnabled ? ' (off)' : ''}`, fmt(summary.insuranceAllocation)],
-    ...(summary.leedSurchargeAmount > 0 ? [[`LEED / Gov't Job Surcharge (${summary.leedLevel})`, fmt(summary.leedSurchargeAmount)]] : []),
-    ...(summary.procorePlatformFee ? [[`Procore Pay Fee (fee ${fmt(summary.procorePlatformFee.fee)} + tax ${fmt(summary.procorePlatformFee.tax)})`, fmt(summary.procorePlatformFee.total)]] : []),
-    ...(summary.texturaPlatformFee ? [[`Textura Fee (fee ${fmt(summary.texturaPlatformFee.fee)} + tax ${fmt(summary.texturaPlatformFee.tax)})`, fmt(summary.texturaPlatformFee.total)]] : []),
-    [`Sales Tax ${summary.taxExempt ? '(exempt)' : `(${(summary.taxRate * 100).toFixed(2)}%)`}`, fmt(summary.structuralTaxAmount)],
-    [`Joist & Deck Tax ${summary.taxExempt ? '(exempt)' : `(${(summary.joistDeckTaxRate * 100).toFixed(2)}%)`}`, fmt(summary.joistDeckTaxAmount)],
-    ['Total Cost', fmt(summary.grandTotal), { bold: true, big: true, topRule: true }],
-  ];
-
-  rows.forEach(([label, value, opts = {}]) => {
-    y = ensureSpace(doc, y, 0.32);
-    if (opts.topRule) {
-      doc.setDrawColor(0);
-      doc.setLineWidth(0.02);
-      doc.line(MARGIN, y - 0.14, CONTENT_RIGHT, y - 0.14);
-    }
-    doc.setFont(undefined, opts.bold ? 'bold' : 'normal');
-    doc.setFontSize(opts.big ? 11.5 : 10);
-    doc.text(label, MARGIN, y);
-    doc.text(value, CONTENT_RIGHT, y, { align: 'right' });
-    if (!opts.topRule) {
-      doc.setDrawColor(225);
-      doc.setLineWidth(0.008);
-      doc.line(MARGIN, y + 0.09, CONTENT_RIGHT, y + 0.09);
-    }
-    y += 0.28;
-  });
+  if (row.block) {
+    const body = row.value ? doc.splitTextToSize(String(row.value), CONTENT_RIGHT - MARGIN - 0.1) : ['—'];
+    y = ensureSpace(doc, y, 0.42);
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(9);
+    doc.text(row.label, MARGIN, y);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(8.5);
+    y += 0.17;
+    body.forEach((line) => {
+      y = ensureSpace(doc, y, 0.16);
+      doc.text(line, MARGIN + 0.1, y);
+      y += 0.15;
+    });
+    return y + 0.1;
+  }
+  y = ensureSpace(doc, y, 0.3);
+  if (row.topRule) {
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.02);
+    doc.line(MARGIN, y - 0.14, CONTENT_RIGHT, y - 0.14);
+  }
+  doc.setFont(undefined, row.bold ? 'bold' : 'normal');
+  doc.setFontSize(row.big ? 11.5 : 9);
+  const value = formatBreakdownValue(row);
+  const valueWidth = doc.getTextWidth(value);
+  const labelLines = doc.splitTextToSize(row.label, Math.max(2, CONTENT_RIGHT - MARGIN - valueWidth - 0.3));
+  doc.text(labelLines, MARGIN, y);
+  doc.text(value, CONTENT_RIGHT, y, { align: 'right' });
+  const rowH = 0.24 + (labelLines.length - 1) * 0.15;
+  if (!row.topRule) {
+    doc.setDrawColor(225);
+    doc.setLineWidth(0.008);
+    doc.line(MARGIN, y + rowH - 0.17, CONTENT_RIGHT, y + rowH - 0.17);
+  }
   doc.setFont(undefined, 'normal');
-  return y;
+  return y + rowH;
 }
 
+function drawValuesSection(doc, startY, section) {
+  let y = startY;
+  section.rows.forEach((row) => { y = drawValueRow(doc, y, row); });
+  return y + 0.15;
+}
+
+// data.sections comes from bidInternalBreakdownData.js — the Bid Worksheet's
+// sections in the worksheet's order; every section is drawn.
 export function drawBidInternalBreakdownPdf(data) {
   const doc = new jsPDF({ unit: 'in', format: 'letter' });
   let y = drawHeader(doc, data.logo, data.companyName, data.letterheadImage);
   y = drawJobInfoBox(doc, y, data.bid);
-  y = drawLineItemsTable(doc, y, data.rows, { subtotal: data.subtotal, averageMarkupPct: data.averageMarkupPct, subtotalWithMarkup: data.subtotalWithMarkup });
-  drawSummaryTable(doc, y, data.summary);
+  (data.sections || []).forEach((section) => {
+    y = drawSectionTitle(doc, y, section.title);
+    y = section.type === 'lines' ? drawLineItemsSection(doc, y, section) : drawValuesSection(doc, y, section);
+  });
   return doc;
 }

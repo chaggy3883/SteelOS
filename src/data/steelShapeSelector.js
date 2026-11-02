@@ -7,6 +7,8 @@
 //
 // `value` strings match steel_catalog.jsonc's shape_class enum exactly, so a
 // row's stored shape_class can be used directly as the filter/lookup key.
+import { findAiscShape } from '../lib/aiscShapes.js';
+
 export const SHAPE_CLASSES = [
   { value: 'W-Beam', label: 'W-Beam (Wide Flange)', hoursPerTon: 1.15, sizes: ['W14X90', 'W14X22', 'W18X35', 'W24X68', 'W30X90'] },
   { value: 'HSS Tube', label: 'HSS (Hollow Structural Section)', hoursPerTon: 1.0, sizes: ['HSS8X8X1/2', 'HSS10X6X3/8', 'HSS4X4X1/4', 'HSS6X6X3/8'] },
@@ -28,14 +30,19 @@ function fractionToDecimal(token) {
   return parseFloat(token) || 0;
 }
 
-// Approximate weight/ft for a given size string. W and C designations
-// literally encode their own weight/ft in the number after the "x" (the
-// same AISC convention steelShapes.js's old catalog relied on); HSS/L/PL
-// don't encode it, so those fall back to the girth-or-leg-sum x thickness x
-// steel-density method steelShapes.js's plate weight calc already uses
+// Weight/ft for a given size string. Standard W, C, HSS and L sizes come
+// straight from the AISC Shapes Database v16.0 (exact). Anything not in it
+// falls back to the old approximations: W and C designations literally
+// encode their own weight/ft in the number after the "x"; HSS/L/PL don't, so
+// those use the girth-or-leg-sum x thickness x steel-density method
 // (0.2836 lb/in^3 -> ~3.4 lb/ft per inch of width per inch of thickness).
 export function estimateWeightPerFt(shapeClassValue, sizeString) {
   const size = String(sizeString || '').toUpperCase();
+
+  if (shapeClassValue !== 'PL-Plate') {
+    const aisc = findAiscShape(size);
+    if (aisc?.weightPerFt > 0) return aisc.weightPerFt;
+  }
 
   if (shapeClassValue === 'W-Beam' || shapeClassValue === 'C-Channel') {
     const m = size.match(/X(\d+(?:\.\d+)?)/);
