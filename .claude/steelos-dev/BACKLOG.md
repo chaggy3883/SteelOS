@@ -28,6 +28,15 @@ right heading. Ask which section if it's ambiguous.
   estimateWeightPerFt and steelShapeMath read AISC first too, so IRONSIGHT and old HSS/angle rows use true weights.
   Checks: W12x26 perimeter 49.4 in (was 72); HSS6x6x3/8 27.48 lb/ft (was 30.6); L4x4x1/2 12.8; Pipe4STD 10.8.
 
+- Mixed stock lengths + 1% grace (2026-11-02): Mult now plans each group with src/lib/mixedStockPlanner.js — every
+  bar can be a different offered length; best plan = least ordered length (lowest % drop), then fewest bars, then
+  fewest distinct lengths. Strategies: pattern greedy (bounded knapsack on a 1/16" grid, weights rounded up), FFD/BFD,
+  every bar re-sized to the shortest length that holds it, weak-bar re-plan. Grace (default 1%, setting grace_pct):
+  each bar keeps max(clamp, grace % of the bar) uncut, so a 40' bar holds at most 39'-7 1/4" of pieces + kerf.
+  Order line reads "2 × W12X26 A992 @ 40'-0" + 1 × @ 30'-0""; comparison table shows the mix and each single length;
+  "Force" a length still works. Checks: 3x25' + 2x14' -> 2x40' + 1x30' = 6.36% (best single 14.17%); 60 random jobs:
+  mix beat best single 54, tied 6, never worse, no bar over 99%, slowest 0.5 s. Not clicked through in the browser.
+
 ## Queued — follow-ups from catalog entry / combining
 - Weights for bolts/nuts/washers/anchors, grating, deck, expanded metal; pipe over 12"; rebar exact table.
 - Register MillPricing for combining cost; load a run into a multi-line requisition/PO (none exists yet).

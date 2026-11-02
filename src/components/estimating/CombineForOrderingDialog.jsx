@@ -37,7 +37,11 @@ function groupMath(g) {
   if (g.family === 'linear') {
     const wpf = g.weight_per_ft || 0;
     return {
-      stock: [`${t.stock_qty} bars × ${formatFtIn(g.stock_length_in || 0)}`, ...g.bars.map((b) => `Bar ${b.index}: ${b.cuts.map((c) => formatFtIn(c.length_in)).join(' + ')}${b.cuts.length > 1 ? ` + ${b.cuts.length - 1} kerf × ${g.settings_used.kerf_in}"` : ''}${g.settings_used.squaring_in ? ` + squaring ${g.settings_used.squaring_in}"` : ''} → drop ${formatFtIn(b.drop_in)}`)],
+      stock: [
+        `${t.stock_qty} bars: ${(g.stock_mix || []).map((m) => `${m.qty} × ${formatFtIn(m.stock_length_in)}`).join(' + ') || '—'}${g.mixed ? ' (best mix of the offered lengths)' : ' (forced length)'}`,
+        `Each bar keeps max(clamp ${g.settings_used.clamp_in}", grace ${g.settings_used.grace_pct}% of the bar) uncut at the tail`,
+        ...g.bars.map((b) => `Bar ${b.index} (${formatFtIn(b.stock_length_in)}, holds ${n(b.capacity_in, 3)}"): ${b.cuts.map((c) => formatFtIn(c.length_in)).join(' + ')}${b.cuts.length > 1 ? ` + ${b.cuts.length - 1} kerf × ${g.settings_used.kerf_in}"` : ''}${g.settings_used.squaring_in ? ` + squaring ${g.settings_used.squaring_in}"` : ''} → drop ${formatFtIn(b.drop_in)}`),
+      ],
       drop: [`Ordered ${n(t.ordered_in, 3)} in − pieces ${n(t.piece_in, 3)} in = ${n(t.ordered_in - t.piece_in, 3)} in`, `${n(t.ordered_in - t.piece_in, 3)} ÷ ${n(t.ordered_in, 3)} × 100 = ${n(t.drop_pct, 3)}%`, `= usable drop ${n(t.usable_drop_in, 3)} + scrap drop ${n(t.scrap_drop_in, 3)} + kerf ${n(t.kerf_in, 3)} + squaring ${n(t.squaring_in, 3)} in`],
       ordered: [`${n(t.ordered_in, 3)} in ÷ 12 = ${n(t.ordered_in / 12, 4)} ft × ${n(wpf, 3)} lb/ft = ${n(t.ordered_lbs, 3)} lb`, `${n(t.ordered_lbs, 3)} ÷ 2000 = ${n(t.ordered_tons, 4)} tons`],
       used: [`${n(t.piece_in, 3)} in ÷ 12 × ${n(wpf, 3)} lb/ft = ${n(t.used_lbs, 3)} lb`],
@@ -136,7 +140,7 @@ function GroupDetail({ group, onUseStock, onUseSheet, onClearOverride, overridde
                 <td className="p-1 font-mono">{formatFtIn(c.length_in)}</td>
                 <td className="p-1 font-mono">{formatFtIn(c.start_in)} to {formatFtIn(c.end_in)}</td>
                 <td className="p-1">{i === b.cuts.length - 1 ? (
-                  <MathDrill value={`${formatFtIn(b.drop_in)} ${b.drop_kind === 'usable' ? 'usable' : 'scrap'}`} title={`Bar ${b.index} drop`} lines={[`${formatFtIn(b.stock_length_in)} − squaring ${b.squaring_in}" − pieces ${n(b.piece_in, 3)}" − kerf ${n(b.kerf_in, 3)}" = ${n(b.drop_in, 3)}"`, `${b.drop_kind === 'usable' ? 'At or above' : 'Below'} the usable-drop threshold → ${b.drop_kind}`]} align="start" />
+                  <MathDrill value={`${formatFtIn(b.drop_in)} ${b.drop_kind === 'usable' ? 'usable' : 'scrap'}`} title={`Bar ${b.index} drop`} lines={[`${formatFtIn(b.stock_length_in)} − squaring ${b.squaring_in}" − pieces ${n(b.piece_in, 3)}" − kerf ${n(b.kerf_in, 3)}" = ${n(b.drop_in, 3)}"`, `Includes the uncut tail: max(clamp ${b.clamp_in}", grace ${n(b.grace_in, 3)}")`, `${b.drop_kind === 'usable' ? 'At or above' : 'Below'} the usable-drop threshold → ${b.drop_kind}`]} align="start" />
                 ) : ''}</td>
               </tr>
             ))) : group.sheets.map((s) => s.placements.map((p, i) => (
@@ -161,8 +165,12 @@ function GroupDetail({ group, onUseStock, onUseSheet, onClearOverride, overridde
           <tbody>
             {group.alternatives.map((a, i) => {
               const isLinear = group.family === 'linear';
-              const label = isLinear ? formatFtIn(a.stock_length_in) : `${a.sheet.width_in}" × ${a.sheet.length_in}" (${a.preference === 'upright' ? 'long side along' : 'short side along'})`;
-              const current = isLinear ? a.stock_length_in === group.stock_length_in : (group.sheet && a.sheet.width_in === group.sheet.width_in && a.sheet.length_in === group.sheet.length_in && a.preference === group.preference);
+              const label = isLinear
+                ? (a.mix ? `Mixed lengths: ${a.stock_mix.map((m) => `${m.qty} × ${formatFtIn(m.stock_length_in)}`).join(' + ')}` : `All ${formatFtIn(a.stock_length_in)}`)
+                : `${a.sheet.width_in}" × ${a.sheet.length_in}" (${a.preference === 'upright' ? 'long side along' : 'short side along'})`;
+              const current = isLinear
+                ? (a.mix ? group.mixed : (!group.mixed && a.stock_length_in === group.stock_length_in))
+                : (group.sheet && a.sheet.width_in === group.sheet.width_in && a.sheet.length_in === group.sheet.length_in && a.preference === group.preference);
               return (
                 <tr key={i} className={`border-t ${current ? 'bg-primary/5 font-medium' : ''}`}>
                   <td className="p-1">{label}{current ? ' ← used' : ''}</td>
@@ -170,7 +178,7 @@ function GroupDetail({ group, onUseStock, onUseSheet, onClearOverride, overridde
                   <td className="p-1 text-right font-mono">{a.feasible ? (isLinear ? formatFtIn(a.ordered_in) : `${n(a.ordered_area, 0)} sq in`) : 'piece too long'}</td>
                   <td className="p-1 text-right font-mono">{a.feasible ? `${n(a.drop_pct, 2)}%` : '—'}</td>
                   <td className="p-1 text-right">{a.feasible && !current && (
-                    <Button size="sm" variant="outline" className="h-6 text-[11px] px-2" onClick={() => (isLinear ? onUseStock(a.stock_length_in / 12) : onUseSheet(a.sheet))}>Use this</Button>
+                    <Button size="sm" variant="outline" className="h-6 text-[11px] px-2" onClick={() => (isLinear ? onUseStock(a.mix ? 'mix' : a.stock_length_in / 12) : onUseSheet(a.sheet))}>Use this</Button>
                   )}</td>
                 </tr>
               );
@@ -252,7 +260,8 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
 
   const settingsText = (s) => [
     `Stock ${(s.forced_stock_length_ft ? [s.forced_stock_length_ft] : s.stock_lengths_ft).join("', ")}'`,
-    `kerf ${s.kerf_in}"`, `squaring ${s.squaring_in}"`, `clamp ${s.clamp_in}"`, `usable drop ≥ ${s.usable_drop_in}"`,
+    s.forced_stock_length_ft ? 'forced length' : 'best mix of lengths',
+    `kerf ${s.kerf_in}"`, `squaring ${s.squaring_in}"`, `clamp ${s.clamp_in}"`, `grace ${s.grace_pct ?? 0}%`, `usable drop ≥ ${s.usable_drop_in}"`,
     `sheets ${(s.forced_sheet ? [s.forced_sheet] : s.sheets).map(sheetText).join(', ')}`,
     `plate kerf ${s.plate_kerf_in}"`, `edge trim ${s.edge_trim_in}"`, s.allow_rotate ? 'rotate on' : 'rotate off',
     s.within_sequence ? 'within sequence only' : 'across sequences',
@@ -346,7 +355,7 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
                 <Select value={settings.forced_stock_length_ft ? String(settings.forced_stock_length_ft) : 'best'} onValueChange={(v) => set({ forced_stock_length_ft: v === 'best' ? null : Number(v) })}>
                   <SelectTrigger className="h-8 text-sm mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="best">Best per group (least drop, then fewest bars)</SelectItem>
+                    <SelectItem value="best">Best mix of lengths (lowest % drop)</SelectItem>
                     {settings.stock_lengths_ft.map((f) => <SelectItem key={f} value={String(f)}>Force {f}'-0"</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -356,6 +365,11 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
                 <div><Label className="text-xs">Squaring (in per bar)</Label><Input type="number" step="0.125" min={0} className="h-8 text-sm mt-1" value={settings.squaring_in} onChange={(e) => set({ squaring_in: Number(e.target.value) || 0 })} /></div>
                 <div><Label className="text-xs">Clamp allowance (in)</Label><Input type="number" step="0.5" min={0} className="h-8 text-sm mt-1" value={settings.clamp_in} onChange={(e) => set({ clamp_in: Number(e.target.value) || 0 })} /></div>
                 <div><Label className="text-xs">Usable drop at least (in)</Label><Input type="number" step="1" min={0} className="h-8 text-sm mt-1" value={settings.usable_drop_in} onChange={(e) => set({ usable_drop_in: Number(e.target.value) || 0 })} /></div>
+                <div className="col-span-2">
+                  <Label className="text-xs">Grace (% of each bar left uncut)</Label>
+                  <Input type="number" step="0.5" min={0} className="h-8 text-sm mt-1" value={settings.grace_pct} onChange={(e) => set({ grace_pct: Math.max(0, Number(e.target.value) || 0) })} />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">A 40' bar at {settings.grace_pct}% holds at most {formatFtIn(480 * (1 - (settings.grace_pct || 0) / 100))} of pieces + kerf. The clamp allowance counts toward it.</p>
+                </div>
               </div>
             </div>
             <div className="rounded-lg border p-3 space-y-2">

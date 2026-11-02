@@ -3,15 +3,17 @@
 // the stock to buy. Pure functions only, deterministic, Node-checkable.
 //
 //   Mult (linear): pieces of one shape + size + grade packed into stock
-//   lengths with materialOptimizer.js's first-fit-decreasing optimizeCutPlan.
-//   Each bar loses a squaring cut at the lead end, and the clamp allowance
-//   at the tail can't hold a piece, so pieces pack into
-//   usable = stock − squaring − clamp. Kerf is charged between pieces on a
-//   bar, the same rule optimizeCutPlan has always used.
+//   lengths with mixedStockPlanner.js — each bar can be a different offered
+//   length, chosen for the lowest total drop (a forced length uses only
+//   that one). Each bar loses a squaring cut at the lead end, and its tail
+//   keeps the larger of the clamp allowance and the grace (default 1% of
+//   the bar, never cut into), so pieces pack into
+//   usable = stock − squaring − max(clamp, grace % × stock). Kerf is
+//   charged between pieces on a bar.
 //   Drop = stock − squaring − (pieces + kerfs): the physical bar end left
-//   over (it includes the clamp end). Drop at or above the usable-drop
-//   threshold can go back to inventory; below it, it's scrap. Kerf and
-//   squaring are always scrap.
+//   over (it includes the clamp / grace end). Drop at or above the
+//   usable-drop threshold can go back to inventory; below it, it's scrap.
+//   Kerf and squaring are always scrap.
 //
 //   Nest (plate): parts of one shape + thickness + grade laid out on sheets
 //   with plateNester.js.
@@ -20,7 +22,7 @@
 // leave as a piece (usable drop + scrap + kerf + squaring). Nothing here
 // touches the takeoff rows — a run is a separate result the estimator
 // reviews before exporting or ordering.
-import { optimizeCutPlan } from './materialOptimizer.js';
+import { planMixedStock } from './mixedStockPlanner.js';
 import { nestPlates } from './plateNester.js';
 import { formatFtIn, formatInches, profileKey } from './materialEntryMath.js';
 
@@ -30,6 +32,9 @@ export const DEFAULT_COMBINE_SETTINGS = {
   kerf_in: 0.125,
   squaring_in: 0,
   clamp_in: 0,
+  // Share of every bar left uncut as a safety allowance (mill length,
+  // cutting) — a 40' bar holds at most 99% = 39'-7 1/4" of pieces + kerf.
+  grace_pct: 1,
   usable_drop_in: 24,
   sheets: [
     { width_in: 48, length_in: 96 },
@@ -100,15 +105,22 @@ function unitCost(group, settings) {
 
 // ---------------------------------------------------------------- Mult
 
-function packLinear(pieces, stockLengthIn, s) {
-  const usable = stockLengthIn - s.squaring_in - s.clamp_in;
-  const plan = optimizeCutPlan(
-    pieces.map((p) => ({ id: p.id, quantity: p.quantity, cut_length_in: p.length_in })),
-    [usable],
-    s.kerf_in,
-  );
+// The tail every bar keeps: the larger of the clamp allowance and the grace.
+const tailIn = (stockLengthIn, s) => Math.max(s.clamp_in, (s.grace_pct / 100) * stockLengthIn);
+const capacityOf = (stockLengthIn, s) => stockLengthIn - s.squaring_in - tailIn(stockLengthIn, s);
+
+// "2 × W12X26 A992 @ 40'-0" + 1 × @ 30'-0"" from a list of bars.
+function stockMix(bars) {
+  const counts = new Map();
+  bars.forEach((b) => counts.set(b.stock_length_in, (counts.get(b.stock_length_in) || 0) + 1));
+  return [...counts.entries()].sort((a, b) => b[0] - a[0]).map(([stock_length_in, qty]) => ({ stock_length_in, qty }));
+}
+
+function packLinear(pieces, stockLengthsIn, s) {
+  const units = pieces.flatMap((p) => Array.from({ length: p.quantity }, () => ({ piece_id: p.id, length_in: p.length_in })));
+  const planned = planMixedStock(units, stockLengthsIn.map((L) => ({ length_in: L, capacity_in: capacityOf(L, s) })), s.kerf_in);
   const byId = new Map(pieces.map((p) => [p.id, p]));
-  const bars = plan.bins.map((bin, i) => {
+  const bars = planned.map((bin, i) => {
     let pos = s.squaring_in;
     const cuts = bin.cuts.map((c, ci) => {
       if (ci > 0) pos += s.kerf_in;
@@ -117,12 +129,14 @@ function packLinear(pieces, stockLengthIn, s) {
       return cut;
     });
     const kerfIn = Math.max(0, cuts.length - 1) * s.kerf_in;
-    const dropIn = stockLengthIn - s.squaring_in - bin.used_in;
+    const dropIn = bin.stock_length_in - s.squaring_in - bin.used_in;
     return {
       index: i + 1,
-      stock_length_in: stockLengthIn,
+      stock_length_in: bin.stock_length_in,
       squaring_in: s.squaring_in,
       clamp_in: s.clamp_in,
+      grace_in: (s.grace_pct / 100) * bin.stock_length_in,
+      capacity_in: bin.capacity_in,
       cuts,
       piece_in: cuts.reduce((sum, c) => sum + c.length_in, 0),
       kerf_in: kerfIn,
@@ -130,9 +144,10 @@ function packLinear(pieces, stockLengthIn, s) {
       drop_kind: dropIn + EPS >= s.usable_drop_in ? 'usable' : 'scrap',
     };
   });
-  const ordered = bars.length * stockLengthIn;
+  const ordered = bars.reduce((sum, b) => sum + b.stock_length_in, 0);
   const pieceIn = bars.reduce((sum, b) => sum + b.piece_in, 0);
-  return { stock_length_in: stockLengthIn, usable_in: usable, bars, ordered_in: ordered, piece_in: pieceIn, drop_pct: ordered > 0 ? ((ordered - pieceIn) / ordered) * 100 : 0, unpacked: plan.unpackablePieces };
+  const mix = stockMix(bars);
+  return { stock_length_in: mix.length === 1 ? mix[0].stock_length_in : null, stock_mix: mix, bars, ordered_in: ordered, piece_in: pieceIn, drop_pct: ordered > 0 ? ((ordered - pieceIn) / ordered) * 100 : 0 };
 }
 
 export function multGroup(group, settings = DEFAULT_COMBINE_SETTINGS) {
@@ -140,12 +155,17 @@ export function multGroup(group, settings = DEFAULT_COMBINE_SETTINGS) {
     kerf_in: Number(settings.kerf_in) || 0,
     squaring_in: Number(settings.squaring_in) || 0,
     clamp_in: Number(settings.clamp_in) || 0,
+    grace_pct: Math.max(0, Number(settings.grace_pct ?? DEFAULT_COMBINE_SETTINGS.grace_pct) || 0),
     usable_drop_in: Number(settings.usable_drop_in) || 0,
   };
   const override = settings.group_overrides?.[group.key];
-  const forcedFt = Number(override?.stock_length_ft) || Number(settings.forced_stock_length_ft) || null;
-  const offeredIn = forcedFt ? [forcedFt * 12] : [...new Set((settings.stock_lengths_ft || []).map((f) => Number(f) * 12).filter((v) => v > 0))].sort((a, b) => a - b);
-  const maxUsable = offeredIn.length ? Math.max(...offeredIn) - s.squaring_in - s.clamp_in : 0;
+  // A per-group override can force one length, or ask for the mix back
+  // ({ stock_length_ft: 'mix' }) when the whole run is forced.
+  const overrideMix = override?.stock_length_ft === 'mix';
+  const forcedFt = overrideMix ? null : (Number(override?.stock_length_ft) || Number(settings.forced_stock_length_ft) || null);
+  const allOfferedIn = [...new Set((settings.stock_lengths_ft || []).map((f) => Number(f) * 12).filter((v) => v > 0))].sort((a, b) => a - b);
+  const offeredIn = forcedFt ? [forcedFt * 12] : allOfferedIn;
+  const maxUsable = offeredIn.length ? capacityOf(Math.max(...offeredIn), s) : 0;
 
   const flagged = [];
   const placeable = [];
@@ -165,19 +185,24 @@ export function multGroup(group, settings = DEFAULT_COMBINE_SETTINGS) {
   });
 
   const longest = placeable.reduce((m, p) => Math.max(m, p.length_in), 0);
-  const alternatives = offeredIn.map((L) => {
-    const feasible = L - s.squaring_in - s.clamp_in + EPS >= longest;
-    if (!feasible) return { stock_length_in: L, feasible: false, bars: 0, ordered_in: 0, drop_pct: null };
-    const r = packLinear(placeable, L, s);
-    return { stock_length_in: L, feasible: true, bars: r.bars.length, ordered_in: r.ordered_in, drop_pct: r.drop_pct, plan: r };
-  });
-  // Least ordered length (= least drop), then fewest bars, then shorter stock.
-  let best = null;
-  alternatives.filter((a) => a.feasible).forEach((a) => {
-    if (!best || a.ordered_in < best.ordered_in - EPS || (Math.abs(a.ordered_in - best.ordered_in) <= EPS && a.bars < best.bars)) best = a;
-  });
+  // The comparison table: the best mix of every offered length, then each
+  // length on its own.
+  const single = (L) => {
+    const feasible = capacityOf(L, s) + EPS >= longest;
+    if (!feasible) return { mix: false, stock_length_in: L, feasible: false, bars: 0, ordered_in: 0, drop_pct: null };
+    const r = packLinear(placeable, [L], s);
+    return { mix: false, stock_length_in: L, feasible: true, bars: r.bars.length, ordered_in: r.ordered_in, drop_pct: r.drop_pct };
+  };
+  const mixed = allOfferedIn.length > 1 && placeable.length ? packLinear(placeable, allOfferedIn, s) : null;
+  const alternatives = [
+    ...(mixed ? [{ mix: true, stock_length_in: null, stock_mix: mixed.stock_mix, feasible: true, bars: mixed.bars.length, ordered_in: mixed.ordered_in, drop_pct: mixed.drop_pct }] : []),
+    ...allOfferedIn.map(single),
+  ];
 
-  const plan = best?.plan || { bars: [], ordered_in: 0, piece_in: 0, stock_length_in: null };
+  const plan = !placeable.length
+    ? { bars: [], ordered_in: 0, piece_in: 0, stock_length_in: null, stock_mix: [] }
+    : (forcedFt ? packLinear(placeable, offeredIn, s) : (mixed || packLinear(placeable, offeredIn, s)));
+  const mixText = (plan.stock_mix || []).map((m, i) => `${m.qty} × ${i === 0 ? `${groupLabel(group)} ` : ''}@ ${formatFtIn(m.stock_length_in)}`).join(' + ');
   const wpf = Number(group.pieces.find((p) => Number(p.weight_per_ft) > 0)?.weight_per_ft) || 0;
   const kerfTotal = plan.bars.reduce((sum, b) => sum + b.kerf_in, 0);
   const squaringTotal = plan.bars.length * s.squaring_in;
@@ -187,13 +212,15 @@ export function multGroup(group, settings = DEFAULT_COMBINE_SETTINGS) {
   const qtyTotal = group.pieces.reduce((sum, p) => sum + Math.max(0, Math.round(Number(p.quantity) || 0)), 0);
   const qtyCombined = plan.bars.reduce((sum, b) => sum + b.cuts.length, 0);
   const rate = unitCost(group, settings);
-  const perBarCost = plan.stock_length_in ? group.pieces.find((p) => p.stock_costs?.[plan.stock_length_in] > 0)?.stock_costs?.[plan.stock_length_in] : null;
+  // Stock length costs on file apply only when every length in the mix has one.
+  const costFor = (L) => group.pieces.find((p) => p.stock_costs?.[L] > 0)?.stock_costs?.[L] || null;
+  const mixCosts = (plan.stock_mix || []).map((m) => ({ ...m, each: costFor(m.stock_length_in) }));
   const orderedLbs = lbs(plan.ordered_in);
   let cost = null;
   let costBasis = 'No price — set a $/cwt rate or a stock length cost';
-  if (perBarCost) {
-    cost = plan.bars.length * perBarCost;
-    costBasis = `${plan.bars.length} bars × $${perBarCost.toFixed(2)} per ${formatFtIn(plan.stock_length_in)} (stock length cost on file)`;
+  if (mixCosts.length && mixCosts.every((m) => m.each)) {
+    cost = mixCosts.reduce((sum, m) => sum + m.qty * m.each, 0);
+    costBasis = mixCosts.map((m) => `${m.qty} bars × $${m.each.toFixed(2)} per ${formatFtIn(m.stock_length_in)}`).join(' + ') + ' (stock length cost on file)';
   } else if (rate && wpf > 0) {
     cost = orderedLbs * rate;
     costBasis = `${orderedLbs.toFixed(1)} lb × $${(rate * 100).toFixed(2)}/cwt ÷ 100`;
@@ -208,10 +235,12 @@ export function multGroup(group, settings = DEFAULT_COMBINE_SETTINGS) {
     shape_code: group.shape_code,
     sequence_label: group.sequence_label,
     forced: !!forcedFt,
+    mixed: !forcedFt,
     stock_length_in: plan.stock_length_in,
-    order_line: plan.bars.length ? `${plan.bars.length} × ${groupLabel(group)} @ ${formatFtIn(plan.stock_length_in)}` : '',
+    stock_mix: plan.stock_mix || [],
+    order_line: plan.bars.length ? mixText : '',
     bars: plan.bars,
-    alternatives: alternatives.map(({ plan: _p, ...a }) => a),
+    alternatives,
     flagged,
     invalid,
     weight_per_ft: wpf,
@@ -378,7 +407,7 @@ export function buildOrderExportTables(run, { includeCost = false } = {}) {
   const groups = run?.groups || [];
   const stockText = (g) => (g.family === 'plate'
     ? (g.sheet ? `${g.sheet.width_in}" × ${g.sheet.length_in}" sheet` : '—')
-    : (g.stock_length_in ? formatFtIn(g.stock_length_in) : '—'));
+    : (g.stock_mix?.length ? g.stock_mix.map((m) => `${m.qty} @ ${formatFtIn(m.stock_length_in)}`).join(' + ') : (g.stock_length_in ? formatFtIn(g.stock_length_in) : '—')));
   const seq = (g) => g.sequence_label || '';
 
   const orderColumns = ['Sequence', 'Material', 'Grade', 'Stock', 'Qty to order', 'Ordered lb', 'Ordered tons', 'Used lb', 'Usable drop lb', 'Scrap lb', '% drop', 'Pieces combined'];
