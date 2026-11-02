@@ -444,11 +444,62 @@ export function buildOrderExportTables(run, { includeCost = false } = {}) {
   const flaggedColumns = ['Material', 'Grade', 'Piece', 'Size', 'Qty', 'Reason'];
   const flaggedRows = groups.flatMap((g) => g.flagged.map((f) => [g.profile, g.grade, f.label, g.family === 'plate' ? `${formatInches(f.width_in)} × ${formatInches(f.length_in)}` : formatFtIn(f.length_in), f.quantity, f.reason]));
 
+  // Everything on one sheet: per group a summary row (order, % drop, scrap),
+  // then every bar's / sheet's cuts with that bar's drop and drop % on its
+  // last cut, then anything flagged — so drop, scrap and the cut list read
+  // side by side without switching tabs. `kind` marks rows for styling.
+  const combinedColumns = ['Sequence', 'Material', 'Grade', 'Order', 'Bar / sheet', 'Stock', 'Cut', 'Piece', 'Size', 'Position', 'Drop', 'Usable or scrap', 'Drop lb', '% drop', 'Ordered lb', 'Used lb', 'Usable drop lb', 'Scrap lb', 'Scrap tons', 'Pieces combined'];
+  if (includeCost) combinedColumns.push('Cost', 'Cost basis');
+  const width = combinedColumns.length;
+  const blank = () => Array(width).fill('');
+  const combinedRows = [];
+  groups.forEach((g, gi) => {
+    const t = g.totals;
+    const head = blank();
+    head.splice(0, 4, seq(g), g.profile, g.grade, g.order_line || stockText(g));
+    head.splice(13, 7, round2(t.drop_pct), round2(t.ordered_lbs), round2(t.used_lbs), round2(t.usable_drop_lbs), round2(t.scrap_lbs), round4(t.scrap_tons), `${t.qty_combined} of ${t.qty_total}`);
+    if (includeCost) head.splice(20, 2, t.cost == null ? '' : round2(t.cost), t.cost_basis);
+    combinedRows.push({ kind: 'group', cells: head });
+    if (g.family === 'linear') {
+      g.bars.forEach((b) => {
+        b.cuts.forEach((c, i) => {
+          const row = blank();
+          row.splice(4, 6, i === 0 ? `Bar ${b.index}` : '', i === 0 ? formatFtIn(b.stock_length_in) : '', i + 1, c.label, formatFtIn(c.length_in), `${formatFtIn(c.start_in)} to ${formatFtIn(c.end_in)}`);
+          if (i === b.cuts.length - 1) row.splice(10, 4, formatFtIn(b.drop_in), b.drop_kind === 'usable' ? 'Usable drop' : 'Scrap', round2((b.drop_in / 12) * (g.weight_per_ft || 0)), round2((b.drop_in / b.stock_length_in) * 100));
+          combinedRows.push({ kind: 'cut', cells: row });
+        });
+      });
+    } else {
+      g.sheets.forEach((sh) => {
+        sh.placements.forEach((p, i) => {
+          const row = blank();
+          row.splice(4, 6, i === 0 ? `Sheet ${sh.index}` : '', i === 0 ? `${sh.width_in}" × ${sh.length_in}"` : '', i + 1, p.label, `${formatInches(p.w)} × ${formatInches(p.h)}${p.rotated ? ' (turned)' : ''}`, `x ${formatInches(p.x)}, y ${formatInches(p.y)}`);
+          if (i === sh.placements.length - 1) {
+            const sheetArea = sh.width_in * sh.length_in;
+            row.splice(10, 4, `${round2(sh.drop_area)} sq in${sh.usable_drop_area > 0 ? ` (usable ${round2(sh.usable_drop_area)})` : ''}`, sh.usable_drop_area > 0 ? 'Usable + scrap' : 'Scrap', round2(sh.drop_area * (g.lb_per_sq_in || 0)), round2(sheetArea > 0 ? (sh.drop_area / sheetArea) * 100 : 0));
+          }
+          combinedRows.push({ kind: 'cut', cells: row });
+        });
+      });
+    }
+    g.flagged.forEach((f) => {
+      const row = blank();
+      row.splice(4, 6, 'Not placed', '', '', f.label, g.family === 'plate' ? `${formatInches(f.width_in)} × ${formatInches(f.length_in)}` : formatFtIn(f.length_in), `× ${f.quantity} — ${f.reason}`);
+      combinedRows.push({ kind: 'flagged', cells: row });
+    });
+    if (gi < groups.length - 1) combinedRows.push({ kind: 'spacer', cells: blank() });
+  });
+  const combinedTotal = blank();
+  combinedTotal.splice(0, 4, '', 'Run total', '', `${rt.bars} bars, ${rt.sheets} sheets`);
+  combinedTotal.splice(13, 7, round2(rt.drop_pct), round2(rt.ordered_lbs), round2(rt.used_lbs), round2(rt.usable_drop_lbs), round2(rt.scrap_lbs), round4(rt.scrap_tons), `${rt.qty_combined} of ${rt.qty_total}`);
+  if (includeCost) combinedTotal.splice(20, 2, rt.cost == null ? '' : round2(rt.cost), '');
+
   return {
     order: { columns: orderColumns, rows: orderRows, totalRow },
     cuts: { columns: cutColumns, rows: cutRows },
     drops: { columns: dropColumns, rows: dropRows },
     flagged: { columns: flaggedColumns, rows: flaggedRows },
+    combined: { columns: combinedColumns, rows: combinedRows, totalRow: combinedTotal },
   };
 }
 

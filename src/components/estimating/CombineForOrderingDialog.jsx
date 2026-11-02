@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
-import { Combine, FileDown, FileSpreadsheet, Save, Star, ChevronDown, ChevronRight, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Combine, FileDown, FileSpreadsheet, Save, Star, ChevronDown, ChevronRight, AlertTriangle, ArrowLeft, Maximize2, Minimize2, Trash2, SlidersHorizontal } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,6 +28,10 @@ import { exportCombinedOrderToXlsx } from '@/lib/requisitionXlsxExport';
 
 const n = (v, d = 2) => (Number.isFinite(v) ? v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : '—');
 const money = (v) => (v == null ? '—' : `$${n(v, 2)}`);
+const readPref = (key, fallback) => {
+  try { const v = localStorage.getItem(key); return v == null ? fallback : v === 'true'; } catch { return fallback; }
+};
+const writePref = (key, value) => { try { localStorage.setItem(key, String(value)); } catch { /* storage off */ } };
 const parseList = (text) => String(text || '').split(/[,;\s]+/).map((t) => Number(t)).filter((v) => Number.isFinite(v) && v > 0);
 const parseSheets = (text) => String(text || '').split(/[,;]+/).map((t) => {
   const m = t.trim().match(/^(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)$/);
@@ -130,7 +138,7 @@ function GroupDetail({ group, onUseStock, onUseSheet, onClearOverride, overridde
 
       <div className="overflow-x-auto">
         <p className="text-xs font-semibold mb-1">Cut list</p>
-        <table className="w-full text-xs">
+        <table className="w-full text-sm">
           <thead className="text-muted-foreground"><tr><th className="text-left p-1">{group.family === 'linear' ? 'Bar' : 'Sheet'}</th><th className="text-left p-1">Piece</th><th className="text-left p-1">Size</th><th className="text-left p-1">Position</th><th className="text-left p-1">Drop</th></tr></thead>
           <tbody>
             {group.family === 'linear' ? group.bars.map((b) => b.cuts.map((c, i) => (
@@ -160,7 +168,7 @@ function GroupDetail({ group, onUseStock, onUseSheet, onClearOverride, overridde
 
       <div className="overflow-x-auto">
         <p className="text-xs font-semibold mb-1">Stock options compared {overridden && <Button size="sm" variant="link" className="h-auto p-0 ml-2 text-xs" onClick={onClearOverride}>Back to best pick</Button>}</p>
-        <table className="w-full text-xs">
+        <table className="w-full text-sm">
           <thead className="text-muted-foreground"><tr><th className="text-left p-1">Stock</th><th className="text-right p-1">Qty</th><th className="text-right p-1">Ordered</th><th className="text-right p-1">% drop</th><th className="p-1" /></tr></thead>
           <tbody>
             {group.alternatives.map((a, i) => {
@@ -204,6 +212,12 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
   const [includeCost, setIncludeCost] = useState(false);
   const [stockCosts, setStockCosts] = useState(new Map());
   const [familyFilter, setFamilyFilter] = useState('all');
+  // Full-screen and hidden-settings choices are remembered per browser.
+  const [fullScreen, setFullScreen] = useState(() => readPref('combineFullScreen', false));
+  const [showSettings, setShowSettings] = useState(() => readPref('combineShowSettings', true));
+  const [deleting, setDeleting] = useState(null);
+  const toggleFullScreen = () => setFullScreen((v) => { writePref('combineFullScreen', !v); return !v; });
+  const toggleSettings = () => setShowSettings((v) => { writePref('combineShowSettings', !v); return !v; });
 
   const runFilter = useMemo(() => (bidId ? { bid_id: bidId } : takeoffSessionId ? { takeoff_session_id: takeoffSessionId } : null), [bidId, takeoffSessionId]);
 
@@ -310,6 +324,21 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
     setExpanded(null);
   };
 
+  const confirmDelete = async () => {
+    const target = deleting;
+    setDeleting(null);
+    if (!target) return;
+    try {
+      await db.entities.combining_runs.delete(target.id);
+      if (viewing?.id === target.id) setViewing(null);
+      setCompareIds((prev) => prev.filter((id) => id !== target.id));
+      toast({ title: 'Run deleted', description: `"${target.name}" was removed. The takeoff lines were not changed.` });
+      loadRuns();
+    } catch (e) {
+      toast({ title: 'Could not delete the run', description: e?.message || 'Please retry.', variant: 'destructive' });
+    }
+  };
+
   const exportArgs = () => ({
     title: `Combined Order List — ${title || 'Takeoff'}`,
     subtitle: `${subtitle || ''}${viewing ? ` — saved run "${viewing.name}"` : ' — live run (not saved)'}`,
@@ -327,9 +356,27 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl w-[96vw] max-h-[92vh] overflow-y-auto" dialogId="combine-for-ordering">
+      <DialogContent
+        dialogId="combine-for-ordering"
+        resizable={!fullScreen}
+        className={fullScreen
+          // Fills the window: the !important utilities beat the centering
+          // transform and any dragged size the dialog remembered.
+          ? '!left-0 !top-0 !translate-x-0 !translate-y-0 !w-screen !h-screen !max-w-none !max-h-none !rounded-none p-4 sm:p-5'
+          : 'max-w-6xl w-[96vw] max-h-[92vh] overflow-y-auto'}
+      >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Combine className="w-4 h-4 text-primary" />Combine for ordering</DialogTitle>
+          <div className="flex items-center gap-2 pr-8 flex-wrap">
+            <DialogTitle className="flex items-center gap-2 mr-auto"><Combine className="w-4 h-4 text-primary" />Combine for ordering</DialogTitle>
+            {!viewing && (
+              <Button size="sm" variant="outline" className="h-7" onClick={toggleSettings}>
+                <SlidersHorizontal className="w-3.5 h-3.5 mr-1" />{showSettings ? 'Hide settings' : 'Show settings'}
+              </Button>
+            )}
+            <Button size="sm" variant="outline" className="h-7" onClick={toggleFullScreen} aria-pressed={fullScreen}>
+              {fullScreen ? <><Minimize2 className="w-3.5 h-3.5 mr-1" />Exit full screen</> : <><Maximize2 className="w-3.5 h-3.5 mr-1" />Full screen</>}
+            </Button>
+          </div>
           <DialogDescription>
             {title}{subtitle ? ` — ${subtitle}` : ''}. Same-size pieces are packed into stock lengths (linear) and sheets (plate) so you can see what to buy and the drop. This is a review — the takeoff lines are not changed.
           </DialogDescription>
@@ -342,7 +389,7 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
           </div>
         )}
 
-        {!viewing && (
+        {!viewing && showSettings && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             <div className="rounded-lg border p-3 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Linear (Mult)</p>
@@ -411,6 +458,14 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
           </div>
         )}
 
+        {!viewing && !showSettings && (
+          <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+            <span className="mr-auto">{settingsText(settings)}</span>
+            <Input className="h-8 text-sm w-48" placeholder="Run name" value={runName} onChange={(e) => setRunName(e.target.value)} />
+            <Button size="sm" onClick={handleSave} disabled={saving || !runFilter || pieces.length === 0} title={runFilter ? 'Save this run' : 'Link to a bid or save the IRONSIGHT session first'}><Save className="w-3.5 h-3.5 mr-1" />Save run</Button>
+          </div>
+        )}
+
         {/* Run totals */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
           {[
@@ -453,7 +508,7 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
 
         {/* Groups */}
         <div className="border rounded-lg overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-sm">
             <thead className="bg-muted/40 text-muted-foreground uppercase tracking-wide">
               <tr>
                 <th className="p-2 w-6" />
@@ -540,7 +595,7 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
           {!runFilter && <p className="text-xs text-muted-foreground">Link this takeoff to a bid (or save the session) to save runs.</p>}
           {runFilter && runs.length === 0 && <p className="text-xs text-muted-foreground">No saved runs yet.</p>}
           {runs.length > 0 && (
-            <table className="w-full text-xs">
+            <table className="w-full text-sm">
               <thead className="text-muted-foreground"><tr><th className="p-1" /><th className="text-left p-1">Run</th><th className="text-left p-1">Saved</th><th className="text-right p-1">Stock</th><th className="text-right p-1">% drop</th><th className="text-right p-1">Scrap tons</th><th className="text-right p-1">Cost</th><th className="p-1" /></tr></thead>
               <tbody>
                 {runs.map((r) => {
@@ -554,7 +609,10 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
                       <td className="p-1 text-right font-mono"><button type="button" className="hover:underline" onClick={() => openSaved(r)}>{n(s.drop_pct, 2)}%</button></td>
                       <td className="p-1 text-right font-mono"><button type="button" className="hover:underline" onClick={() => openSaved(r)}>{n(s.scrap_tons, 3)}</button></td>
                       <td className="p-1 text-right font-mono"><button type="button" className="hover:underline" onClick={() => openSaved(r)}>{money(s.cost)}</button></td>
-                      <td className="p-1 text-right"><Button size="sm" variant="outline" className="h-6 text-[11px] px-2" onClick={() => markForPricing(r)}><Star className="w-3 h-3 mr-1" />{r.used_for_pricing ? 'Unmark' : 'Use for pricing'}</Button></td>
+                      <td className="p-1 text-right whitespace-nowrap">
+                        <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={() => markForPricing(r)}><Star className="w-3 h-3 mr-1" />{r.used_for_pricing ? 'Unmark' : 'Use for pricing'}</Button>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 ml-1 text-destructive hover:text-destructive" aria-label={`Delete run ${r.name}`} title="Delete this run" onClick={() => setDeleting(r)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -592,6 +650,21 @@ export default function CombineForOrderingDialog({ open, onOpenChange, source, b
           )}
         </div>
       </DialogContent>
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this saved run?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{deleting?.name}" will be removed for good{deleting?.used_for_pricing ? ', and it is the run marked for pricing' : ''}. The takeoff lines are not changed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmDelete}>Delete run</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
