@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { db } from '@/api/apiClient';
 import { Calculator, Gauge, Clock3, Save, Plus, Trash2, Minus, Download, FileDown, FileSpreadsheet, Combine, AlertTriangle, Scale, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,11 @@ import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 import { ShapePicker, SizePicker, GradePicker } from '@/components/estimating/CatalogMaterialPicker';
 import MathDrill from '@/components/estimating/MathDrill';
 import CombineForOrderingDialog from '@/components/estimating/CombineForOrderingDialog';
+import AddCatalogSizeDialog from '@/components/estimating/AddCatalogSizeDialog';
+import { useAuth } from '@/lib/AuthContext';
+import { materialCatalogPermissions } from '@/lib/materialCatalogAccess';
+import { sizeKey, typedWeightDecision, savedByText } from '@/lib/catalogSizeRules';
+import { saveTypedSizeWeight } from '@/lib/materialCatalogWrites';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
@@ -63,13 +68,28 @@ function emptyRow(shapeType, sizes = [], grades = []) {
   };
 }
 
+// Typed weights: when a row says "Weight needed" and a weight is typed, it
+// is saved to that size in the master catalog (MaterialSizeOption) the
+// first time the box loses focus or the takeoff is saved — every takeoff
+// then reads it as "Saved weight" and the row drops its own override. If
+// the size already has any weight (saved, steel catalog, AISC, computed),
+// the typed value stays on that row only. Two rows racing on the same
+// unknown size: the first save wins and the other keeps its value as a row
+// override, with a note (materialCatalogWrites.js serializes the saves).
 const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const catalogPerms = materialCatalogPermissions(user?.roles || user?.user?.roles || []);
   const [rows, setRows] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [shapeTypes, setShapeTypes] = useState([]);
   const [sizesByCode, setSizesByCode] = useState({});
   const [gradesByCode, setGradesByCode] = useState({});
+  // Every MaterialSizeOption record (active or not) by shape_code — the
+  // saved weight lives on these.
+  const [sizeOptionsByCode, setSizeOptionsByCode] = useState({});
+  const [addSize, setAddSize] = useState(null); // { idx, shapeType, text }
+  const savingWeightRef = useRef(new Set());
   const [shopEfficiencyPct, setShopEfficiencyPct] = useState(bid?.shop_efficiency_pct ?? 100);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -115,7 +135,13 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
           });
           return out;
         };
+        const records = {};
+        sizes.forEach((o) => {
+          const code = codeById.get(o.shape_type_id);
+          if (code) (records[code] = records[code] || []).push(o);
+        });
         setShapeTypes(types);
+        setSizeOptionsByCode(records);
         setSizesByCode(bucket(sizes, 'size_value'));
         setGradesByCode(bucket(grades, 'grade_value'));
       } catch (e) {
@@ -125,6 +151,9 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   }, []);
 
   const shapeTypesByCode = useMemo(() => new Map(shapeTypes.map((s) => [s.shape_code, s])), [shapeTypes]);
+  // "+ Add size" shows for anyone who can add (and for a super_admin who
+  // hasn't picked a company, so the dialog can say why it's blocked).
+  const canOfferAddSize = catalogPerms.canAdd || catalogPerms.needsCompany;
 
   const loadRows = async () => {
     if (!bid?.id) return;
@@ -261,12 +290,109 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     setDirty(true);
   };
 
-  const calcs = useMemo(() => rows.map((row) => {
+  // The size's MaterialSizeOption record: exact spelling first, else the
+  // same size spelled another way.
+  const sizeOptionFor = (code, sizeValue, opts = sizeOptionsByCode) => {
+    const list = opts[code] || [];
+    const exact = list.find((o) => o.size_value === sizeValue);
+    if (exact || !sizeValue) return exact || null;
+    const key = sizeKey(code, sizeValue);
+    return list.find((o) => sizeKey(code, o.size_value) === key) || null;
+  };
+
+  const calcFor = (row, opts = sizeOptionsByCode) => {
     if (row.legacy) return calcLegacyRow(row, catalog);
     const shapeType = shapeTypesByCode.get(row.shape_code) || { shape_code: row.shape_code };
     const thickness = row.thickness_in ?? row.thickness_saved ?? null;
-    return calcCatalogRow({ ...row, thickness_in: thickness }, { shapeType, catalogRows: catalog });
-  }), [rows, catalog, shapeTypesByCode]);
+    return calcCatalogRow({ ...row, thickness_in: thickness }, { shapeType, catalogRows: catalog, sizeOption: sizeOptionFor(row.shape_code, row.size_value, opts) });
+  };
+
+  const calcs = useMemo(() => rows.map((row) => calcFor(row)), [rows, catalog, shapeTypesByCode, sizeOptionsByCode]);
+
+  const replaceSizeOption = (opts, code, record) => {
+    const list = opts[code] || [];
+    const has = list.some((o) => o.id === record.id);
+    return { ...opts, [code]: has ? list.map((o) => (o.id === record.id ? record : o)) : [...list, record] };
+  };
+
+  // Writes a row's typed weight to its size when the row (without that
+  // typed value) would say "Weight needed". Returns what changed —
+  // { rowPatch, record, message } or null — and never throws.
+  const commitTypedWeight = async (row, opts) => {
+    if (row.legacy || row.weight_override === '' || row.weight_override == null) return null;
+    const shapeType = shapeTypesByCode.get(row.shape_code) || { shape_code: row.shape_code };
+    const sizeOption = sizeOptionFor(row.shape_code, row.size_value, opts);
+    const thickness = row.thickness_in ?? row.thickness_saved ?? null;
+    const decision = typedWeightDecision({ row: { ...row, thickness_in: thickness }, shapeType, catalogRows: catalog, sizeOption });
+    const label = `${row.shape_code} ${row.size_value}`;
+    if (decision.reason === 'has_weight') {
+      // Typed while the size still needed one, but another line saved first.
+      if (row.typed_for_needed && decision.baseSource === 'saved') {
+        return { rowPatch: { weight_override: '', typed_for_needed: false, weight_note: `${label} already has a saved weight (${sizeOption?.[decision.field]} ${decision.unit}, ${savedByText(sizeOption)}) — this line uses it. Only an admin can change it (Material Catalog).` } };
+      }
+      return null;
+    }
+    if (decision.reason === 'not_in_catalog') {
+      return { rowPatch: { weight_note: `${label} isn't in the catalog, so this weight stays on this line — add the size with "+ Add size" to save it for every takeoff.` } };
+    }
+    if (!decision.save) return null;
+    if (!catalogPerms.canAdd) {
+      return { rowPatch: { weight_note: catalogPerms.needsCompany ? 'Pick a company to work as (Impersonate) to save this weight to the catalog — it stays on this line for now.' : 'Only estimators and admins can save weights to the catalog — this one stays on this line.' } };
+    }
+    try {
+      const result = await saveTypedSizeWeight({ sizeOptionId: sizeOption.id, family: decision.family, value: decision.value });
+      if (result.saved) {
+        return {
+          record: result.record,
+          rowPatch: { weight_override: '', typed_for_needed: false, weight_note: '' },
+          message: `Saved ${decision.value} ${decision.unit} for ${label} — every takeoff will use it.`,
+        };
+      }
+      const existing = result.existing;
+      return {
+        record: existing,
+        rowPatch: { weight_override: '', typed_for_needed: false, weight_note: `${label} was given a weight first (${existing[decision.field] ?? '—'} ${decision.unit}, ${savedByText(existing)}) — this line uses it. Only an admin can change it (Material Catalog).` },
+      };
+    } catch (e) {
+      return { rowPatch: { weight_note: `Couldn't save the weight to the catalog (${e?.message || 'error'}) — it stays on this line.` } };
+    }
+  };
+
+  const handleTypedWeightBlur = async (idx) => {
+    const row = rows[idx];
+    if (!row || savingWeightRef.current.has(idx)) return;
+    savingWeightRef.current.add(idx);
+    try {
+      const out = await commitTypedWeight(row, sizeOptionsByCode);
+      if (!out) return;
+      if (out.record) setSizeOptionsByCode((prev) => replaceSizeOption(prev, row.shape_code, out.record));
+      setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...out.rowPatch } : r)));
+      if (out.message) toast({ title: out.message });
+    } finally {
+      savingWeightRef.current.delete(idx);
+    }
+  };
+
+  // Before saving lines: commit any typed weight still waiting for a blur,
+  // one row at a time (so a second row for the same size sees the first
+  // one's save). Returns the rows / size records the save should use.
+  const commitPendingWeights = async () => {
+    let opts = sizeOptionsByCode;
+    const next = [...rows];
+    const messages = [];
+    for (let i = 0; i < next.length; i += 1) {
+      const row = next[i];
+      if (row.legacy || !row.typed_for_needed) continue;
+      const out = await commitTypedWeight(row, opts);
+      if (!out) continue;
+      if (out.record) opts = replaceSizeOption(opts, row.shape_code, out.record);
+      next[i] = { ...row, ...out.rowPatch };
+      if (out.message) messages.push(out.message);
+    }
+    if (opts !== sizeOptionsByCode) setSizeOptionsByCode(opts);
+    messages.forEach((m) => toast({ title: m }));
+    return { rows: next, opts };
+  };
 
   // Area filter/grouping — same "group by ProjectSequenceArea, Unassigned
   // last" shape as ProjectDetail.jsx's Sequence/Area piece assignment
@@ -324,8 +450,11 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
     if (!bid?.id) return;
     setSaving(true);
     try {
-      const ops = rows.map((row, i) => {
-        const c = calcs[i];
+      const committed = await commitPendingWeights();
+      const saveRows = committed.rows;
+      const saveCalcs = saveRows.map((row) => calcFor(row, committed.opts));
+      const ops = saveRows.map((row, i) => {
+        const c = saveCalcs[i];
         let payload;
         if (row.legacy) {
           // Exactly the old payload, plus the three display totals.
@@ -599,7 +728,12 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                 <div className="col-span-6 sm:col-span-2">
                   <Label className="text-xs">Size</Label>
                   <div className="mt-1">
-                    <SizePicker sizes={sizesByCode[code] || []} value={row.legacy ? row.material_size : row.size_value} onChange={(v) => changeSize(idx, v)} />
+                    <SizePicker
+                      sizes={sizesByCode[code] || []}
+                      value={row.legacy ? row.material_size : row.size_value}
+                      onChange={(v) => changeSize(idx, v)}
+                      onAddSize={canOfferAddSize && shapeTypesByCode.get(code) ? (text) => setAddSize({ idx, shapeType: shapeTypesByCode.get(code), text }) : undefined}
+                    />
                   </div>
                 </div>
 
@@ -697,18 +831,36 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                       : <Badge variant="outline" className="text-[10px]">{WEIGHT_SOURCE_LABELS[calc.weightSource] || calc.weightSource}</Badge>}
                     <MathDrill value={calc.needsWeight ? '—' : `${fmtNum(calc.unitWeight, family === 'linear' ? 2 : 3)} ${calc.weightUnit}`} title="Unit weight" lines={calc.steps?.weight?.slice(0, 1)} align="start" />
                   </span>
-                  {!row.legacy && (
+                  {/* The weight box only shows while the size has no weight of
+                      its own (it's then saved to the size). A size that has
+                      one is locked here — an admin changes it in Material
+                      Catalog. */}
+                  {!row.legacy && (calc.needsWeight || calc.weightSource === 'override') && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Label className="text-xs whitespace-nowrap">Typed {calc.weightUnit}</Label>
+                      <Label className="text-xs whitespace-nowrap">Enter {calc.weightUnit}</Label>
                       <Input
                         type="number"
                         min={0}
                         value={row.weight_override ?? ''}
-                        onChange={(e) => updateRow(idx, { weight_override: e.target.value })}
+                        onChange={(e) => updateRow(idx, {
+                          weight_override: e.target.value,
+                          // Typed while the size had no weight of its own:
+                          // a candidate for saving to the catalog.
+                          typed_for_needed: calc.needsWeight || (row.typed_for_needed && calc.weightSource === 'override'),
+                          weight_note: '',
+                        })}
+                        onBlur={() => handleTypedWeightBlur(idx)}
                         className={`h-7 w-20 text-xs ${calc.needsWeight ? 'border-amber-400' : ''}`}
-                        placeholder={calc.needsWeight ? 'needed' : 'override'}
+                        placeholder="needed"
+                        title="Saved to this size in the catalog when you leave the box — every takeoff will use it"
                       />
                     </span>
+                  )}
+                  {!row.legacy && calc.overrideIgnored && (
+                    <p className="w-full text-[11px] text-muted-foreground flex items-center gap-1"><AlertTriangle className="w-3 h-3 flex-shrink-0" />{calc.overrideIgnored}</p>
+                  )}
+                  {!row.legacy && row.weight_note && (
+                    <p className="w-full text-[11px] text-amber-700 flex items-center gap-1"><AlertTriangle className="w-3 h-3 flex-shrink-0" />{row.weight_note}</p>
                   )}
                   <p className="text-xs text-muted-foreground">
                     Weight: <MathDrill value={`${fmtNum(calc.totalLbs, 1)} lb`} title="Weight (lb)" lines={calc.steps?.weight} className="text-foreground" align="start" />
@@ -840,6 +992,23 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
           <Save className="w-4 h-4 mr-2" />{saving ? 'Saving…' : 'Save Material Takeoff'}
         </Button>
       </div>
+
+      <AddCatalogSizeDialog
+        open={Boolean(addSize)}
+        onOpenChange={(o) => { if (!o) setAddSize(null); }}
+        target={addSize ? { kind: 'master', shapeType: addSize.shapeType } : null}
+        existingValues={addSize ? (sizeOptionsByCode[addSize.shapeType.shape_code] || []).map((o) => o.size_value) : []}
+        initialText={addSize?.text || ''}
+        catalogRows={catalog}
+        onAdded={({ value, record, mirror }) => {
+          const code = addSize.shapeType.shape_code;
+          setSizeOptionsByCode((prev) => replaceSizeOption(prev, code, record));
+          setSizesByCode((prev) => ({ ...prev, [code]: [...(prev[code] || []), value] }));
+          if (mirror?.created) setCatalog((prev) => [...prev, mirror.created]);
+          if (addSize.idx != null) changeSize(addSize.idx, value);
+        }}
+        onUseExisting={(value) => { if (addSize?.idx != null) changeSize(addSize.idx, value); }}
+      />
 
       <CombineForOrderingDialog
         open={combineOpen}

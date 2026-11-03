@@ -33,6 +33,11 @@ import { useTakeoffScales } from '@/hooks/useTakeoffScales';
 import { useMeasureDraft } from '@/hooks/useMeasureDraft';
 import { buildCompactShapeProfile } from '@/lib/countShapeProfile';
 import { resolveWeightPerFt } from '@/lib/detailerImportWeight';
+import { savedSizeWeight } from '@/lib/materialEntryMath';
+import { mergeSteelCatalogIntoPicker, resolveSteelWeight } from '@/lib/catalogSizeRules';
+import { saveTypedSteelWeight } from '@/lib/materialCatalogWrites';
+import { materialCatalogPermissions } from '@/lib/materialCatalogAccess';
+import AddCatalogSizeDialog from '@/components/estimating/AddCatalogSizeDialog';
 import { exportRequisitionToPdf } from '@/lib/requisitionPdfExport';
 import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 import { writeBidRecapCells, downloadWorkbook } from '@/lib/bidRecapXlsxExport';
@@ -405,6 +410,11 @@ export default function BlueprintTakeoff() {
   const [boltShapeTypes, setBoltShapeTypes] = useState([]);
   const [materialSizesByShapeId, setMaterialSizesByShapeId] = useState({});
   const [materialGradesByShapeId, setMaterialGradesByShapeId] = useState({});
+  // Every MaterialSizeOption record — a size's saved weight lives here
+  // (Count rows and the Markups List read it before steel_catalog / AISC).
+  const [materialSizeRecords, setMaterialSizeRecords] = useState([]);
+  // Takeoff grid "+ Add size": { rowKey, shapeClass } while the dialog is open.
+  const [gridAddSize, setGridAddSize] = useState(null);
 
   // VisualSearch — a Count row's marker gets cropped, sent to the local VLM
   // alongside the full page, and candidate matches come back as transient
@@ -445,6 +455,7 @@ export default function BlueprintTakeoff() {
           db.entities.MaterialSizeOption.list('sort_order', 20000),
           db.entities.MaterialGradeOption.list('sort_order', 20000),
         ]);
+        setMaterialSizeRecords(sizes);
         const sizesByShape = {};
         sizes.forEach((s) => {
           if (s.is_active === false) return;
@@ -466,6 +477,61 @@ export default function BlueprintTakeoff() {
       }
     })();
   }, []);
+
+  // IRONSIGHT's measurement Size picker: the Steel sizes workbook plus every
+  // steel_catalog size for the same classes (sizes added with "+ Add size",
+  // or by an admin), so an added size shows up in every session.
+  const pickerSteelCatalog = useMemo(() => mergeSteelCatalogIntoPicker(steelCatalog, catalog), [steelCatalog, catalog]);
+
+  // A size added from the measurement panel / Count setup / takeoff grid:
+  // keep the local copies of both catalogs current (the AISC mirror lands in
+  // the other table).
+  const handleSteelSizeAdded = (record, mirror) => {
+    if (record) setCatalog((prev) => (prev.some((r) => r.id === record.id) ? prev : [...prev, record]));
+    if (mirror?.created && mirror.created.shape_type_id) addMasterSizeLocally(mirror.created);
+  };
+  const addMasterSizeLocally = (record) => {
+    setMaterialSizeRecords((prev) => (prev.some((r) => r.id === record.id) ? prev.map((r) => (r.id === record.id ? record : r)) : [...prev, record]));
+    if (record.is_active !== false) {
+      setMaterialSizesByShapeId((prev) => {
+        const list = prev[record.shape_type_id] || [];
+        return list.includes(record.size_value) ? prev : { ...prev, [record.shape_type_id]: [...list, record.size_value] };
+      });
+    }
+  };
+  const handleMasterSizeAdded = (shapeTypeId, record, mirror) => {
+    if (record) addMasterSizeLocally(record);
+    if (mirror?.created && mirror.created.shape_class) setCatalog((prev) => [...prev, mirror.created]);
+  };
+  // Markups List saved a weight to the catalog — keep local copies current.
+  const handleCatalogWeightSaved = ({ sizeRecord, steelRecord }) => {
+    if (sizeRecord) addMasterSizeLocally(sizeRecord);
+    if (steelRecord) setCatalog((prev) => (prev.some((r) => r.id === steelRecord.id) ? prev.map((r) => (r.id === steelRecord.id ? steelRecord : r)) : [...prev, steelRecord]));
+  };
+
+  // Takeoff grid lb/ft typed for a size with no steel_catalog / AISC weight:
+  // saved to steel_catalog.weight_per_ft the first time the box loses focus,
+  // so every session and the Full Takeoff pick it up. A size that already
+  // has a weight is locked (see updateRow).
+  const catalogPerms = materialCatalogPermissions(user?.roles || []);
+  const handleGridWeightBlur = async (row) => {
+    const value = Number(row.unit_weight_lbs_per_ft);
+    const shapeClass = row.shape_class || 'W-Beam';
+    if (!(value > 0) || !row.size_designation || !catalogPerms.canAdd) return;
+    if (resolveSteelWeight(row.size_designation, catalog)) return;
+    try {
+      const result = await saveTypedSteelWeight({ shapeClass, designation: row.size_designation, value });
+      if (result.saved) {
+        handleCatalogWeightSaved({ steelRecord: result.record });
+        toast({ title: `Saved ${value} lb/ft for ${row.size_designation} — every takeoff will use it.` });
+      } else {
+        handleCatalogWeightSaved({ steelRecord: result.existing });
+        toast({ title: `${row.size_designation} already has a weight (${result.existing.weight_per_ft} lb/ft)`, description: 'This row uses it. Only an admin can change it (Material Catalog).' });
+      }
+    } catch (e) {
+      toast({ title: 'Could not save the weight to the catalog', description: e?.message || 'It stays on this row.', variant: 'destructive' });
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -1375,8 +1441,14 @@ export default function BlueprintTakeoff() {
     // Import already uses (resolveWeightPerFt), just fed a compact AISC-style
     // profile bridged from the master catalog's shape_code + size_designation
     // (see countShapeProfile.js). Bolt counts aren't weighed by length.
+    // A saved weight on the size itself (typed once on a takeoff, or set by an
+    // admin) comes first.
+    const sizeRecord = kind === 'beam'
+      ? materialSizeRecords.find((s) => s.shape_type_id === fields.shape_type_id && s.size_value === fields.size_designation)
+      : null;
+    const savedPerFt = savedSizeWeight(sizeRecord, 'linear')?.value || 0;
     const weightPerFt = kind === 'beam'
-      ? (resolveWeightPerFt(
+      ? (savedPerFt || resolveWeightPerFt(
           {
             material_profile: buildCompactShapeProfile({ shapeCode: fields.shape_code, sizeDesignation: fields.size_designation, widthFt: fields.width_ft }),
             shape: fields.shape_code,
@@ -1971,15 +2043,38 @@ export default function BlueprintTakeoff() {
   const updateRow = (key, field, value) => {
     const newRows = rows.map((r) => {
       if (r._key !== key) return r;
+      // A size with a known weight (steel_catalog / saved / AISC) is locked:
+      // only an admin changes it, in Material Catalog.
+      if (field === 'unit_weight_lbs_per_ft' && resolveSteelWeight(r.size_designation, catalog)) return r;
       const updated = { ...r, [field]: value };
       if (field === 'shape_class') {
         updated.size_designation = sizesForClass(value)[0] || '';
+      }
+      if (field === 'shape_class' || field === 'size_designation') {
+        const known = resolveSteelWeight(updated.size_designation, catalog);
+        if (known) updated.unit_weight_lbs_per_ft = known.perFt;
       }
       return updated;
     });
     setRows(newRows);
     persist(newRows);
   };
+
+  // Rows whose size has a known weight always carry it — an older row typed
+  // over it, or an admin changed it since, is brought back in line.
+  useEffect(() => {
+    if (!rows.length || !catalog.length) return;
+    let changed = false;
+    const synced = rows.map((r) => {
+      if (['area', 'bolt_count', 'volume', 'angle'].includes(r.tool)) return r;
+      const known = r.size_designation ? resolveSteelWeight(r.size_designation, catalog) : null;
+      if (!known || Math.abs((Number(r.unit_weight_lbs_per_ft) || 0) - known.perFt) < 1e-9) return r;
+      changed = true;
+      return { ...r, unit_weight_lbs_per_ft: known.perFt };
+    });
+    if (changed) { setRows(synced); persist(synced); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog, rows.length]);
 
   const handleExportRequisitionPdf = async () => {
     await exportRequisitionToPdf({
@@ -3291,6 +3386,9 @@ export default function BlueprintTakeoff() {
                             >
                               {sizesForClass(r.shape_class || 'W-Beam').map((s) => <option key={s} value={s}>{s}</option>)}
                             </select>
+                            {(catalogPerms.canAdd || catalogPerms.needsCompany) && (
+                              <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => setGridAddSize({ rowKey: r._key, shapeClass: r.shape_class || 'W-Beam' })}>+ Add size</button>
+                            )}
                           </td>
                           <td className="p-2">
                             <select
@@ -3308,7 +3406,23 @@ export default function BlueprintTakeoff() {
                           </td>
                           <td className="p-2 text-xs text-muted-foreground">{r.confidence != null ? `${Math.round(r.confidence * 100)}%` : '—'}</td>
                           <td className="p-2"><Input type="number" min={0} value={r.quantity} onChange={(e) => updateRow(r._key, 'quantity', Number(e.target.value) || 0)} className="h-8" /></td>
-                          <td className="p-2"><Input type="number" min={0} value={r.unit_weight_lbs_per_ft} onChange={(e) => updateRow(r._key, 'unit_weight_lbs_per_ft', Number(e.target.value) || 0)} className="h-8" /></td>
+                          {(() => {
+                            const known = r.size_designation ? resolveSteelWeight(r.size_designation, catalog) : null;
+                            return (
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  value={known ? known.perFt : r.unit_weight_lbs_per_ft}
+                                  readOnly={!!known}
+                                  onChange={(e) => updateRow(r._key, 'unit_weight_lbs_per_ft', Number(e.target.value) || 0)}
+                                  onBlur={() => handleGridWeightBlur(r)}
+                                  className={`h-8 ${known ? 'bg-muted/40 cursor-not-allowed' : ''}`}
+                                  title={known ? `${known.text} — only an admin can change it (Material Catalog)` : 'No weight on file — saved to the catalog when you leave the box'}
+                                />
+                              </td>
+                            );
+                          })()}
                           <td className="p-2"><Input type="number" min={0} value={r.length_ft} onChange={(e) => updateRow(r._key, 'length_ft', Number(e.target.value) || 0)} className="h-8" /></td>
                           <td className="p-2 text-xs text-muted-foreground whitespace-nowrap">
                             {['area', 'bolt_count', 'volume', 'angle'].includes(r.tool) ? '—' : formatFeetInchesFraction(r.length_ft || 0)}
@@ -3555,6 +3669,10 @@ export default function BlueprintTakeoff() {
           computeRow={extras.computeRow}
           onCustomColumnsChange={extras.setCustomColumns}
           onRowClick={handleMeasurementRowClick}
+          steelRows={catalog}
+          shapeTypes={[...beamShapeTypes, ...boltShapeTypes]}
+          sizeRecords={materialSizeRecords}
+          onCatalogWeightSaved={handleCatalogWeightSaved}
         />
       ),
     },
@@ -3778,6 +3896,18 @@ export default function BlueprintTakeoff() {
           />
         </ErrorBoundary>
       )}
+      <AddCatalogSizeDialog
+        open={Boolean(gridAddSize)}
+        onOpenChange={(o) => { if (!o) setGridAddSize(null); }}
+        target={gridAddSize ? { kind: 'steel', shapeClass: gridAddSize.shapeClass } : null}
+        existingValues={gridAddSize ? sizesForClass(gridAddSize.shapeClass) : []}
+        catalogRows={catalog}
+        onAdded={({ value, record, mirror }) => {
+          handleSteelSizeAdded(record, mirror);
+          if (gridAddSize?.rowKey) updateRow(gridAddSize.rowKey, 'size_designation', value);
+        }}
+        onUseExisting={(value) => { if (gridAddSize?.rowKey) updateRow(gridAddSize.rowKey, 'size_designation', value); }}
+      />
       <SteelCatalogEditor
         open={steelCatalogEditorOpen}
         onOpenChange={setSteelCatalogEditorOpen}
@@ -3792,7 +3922,9 @@ export default function BlueprintTakeoff() {
       <MeasurementConfirmationModal
         open={measurementModalOpen}
         pendingMeasurement={pendingMeasurement}
-        steelCatalog={steelCatalog}
+        steelCatalog={pickerSteelCatalog}
+        catalogRows={catalog}
+        onSizeAdded={handleSteelSizeAdded}
         areas={areas}
         onCountSimilar={handleCountSimilarForModal}
         onConfirm={handleConfirmMeasurement}
@@ -3875,6 +4007,8 @@ export default function BlueprintTakeoff() {
         shapeTypes={countSetup?.kind === 'bolt' ? boltShapeTypes : beamShapeTypes}
         sizesByShapeId={materialSizesByShapeId}
         gradesByShapeId={materialGradesByShapeId}
+        catalogRows={catalog}
+        onSizeAdded={handleMasterSizeAdded}
         onConfirm={handleConfirmCountSetup}
         onCancel={handleCancelCountSetup}
       />

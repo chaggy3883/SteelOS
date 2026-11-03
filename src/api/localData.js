@@ -5,6 +5,7 @@ import { SHAPE_CLASSES } from '@/data/steelShapeSelector';
 import { SERVICE_SCHEDULE_SEEDS } from '@/lib/serviceScheduleSeedData';
 import { LEGACY_RIGGING_CATEGORY_MAP } from '@/lib/riggingAssetTypes';
 import MATERIAL_CATALOG_SEED from '@/data/materialCatalogSeed.json';
+import { checkCatalogWrite } from '@/lib/materialCatalogRoles';
 import { HANCOCK_PROPOSAL_TERMS_TEXT } from '@/lib/hancockProposalTermsContent';
 import { createUploadedFileId, saveUploadedFile, makeUploadedFileRef } from '@/lib/uploadedFileStore';
 
@@ -3526,6 +3527,29 @@ const enforcePaintStationLock = (entityName, data) => {
   }
 };
 
+// Material catalog writes (MaterialShapeType / MaterialSizeOption /
+// MaterialGradeOption / steel_catalog / StockLengthOption) are role-checked
+// here, at the write itself, the same way the paint lock above is — so a
+// hidden button is never the only guard. Adding a size and the takeoff's
+// first weight save are open to estimators; everything else is admin /
+// super_admin (impersonating). See materialCatalogRoles.js checkCatalogWrite.
+// No signed-in user (seed/migration code) is let through, matching this
+// file's fail-open convention for sessionless edge cases.
+const enforceMaterialCatalogWrite = (entityName, action, before, data) => {
+  const auth = getAuthState();
+  if (!auth?.user) return;
+  const error = checkCatalogWrite({
+    entityName,
+    action,
+    roles: auth.user.roles || [],
+    impersonating: Boolean(auth.impersonating_company_id),
+    isAdminFlag: auth.user.is_admin === true,
+    before,
+    data,
+  });
+  if (error) throw new Error(error);
+};
+
 // Immutable, field-level audit trail. Every db.entities.*.create/update/
 // delete/updateMany/bulkCreate call below funnels through logAuditChange(),
 // which writes to the AuditLog collection directly (not via
@@ -3839,6 +3863,7 @@ export const createEntityApi = (entityName) => {
     // actions are audited exactly as before.
     async create(data = {}, { skipAudit = false } = {}) {
       enforcePaintStationLock(entityName, data);
+      enforceMaterialCatalogWrite(entityName, 'create', null, data);
       const record = normalizeRecord(entityName, stampTenant(entityName, data));
       collection.push(record);
       persist(skipAudit ? [] : buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
@@ -3854,6 +3879,7 @@ export const createEntityApi = (entityName) => {
       assertTenantAccess(entityName, collection[index]);
       assertAuditLogMutationAllowed(data);
       enforcePaintStationLock(entityName, { ...collection[index], ...data });
+      enforceMaterialCatalogWrite(entityName, 'update', collection[index], data);
       const before = collection[index];
       const updated = normalizeRecord(entityName, { ...before, ...data, id, updated_date: new Date().toISOString() });
       collection[index] = updated;
@@ -3874,6 +3900,7 @@ export const createEntityApi = (entityName) => {
         throw new Error('AuditLog records cannot be hard-deleted. Use update(id, { is_deleted: true, delete_reason }) instead.');
       }
       assertTenantAccess(entityName, collection[index]);
+      enforceMaterialCatalogWrite(entityName, 'delete', collection[index], {});
       const before = collection[index];
       collection.splice(index, 1);
       persist(buildAuditLogEntries(entityName, 'delete', { before, recordId: id }));
@@ -3883,6 +3910,7 @@ export const createEntityApi = (entityName) => {
     async updateMany(filters = {}, update = {}) {
       assertAuditLogMutationAllowed(update);
       const scoped = applyTenantScope(entityName, collection);
+      scoped.filter((item) => matchesFilters(item, filters)).forEach((item) => enforceMaterialCatalogWrite(entityName, 'update', item, update));
       let changed = 0;
       const auditEntries = [];
       scoped.forEach((item) => {
@@ -3904,6 +3932,7 @@ export const createEntityApi = (entityName) => {
     // skipAudit — see create() above; same one-shot-seed-only contract.
     async bulkCreate(items = [], { skipAudit = false } = {}) {
       const auditEntries = [];
+      items.forEach((item) => enforceMaterialCatalogWrite(entityName, 'create', null, item));
       const created = items.map((item) => {
         const record = normalizeRecord(entityName, stampTenant(entityName, item));
         collection.push(record);

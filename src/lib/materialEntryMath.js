@@ -7,8 +7,10 @@
 // this file decides:
 //   - the entry family: 'linear' (length x qty), 'plate' (thickness from the
 //     size, width x length x qty) or 'each' (qty only);
-//   - the weight, in this order: steel_catalog weight_per_ft for the size ->
-//     the AISC Shapes Database v16.0 (aiscShapes.js, exact for standard
+//   - the weight, in this order: the size's own saved weight
+//     (MaterialSizeOption weight_per_ft / weight_per_sq_ft / weight_per_each,
+//     typed once on a takeoff or set by an admin) -> steel_catalog
+//     weight_per_ft for the size -> the AISC Shapes Database v16.0 (aiscShapes.js, exact for standard
 //     shapes) -> a weight computed from the size's own dimensions -> the old
 //     estimator (steelShapeSelector.js estimateWeightPerFt) -> nothing, in
 //     which case the row says "weight needed" and never quietly uses 0. A
@@ -150,6 +152,9 @@ export function parseDimToken(token, { bareIntegerIsGauge = false } = {}) {
 export function splitSizeTokens(size) {
   return String(size ?? '').split(/\s*[xX×]\s*/).map((s) => s.trim()).filter(Boolean);
 }
+
+// The weight/perimeter method for a linear code (see LINEAR_KIND), or null.
+export const linearKindFor = (shapeCode) => LINEAR_KIND[String(shapeCode || '').toUpperCase()] || null;
 
 const isGaugeToken = (tok) => /^\d+\s*ga\b/i.test(String(tok || '').trim());
 
@@ -408,6 +413,32 @@ function aiscWeight(shape) {
   return shape?.weightPerFt > 0 ? { perFt: shape.weightPerFt, formula: `${shape.source} ${shape.label}: ${shape.weightPerFt} lb/ft` } : null;
 }
 
+// The size's own saved weight (MaterialSizeOption), for the row's family:
+// lb/ft linear, lb/sq ft plate, lb/ea each. Shown as "Saved weight" with who
+// saved it and when.
+const SAVED_FIELD_BY_FAMILY = { linear: 'weight_per_ft', plate: 'weight_per_sq_ft', each: 'weight_per_each' };
+const SAVED_UNIT_BY_FAMILY = { linear: 'lb/ft', plate: 'lb/sq ft', each: 'lb/ea' };
+const SAVED_SOURCE_TEXT = { typed: 'typed on a takeoff', admin: 'set by an admin', aisc: 'copied from AISC', import: 'imported' };
+export function formatSetDate(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return '';
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
+}
+export function savedSizeWeight(sizeOption, family) {
+  const field = SAVED_FIELD_BY_FAMILY[family];
+  const value = Number(sizeOption?.[field]);
+  if (!field || !(value > 0)) return null;
+  const by = sizeOption.weight_set_by || 'unknown';
+  const on = formatSetDate(sizeOption.weight_set_date);
+  const how = SAVED_SOURCE_TEXT[sizeOption.weight_source] || sizeOption.weight_source || '';
+  return {
+    value, field, unit: SAVED_UNIT_BY_FAMILY[family], source: sizeOption.weight_source || '', setBy: by, setDate: sizeOption.weight_set_date || null,
+    sizeOptionId: sizeOption.id || null,
+    formula: `Saved weight for ${sizeOption.size_value || 'this size'}: ${value} ${SAVED_UNIT_BY_FAMILY[family]}`,
+    note: `Saved by ${by}${on ? ` on ${on}` : ''}${how ? ` (${how})` : ''}`,
+  };
+}
+
 function catalogWeight(profile, catalogRows) {
   const key = profileKey(profile);
   const match = (catalogRows || []).find((c) => c.weight_per_ft != null && Number(c.weight_per_ft) > 0 && profileKey(c.size_designation) === key);
@@ -447,7 +478,7 @@ function linearSurface(code, sizeValue, lengthFt, qty, catalogRows, computed, ai
  * quantity, coating_type, weight_override (+ unit implied by family).
  * `shapeType` is the MaterialShapeType record (category drives density).
  */
-export function calcCatalogRow(row, { shapeType, catalogRows = [] } = {}) {
+export function calcCatalogRow(row, { shapeType, catalogRows = [], sizeOption = null } = {}) {
   const code = String(row?.shape_code || shapeType?.shape_code || '').toUpperCase();
   const family = entryFamily(code, shapeType?.category);
   const material = materialFor(shapeType || { shape_code: code });
@@ -462,12 +493,30 @@ export function calcCatalogRow(row, { shapeType, catalogRows = [] } = {}) {
     weightUnit: family === 'linear' ? 'lb/ft' : family === 'plate' ? 'lb/sq ft' : 'lb/ea',
     unitWeight: null, weightSource: 'missing', weightFormula: '', needsWeight: false,
     totalLbs: 0, tons: 0, plateAreaSqIn: 0, surfaceSqIn: null, surfaceText: '', paintAreaSqIn: 0,
-    profile: '', steps: {},
+    profile: '', steps: {}, savedWeight: null,
+  };
+  const saved = savedSizeWeight(sizeOption, family);
+  const applySaved = () => {
+    result.unitWeight = saved.value;
+    result.weightSource = 'saved';
+    result.weightFormula = `${saved.formula} — ${saved.note}`;
+    result.savedWeight = saved;
+  };
+  // A weight typed on the row only fills a gap: it counts when the size has
+  // no weight from anywhere else (and FullTakeoff then saves it to the
+  // size). A size that already has a weight can't be overridden on a row —
+  // only an admin changes it, in Material Catalog. An old row that still
+  // carries an override for such a size keeps the stored weight and says so.
+  const ignoreOverride = () => {
+    if (hasOverride) result.overrideIgnored = `A typed ${override} ${result.weightUnit} on this line is not used — this size already has a weight. Only an admin can change it (Material Catalog).`;
   };
 
   if (family === 'each') {
     result.profile = `${code} ${sizeValue}`.trim();
-    if (hasOverride) {
+    if (saved) {
+      applySaved();
+      ignoreOverride();
+    } else if (hasOverride) {
       result.unitWeight = override;
       result.weightSource = 'override';
       result.weightFormula = `Typed on the row: ${override} lb/ea`;
@@ -499,17 +548,22 @@ export function calcCatalogRow(row, { shapeType, catalogRows = [] } = {}) {
     const pieceArea = widthIn * lengthIn;
     result.plateAreaSqIn = pieceArea * qty;
     const solid = !PLATE_NOT_SOLID.has(code) && material && thickness > 0;
-    if (hasOverride) {
-      result.unitWeight = override;
-      result.weightSource = 'override';
-      result.weightFormula = `Typed on the row: ${override} lb/sq ft`;
-      result.totalLbs = override * (result.plateAreaSqIn / 144);
+    if (saved) {
+      applySaved();
+      ignoreOverride();
+      result.totalLbs = saved.value * (result.plateAreaSqIn / 144);
     } else if (solid) {
       const rho = lbPerCuIn(material);
       result.unitWeight = thickness * rho * 144;
       result.weightSource = 'computed';
       result.weightFormula = `${fmt(thickness, 4)} in thick × ${DENSITY_LB_PER_CU_FT[material]} lb/cu ft ÷ 1728 = ${fmt(thickness * rho, 5)} lb/sq in (${fmt(result.unitWeight, 3)} lb/sq ft)${code === 'CP' || code === 'FP' || code === 'ALCP' ? ' — base thickness, raised pattern not counted' : ''}`;
       result.totalLbs = result.plateAreaSqIn * thickness * rho;
+      ignoreOverride();
+    } else if (hasOverride) {
+      result.unitWeight = override;
+      result.weightSource = 'override';
+      result.weightFormula = `Typed on the row: ${override} lb/sq ft`;
+      result.totalLbs = override * (result.plateAreaSqIn / 144);
     } else {
       result.needsWeight = true;
       result.weightFormula = PLATE_NOT_SOLID.has(code)
@@ -522,7 +576,7 @@ export function calcCatalogRow(row, { shapeType, catalogRows = [] } = {}) {
     result.surfaceText = `(2 faces × ${fmt(widthIn, 4)} × ${fmt(lengthIn, 4)} + edges 2 × (${fmt(widthIn, 4)} + ${fmt(lengthIn, 4)}) × ${fmt(thickness || 0, 4)}) × ${qty} pcs`;
     result.steps = {
       plateArea: [`${fmt(widthIn, 4)} in wide × ${fmt(lengthIn, 4)} in long = ${fmt(pieceArea, 2)} sq in each`, `${fmt(pieceArea, 2)} × ${qty} pcs = ${fmt(result.plateAreaSqIn, 2)} sq in`],
-      weight: [result.weightFormula, result.needsWeight ? 'Weight needed — not counted in tons.' : `${fmt(result.plateAreaSqIn, 2)} sq in × ${result.weightSource === 'override' ? `${override} lb/sq ft ÷ 144` : `${fmt(thickness, 4)} in × ${fmt(lbPerCuIn(material), 5)} lb/cu in`} = ${fmt(result.totalLbs, 3)} lb`],
+      weight: [result.weightFormula, result.needsWeight ? 'Weight needed — not counted in tons.' : `${fmt(result.plateAreaSqIn, 2)} sq in × ${result.weightSource === 'override' || result.weightSource === 'saved' ? `${result.unitWeight} lb/sq ft ÷ 144` : `${fmt(thickness, 4)} in × ${fmt(lbPerCuIn(material), 5)} lb/cu in`} = ${fmt(result.totalLbs, 3)} lb`],
       tons: [`${fmt(result.totalLbs, 3)} lb ÷ 2000 = ${fmt(result.tons, 4)} tons`],
       surface: [result.surfaceText, `= ${fmt(result.surfaceSqIn, 1)} sq in`],
     };
@@ -540,11 +594,14 @@ export function calcCatalogRow(row, { shapeType, catalogRows = [] } = {}) {
   // not their weights, so the AISC table is carbon steel only.
   const aisc = material === 'carbon' ? aiscShapeFor(code, sizeValue) : null;
   let w = null;
-  if (hasOverride) {
-    w = { perFt: override, formula: `Typed on the row: ${override} lb/ft`, source: 'override' };
+  if (saved) {
+    // An admin's (or the first typed) saved weight beats everything below,
+    // including AISC and the computed dimension weight.
+    w = { perFt: saved.value, formula: `${saved.formula} — ${saved.note}`, source: 'saved' };
+    result.savedWeight = saved;
   } else {
-    // Order: a company's own steel_catalog weight, then the AISC table
-    // (exact), then the size's own dimensions, then the rough estimator.
+    // Then a company's own steel_catalog weight, the AISC table (exact), the
+    // size's own dimensions, then the rough estimator.
     const fromCatalog = catalogWeight(result.profile, catalogRows);
     const fromAisc = fromCatalog ? null : aiscWeight(aisc);
     const fromEstimator = fromCatalog || fromAisc || computed ? null : estimatorWeight(code, sizeValue);
@@ -553,6 +610,8 @@ export function calcCatalogRow(row, { shapeType, catalogRows = [] } = {}) {
     else if (computed) w = { perFt: computed.perFt, formula: computed.formula, source: 'computed' };
     else if (fromEstimator) w = { ...fromEstimator, source: 'aisc_estimate' };
   }
+  if (w) ignoreOverride();
+  else if (hasOverride) w = { perFt: override, formula: `Typed on the row: ${override} lb/ft`, source: 'override' };
   if (w) {
     result.unitWeight = w.perFt;
     result.weightSource = w.source;
@@ -636,6 +695,7 @@ export function defaultGradeFor(shapeCode, catalogGrades = []) {
 }
 
 export const WEIGHT_SOURCE_LABELS = {
+  saved: 'Saved weight',
   catalog: 'Steel catalog',
   aisc: 'AISC v16.0',
   aisc_estimate: 'AISC estimate',

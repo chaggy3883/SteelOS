@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, ChevronsUpDown } from 'lucide-react';
+import { Check, ChevronsUpDown, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -64,11 +64,16 @@ export function ShapePicker({ shapeTypes = [], value, onChange, className }) {
   );
 }
 
-export function SizePicker({ sizes = [], value, onChange, disabled, className }) {
+// onAddSize(searchText), when given, adds a "+ Add size" footer (and an
+// "Add …" button when nothing matches) that hands over whatever was typed
+// in the search box — see AddCatalogSizeDialog.
+export function SizePicker({ sizes = [], value, onChange, disabled, className, onAddSize }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const unique = useMemo(() => [...new Set(sizes)], [sizes]);
+  const startAdd = () => { setOpen(false); onAddSize?.(search.trim()); };
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" role="combobox" disabled={disabled} className={cn('h-8 w-full justify-between font-normal text-sm px-2', className)}>
           <span className="truncate">{value || (unique.length ? 'Pick size' : 'No sizes in catalog')}</span>
@@ -77,9 +82,16 @@ export function SizePicker({ sizes = [], value, onChange, disabled, className })
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search size…" />
+          <CommandInput placeholder="Search size…" value={search} onValueChange={setSearch} />
           <CommandList className="max-h-80">
-            <CommandEmpty>No size found.</CommandEmpty>
+            <CommandEmpty>
+              No size found.
+              {onAddSize && search.trim() && (
+                <Button type="button" size="sm" variant="outline" className="mt-2 h-7 text-xs" onClick={startAdd}>
+                  <Plus className="w-3 h-3 mr-1" />Add &quot;{search.trim()}&quot;
+                </Button>
+              )}
+            </CommandEmpty>
             <CommandGroup>
               {unique.map((s) => (
                 <CommandItem key={s} value={s} onSelect={() => { onChange(s); setOpen(false); }}>
@@ -89,6 +101,13 @@ export function SizePicker({ sizes = [], value, onChange, disabled, className })
               ))}
             </CommandGroup>
           </CommandList>
+          {onAddSize && (
+            <div className="border-t p-1">
+              <Button type="button" variant="ghost" size="sm" className="w-full justify-start h-7 text-xs" onClick={startAdd}>
+                <Plus className="w-3 h-3 mr-1" />Add size{search.trim() ? ` "${search.trim()}"` : ''}
+              </Button>
+            </div>
+          )}
         </Command>
       </PopoverContent>
     </Popover>

@@ -72,10 +72,10 @@ const NAV_LINKS = [
   { path: '/admin/commission-setup', label: 'Sales Commission Setup', icon: DollarSign },
   { path: '/admin/salesman-rates', label: 'Salesman Commission Rates', icon: Percent, roles: ['hr_admin', 'payroll_admin'] },
   { path: '/admin/tm-labor-rates', label: 'T&M Labor Rates', icon: HardHat, roles: ['hr_admin', 'payroll_admin'] },
-  // Estimating-owned reference data (feeds the Material Takeoff grade
-  // dropdown) — admitted alongside full admin the same way PTO/salesman
-  // rates admit hr_admin/payroll_admin above.
-  { path: '/admin/material-catalog', label: 'Material Catalog', icon: Package, roles: ['estimator'] },
+  // Material catalog (shapes, sizes + saved weights, grades, IRONSIGHT steel
+  // catalog) — admin / super_admin only. Estimators add sizes and first
+  // weights from the takeoffs instead (materialCatalogAccess.js).
+  { path: '/admin/material-catalog', label: 'Material Catalog', icon: Package },
 ];
 
 export default function Admin() {

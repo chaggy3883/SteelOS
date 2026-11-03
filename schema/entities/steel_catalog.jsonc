@@ -15,8 +15,10 @@
         "HSS Tube",
         "C-Channel",
         "L-Angle",
-        "PL-Plate"
-      ]
+        "PL-Plate",
+        "Pipe"
+      ],
+      "// note": "'Pipe' (round HSS / pipe) was already written by src/components/settings/SteelCatalogPanel.jsx's importer and is one of IRONSIGHT's measurement-picker classes; listed here so the schema matches."
     },
     "size_designation": {
       "type": "string"
@@ -35,7 +37,31 @@
       "type": "number"
     },
     "weight_per_ft": {
-      "type": "number"
+      "type": "number",
+      "description": "lb/ft for this size. A takeoff writes it once (weight_source 'typed') when a size with no steel_catalog / AISC weight gets a typed lb/ft; after that only an admin can change it."
+    },
+    "weight_source": {
+      "type": "string",
+      "enum": ["typed", "admin", "aisc", "import"],
+      "description": "Who set the stored weight: 'typed' = the first weight typed on a takeoff for a size that had none (saved once, then read by every takeoff), 'admin' = set on the Material Catalog page, 'aisc' = copied from the AISC table, 'import' = a bulk import. Only admins can change a stored weight (src/lib/materialCatalogRoles.js)."
+    },
+    "weight_set_by": {
+      "type": "string",
+      "description": "Email (or name) of whoever last set or cleared the stored weight."
+    },
+    "weight_set_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the stored weight was last set or cleared."
+    },
+    "created_by": {
+      "type": "string",
+      "description": "Email (or name) of whoever added the row. Seed rows: 'system-seed' or blank."
+    },
+    "created_from": {
+      "type": "string",
+      "enum": ["takeoff", "ironsight", "admin"],
+      "description": "Where the row was added: Full Takeoff's '+ Add size', IRONSIGHT (measurement panel / Count setup / takeoff grid / Markups List weight save), or the Material Catalog admin page. Blank for seed rows. Drives the admin page's 'Added from a takeoff' filter."
     }
   },
   "required": [

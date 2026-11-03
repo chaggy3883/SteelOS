@@ -1,12 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { materialCatalogPermissions } from '@/lib/materialCatalogAccess';
+import { createCatalogRecord, createCatalogRecords, deleteCatalogRecord, setAdminSteelWeight, updateCatalogRecord } from '@/lib/materialCatalogWrites';
+import { findDuplicateDesignation, resolveSteelWeight, savedByText } from '@/lib/catalogSizeRules';
+import { formatSetDate } from '@/lib/materialEntryMath';
+import MathDrill from '@/components/estimating/MathDrill';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, UploadCloud, Plus, Trash2, Ruler } from 'lucide-react';
+import { Loader2, UploadCloud, Plus, Trash2, Ruler, AlertTriangle } from 'lucide-react';
 import { SHAPE_CLASSES } from '@/data/steelShapeSelector';
 import StockLengthOptionsModal from '@/components/settings/StockLengthOptionsModal';
 
@@ -275,8 +281,110 @@ const IMPORT_DATASET_TYPES = [
   },
 ];
 
-export default function SteelCatalogPanel() {
+// One steel_catalog row edited in place: size, dimensions and lb/ft each save
+// when their box loses focus (admin only — materialCatalogWrites.js, and
+// localData.js checks again). The lb/ft drills down to who set it and when.
+function SteelRow({ row, siblings, canEdit, onUpdated, onRemoved, onStockLengths }) {
   const { toast } = useToast();
+  const [draft, setDraft] = useState({});
+  const [busy, setBusy] = useState(false);
+  const val = (field) => (draft[field] ?? (row[field] != null ? String(row[field]) : ''));
+  const setField = (field, v) => setDraft((d) => ({ ...d, [field]: v }));
+  const clear = (field) => setDraft((d) => { const next = { ...d }; delete next[field]; return next; });
+
+  const run = async (fn, label) => {
+    setBusy(true);
+    try {
+      onUpdated(await fn());
+    } catch (e) {
+      toast({ title: `Couldn't save ${label}`, description: e?.message || 'Please retry.', variant: 'destructive' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const commitDesignation = () => {
+    const v = (draft.size_designation ?? row.size_designation).trim();
+    clear('size_designation');
+    if (v === row.size_designation) return;
+    if (!v) { toast({ title: 'A size can\'t be blank', variant: 'destructive' }); return; }
+    const dup = findDuplicateDesignation(v, siblings.filter((r) => r.id !== row.id).map((r) => r.size_designation));
+    if (dup) { toast({ title: `"${dup}" is already in ${row.shape_class}`, variant: 'destructive' }); return; }
+    run(() => updateCatalogRecord('steel_catalog', row.id, { size_designation: v }), 'the size');
+  };
+
+  const commitNumber = (field, label) => {
+    if (draft[field] == null) return;
+    const raw = draft[field].trim();
+    clear(field);
+    const n = raw === '' ? null : Number(raw);
+    if (n != null && !(n >= 0)) { toast({ title: `${label} must be a number`, variant: 'destructive' }); return; }
+    if (n === (row[field] ?? null)) return;
+    if (field === 'weight_per_ft') run(() => setAdminSteelWeight(row, n), 'the weight');
+    else run(() => updateCatalogRecord('steel_catalog', row.id, { [field]: n }), label);
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Remove ${row.size_designation} from the catalog? Its stock lengths stay on file but won't be reachable.`)) return;
+    setBusy(true);
+    try {
+      await deleteCatalogRecord('steel_catalog', row.id);
+      onRemoved(row.id);
+    } catch (e) {
+      toast({ title: 'Failed to remove size', description: e?.message || 'Please retry.', variant: 'destructive' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const fallback = row.weight_per_ft > 0 ? null : resolveSteelWeight(row.size_designation, []);
+  const weightLines = row.weight_per_ft > 0
+    ? [`${row.weight_per_ft} lb/ft stored on ${row.size_designation}`, row.weight_set_by ? savedByText(row) : 'Entered with the catalog row (no who/when recorded)', row.weight_source ? `Source: ${row.weight_source}` : '']
+    : [fallback ? `Nothing stored — takeoffs use ${fallback.text}` : 'Nothing stored and no AISC match — weight needed'];
+  const numberCell = (field, label, placeholder) => (
+    <Input type="number" min={0} step="any" value={val(field)} onChange={(e) => setField(field, e.target.value)} onBlur={() => commitNumber(field, label)} disabled={!canEdit || busy} placeholder={placeholder} className="h-7 text-xs w-20" />
+  );
+
+  return (
+    <tr className="border-b border-border last:border-0">
+      <td className="px-2 py-1.5 text-xs text-muted-foreground whitespace-nowrap">{row.shape_class}</td>
+      <td className="px-2 py-1.5">
+        <Input value={val('size_designation')} onChange={(e) => setField('size_designation', e.target.value)} onBlur={commitDesignation} disabled={!canEdit || busy} className="h-7 text-xs font-mono min-w-[8rem]" />
+      </td>
+      <td className="px-2 py-1.5">{numberCell('dimension1', 'Dim 1', 'in')}</td>
+      <td className="px-2 py-1.5">{numberCell('dimension2', 'Dim 2', 'in')}</td>
+      <td className="px-2 py-1.5">{numberCell('wall_thickness_in', 'Wall', 'in')}</td>
+      <td className="px-2 py-1.5">{numberCell('weight_per_ft', 'Weight', 'lb/ft')}</td>
+      <td className="px-2 py-1.5 text-xs">
+        <MathDrill
+          value={row.weight_per_ft > 0 ? (row.weight_source === 'typed' || row.weight_source === 'admin' ? 'Saved weight' : 'Stored') : fallback ? (fallback.source === 'aisc' ? 'AISC v16.0' : 'Catalog') : 'Weight needed'}
+          title={`${row.size_designation} weight`}
+          lines={weightLines}
+          align="start"
+          className={row.weight_per_ft > 0 || fallback ? '' : 'text-amber-700'}
+        />
+      </td>
+      <td className="px-2 py-1.5 text-[11px] text-muted-foreground whitespace-nowrap">
+        {row.is_custom ? 'custom' : 'seed'}{row.created_by ? ` · ${row.created_by}` : ''}{row.created_date ? ` · ${formatSetDate(row.created_date)}` : ''}
+      </td>
+      <td className="px-2 py-1.5 text-right whitespace-nowrap">
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onStockLengths(row)} title="Stock lengths and costs"><Ruler className="w-3.5 h-3.5" /></Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!canEdit || busy} onClick={handleDelete} title="Remove"><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
+      </td>
+    </tr>
+  );
+}
+
+// IRONSIGHT's steel_catalog (the 5 shape classes + Pipe): bulk import, add
+// one size, and every row editable in place — size, dimensions, lb/ft (with
+// who/when), stock lengths and costs. Shown on the Material Catalog page and
+// the Admin page's Steel Inventory Catalog tab. Read-only unless the session
+// can edit the material catalog (admin, or super_admin working as a company).
+export default function SteelCatalogPanel({ onCatalogChange }) {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const perms = materialCatalogPermissions(user?.roles || user?.user?.roles || []);
+  const canEdit = perms.canEdit;
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [bulkText, setBulkText] = useState('');
@@ -286,13 +394,20 @@ export default function SteelCatalogPanel() {
   const [newSizeId, setNewSizeId] = useState('');
   const [savingSize, setSavingSize] = useState(false);
   const [stockLengthItem, setStockLengthItem] = useState(null);
+  const [search, setSearch] = useState('');
+  const [classFilter, setClassFilter] = useState('all');
+  const [weightFilter, setWeightFilter] = useState('all');
+  const [limit, setLimit] = useState(150);
+
+  // Keeps the Material Catalog page's copy (weights for its size lists) current.
+  useEffect(() => { if (!loading) onCatalogChange?.(catalog); }, [catalog, loading]);
 
   useEffect(() => { loadCatalog(); }, []);
 
   const loadCatalog = async () => {
     setLoading(true);
     try {
-      const rows = await db.entities.steel_catalog.list('shape_class', 1000);
+      const rows = await db.entities.steel_catalog.list('shape_class', 10000);
       setCatalog(rows);
     } catch (e) {
       toast({ title: 'Failed to load steel catalog', variant: 'destructive' });
@@ -301,15 +416,19 @@ export default function SteelCatalogPanel() {
     }
   };
 
-  const groupedByClass = useMemo(() => {
-    const groups = {};
-    CATALOG_DISPLAY_CLASSES.forEach((c) => { groups[c.value] = []; });
-    catalog.forEach((row) => {
-      if (!groups[row.shape_class]) groups[row.shape_class] = [];
-      groups[row.shape_class].push(row);
-    });
-    return groups;
-  }, [catalog]);
+  const filteredRows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return catalog
+      .filter((row) => (classFilter === 'all' || row.shape_class === classFilter))
+      .filter((row) => !needle || String(row.size_designation || '').toLowerCase().includes(needle))
+      .filter((row) => {
+        if (weightFilter === 'has_weight') return row.weight_per_ft > 0 || !!resolveSteelWeight(row.size_designation, []);
+        if (weightFilter === 'needed') return !(row.weight_per_ft > 0) && !resolveSteelWeight(row.size_designation, []);
+        if (weightFilter === 'from_takeoff') return row.created_from === 'ironsight' || row.created_from === 'takeoff';
+        return true;
+      })
+      .sort((a, b) => String(a.shape_class).localeCompare(String(b.shape_class)) || String(a.size_designation).localeCompare(String(b.size_designation)));
+  }, [catalog, search, classFilter, weightFilter]);
 
   const handleBulkImport = async () => {
     const activeDataset = IMPORT_DATASET_TYPES.find((d) => d.value === importDatasetType) || IMPORT_DATASET_TYPES[0];
@@ -324,12 +443,12 @@ export default function SteelCatalogPanel() {
     }
     setImporting(true);
     try {
-      await db.entities.steel_catalog.bulkCreate(parsedRows.map((r) => ({
+      await createCatalogRecords('steel_catalog', parsedRows.map((r) => ({
         item_id: `STL-${r.shape_class.replace(/\s+/g, '').toUpperCase()}-${r.size_designation.replace(/[^A-Z0-9]/gi, '')}`,
         shape_class: r.shape_class,
         size_designation: r.size_designation,
         is_custom: true,
-        ...(r.dimension1 != null ? { dimension1: r.dimension1, dimension2: r.dimension2, wall_thickness_in: r.wall_thickness_in, weight_per_ft: r.weight_per_ft } : {}),
+        ...(r.dimension1 != null ? { dimension1: r.dimension1, dimension2: r.dimension2, wall_thickness_in: r.wall_thickness_in, weight_per_ft: r.weight_per_ft, weight_source: 'import' } : {}),
       })));
       toast({ title: `Imported ${parsedRows.length} size(s)` });
       setBulkText('');
@@ -346,9 +465,14 @@ export default function SteelCatalogPanel() {
       toast({ title: 'Enter a Custom Size ID first', variant: 'destructive' });
       return;
     }
+    const dup = findDuplicateDesignation(newSizeId.trim(), catalog.filter((r) => r.shape_class === newClass).map((r) => r.size_designation));
+    if (dup) {
+      toast({ title: `"${dup}" is already in ${newClass}`, variant: 'destructive' });
+      return;
+    }
     setSavingSize(true);
     try {
-      await db.entities.steel_catalog.create({
+      await createCatalogRecord('steel_catalog', {
         item_id: `STL-${newClass.replace(/\s+/g, '').toUpperCase()}-${newSizeId.trim().replace(/[^A-Z0-9]/gi, '')}`,
         shape_class: newClass,
         size_designation: newSizeId.trim(),
@@ -364,105 +488,138 @@ export default function SteelCatalogPanel() {
     }
   };
 
-  const handleDelete = async (row) => {
-    if (!confirm(`Remove ${row.size_designation} from the catalog?`)) return;
-    try {
-      await db.entities.steel_catalog.delete(row.id);
-      setCatalog((prev) => prev.filter((r) => r.id !== row.id));
-    } catch (e) {
-      toast({ title: 'Failed to remove size', variant: 'destructive' });
-    }
-  };
-
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
   return (
-    <div className="max-w-4xl space-y-4">
-      <div className="steel-card p-6">
-        <h3 className="font-semibold mb-1">Bulk Spreadsheet Importer</h3>
-        <div className="mb-3">
-          <Label className="text-xs">Import Shape Dataset Type</Label>
-          <Select value={importDatasetType} onValueChange={setImportDatasetType}>
-            <SelectTrigger className="mt-1 max-w-xs"><SelectValue /></SelectTrigger>
+    <div className="space-y-4">
+      {perms.readOnly && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-800 px-3 py-2 text-xs flex items-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+          You&apos;re signed in as the platform operator. The steel catalog belongs to one company — pick a company to work as (Impersonate) before changing it.
+        </div>
+      )}
+      {!canEdit && !perms.readOnly && (
+        <p className="text-xs text-muted-foreground">Read-only — only an Admin or Super Admin can change the steel catalog.</p>
+      )}
+
+      {canEdit && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="steel-card p-6">
+            <h3 className="font-semibold mb-1">Bulk Spreadsheet Importer</h3>
+            <div className="mb-3">
+              <Label className="text-xs">Import Shape Dataset Type</Label>
+              <Select value={importDatasetType} onValueChange={setImportDatasetType}>
+                <SelectTrigger className="mt-1 max-w-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {IMPORT_DATASET_TYPES.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              {(IMPORT_DATASET_TYPES.find((d) => d.value === importDatasetType) || IMPORT_DATASET_TYPES[0]).hint}
+            </p>
+            <Textarea
+              value={bulkText}
+              onChange={(e) => setBulkText(e.target.value)}
+              className="min-h-[120px] font-mono text-xs"
+              placeholder={(IMPORT_DATASET_TYPES.find((d) => d.value === importDatasetType) || IMPORT_DATASET_TYPES[0]).placeholder}
+            />
+            <div className="flex justify-end mt-3">
+              <Button onClick={handleBulkImport} disabled={importing} className="steel-gradient text-white border-0">
+                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                Import Rows
+              </Button>
+            </div>
+          </div>
+
+          <div className="steel-card p-6">
+            <h3 className="font-semibold mb-1">Add Individual Size</h3>
+            <p className="text-xs text-muted-foreground mb-3">Add one catalog entry directly — then set its dimensions and lb/ft in the list below.</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+              <div>
+                <Label className="text-xs">Structural Class</Label>
+                <Select value={newClass} onValueChange={setNewClass}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {CATALOG_DISPLAY_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Custom Size ID</Label>
+                <Input value={newSizeId} onChange={(e) => setNewSizeId(e.target.value)} className="mt-1" placeholder="e.g. W12x40" />
+              </div>
+              <Button onClick={handleAddSize} disabled={savingSize} className="steel-gradient text-white border-0">
+                {savingSize ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Save Size
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="steel-card overflow-hidden">
+        <div className="p-4 border-b border-border flex flex-wrap items-center gap-2">
+          <h3 className="font-semibold mr-auto">Catalog — {catalog.length} size(s)</h3>
+          <Input value={search} onChange={(e) => { setSearch(e.target.value); setLimit(150); }} placeholder="Search sizes…" className="h-8 w-48 text-xs" />
+          <Select value={classFilter} onValueChange={(v) => { setClassFilter(v); setLimit(150); }}>
+            <SelectTrigger className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {IMPORT_DATASET_TYPES.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+              <SelectItem value="all">All classes</SelectItem>
+              {CATALOG_DISPLAY_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={weightFilter} onValueChange={(v) => { setWeightFilter(v); setLimit(150); }}>
+            <SelectTrigger className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any weight</SelectItem>
+              <SelectItem value="has_weight">Has a weight</SelectItem>
+              <SelectItem value="needed">Weight needed</SelectItem>
+              <SelectItem value="from_takeoff">Added from a takeoff</SelectItem>
             </SelectContent>
           </Select>
         </div>
-        <p className="text-xs text-muted-foreground mb-3">
-          {(IMPORT_DATASET_TYPES.find((d) => d.value === importDatasetType) || IMPORT_DATASET_TYPES[0]).hint}
-        </p>
-        <Textarea
-          value={bulkText}
-          onChange={(e) => setBulkText(e.target.value)}
-          className="min-h-[120px] font-mono text-xs"
-          placeholder={(IMPORT_DATASET_TYPES.find((d) => d.value === importDatasetType) || IMPORT_DATASET_TYPES[0]).placeholder}
-        />
-        <div className="flex justify-end mt-3">
-          <Button onClick={handleBulkImport} disabled={importing} className="steel-gradient text-white border-0">
-            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-            Import Rows
-          </Button>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 border-b border-border">
+              <tr className="text-left text-xs text-muted-foreground">
+                <th className="px-2 py-2 font-medium">Class</th>
+                <th className="px-2 py-2 font-medium">Size</th>
+                <th className="px-2 py-2 font-medium">Dim 1 (in)</th>
+                <th className="px-2 py-2 font-medium">Dim 2 (in)</th>
+                <th className="px-2 py-2 font-medium">Wall (in)</th>
+                <th className="px-2 py-2 font-medium">lb/ft</th>
+                <th className="px-2 py-2 font-medium">Weight source</th>
+                <th className="px-2 py-2 font-medium">Added</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.length === 0 ? (
+                <tr><td colSpan={9} className="text-center py-8 text-xs text-muted-foreground">No sizes match.</td></tr>
+              ) : filteredRows.slice(0, limit).map((row) => (
+                <SteelRow
+                  key={row.id}
+                  row={row}
+                  siblings={catalog.filter((r) => r.shape_class === row.shape_class)}
+                  canEdit={canEdit}
+                  onUpdated={(updated) => setCatalog((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))}
+                  onRemoved={(id) => setCatalog((prev) => prev.filter((r) => r.id !== id))}
+                  onStockLengths={setStockLengthItem}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
-
-      <div className="steel-card p-6">
-        <h3 className="font-semibold mb-1">Add Individual Size</h3>
-        <p className="text-xs text-muted-foreground mb-3">Add one catalog entry directly.</p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-          <div>
-            <Label className="text-xs">Structural Class</Label>
-            <Select value={newClass} onValueChange={setNewClass}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {CATALOG_DISPLAY_CLASSES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
+        {filteredRows.length > limit && (
+          <div className="p-3 border-t border-border">
+            <Button variant="outline" size="sm" onClick={() => setLimit((n) => n + 150)}>Show more ({filteredRows.length - limit} left)</Button>
           </div>
-          <div>
-            <Label className="text-xs">Custom Size ID</Label>
-            <Input value={newSizeId} onChange={(e) => setNewSizeId(e.target.value)} className="mt-1" placeholder="e.g. W12x40" />
-          </div>
-          <Button onClick={handleAddSize} disabled={savingSize} className="steel-gradient text-white border-0">
-            {savingSize ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Save Size
-          </Button>
-        </div>
-      </div>
-
-      <div className="steel-card overflow-hidden">
-        <div className="p-4 border-b border-border">
-          <h3 className="font-semibold">Catalog — {catalog.length} size(s)</h3>
-        </div>
-        <div className="divide-y divide-border">
-          {CATALOG_DISPLAY_CLASSES.map((c) => (
-            <div key={c.value} className="p-4">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{c.label}</p>
-              {groupedByClass[c.value]?.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {groupedByClass[c.value].map((row) => (
-                    <span key={row.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs">
-                      {row.size_designation}
-                      {row.is_custom && <span className="text-primary font-semibold">•custom</span>}
-                      <button onClick={() => setStockLengthItem(row)} className="text-muted-foreground hover:text-primary" title="Manage stock lengths">
-                        <Ruler className="w-3 h-3" />
-                      </button>
-                      <button onClick={() => handleDelete(row)} className="text-muted-foreground hover:text-destructive">
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">No sizes in this class yet.</p>
-              )}
-            </div>
-          ))}
-        </div>
+        )}
       </div>
 
       {stockLengthItem && (
-        <StockLengthOptionsModal item={stockLengthItem} onClose={() => setStockLengthItem(null)} />
+        <StockLengthOptionsModal item={stockLengthItem} readOnly={!canEdit} onClose={() => setStockLengthItem(null)} />
       )}
     </div>
   );

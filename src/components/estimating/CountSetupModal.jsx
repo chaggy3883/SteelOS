@@ -4,6 +4,9 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { GripVertical, X } from 'lucide-react';
 import { FRACTION_OPTIONS, feetInchesFractionToDecimal, decimalFeetToFeetInchesFraction } from '@/lib/fractionInches';
+import { useAuth } from '@/lib/AuthContext';
+import { materialCatalogPermissions } from '@/lib/materialCatalogAccess';
+import AddCatalogSizeDialog from '@/components/estimating/AddCatalogSizeDialog';
 
 // One feet/inches/fraction-of-an-inch dimension entry (to 1/16") — the same
 // three-input pattern BlueprintTakeoff.jsx's Set Scale calibration uses,
@@ -59,7 +62,14 @@ export default function CountSetupModal({
   initialValues = null,
   onConfirm,
   onCancel,
+  // steel_catalog rows (add-size preview) and the parent's hook for a size
+  // added here: onSizeAdded(shapeTypeId, record, mirror).
+  catalogRows = [],
+  onSizeAdded,
 }) {
+  const { user } = useAuth();
+  const catalogPerms = materialCatalogPermissions(user?.roles || user?.user?.roles || []);
+  const [addSizeOpen, setAddSizeOpen] = useState(false);
   const [pos, setPos] = useState({ x: 320, y: 140 });
   const [shapeTypeId, setShapeTypeId] = useState('');
   const [size, setSize] = useState('');
@@ -190,7 +200,12 @@ export default function CountSetupModal({
         </div>
 
         <div>
-          <label className="text-xs font-medium text-muted-foreground">{isPlate ? 'Thickness' : 'Size'}</label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-muted-foreground">{isPlate ? 'Thickness' : 'Size'}</label>
+            {(catalogPerms.canAdd || catalogPerms.needsCompany) && selectedShape && (
+              <button type="button" className="text-[11px] text-primary hover:underline" onClick={() => setAddSizeOpen(true)}>+ Add size</button>
+            )}
+          </div>
           <select
             value={size}
             onChange={(e) => setSize(e.target.value)}
@@ -260,6 +275,16 @@ export default function CountSetupModal({
         <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
         <Button size="sm" onClick={handleConfirmClick} disabled={!canConfirm}>Next: Pick Color</Button>
       </div>
+
+      <AddCatalogSizeDialog
+        open={addSizeOpen}
+        onOpenChange={setAddSizeOpen}
+        target={selectedShape ? { kind: 'master', shapeType: selectedShape } : null}
+        existingValues={sizeOptions}
+        catalogRows={catalogRows}
+        onAdded={({ value, record, mirror }) => { onSizeAdded?.(shapeTypeId, record, mirror); setSize(value); }}
+        onUseExisting={(value) => setSize(value)}
+      />
     </div>
   );
 }

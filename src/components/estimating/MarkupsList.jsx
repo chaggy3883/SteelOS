@@ -21,7 +21,11 @@ import { exportRowsToCsv } from '@/lib/csvExport';
 import { toolKind } from '@/lib/takeoffGeometry';
 import MarkupColumnsTable from '@/components/estimating/MarkupColumnsTable';
 import CombineForOrderingDialog from '@/components/estimating/CombineForOrderingDialog';
-import { calcCatalogRow, compactProfile, entryFamily } from '@/lib/materialEntryMath';
+import { calcCatalogRow, compactProfile, entryFamily, savedSizeWeight } from '@/lib/materialEntryMath';
+import { resolveSteelWeight, sizeKey, savedByText } from '@/lib/catalogSizeRules';
+import { saveTypedSizeWeight, saveTypedSteelWeight } from '@/lib/materialCatalogWrites';
+import { useAuth } from '@/lib/AuthContext';
+import { materialCatalogPermissions } from '@/lib/materialCatalogAccess';
 
 // Every tool that can land in the Markups List, in display order. `kind`
 // (takeoffGeometry.js toolKind) decides the math: length kinds weigh by
@@ -148,7 +152,46 @@ function buildGroups(rows) {
   });
 }
 
-const defaultSettingFor = (group) => {
+// IRONSIGHT's 5-class shapes (measurement panel / takeoff grid) — their
+// sizes and lb/ft live in steel_catalog.
+const STEEL_CLASSES = new Set(['W-Beam', 'HSS Tube', 'C-Channel', 'L-Angle', 'PL-Plate', 'Pipe']);
+
+// The weight the catalogs already hold for a group's size, freshest data
+// first: master-catalog codes (Count rows) go through calcCatalogRow — the
+// size's saved weight, steel_catalog, AISC, computed, estimator; 5-class
+// sizes through steel_catalog then AISC. lb/ft for length and count groups;
+// area groups only get a saved lb/sq ft. null when nothing has one.
+// -> { value, source: 'saved' | 'catalog' | 'aisc' | 'computed', text, sizeRecord, shapeType }
+function resolveGroupWeight(group, { shapeTypesByCode, sizeRecords, steelRows }) {
+  const kind = toolKind(group.tool);
+  if (group.tool === 'bolt_count' || !['length', 'count', 'area'].includes(kind)) return null;
+  if (group.shape_code) {
+    const shapeType = shapeTypesByCode.get(group.shape_code) || null;
+    const key = sizeKey(group.shape_code, group.size_designation);
+    const sizeRecord = shapeType
+      ? (sizeRecords.find((r) => r.shape_type_id === shapeType.id && r.size_value === group.size_designation)
+        || sizeRecords.find((r) => r.shape_type_id === shapeType.id && sizeKey(group.shape_code, r.size_value) === key)
+        || null)
+      : null;
+    const family = entryFamily(group.shape_code, shapeType?.category);
+    if (kind === 'area') {
+      const saved = family === 'plate' ? savedSizeWeight(sizeRecord, 'plate') : null;
+      return saved ? { value: saved.value, source: 'saved', text: `${saved.formula} — ${saved.note}`, sizeRecord, shapeType } : { value: null, sizeRecord, shapeType };
+    }
+    if (family !== 'linear') return { value: null, sizeRecord, shapeType };
+    const calc = calcCatalogRow({ shape_code: group.shape_code, size_value: group.size_designation, quantity: 1, length_in: 12 }, { shapeType: shapeType || { shape_code: group.shape_code }, catalogRows: steelRows, sizeOption: sizeRecord });
+    if (calc.needsWeight) return { value: null, sizeRecord, shapeType };
+    const source = calc.weightSource === 'saved' ? 'saved' : calc.weightSource === 'catalog' ? 'catalog' : calc.weightSource === 'computed' ? 'computed' : 'aisc';
+    return { value: calc.unitWeight, source, text: calc.weightFormula, sizeRecord, shapeType };
+  }
+  if (STEEL_CLASSES.has(group.shape_type) && group.size_designation && kind !== 'area') {
+    const found = resolveSteelWeight(group.size_designation, steelRows);
+    return found ? { value: found.perFt, source: found.source, text: found.text } : { value: null };
+  }
+  return null;
+}
+
+const defaultSettingFor = (group, resolved = null) => {
   // IRONSIGHT now resolves a Count row's own weight-per-ft at save time
   // (BlueprintTakeoff.jsx's handleSaveCountSession, via the master catalog +
   // steel_catalog) — prefer that already-resolved figure over re-guessing
@@ -162,6 +205,17 @@ const defaultSettingFor = (group) => {
   // to enter rather than silently borrowing a per-foot figure; volume and
   // angle groups are never weighed.
   const kind = toolKind(group.tool);
+  // The catalogs' current weight (a saved weight typed in any session, an
+  // admin's, steel_catalog, AISC) comes first.
+  if (resolved?.value > 0) {
+    return {
+      multiplier: 1,
+      unitWeight: Number(resolved.value.toFixed(4)),
+      weightSource: resolved.source,
+      typicalLengthFt: group.tool === 'count' ? (group.rows[0]?.length_ft || 0) : 0,
+      locked: true,
+    };
+  }
   const catalogWeight = kind === 'length' || kind === 'count'
     ? (rowWeight ?? lookupCatalogWeightPerFt(compactProfile || group.size_designation))
     : null;
@@ -194,6 +248,9 @@ function mapInitialWeights(weights) {
 }
 
 const WEIGHT_BADGES = {
+  saved: { label: 'Saved weight', className: 'text-green-700 border-green-300' },
+  catalog: { label: 'Steel catalog', className: 'text-blue-600 border-blue-300' },
+  computed: { label: 'Computed', className: 'text-blue-600 border-blue-300' },
   aisc: { label: 'AISC', className: 'text-blue-600 border-blue-300' },
   manual: { label: 'Manual', className: 'text-muted-foreground' },
   override: { label: 'Override', className: 'text-amber-600 border-amber-300' },
@@ -212,8 +269,16 @@ const WEIGHT_BADGES = {
 export default function MarkupsList({
   rows, onRowsChange, takeoffId, takeoffName, fileName, companyId, bidId, projectId, sequenceAreaId, onLink, initialWeights,
   columns = [], toolSetColumns = [], customColumns = [], computeRow, onCustomColumnsChange, onRowClick,
+  // The catalogs, for weights: steel_catalog rows, active MaterialShapeTypes,
+  // every MaterialSizeOption — and the parent's hook for a weight this list
+  // saved ({ sizeRecord } or { steelRecord }).
+  steelRows = [], shapeTypes = [], sizeRecords = [], onCatalogWeightSaved,
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const catalogPerms = materialCatalogPermissions(user?.roles || user?.user?.roles || []);
+  const shapeTypesByCode = useMemo(() => new Map(shapeTypes.map((t) => [t.shape_code, t])), [shapeTypes]);
+  const resolveWeight = (group) => resolveGroupWeight(group, { shapeTypesByCode, sizeRecords, steelRows });
   const navigate = useNavigate();
   const [settings, setSettings] = useState(() => mapInitialWeights(initialWeights));
   const [bids, setBids] = useState([]);
@@ -268,7 +333,20 @@ export default function MarkupsList({
 
   const groups = useMemo(() => buildGroups(rows), [rows]);
 
-  const getSetting = (group) => settings[group.key] || defaultSettingFor(group);
+  // A size that has a weight anywhere (saved, steel catalog, AISC, computed)
+  // always uses it — it can't be overridden in a session; only an admin
+  // changes it in Material Catalog. A session's own typed weight counts only
+  // for a size with no weight at all (and is then saved to the catalog).
+  // Multiplier / typical length stay per session.
+  const getSetting = (group) => {
+    const stored = settings[group.key];
+    const resolved = resolveWeight(group);
+    if (!stored) return defaultSettingFor(group, resolved);
+    if (resolved?.value > 0) {
+      return { ...stored, unitWeight: Number(resolved.value.toFixed(4)), weightSource: resolved.source, locked: true };
+    }
+    return stored;
+  };
 
   const updateSetting = (group, field, value) => {
     setSettings((prev) => ({ ...prev, [group.key]: { ...getSetting(group), [field]: value } }));
@@ -289,8 +367,60 @@ export default function MarkupsList({
   // to begin with is still just "Manual", not an override of anything.
   const updateUnitWeight = (group, value) => {
     const current = getSetting(group);
-    const nextSource = current.weightSource === 'aisc' || current.weightSource === 'override' ? 'override' : 'manual';
-    setSettings((prev) => ({ ...prev, [group.key]: { ...current, unitWeight: value, weightSource: nextSource } }));
+    if (current.locked) return; // known weight — admin-only (Material Catalog)
+    setSettings((prev) => ({ ...prev, [group.key]: { ...current, unitWeight: value, weightSource: 'manual' } }));
+  };
+
+  // A manual lb/ft (or lb/sq ft) for a size the catalogs have no weight for
+  // is saved to the catalog when the box loses focus — MaterialSizeOption
+  // for master-catalog codes (Count rows), steel_catalog.weight_per_ft for
+  // 5-class sizes — so every session and the Full Takeoff use it. An
+  // override of a size that already has a weight stays in this session
+  // (markup_weights) only. First save wins if two groups race on one size.
+  const savingGroupsRef = useRef(new Set());
+  const commitGroupWeight = async (group) => {
+    const setting = getSetting(group);
+    const value = Number(setting.unitWeight);
+    if (setting.weightSource !== 'manual' || !(value > 0) || savingGroupsRef.current.has(group.key)) return;
+    const resolved = resolveWeight(group);
+    if (!resolved) return; // not a catalog size (custom label, bolt, volume, angle)
+    const sizeLabel = `${group.shape_code ? `${group.shape_code} ` : ''}${group.size_designation}`;
+    const unit = TOOL_META[group.tool]?.unitLabel || 'lbs/ft';
+    if (resolved.value > 0) {
+      setSettings((prev) => ({ ...prev, [group.key]: { ...setting, weightSource: 'override' } }));
+      toast({ title: `${sizeLabel} already has a weight (${Number(resolved.value.toFixed(3))} ${unit})`, description: `This group keeps ${value} ${unit} as its own override.` });
+      return;
+    }
+    if (!catalogPerms.canAdd) {
+      if (catalogPerms.needsCompany) toast({ title: 'Weight kept in this session only', description: 'Pick a company to work as (Impersonate) to save weights to the catalog.' });
+      return;
+    }
+    savingGroupsRef.current.add(group.key);
+    try {
+      let result;
+      if (group.shape_code) {
+        if (!resolved.sizeRecord) {
+          toast({ title: `${sizeLabel} isn't in the catalog`, description: 'The weight stays in this session — add the size with "+ Add size" to save it for every takeoff.' });
+          return;
+        }
+        result = await saveTypedSizeWeight({ sizeOptionId: resolved.sizeRecord.id, family: group.kind === 'area' ? 'plate' : 'linear', value });
+        onCatalogWeightSaved?.({ sizeRecord: result.saved ? result.record : result.existing });
+      } else {
+        result = await saveTypedSteelWeight({ shapeClass: group.shape_type, designation: group.size_designation, value });
+        onCatalogWeightSaved?.({ steelRecord: result.saved ? result.record : result.existing });
+      }
+      if (result.saved) {
+        setSettings((prev) => ({ ...prev, [group.key]: { ...setting, weightSource: 'saved' } }));
+        toast({ title: `Saved ${value} ${unit} for ${sizeLabel} — every takeoff will use it.` });
+      } else {
+        setSettings((prev) => ({ ...prev, [group.key]: { ...setting, weightSource: 'override' } }));
+        toast({ title: `${sizeLabel} was given a weight first`, description: `${savedByText(result.existing)} — this group keeps ${value} ${unit} as its own override.` });
+      }
+    } catch (e) {
+      toast({ title: 'Could not save the weight to the catalog', description: e?.message || 'It stays in this session.', variant: 'destructive' });
+    } finally {
+      savingGroupsRef.current.delete(group.key);
+    }
   };
 
   // Part 2 — weight calculation engine. Count needs an assumed per-piece
@@ -932,7 +1062,7 @@ export default function MarkupsList({
                       <div className="w-36">
                         <label className="text-[10px] text-muted-foreground flex items-center gap-1">
                           Unit weight ({TOOL_META[tool].unitLabel})
-                          <Badge variant="outline" className={`text-[9px] px-1 py-0 leading-4 ${badge.className}`}>{badge.label}</Badge>
+                          <Badge variant="outline" className={`text-[9px] px-1 py-0 leading-4 ${badge.className}`} title={resolveWeight(group)?.text || undefined}>{badge.label}</Badge>
                         </label>
                         <Input
                           type="number"
@@ -940,8 +1070,11 @@ export default function MarkupsList({
                           step="any"
                           value={setting.unitWeight}
                           onChange={(e) => updateUnitWeight(group, e.target.value === '' ? '' : Number(e.target.value))}
-                          placeholder="manual entry"
-                          className="h-8 text-xs"
+                          onBlur={() => commitGroupWeight(group)}
+                          readOnly={!!setting.locked}
+                          placeholder="weight needed"
+                          className={`h-8 text-xs ${setting.locked ? 'bg-muted/40 cursor-not-allowed' : 'border-amber-400'}`}
+                          title={setting.locked ? 'This size already has a weight — only an admin can change it (Material Catalog)' : 'Saved to the catalog for this size when you leave the box — every takeoff will use it'}
                         />
                       </div>
                     )}

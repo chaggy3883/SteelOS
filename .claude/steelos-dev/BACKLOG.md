@@ -5,6 +5,30 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-02) — Add sizes from takeoffs, saved weights, admin-only catalog editing
+- "+ Add size" in Full Takeoff (size picker; "Add '…'" when a search finds nothing), IRONSIGHT measurement panel,
+  Count setup and Takeoff grid (AddCatalogSizeDialog): optional lb/ft | lb/sq ft | lb/ea, live preview + weight
+  source, any-spelling duplicate check, parse warning. Creates MaterialSizeOption and/or steel_catalog (is_custom);
+  standard AISC sizes land in both. created_by / created_from stamped.
+- Saved weights: MaterialSizeOption weight_per_ft / _sq_ft / _each + weight_source / _set_by / _set_date;
+  steel_catalog.weight_per_ft for the 5-class sizes. Order: saved -> steel_catalog -> AISC -> computed -> estimator.
+  A typed weight on a "Weight needed" row is saved once and every takeoff uses it; otherwise it stays a row override.
+- Material Catalog page is admin/super_admin only (super_admin read-only until impersonating); estimators add from
+  takeoffs only. Tabs: shape types, all sizes (search/filters, inline edit, delete blocked when used -> deactivate),
+  IRONSIGHT steel catalog (dims, lb/ft, stock lengths). Role check enforced in localData.js on every catalog write.
+- Verified: build + lint clean; Node traces (saved beats AISC; first typed weight saved, next row "Saved weight",
+  race row keeps its override; W12x26 typed not saved; L3 1/2 vs L3-1/2 duplicate; role matrix). Browser (db.json
+  backed up/restored): estimator added W 12 x 27.5 from Full Takeoff (saved, selected); estimator blocked from the
+  admin page; super_admin read-only until impersonating Hancock, then edited that size to 28 lb/ft (stored, "admin").
+- Locked weights (2026-11-03, per the user): a size that has a weight from anywhere (saved, steel_catalog, AISC,
+  computed) can't be overridden on a takeoff line, in IRONSIGHT's Markups List or its Takeoff grid. The weight box
+  only shows / is editable while the size has no weight, and that first entry is saved to the size. Only an admin
+  changes a stored weight (Material Catalog), and an admin weight beats AISC and computed (FB 1/2 x 6: computed
+  10.208 -> admin 11 lb/ft; PL 1/2 admin 20.5 lb/sq ft; W12x26 admin 26.5 beats AISC 26). Old rows/sessions that
+  carried an override on such a size now use the stored weight (the line says so). Duplicate sizes can't be re-added.
+- Open: Tool Chest preset size is free text; SteelCatalogEditor (workbook) not gated; steel_catalog delete has no
+  usage guard; first-save-wins is per browser tab; the All sizes tab renders all ~4,000 rows at once.
+
 ## Also Closed (2026-10-30) — Catalog material entry, Combine for ordering (Mult/Nest), Full Breakdown parity (our own code)
 - Full Takeoff manual entry: searchable Material/Size/Grade from the master catalog (95 codes, ~3,986 sizes, 221 grades),
   family default grades + free entry. Linear = ft-in length x qty; plate types = thickness x W x L x qty; hardware = qty.

@@ -28,6 +28,11 @@
     },
     "created_by": {
       "type": "string"
+    },
+    "created_from": {
+      "type": "string",
+      "enum": ["admin"],
+      "description": "Set to 'admin' for shape types added on the Material Catalog page; blank for seed rows."
     }
   },
   "required": [

@@ -5,6 +5,9 @@ import { GripVertical, X, ScanSearch, Loader2 } from 'lucide-react';
 import { MEASURE_TOOLS, toolLabel, toolKind, applyMeasureExtras, extrasComplete, measurementSummary } from '@/lib/takeoffGeometry';
 import { scaleLabelFromPtsPerFt } from '@/lib/takeoffScale';
 import { formatFeetInchesFraction } from '@/lib/fractionInches';
+import { useAuth } from '@/lib/AuthContext';
+import { materialCatalogPermissions } from '@/lib/materialCatalogAccess';
+import AddCatalogSizeDialog from '@/components/estimating/AddCatalogSizeDialog';
 
 // Volume (concrete, fill) and Angle are not steel members — no shape/size
 // pick, just a plain description, and never a weight.
@@ -49,7 +52,14 @@ export default function MeasurementConfirmationModal({
   // size, slope, depth, description) — see BlueprintTakeoff's activePreset.
   // The estimator can still change any of them before adding the row.
   defaults = null,
+  // steel_catalog rows (weights for the add-size preview) and the callback
+  // the parent uses to add a new steel_catalog row to `steelCatalog`.
+  catalogRows = [],
+  onSizeAdded,
 }) {
+  const { user } = useAuth();
+  const catalogPerms = materialCatalogPermissions(user?.roles || user?.user?.roles || []);
+  const [addSizeOpen, setAddSizeOpen] = useState(false);
   const [pos, setPos] = useState({ x: 320, y: 140 });
   const [shape, setShape] = useState('');
   const [size, setSize] = useState('');
@@ -276,7 +286,12 @@ export default function MeasurementConfirmationModal({
         </div>
 
         <div>
-          <label className="text-xs font-medium text-muted-foreground">Size</label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-muted-foreground">Size</label>
+            {(catalogPerms.canAdd || catalogPerms.needsCompany) && shape && (
+              <button type="button" className="text-[11px] text-primary hover:underline" onClick={() => setAddSizeOpen(true)}>+ Add size</button>
+            )}
+          </div>
           <select
             value={size}
             onChange={(e) => setSize(e.target.value)}
@@ -335,6 +350,16 @@ export default function MeasurementConfirmationModal({
           </div>
         )}
       </div>
+
+      <AddCatalogSizeDialog
+        open={addSizeOpen}
+        onOpenChange={setAddSizeOpen}
+        target={{ kind: 'steel', shapeClass: shape }}
+        existingValues={sizeOptions}
+        catalogRows={catalogRows}
+        onAdded={({ value, record, mirror }) => { onSizeAdded?.(record, mirror); setSize(value); }}
+        onUseExisting={(value) => setSize(sizeOptions.find((s) => s === value) || value)}
+      />
 
       {duplicateRow ? (
         <div className="px-3 py-2 border-t bg-amber-500/5 space-y-2">

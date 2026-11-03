@@ -8,13 +8,16 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, Plus, Edit2, Trash2, Ruler } from 'lucide-react';
+import { createCatalogRecord, deleteCatalogRecord, updateCatalogRecord } from '@/lib/materialCatalogWrites';
 
 const emptyForm = () => ({ stock_length_in: '', vendor_id: '', cost_per_length: '', is_active: true });
 
 // STAGE 4: admin-editable stock length options for one steel_catalog item.
 // Seeded empty everywhere — real stock lengths/costs come from the user, not
-// a hardcoded industry-standard table.
-export default function StockLengthOptionsModal({ item, onClose }) {
+// a hardcoded industry-standard table. Writes go through
+// materialCatalogWrites.js (admin / super_admin working as a company);
+// readOnly hides the form and disables the row controls.
+export default function StockLengthOptionsModal({ item, onClose, readOnly = false }) {
   const { toast } = useToast();
   const [options, setOptions] = useState([]);
   const [vendors, setVendors] = useState([]);
@@ -72,16 +75,16 @@ export default function StockLengthOptionsModal({ item, onClose }) {
       };
 
       if (editId) {
-        await db.entities.StockLengthOption.update(editId, data);
+        await updateCatalogRecord('StockLengthOption', editId, data);
         toast({ title: 'Stock length updated' });
       } else {
-        await db.entities.StockLengthOption.create(data);
+        await createCatalogRecord('StockLengthOption', data);
         toast({ title: 'Stock length added' });
       }
       cancelForm();
       loadData();
     } catch (e) {
-      toast({ title: 'Failed to save stock length', variant: 'destructive' });
+      toast({ title: 'Failed to save stock length', description: e?.message, variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -89,7 +92,7 @@ export default function StockLengthOptionsModal({ item, onClose }) {
 
   const toggleActive = async (option) => {
     try {
-      const updated = await db.entities.StockLengthOption.update(option.id, { is_active: !option.is_active });
+      const updated = await updateCatalogRecord('StockLengthOption', option.id, { is_active: !option.is_active });
       setOptions((prev) => prev.map((o) => (o.id === option.id ? updated : o)));
     } catch (e) {
       toast({ title: 'Failed to update stock length', variant: 'destructive' });
@@ -99,7 +102,7 @@ export default function StockLengthOptionsModal({ item, onClose }) {
   const handleDelete = async (option) => {
     if (!confirm(`Remove the ${option.stock_length_in}" stock length option?`)) return;
     try {
-      await db.entities.StockLengthOption.delete(option.id);
+      await deleteCatalogRecord('StockLengthOption', option.id);
       setOptions((prev) => prev.filter((o) => o.id !== option.id));
       if (editId === option.id) cancelForm();
       toast({ title: 'Stock length removed' });
@@ -115,6 +118,7 @@ export default function StockLengthOptionsModal({ item, onClose }) {
           <DialogTitle>Stock Lengths — {item.size_designation}</DialogTitle>
         </DialogHeader>
 
+        {!readOnly && (
         <div className="steel-card p-4">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
             {editId ? 'Edit Stock Length' : 'Add Stock Length'}
@@ -166,6 +170,7 @@ export default function StockLengthOptionsModal({ item, onClose }) {
             </div>
           </div>
         </div>
+        )}
 
         <div className="steel-card overflow-hidden">
           <table className="w-full text-sm">
@@ -193,11 +198,11 @@ export default function StockLengthOptionsModal({ item, onClose }) {
                   <td className="px-3 py-2 font-mono text-xs">{option.stock_length_in}"</td>
                   <td className="px-3 py-2">{vendorsById.get(option.vendor_id)?.name || '—'}</td>
                   <td className="px-3 py-2">{option.cost_per_length != null ? `$${Number(option.cost_per_length).toLocaleString()}` : '—'}</td>
-                  <td className="px-3 py-2"><Switch checked={!!option.is_active} onCheckedChange={() => toggleActive(option)} /></td>
+                  <td className="px-3 py-2"><Switch checked={!!option.is_active} disabled={readOnly} onCheckedChange={() => toggleActive(option)} /></td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(option)}><Edit2 className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(option)}><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" disabled={readOnly} onClick={() => openEdit(option)}><Edit2 className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" disabled={readOnly} onClick={() => handleDelete(option)}><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
                     </div>
                   </td>
                 </tr>
