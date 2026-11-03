@@ -22,9 +22,32 @@ export const WEIGHT_UNIT_BY_FAMILY = { linear: 'lb/ft', plate: 'lb/sq ft', each:
 
 // --------------------------------------------------------------- keys
 
+// Bolt / anchor / stud sizes carry their length in ft-in ("3/4 x 0'-2 1/2",
+// "3/4 x 1'-6"). For comparing sizes, a token with a foot mark is read as
+// plain inches, so "3/4 x 2 1/2" and "3/4 x 0'-2 1/2" are the same bolt and
+// "7/8 x 0'-1 3/4" (1 3/4") is not "7/8 x 3 1/4". Before this the foot mark
+// was stripped and "0'-1 3/4" read as "0-13/4" = 3.25. Keys only — the
+// stored size_value keeps the spelling it was entered with.
+const footTokenInches = (token) => {
+  const m = String(token || '').trim().replace(/"$/, '').match(/^(\d+(?:\.\d+)?)\s*'\s*-?\s*(.*)$/);
+  if (!m) return null;
+  const rest = m[2].trim();
+  const inches = rest ? parseDimToken(rest) : 0;
+  return inches == null ? null : Number(m[1]) * 12 + inches;
+};
+const inchesForFootTokens = (sizeValue) => {
+  const raw = String(sizeValue ?? '');
+  if (!raw.includes("'")) return raw;
+  return splitSizeTokens(raw).map((tok) => {
+    const inches = tok.includes("'") ? footTokenInches(tok) : null;
+    return inches == null ? tok : String(Math.round(inches * 10000) / 10000);
+  }).join(' x ');
+};
+
 // One key per master-catalog size, whatever the spelling: "3 1/2 x 3 1/2 x
-// 1/4", "3-1/2 x 3-1/2 x 1/4" and "3.5 x 3.5 x .25" under L all match.
-export const sizeKey = (shapeCode, sizeValue) => profileKey(compactProfile(shapeCode, sizeValue));
+// 1/4", "3-1/2 x 3-1/2 x 1/4" and "3.5 x 3.5 x .25" under L all match, and
+// so do "3/4 x 0'-2 1/2" and "3/4 x 2 1/2" under HS.
+export const sizeKey = (shapeCode, sizeValue) => profileKey(compactProfile(shapeCode, inchesForFootTokens(sizeValue)));
 
 const sameSize = (aCompact, bCompact) => {
   if (!aCompact || !bCompact) return false;
@@ -36,8 +59,8 @@ const sameSize = (aCompact, bCompact) => {
 // Existing value (string) that is the same size as sizeValue under this
 // shape, or null.
 export function findDuplicateSize(shapeCode, sizeValue, existingValues = []) {
-  const mine = compactProfile(shapeCode, sizeValue);
-  return existingValues.find((v) => sameSize(mine, compactProfile(shapeCode, v))) || null;
+  const mine = compactProfile(shapeCode, inchesForFootTokens(sizeValue));
+  return existingValues.find((v) => sameSize(mine, compactProfile(shapeCode, inchesForFootTokens(v)))) || null;
 }
 
 // Same for steel_catalog / IRONSIGHT designations ("L3-1/2X3-1/2X1/4").

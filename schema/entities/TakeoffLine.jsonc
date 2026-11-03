@@ -10,6 +10,7 @@
     },
     "cost_category": {
       "type": "string",
+      "description": "COST_CATEGORIES key in TakeoffEngine.jsx. 'hss_contingency' is displayed as 'Company Contingency' (renamed 2026-11-03); the key is kept so saved bids keep their line. How each category is entered (quote only / qty x rate / coverage) is set by COST_CATEGORIES; quote-only lines are stored as quantity 1 x unit_cost = the quote amount.",
       "enum": [
         "detailing",
         "engineering",
@@ -51,12 +52,17 @@
       "default": 0
     },
     "unit_of_measure": {
-      "type": "string"
+      "type": "string",
+      "description": "The unit the line is entered in, written on every worksheet save (lineUnit in bidWorksheetCalc.js): the category's unit, or for galvanizing the estimator's pick, 'tons' or 'lbs'. A galvanizing line in 'lbs' holds quantity in lb and unit_cost in $/lb (switching converts both so total_cost is unchanged; the Full Takeoff galvanized tons auto-fill is x 2000). Absent on lines saved before 2026-11-03 - that is how migrateSavedLine tells an old Bolts / Fasteners quote (1 x $X) from a real 1 x price each."
+    },
+    "legacy_quote_amount": {
+      "type": ["number", "null"],
+      "description": "bolts_fasteners only: the old quote amount when the line was saved as a flat quote before it became qty x price each. Set on load by migrateSavedLine (bidWorksheetCalc.js) and kept (the worksheet shows 'was a quote') until the estimator types the count or the price each, then saved as null. While set, total_cost stays the quote amount; a 'Pull from takeoff' count spreads it as price each = quote / count."
     },
     "unit_cost": {
       "type": "number",
       "default": 0,
-      "description": "For field_rigging/erection_labor_hours/load_unload_material/shop_priming/structural_fabrication, a brand-new line pre-fills this from the company's current CostCategoryDefaultRate for that category (admin-managed at /admin/bid-worksheet-rates) instead of 0 — see RATE_DEFAULT_CATEGORY_KEYS in TakeoffEngine.jsx. Independently editable per-line afterward; a saved line's value is never overwritten by a later default change."
+      "description": "For field_rigging/erection_labor_hours/load_unload_material/shop_priming/structural_fabrication/jobsite_freight ($/load), a brand-new line pre-fills this from the company's current CostCategoryDefaultRate for that category (the worksheet also shows that company rate next to the field, with 'Reset to company rate' when they differ) (admin-managed at /admin/bid-worksheet-rates) instead of 0 — see RATE_DEFAULT_CATEGORY_KEYS in TakeoffEngine.jsx. Independently editable per-line afterward; a saved line's value is never overwritten by a later default change."
     },
     "total_cost": {
       "type": "number",
@@ -78,7 +84,7 @@
     "is_auto_filled": {
       "type": "boolean",
       "default": false,
-      "description": "True when TakeoffEngine.jsx filled this line's quantity from the Full Takeoff: primer_paint <- Bid.estimated_paint_area_sqft, galvanizing <- Bid.estimated_galvanizing_tons, structural_fabrication <- Bid.estimated_man_hours (rounded to 0.1 hr). While true and is_overridden is false, the quantity is refreshed from the bid every time the worksheet loads (rate/markup are kept)."
+      "description": "True when TakeoffEngine.jsx filled this line's quantity from the Full Takeoff: primer_paint <- Bid.estimated_paint_area_sqft, galvanizing <- Bid.estimated_galvanizing_tons (x 2000 when unit_of_measure is 'lbs'), structural_fabrication <- Bid.estimated_man_hours (rounded to 0.1 hr). While true and is_overridden is false, the quantity is refreshed from the bid every time the worksheet loads (rate/markup are kept)."
     },
     "is_overridden": {
       "type": "boolean",
@@ -97,7 +103,8 @@
       "default": "manual"
     },
     "notes": {
-      "type": "string"
+      "type": "string",
+      "description": "Written by the Bid Worksheet when the estimator applies a 'Pull from takeoff' number (worksheetTakeoffPulls.js), e.g. 'Qty pulled from takeoff: Full Takeoff 1,000 + IRONSIGHT 240 = 1,240 ea'. Cleared when the quantity is typed by hand. Shown under the line and in the Full Breakdown export."
     },
     "tax_rate_override": {
       "type": "number",

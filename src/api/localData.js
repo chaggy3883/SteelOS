@@ -88,10 +88,16 @@ const slugifyMaterialCode = (code) => String(code || '').toLowerCase().replace(/
 // size_options/grade_options link to their MaterialShapeType via shape_type_id,
 // resolved here from the seed file's shared shape_code rather than stored
 // redundantly on every child row.
-const buildMaterialCatalogSeedData = (now) => {
+// Seed ids stay exactly as first shipped for Hancock (material-shape-w, …);
+// every other company gets the same ids with its own prefix, so a company's
+// stored rows and its virtual seed rows (see withCatalogSeed) line up by id.
+const catalogIdPrefix = (companyId) => (companyId === 'company-hancock' ? '' : `${slugifyMaterialCode(companyId)}-`);
+
+const buildMaterialCatalogSeedData = (now, companyId = 'company-hancock') => {
+  const p = catalogIdPrefix(companyId);
   const shapeTypes = MATERIAL_CATALOG_SEED.shape_types.map((s) => ({
-    id: `material-shape-${slugifyMaterialCode(s.shape_code)}`,
-    company_id: 'company-hancock',
+    id: `${p}material-shape-${slugifyMaterialCode(s.shape_code)}`,
+    company_id: companyId,
     shape_code: s.shape_code,
     description: s.description,
     category: s.category,
@@ -106,8 +112,8 @@ const buildMaterialCatalogSeedData = (now) => {
   const sizeOptions = MATERIAL_CATALOG_SEED.size_options
     .filter((s) => shapeTypeIdByCode.has(s.shape_code))
     .map((s) => ({
-      id: `material-size-${slugifyMaterialCode(s.shape_code)}-${s.sort_order}`,
-      company_id: 'company-hancock',
+      id: `${p}material-size-${slugifyMaterialCode(s.shape_code)}-${s.sort_order}`,
+      company_id: companyId,
       shape_type_id: shapeTypeIdByCode.get(s.shape_code),
       size_value: s.size_value,
       sort_order: s.sort_order,
@@ -119,8 +125,8 @@ const buildMaterialCatalogSeedData = (now) => {
   const gradeOptions = MATERIAL_CATALOG_SEED.grade_options
     .filter((g) => shapeTypeIdByCode.has(g.shape_code))
     .map((g) => ({
-      id: `material-grade-${slugifyMaterialCode(g.shape_code)}-${g.sort_order}`,
-      company_id: 'company-hancock',
+      id: `${p}material-grade-${slugifyMaterialCode(g.shape_code)}-${g.sort_order}`,
+      company_id: companyId,
       shape_type_id: shapeTypeIdByCode.get(g.shape_code),
       grade_value: g.grade_value,
       sort_order: g.sort_order,
@@ -131,6 +137,19 @@ const buildMaterialCatalogSeedData = (now) => {
 
   return { MaterialShapeType: shapeTypes, MaterialSizeOption: sizeOptions, MaterialGradeOption: gradeOptions };
 };
+
+const buildSteelCatalogSeedData = (now, companyId = 'company-hancock') => SHAPE_CLASSES.flatMap((cls) =>
+  cls.sizes.map((size) => ({
+    id: `${catalogIdPrefix(companyId)}steel-catalog-${cls.value}-${size}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-'),
+    item_id: `STL-${cls.value.replace(/\s+/g, '').toUpperCase()}-${size.replace(/[^A-Z0-9]/gi, '')}`,
+    company_id: companyId,
+    shape_class: cls.value,
+    size_designation: size,
+    is_custom: false,
+    created_date: now,
+    updated_date: now
+  }))
+);
 
 const buildSeedData = () => {
   const now = new Date().toISOString();
@@ -982,18 +1001,7 @@ const buildSeedData = () => {
     ],
     ApiCredential: [],
     ...buildMaterialCatalogSeedData(now),
-    steel_catalog: SHAPE_CLASSES.flatMap((cls) =>
-      cls.sizes.map((size) => ({
-        id: `steel-catalog-${cls.value}-${size}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-'),
-        item_id: `STL-${cls.value.replace(/\s+/g, '').toUpperCase()}-${size.replace(/[^A-Z0-9]/gi, '')}`,
-        company_id: 'company-hancock',
-        shape_class: cls.value,
-        size_designation: size,
-        is_custom: false,
-        created_date: now,
-        updated_date: now
-      }))
-    ),
+    steel_catalog: buildSteelCatalogSeedData(now),
     erection_fleet_assets: [
       {
         id: 'fleet-asset-1',
@@ -3478,6 +3486,57 @@ const applyTenantScope = (entityName, records) => {
   return records.filter((item) => item.company_id === companyId);
 };
 
+// The standard material catalog (95 shapes, ~4,000 sizes, 221 grades) and
+// the IRONSIGHT steel_catalog seed belong to every company, but only Hancock
+// ever had them stored — so every other company's takeoffs showed no shapes
+// or sizes. Copying ~1 MB per company into localStorage would run into the
+// browser's ~5 MB limit, so instead each company sees the standard rows
+// virtually (built from the bundled seed, its own id prefix), merged with
+// what it has stored. A stored row with the same id wins; a tombstone
+// ({ id, company_id, _deleted: true }) hides a standard row the company's
+// admin deleted. A standard row is written for real the first time it's
+// edited or deleted (materializeCatalogRow).
+const CATALOG_SEED_ENTITIES = new Set(['MaterialShapeType', 'MaterialSizeOption', 'MaterialGradeOption', 'steel_catalog']);
+const CATALOG_SEED_DATE = '2026-09-02T00:00:00.000Z';
+const catalogSeedCache = new Map();
+
+const catalogSeedFor = (companyId) => {
+  if (!catalogSeedCache.has(companyId)) {
+    const material = buildMaterialCatalogSeedData(CATALOG_SEED_DATE, companyId);
+    const build = { ...material, steel_catalog: buildSteelCatalogSeedData(CATALOG_SEED_DATE, companyId) };
+    const byId = {};
+    Object.entries(build).forEach(([entity, rows]) => { byId[entity] = new Map(rows.map((r) => [r.id, r])); });
+    catalogSeedCache.set(companyId, { rows: build, byId });
+  }
+  return catalogSeedCache.get(companyId);
+};
+
+// Scoped stored rows -> stored rows (minus tombstones) + standard rows the
+// company doesn't have stored. Only for a resolvable tenant: a
+// non-impersonating super_admin still sees nothing.
+const withCatalogSeed = (entityName, scopedRows) => {
+  if (!CATALOG_SEED_ENTITIES.has(entityName) || isSuperAdminSession()) return scopedRows;
+  const companyId = getEffectiveCompanyId();
+  if (!companyId) return scopedRows;
+  const storedIds = new Set(scopedRows.map((r) => r.id));
+  const seed = (catalogSeedFor(companyId).rows[entityName] || []).filter((r) => !storedIds.has(r.id));
+  return [...scopedRows.filter((r) => !r._deleted), ...seed];
+};
+
+// Stored index of `id`, writing the company's standard row for it first when
+// it's only virtual. -1 when it's neither.
+const materializeCatalogRow = (entityName, collection, id) => {
+  const index = collection.findIndex((item) => item.id === id);
+  if (index >= 0 || !CATALOG_SEED_ENTITIES.has(entityName)) return index;
+  const companyId = getEffectiveCompanyId();
+  const seedRow = companyId && !isSuperAdminSession() ? catalogSeedFor(companyId).byId[entityName]?.get(id) : null;
+  if (!seedRow) return -1;
+  collection.push({ ...seedRow });
+  return collection.length - 1;
+};
+
+const isCatalogSeedId = (entityName, companyId, id) => Boolean(companyId && catalogSeedFor(companyId).byId[entityName]?.has(id));
+
 const stampTenant = (entityName, data) => {
   if (!TENANT_SCOPED_ENTITIES.includes(entityName) || data.company_id) return data;
   if (isSuperAdminSession() && !PLATFORM_METRICS_ENTITIES.includes(entityName)) {
@@ -3836,17 +3895,17 @@ export const createEntityApi = (entityName) => {
 
   return {
     async list(sortField = '-created_date', limit = 100) {
-      const items = sortRecords(applyTenantScope(entityName, collection), sortField);
+      const items = sortRecords(withCatalogSeed(entityName, applyTenantScope(entityName, collection)), sortField);
       return items.slice(0, limit);
     },
 
     async get(id) {
-      const scoped = applyTenantScope(entityName, collection);
+      const scoped = withCatalogSeed(entityName, applyTenantScope(entityName, collection));
       return scoped.find((item) => item.id === id) || null;
     },
 
     async filter(filters = {}, sortField = '-created_date', limit = 100) {
-      const scoped = applyTenantScope(entityName, collection);
+      const scoped = withCatalogSeed(entityName, applyTenantScope(entityName, collection));
       const items = sortRecords(
         scoped.filter((item) => matchesFilters(item, filters)),
         sortField
@@ -3871,7 +3930,7 @@ export const createEntityApi = (entityName) => {
     },
 
     async update(id, data = {}) {
-      const index = collection.findIndex((item) => item.id === id);
+      const index = materializeCatalogRow(entityName, collection, id);
       if (index < 0) {
         throw new Error(`${entityName} not found`);
       }
@@ -3888,7 +3947,7 @@ export const createEntityApi = (entityName) => {
     },
 
     async delete(id) {
-      const index = collection.findIndex((item) => item.id === id);
+      const index = materializeCatalogRow(entityName, collection, id);
       if (index < 0) {
         throw new Error(`${entityName} not found`);
       }
@@ -3902,14 +3961,27 @@ export const createEntityApi = (entityName) => {
       assertTenantAccess(entityName, collection[index]);
       enforceMaterialCatalogWrite(entityName, 'delete', collection[index], {});
       const before = collection[index];
-      collection.splice(index, 1);
+      // A standard catalog row would come straight back from the seed, so
+      // deleting one leaves a tombstone that hides it for this company.
+      if (CATALOG_SEED_ENTITIES.has(entityName) && isCatalogSeedId(entityName, before.company_id, id)) {
+        collection[index] = { id, company_id: before.company_id, _deleted: true, updated_date: new Date().toISOString() };
+      } else {
+        collection.splice(index, 1);
+      }
       persist(buildAuditLogEntries(entityName, 'delete', { before, recordId: id }));
       return true;
     },
 
     async updateMany(filters = {}, update = {}) {
       assertAuditLogMutationAllowed(update);
-      const scoped = applyTenantScope(entityName, collection);
+      // Standard catalog rows that match are written for real first so the
+      // update lands on them.
+      if (CATALOG_SEED_ENTITIES.has(entityName)) {
+        withCatalogSeed(entityName, applyTenantScope(entityName, collection))
+          .filter((item) => matchesFilters(item, filters))
+          .forEach((item) => materializeCatalogRow(entityName, collection, item.id));
+      }
+      const scoped = applyTenantScope(entityName, collection).filter((item) => !item._deleted);
       scoped.filter((item) => matchesFilters(item, filters)).forEach((item) => enforceMaterialCatalogWrite(entityName, 'update', item, update));
       let changed = 0;
       const auditEntries = [];

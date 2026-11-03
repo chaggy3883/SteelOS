@@ -1,6 +1,7 @@
 // Resolves company-configurable default hourly/shop rates for the Bid
 // Worksheet's rate-driven cost categories (Field Rigging, Erection Labor
-// Hours, Load/Unload Material, Shop Priming, Structural Fabrication) —
+// Hours, Load/Unload Material, Shop Priming, Structural Fabrication, and
+// Jobsite Freight's $/load) plus the Shop Priming sq ft/hr production rate —
 // admin-managed at /admin/bid-worksheet-rates (CostCategoryDefaultRate),
 // same effective-dated history convention as resolveTmLaborRate in
 // tmEngine.js. Only used to PRE-FILL a brand-new TakeoffLine's unit_cost

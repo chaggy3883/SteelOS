@@ -1,6 +1,7 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
-import { Save, Info, Upload, Pencil, Truck, Loader2 } from 'lucide-react';
+import { Save, Info, Upload, Pencil, Truck, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,8 +15,10 @@ import { normalizeRoleName } from '@/components/dashboard/rbacConfig';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import { calculateDistance } from '@/lib/mileageService';
-import { LEED_SURCHARGE_LEVELS, LEED_RATE_CATEGORY_KEY, resolveLeedHourlyRate, PAYMENT_PLATFORM_FEE_RATE, FAB_HOURS_CATEGORY_KEY, roundTakeoffHours, lineMarkupMultiplier, buildWorksheetLineMap, matchDeliveryTier, computeWorksheetTotals } from '@/lib/bidWorksheetCalc';
+import { LEED_SURCHARGE_LEVELS, LEED_RATE_CATEGORY_KEY, resolveLeedHourlyRate, PAYMENT_PLATFORM_FEE_RATE, FAB_HOURS_CATEGORY_KEY, roundTakeoffHours, lineMarkupMultiplier, buildWorksheetLineMap, matchDeliveryTier, computeWorksheetTotals, lineLabels, lineUnit, convertLineUnit, SHOP_PRIMING_RATE_KEY, resolveShopPrimingRate } from '@/lib/bidWorksheetCalc';
 import { buildCostCategoryRateMap, currentCostCategoryRate } from '@/lib/bidWorksheetRateEngine';
+import { buildFastenerCountPull, buildTonsPull, buildPaintAreaPull, buildPrimingHoursPull, BOLT_PULL_CODES, ANCHOR_PULL_CODES, BY_LENGTH_FASTENER_CODES } from '@/lib/worksheetTakeoffPulls';
+import { UnitToggle, CompanyRateHint, LineNotes, TakeoffPullPanel } from '@/components/estimating/WorksheetLineAids';
 
 const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 
@@ -42,7 +45,9 @@ const formatHours = (hours) => roundTakeoffHours(hours).toLocaleString(undefined
 // not a source-code constant. Only pre-fills a brand-new line's unit_cost
 // (see loadLines); the value stays fully editable per-line afterward and a
 // manual edit is never overwritten by a later default change.
-export const RATE_DEFAULT_CATEGORY_KEYS = ['field_rigging', 'erection_labor_hours', 'load_unload_material', 'shop_priming', 'structural_fabrication'];
+// jobsite_freight's company rate is a $/load the admin fills in; the Freight
+// Mileage Calculator's tier rate can still be applied over it per bid.
+export const RATE_DEFAULT_CATEGORY_KEYS = ['field_rigging', 'erection_labor_hours', 'load_unload_material', 'shop_priming', 'structural_fabrication', 'jobsite_freight'];
 
 // cost_code follows the company's real Division 05 / 17 numbering scheme
 // (from the reference estimate audit); null means the category has no
@@ -50,55 +55,93 @@ export const RATE_DEFAULT_CATEGORY_KEYS = ['field_rigging', 'erection_labor_hour
 // than inventing a number. default_markup_pct pre-fills a brand-new line's
 // markup_percentage (see loadLines) — categories not in the reference
 // estimate default to 10% and are flagged below as needing confirmation.
+//
+// How a line is entered: inputMode 'flat' = one quote amount (stored as 1 x
+// amount); 'coverage' = sq ft / coverage x price/gal; otherwise qty x rate.
+// wasUnit = the unit a now-quote-only line used to be entered in (for the
+// note on a saved line carried into its quote - see migrateSavedLine in
+// bidWorksheetCalc.js); fromQuote = was a quote, now qty x price each.
+// unitOptions = units the estimator can switch between (perBase = how many
+// make one of the first). takeoffPull = which 'Pull from takeoff' the line
+// offers (worksheetTakeoffPulls.js).
 export const COST_CATEGORIES = [
   { key: 'detailing', label: 'Detailing', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price', cost_code: '05-010', default_markup_pct: 35 },
   { key: 'engineering', label: 'Engineering', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price', cost_code: '05-011', default_markup_pct: 35 },
   { key: 'bim', label: 'BIM', unit: 'ea', qtyLabel: 'Qty', rateLabel: 'Rate/Each', cost_code: '05-012', default_markup_pct: 10 },
   { key: 'structural_material', label: 'Structural Material', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: '05-105', default_markup_pct: 10 },
-  { key: 'bolts_fasteners', label: 'Bolts / Fasteners', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: '05-106', default_markup_pct: 10 },
-  { key: 'outsourced_fabrication', label: 'Outsourced Fabrication', unit: 'lot', cost_code: '05-110', default_markup_pct: 10 },
+  { key: 'bolts_fasteners', label: 'Bolts / Fasteners', unit: 'ea', qtyLabel: 'Qty', rateLabel: 'Price/Each', fromQuote: true, takeoffPull: 'bolts', cost_code: '05-106', default_markup_pct: 10 },
+  { key: 'outsourced_fabrication', label: 'Outsourced Fabrication', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'lot', cost_code: '05-110', default_markup_pct: 10 },
   { key: 'structural_fabrication', label: 'Structural Fabrication', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Shop Rate/Hr', cost_code: '05-121', default_markup_pct: 10 },
-  { key: 'galvanizing', label: 'Galvanizing', unit: 'tons', cost_code: '05-122', default_markup_pct: 10 },
+  { key: 'galvanizing', label: 'Galvanizing', unit: 'tons', qtyLabel: 'Tons', rateLabel: 'Rate/Ton', unitOptions: [{ value: 'tons', qtyLabel: 'Tons', rateLabel: 'Rate/Ton', perBase: 1 }, { value: 'lbs', qtyLabel: 'Lbs', rateLabel: 'Rate/Lb', perBase: 2000 }], cost_code: '05-122', default_markup_pct: 10 },
   // Not in the reference estimate — no assigned code; default markup unconfirmed.
   { key: 'galvanizing_delivery', label: 'Galvanizing Delivery', unit: 'ea', qtyLabel: 'Qty', rateLabel: 'Rate/Each', cost_code: null, default_markup_pct: 10 },
   // Distinct from misc_fab_processing (scoped under Misc. Fabrication below) — a discrete steel-processing step between galvanizing and rolling.
-  { key: 'processing_steel', label: 'Processing Steel', unit: 'tons', cost_code: '05-123', default_markup_pct: 10 },
-  { key: 'steel_rolling', label: 'Steel Rolling', unit: 'tons', cost_code: '05-124', default_markup_pct: 10 },
+  { key: 'processing_steel', label: 'Processing Steel', unit: 'tons', qtyLabel: 'Tons', rateLabel: 'Rate/Ton', takeoffPull: 'tons', cost_code: '05-123', default_markup_pct: 10 },
+  { key: 'steel_rolling', label: 'Steel Rolling', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'tons', cost_code: '05-124', default_markup_pct: 10 },
   { key: 'joist_deck', label: 'Joist & Deck', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', is_taxable: false, cost_code: '05-210', default_markup_pct: 36 },
-  { key: 'anchor_bolts', label: 'Anchor Bolts', unit: 'ea', cost_code: '05-301', default_markup_pct: 10 },
+  { key: 'anchor_bolts', label: 'Anchor Bolts', unit: 'ea', qtyLabel: 'Qty', rateLabel: 'Price/Each', takeoffPull: 'anchor_bolts', cost_code: '05-301', default_markup_pct: 10 },
   // Split from the reference's single 05-302 line for finer input granularity — both halves share the code.
-  { key: 'shop_priming', label: 'Shop Priming', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Shop Rate/Hr', cost_code: '05-302', default_markup_pct: 35 },
-  { key: 'primer_paint', label: 'Primer (Paint)', unit: 'gal', inputMode: 'coverage', qtyLabel: 'Sq. Ft.', rateLabel: 'Price/Gallon', cost_code: '05-302', default_markup_pct: 35 },
-  { key: 'grating', label: 'Grating', unit: 'sqft', cost_code: '05-303', default_markup_pct: 10 },
-  { key: 'outsourced_paint', label: 'Outsourced Paint', unit: 'tons', cost_code: '05-305', default_markup_pct: 10 },
-  { key: 'outsourced_shot_blasting', label: 'Outsourced Shot Blasting', unit: 'tons', cost_code: '05-306', default_markup_pct: 10 },
+  { key: 'shop_priming', label: 'Shop Priming', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Shop Rate/Hr', takeoffPull: 'priming_hours', cost_code: '05-302', default_markup_pct: 35 },
+  { key: 'primer_paint', label: 'Primer (Paint)', unit: 'gal', inputMode: 'coverage', qtyLabel: 'Sq. Ft.', rateLabel: 'Price/Gallon', takeoffPull: 'paint_sqft', cost_code: '05-302', default_markup_pct: 35 },
+  { key: 'grating', label: 'Grating', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'sqft', cost_code: '05-303', default_markup_pct: 10 },
+  { key: 'outsourced_paint', label: 'Outsourced Paint', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'tons', cost_code: '05-305', default_markup_pct: 10 },
+  { key: 'outsourced_shot_blasting', label: 'Outsourced Shot Blasting', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'tons', cost_code: '05-306', default_markup_pct: 10 },
   // Load/unload labor step, distinct from the delivery/freight cost below.
   { key: 'load_unload_material', label: 'Load/Unload Material', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Rate/Hr', cost_code: '05-400', default_markup_pct: 10 },
-  { key: 'jobsite_freight', label: 'Jobsite Freight (Material Delivery)', unit: 'load', cost_code: '05-401', default_markup_pct: 30 },
+  { key: 'jobsite_freight', label: 'Jobsite Freight (Material Delivery)', unit: 'load', qtyLabel: 'Loads', rateLabel: 'Rate/Load', cost_code: '05-401', default_markup_pct: 30 },
   // Split from the reference's single 05-500 line for finer input granularity — both halves share the code.
   { key: 'misc_fab_structural', label: 'Misc. Fab - Structural Shaping', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: '05-500', default_markup_pct: 35 },
   { key: 'misc_fab_processing', label: 'Misc. Fab - Processing', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: '05-500', default_markup_pct: 35 },
-  { key: 'misc_material', label: 'Misc. Material', unit: 'ea', cost_code: '05-510', default_markup_pct: 35 },
+  { key: 'misc_material', label: 'Misc. Material', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'ea', cost_code: '05-510', default_markup_pct: 35 },
   { key: 'steel_erection', label: 'Steel Erection', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', is_taxable: false, cost_code: '05-600', default_markup_pct: 10 },
-  { key: 'outsourced_misc_material_erection', label: 'Outsourced Misc. Material & Erection', unit: 'lot', is_taxable: false, cost_code: '05-601', default_markup_pct: 10 },
+  { key: 'outsourced_misc_material_erection', label: 'Outsourced Misc. Material & Erection', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'lot', is_taxable: false, cost_code: '05-601', default_markup_pct: 10 },
   // Not in the reference estimate — no assigned code; default markup unconfirmed.
   { key: 'erection_labor_hours', label: 'Erection Labor Hours', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Field Rate/Hr', cost_code: null, default_markup_pct: 10 },
   { key: 'crane_rental', label: 'Crane Rental', unit: 'lot', inputMode: 'flat', priceLabel: 'Quote Amount', cost_code: null, default_markup_pct: 10 },
   { key: 'mobilization', label: 'Mobilization', unit: 'lot', inputMode: 'flat', priceLabel: 'Flat Price', cost_code: null, default_markup_pct: 10 },
   { key: 'field_rigging', label: 'Field Rigging', unit: 'hrs', qtyLabel: 'Hours', rateLabel: 'Rate/Hr', cost_code: null, default_markup_pct: 10 },
-  { key: 'subcontractor_other', label: 'Subcontractor Other', unit: 'lot', cost_code: '05-602', default_markup_pct: 10 },
-  { key: 'allowances', label: 'Allowance(s)', unit: 'lot', cost_code: '05-999', default_markup_pct: 0 },
-  { key: 'hss_contingency', label: 'HSS Contingency', unit: 'lot', cost_code: null, default_markup_pct: 10 },
+  { key: 'subcontractor_other', label: 'Subcontractor Other', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'lot', cost_code: '05-602', default_markup_pct: 10 },
+  { key: 'allowances', label: 'Allowance(s)', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'lot', cost_code: '05-999', default_markup_pct: 0 },
+  // Shown as Company Contingency (was HSS Contingency); the stored key stays
+  // hss_contingency so saved bids keep their line.
+  { key: 'hss_contingency', label: 'Company Contingency', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'lot', cost_code: null, default_markup_pct: 10 },
   // Not in the audit's mapping/null lists either — treated the same as the other non-reference additions above pending user confirmation.
-  { key: 'additional_cost_insurance', label: 'Additional Cost: Insurance', unit: 'lot', override: true, cost_code: null, default_markup_pct: 10 },
+  { key: 'additional_cost_insurance', label: 'Additional Cost: Insurance', unit: 'quote', inputMode: 'flat', priceLabel: 'Quote Amount', wasUnit: 'lot', override: true, cost_code: null, default_markup_pct: 10 },
   // LEED/Gov't job surcharge moved to the Administrative Overrides section
   // below (a level dropdown × fixed hours × the company's configured LEED
   // $/hr, not a manual $ line) — see the leed_level override field,
   // leedHourlyRate, and leedSurchargeAmount.
 ];
 
+// Line Total for qty x rate / coverage lines (flat lines are 1 x amount).
+const computeLineTotal = (cat, line) => (cat?.inputMode === 'coverage'
+  ? ((line.quantity || 0) / (line.coverage_rate || 300)) * (line.unit_cost || 0)
+  : (line.quantity || 0) * (line.unit_cost || 0));
+
+// "/hr" or "/load" after a company rate.
+const rateSuffix = (cat) => (cat?.unit === 'hrs' ? '/hr' : cat?.unit ? `/${cat.unit}` : '');
+
+const PULL_TITLES = {
+  bolts: 'Bolts / Fasteners in the takeoff',
+  anchor_bolts: 'Anchor bolts in the takeoff',
+  tons: 'Tons in the takeoff',
+  paint_sqft: 'Painted area in the takeoff',
+  priming_hours: 'Shop priming hours from painted area',
+};
+
 const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFullTakeoff }, ref) {
   const { toast } = useToast();
+  const navigate = useNavigate();
+  // Company rates for RATE_DEFAULT_CATEGORY_KEYS (shown next to each rate
+  // box with a reset link) and the shop priming sq ft/hr production rate.
+  const [companyRates, setCompanyRates] = useState(() => new Map());
+  const [primingRate, setPrimingRate] = useState(() => resolveShopPrimingRate(null));
+  // "Pull from takeoff": which line's panel is open and the takeoff records
+  // it reads (loaded when a panel first opens; the refresh button reloads).
+  const [openPullKey, setOpenPullKey] = useState(null);
+  const [pullData, setPullData] = useState(null);
+  const [pullLoading, setPullLoading] = useState(false);
+  const [pullError, setPullError] = useState('');
   const [lines, setLines] = useState({});
   const [overrides, setOverrides] = useState({
     insurance: bid?.insurance_override ?? '',
@@ -288,6 +331,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
         db.entities.CostCategoryDefaultRate.list('-effective_date', 500).catch(() => []),
       ]);
       const defaultRateByCategory = buildCostCategoryRateMap(categoryRateDefaults, RATE_DEFAULT_CATEGORY_KEYS);
+      setCompanyRates(defaultRateByCategory);
+      setPrimingRate(resolveShopPrimingRate(currentCostCategoryRate(categoryRateDefaults, SHOP_PRIMING_RATE_KEY)?.hourly_rate));
       const configuredLeedRate = currentCostCategoryRate(categoryRateDefaults, LEED_RATE_CATEGORY_KEY);
       setLeedHourlyRate(resolveLeedHourlyRate(bid, configuredLeedRate ? configuredLeedRate.hourly_rate : null));
       // Each category's own default_markup_pct is the DEFAULT that pre-fills
@@ -327,13 +372,85 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
       // keeps the saved rate/coverage either way, so setting the shop rate
       // on an auto-filled line must not stop its hours following the takeoff.
       const updated = { ...line, [field]: value, is_overridden: line.is_auto_filled && field === 'quantity' ? true : line.is_overridden };
+      // Re-entering the count or the price each replaces an old quote; a
+      // hand-typed quantity replaces a pulled one (its note goes with it).
+      if ((field === 'quantity' || field === 'unit_cost') && line.legacy_quote_amount != null) updated.legacy_quote_amount = null;
+      if (field === 'quantity' && line.notes) updated.notes = undefined;
       const cat = COST_CATEGORIES.find(c => c.key === key);
-      updated.total_cost = cat?.inputMode === 'coverage'
-        ? ((updated.quantity || 0) / (updated.coverage_rate || 300)) * (updated.unit_cost || 0)
-        : (updated.quantity || 0) * (updated.unit_cost || 0);
+      updated.total_cost = computeLineTotal(cat, updated);
       return { ...prev, [key]: updated };
     });
     setDirty(true);
+  };
+
+  // Galvanizing tons <-> lbs: quantity and rate both convert, the line
+  // total doesn't move (convertLineUnit in bidWorksheetCalc.js). Not an
+  // override — an auto-filled line keeps following the takeoff in the new
+  // unit.
+  const changeLineUnit = (key, toUnit) => {
+    const cat = COST_CATEGORIES.find(c => c.key === key);
+    setLines(prev => ({ ...prev, [key]: convertLineUnit(cat, prev[key] || { quantity: 0, unit_cost: 0, total_cost: 0 }, toUnit) }));
+    setDirty(true);
+  };
+
+  const resetToCompanyRate = (key) => {
+    if (!companyRates.has(key)) return;
+    updateLine(key, 'unit_cost', companyRates.get(key));
+  };
+
+  // Applies a number the estimator picked in a "Pull from takeoff" panel.
+  // option.follow (Primer (Paint) from the Full Takeoff) re-attaches the
+  // line to the takeoff the same way the auto-fill does; anything else is a
+  // one-time value with a note saying where it came from. An old Bolts quote
+  // keeps its total: the price each becomes quote ÷ count until retyped.
+  const applyPulledQuantity = (key, option) => {
+    const cat = COST_CATEGORIES.find(c => c.key === key);
+    setLines(prev => {
+      const line = prev[key] || { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300 };
+      const qty = option.value;
+      const updated = { ...line, quantity: qty, source: 'calculated' };
+      if (option.follow) {
+        updated.is_auto_filled = true;
+        updated.is_overridden = false;
+        updated.notes = undefined;
+      } else {
+        updated.is_overridden = line.is_auto_filled ? true : line.is_overridden;
+        updated.notes = option.applyNote;
+      }
+      if (Number(line.legacy_quote_amount) > 0 && qty > 0) {
+        updated.unit_cost = Number(line.legacy_quote_amount) / qty;
+        updated.total_cost = Number(line.legacy_quote_amount);
+      } else {
+        updated.total_cost = computeLineTotal(cat, updated);
+      }
+      return { ...prev, [key]: updated };
+    });
+    setDirty(true);
+  };
+
+  const loadPullData = async () => {
+    if (!bid?.id) return;
+    setPullLoading(true);
+    setPullError('');
+    try {
+      const [materialLines, sessions, shapeTypes, steelRows] = await Promise.all([
+        db.entities.MaterialTakeoffLine.filter({ bid_id: bid.id }, '-created_date', 1000),
+        db.entities.blueprint_takeoffs.filter({ bid_id: bid.id }, '-created_date', 100).catch(() => []),
+        db.entities.MaterialShapeType.filter({ category: 'Bolts/Fasteners' }, 'shape_code', 200).catch(() => []),
+        db.entities.steel_catalog.list('size_designation', 2000).catch(() => []),
+      ]);
+      setPullData({ materialLines, sessions: sessions.filter((s) => !s.is_deleted), shapeTypes, steelRows });
+    } catch (e) {
+      setPullError(e?.message || 'Could not read the takeoff.');
+    } finally {
+      setPullLoading(false);
+    }
+  };
+
+  const togglePull = (key) => {
+    if (openPullKey === key) { setOpenPullKey(null); return; }
+    setOpenPullKey(key);
+    if (!pullData && !pullLoading) loadPullData();
   };
 
   // "Use takeoff hours" — puts the Structural Fabrication line back on the
@@ -370,6 +487,86 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
     onOpenFullTakeoff();
   };
 
+  // Drill-down to this bid's IRONSIGHT session(s), saving first the same way.
+  const openIronsight = async () => {
+    if (!bid?.id) return;
+    if (dirty) {
+      const shouldSave = window.confirm('Save your worksheet changes before opening IRONSIGHT?');
+      if (!shouldSave) return;
+      const saved = await handleSave();
+      if (!saved) return;
+    }
+    navigate(`/estimating/blueprint-takeoff/${bid.id}`);
+  };
+
+  const openPullSource = (kind) => {
+    if (kind === 'full_takeoff') openFullTakeoff();
+    else if (kind === 'ironsight') openIronsight();
+  };
+
+  // Props for a line's "Pull from takeoff" panel: the numbers it can apply
+  // (with their math) and, for fasteners, the counts by source and size.
+  const pullPanelProps = (cat, line) => {
+    const data = pullData || { materialLines: [], sessions: [], shapeTypes: [], steelRows: [] };
+    const base = { title: PULL_TITLES[cat.takeoffPull], loading: pullLoading || (!pullData && !pullError), error: pullError, currentValue: Number(line.quantity) || 0, unitLabel: lineLabels(cat, line).qtyLabel };
+    if (cat.takeoffPull === 'bolts' || cat.takeoffPull === 'anchor_bolts') {
+      const isAnchor = cat.takeoffPull === 'anchor_bolts';
+      const pull = buildFastenerCountPull({ ...data, codes: isAnchor ? ANCHOR_PULL_CODES : BOLT_PULL_CODES, byLengthCodes: isAnchor ? [] : BY_LENGTH_FASTENER_CODES });
+      const option = (key, label, value, sourceKind, lines) => ({ key, label, value, unit: 'ea', decimals: 0, sourceKind, lines, applyNote: `Qty pulled from takeoff: ${label} ${value.toLocaleString()} ea` });
+      const [ft, ir] = pull.sources;
+      return {
+        ...base,
+        groups: pull.sources.map((src) => ({
+          key: src.key,
+          label: src.label,
+          sourceKind: src.key,
+          total: src.total,
+          unit: 'ea',
+          emptyText: src.key === 'ironsight' ? 'No pushed IRONSIGHT counts of these types.' : 'No lines of these types.',
+          rows: src.groups.map((g) => ({ key: `${g.code}|${g.size}|${g.grade}`, label: `${g.code} ${g.size}${g.grade ? ` — ${g.grade}` : ''}`, value: g.qty })),
+        })),
+        options: [
+          { ...option('total', 'Total, both sources', pull.total, null, pull.lines), applyNote: pull.applyNote },
+          option('full_takeoff', 'Full Takeoff only', ft.total, 'full_takeoff', ft.groups.map((g) => `${g.code} ${g.size}: ${g.qty}`)),
+          option('ironsight', 'IRONSIGHT only', ir.total, 'ironsight', ir.groups.map((g) => `${g.code} ${g.size}: ${g.qty}`)),
+        ],
+        footnotes: [
+          `Counts ${pull.codes.join(', ')}${isAnchor ? '' : ' (anchor bolts are on the Anchor Bolts line)'}. IRONSIGHT counts are included once pushed to the estimate from its Markups List.`,
+          pull.byLength.length ? `Bought by length, not counted: ${pull.byLength.map((r) => `${r.code} ${r.size} — ${r.qty} pcs${r.lengthFt ? ` @ ${r.lengthFt} ft` : ''}`).join('; ')}.` : '',
+          pull.unknown.length ? `IRONSIGHT bolt counts with no type, not counted: ${pull.unknown.map((r) => `${r.label} (${r.qty})`).join('; ')}.` : '',
+          Number(line.legacy_quote_amount) > 0 ? 'This line was a quote — Use keeps that total and splits it per piece until you type the real price each.' : '',
+        ],
+      };
+    }
+    if (cat.takeoffPull === 'tons') {
+      const pull = buildTonsPull({ bid, materialLines: data.materialLines });
+      return {
+        ...base,
+        groups: [
+          { key: 'typed', label: 'Typed in the Full Takeoff', sourceKind: 'full_takeoff', total: pull.typed, unit: 't', decimals: 3, rows: pull.rows.filter((r) => r.source === 'full_takeoff').map((r) => ({ key: r.lineId, label: r.label, value: r.tons })) },
+          { key: 'ironsight', label: 'Pushed from IRONSIGHT', sourceKind: 'ironsight', total: pull.pushed, unit: 't', decimals: 3, emptyText: 'No pushed IRONSIGHT lines with tons.', rows: pull.rows.filter((r) => r.source === 'ironsight').map((r) => ({ key: r.lineId, label: r.label, value: r.tons })) },
+        ],
+        options: pull.options,
+        footnotes: ['Pick one — the Full Takeoff total already includes the IRONSIGHT lines shown in its grid, so they are never added together.'],
+      };
+    }
+    const paintPull = buildPaintAreaPull({ bid, materialLines: data.materialLines, sessions: data.sessions, steelRows: data.steelRows });
+    if (cat.takeoffPull === 'paint_sqft') {
+      return { ...base, groups: [], options: paintPull.options, footnotes: ['Full Takeoff keeps this line following its paint area (AUTO). An IRONSIGHT or combined number is a one-time value.'] };
+    }
+    const primerLine = lines.primer_paint || {};
+    const pull = buildPrimingHoursPull({ primerSqft: primerLine.quantity, paintPull, sqftPerHour: primingRate.value, rateIsDefault: primingRate.isDefault });
+    return {
+      ...base,
+      groups: [],
+      options: pull.options,
+      footnotes: [
+        primingRate.isDefault ? `Using the default ${primingRate.value} sq ft per hour — an admin can set the company's rate at Bid Worksheet Default Rates.` : `Company rate: ${primingRate.value} sq ft per hour (Bid Worksheet Default Rates).`,
+        'Hours stay editable after you use one.',
+      ],
+    };
+  };
+
   const updateLineMarkup = (key, value) => {
     setLines(prev => {
       const line = prev[key] || { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300 };
@@ -381,7 +578,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
   const updateFlatPrice = (key, value) => {
     setLines(prev => {
       const line = prev[key] || {};
-      const updated = { ...line, quantity: 1, unit_cost: value, total_cost: value, is_overridden: line.is_auto_filled ? true : line.is_overridden };
+      // A typed amount replaces one carried in from an old qty x rate line.
+      const updated = { ...line, quantity: 1, unit_cost: value, total_cost: value, carried_from: undefined, is_overridden: line.is_auto_filled ? true : line.is_overridden };
       return { ...prev, [key]: updated };
     });
     setDirty(true);
@@ -458,7 +656,14 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
           is_auto_filled: line.is_auto_filled || false,
           is_overridden: line.is_overridden || false,
           source: line.source || 'manual',
+          // The line's unit (Galvanizing: the picked tons/lbs). Also marks the
+          // line as saved under the current entry rules (see migrateSavedLine).
+          unit_of_measure: lineUnit(cat, line),
+          // Where a pulled quantity came from ("Qty pulled from takeoff: …").
+          notes: line.notes || undefined,
         };
+        // Bolts / Fasteners: an old quote still waiting to be re-entered.
+        if (cat.fromQuote) payload.legacy_quote_amount = Number(line.legacy_quote_amount) > 0 ? Number(line.legacy_quote_amount) : null;
         if (line.id) return db.entities.TakeoffLine.update(line.id, payload);
         return db.entities.TakeoffLine.create(payload);
       }).filter(Boolean);
@@ -644,6 +849,12 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
           {visibleCategories.map(cat => {
             const line = lines[cat.key] || { quantity: 0, unit_cost: 0, total_cost: 0, markup_percentage: 0 };
             const quotedPrice = (line.total_cost || 0) * lineMarkupMultiplier(line);
+            const labels = lineLabels(cat, line);
+            const pullButton = cat.takeoffPull && (
+              <Button type="button" variant={openPullKey === cat.key ? 'secondary' : 'outline'} size="sm" className="h-8 text-xs" onClick={() => togglePull(cat.key)} title="See what the Full Takeoff and IRONSIGHT have for this line, and pick a number to use">
+                <Download className="w-3.5 h-3.5 mr-1" />Pull from takeoff
+              </Button>
+            );
             return (
               <div key={cat.key} className={cn(
                 'flex flex-wrap items-center gap-2 py-1.5 px-2 rounded-lg transition-colors',
@@ -686,6 +897,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
                           </>
                         )}
                       </div>
+                      {pullButton}
                     </>
                   ) : cat.inputMode === 'flat' ? (
                     <div className="w-full sm:w-64 flex items-center gap-1">
@@ -697,19 +909,25 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
                     </div>
                   ) : (
                     <>
-                      <div className="w-full sm:w-28 flex items-center gap-1">
+                      <div className={cn('w-full flex items-center gap-1', cat.unitOptions ? 'sm:w-44' : 'sm:w-28')}>
                         <Input type="number" value={line.quantity || ''} placeholder="0"
                           onChange={e => updateLine(cat.key, 'quantity', parseFloat(e.target.value) || 0)}
                           className="h-8 text-sm" />
-                        <span className="text-xs text-muted-foreground w-12">{cat.qtyLabel || cat.unit}</span>
+                        {cat.unitOptions
+                          ? <UnitToggle options={cat.unitOptions} unit={lineUnit(cat, line)} onChange={(u) => changeLineUnit(cat.key, u)} />
+                          : <span className="text-xs text-muted-foreground w-12">{labels.qtyLabel}</span>}
                       </div>
                       <div className="min-w-[9rem] sm:min-w-40 w-auto flex items-center gap-1">
                         <span className="text-xs text-muted-foreground">$</span>
-                        <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
+                        <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="any"
                           onChange={e => updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0)}
                           className="h-8 text-sm" />
-                        {cat.rateLabel && <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden lg:inline">{cat.rateLabel}</span>}
+                        {labels.rateLabel && <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden lg:inline">{labels.rateLabel}</span>}
                       </div>
+                      {RATE_DEFAULT_CATEGORY_KEYS.includes(cat.key) && (
+                        <CompanyRateHint companyRate={companyRates.has(cat.key) ? companyRates.get(cat.key) : null} lineRate={line.unit_cost} suffix={rateSuffix(cat)} onReset={() => resetToCompanyRate(cat.key)} />
+                      )}
+                      {pullButton}
                     </>
                   )}
                 </div>
@@ -731,6 +949,16 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
                   </Button>
                 </div>
                 {cat.key === FAB_HOURS_CATEGORY_KEY && renderFabHoursNote(line)}
+                <LineNotes line={line} qtyLabel={labels.qtyLabel} />
+                {cat.takeoffPull && openPullKey === cat.key && (
+                  <TakeoffPullPanel
+                    {...pullPanelProps(cat, line)}
+                    onApply={(option) => applyPulledQuantity(cat.key, option)}
+                    onOpenSource={openPullSource}
+                    onRefresh={loadPullData}
+                    onClose={() => setOpenPullKey(null)}
+                  />
+                )}
               </div>
             );
           })}

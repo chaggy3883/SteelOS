@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { hasBidWorksheetRateAccess } from '@/lib/bidWorksheetRateAccess';
 import { COST_CATEGORIES, RATE_DEFAULT_CATEGORY_KEYS } from '@/components/estimating/TakeoffEngine';
-import { LEED_RATE_CATEGORY_KEY, LEED_SURCHARGE_LEVELS } from '@/lib/bidWorksheetCalc';
+import { LEED_RATE_CATEGORY_KEY, LEED_SURCHARGE_LEVELS, SHOP_PRIMING_RATE_KEY, SHOP_PRIMING_SQFT_PER_HOUR_DEFAULT } from '@/lib/bidWorksheetCalc';
 import { ShieldCheck, Loader2, Edit2, History, DollarSign } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,10 +31,30 @@ const LEED_RATE_CATEGORY = {
   label: "LEED / Gov't Job Surcharge",
   rateLabel: `Rate/Hr × fixed hours (${LEED_SURCHARGE_LEVELS.map((l) => `${l.label} ${l.hours}`).join(', ')})`,
 };
+// Shop Priming's production rate is not money: painted sq ft one shop hour
+// covers. The Bid Worksheet's Shop Priming "Pull from takeoff" divides the
+// painted sq ft by it (bidWorksheetCalc.js shopPrimingHours). Same
+// effective-dated history, the number kept in hourly_rate. Until it's set
+// the worksheet uses SHOP_PRIMING_SQFT_PER_HOUR_DEFAULT and says so.
+const SHOP_PRIMING_RATE_CATEGORY = {
+  key: SHOP_PRIMING_RATE_KEY,
+  label: 'Shop Priming — Production Rate',
+  rateLabel: 'Painted sq ft per shop hour (Shop Priming hours = painted sq ft ÷ this)',
+  inputLabel: 'Sq ft per hour',
+  notMoney: true,
+  valueSuffix: ' sq ft/hr',
+  fallbackText: `Not set — worksheet uses ${SHOP_PRIMING_SQFT_PER_HOUR_DEFAULT} sq ft/hr`,
+};
+// "/hr" for hourly lines, "/load" for Jobsite Freight.
+const rateSuffix = (cat) => (cat?.valueSuffix != null ? cat.valueSuffix : cat?.unit && cat.unit !== 'hrs' ? `/${cat.unit}` : '/hr');
+const formatRate = (cat, value) => (cat?.notMoney
+  ? `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}${rateSuffix(cat)}`
+  : `$${Number(value).toFixed(2)}${rateSuffix(cat)}`);
 const RATE_CATEGORIES = [
   ...RATE_DEFAULT_CATEGORY_KEYS
     .map((key) => COST_CATEGORIES.find((c) => c.key === key))
     .filter(Boolean),
+  SHOP_PRIMING_RATE_CATEGORY,
   LEED_RATE_CATEGORY,
 ];
 
@@ -99,6 +119,10 @@ export default function CostCategoryRatesAdmin() {
       toast({ title: 'Effective date and a valid rate are required', variant: 'destructive' });
       return;
     }
+    if (editingCategory?.notMoney && !(rateNum > 0)) {
+      toast({ title: 'The sq ft per hour must be more than 0', variant: 'destructive' });
+      return;
+    }
     const current = currentRateFor(editingCategoryKey);
     if (current && form.effective_date <= current.effective_date) {
       toast({ title: "New rate must be effective after the current rate's effective date", variant: 'destructive' });
@@ -148,13 +172,15 @@ export default function CostCategoryRatesAdmin() {
     <div className="p-6 max-w-4xl mx-auto">
       <PageHeader
         title="Bid Worksheet Default Rates"
-        subtitle="All company-wide rate configuration the Bid Worksheet reads from: hourly rate defaults and delivery/freight pricing tiers."
+        subtitle="All company-wide rate configuration the Bid Worksheet reads from: rate defaults, the shop priming production rate and delivery/freight pricing tiers."
       />
 
-      <h2 className="text-base font-semibold mb-1">Hourly Rate Defaults</h2>
+      <h2 className="text-base font-semibold mb-1">Rate Defaults</h2>
       <p className="text-sm text-muted-foreground mb-3">
         Pre-fills a brand-new Bid Worksheet line for these categories — fully editable per line afterward, this only sets the starting value.
-        The LEED / Gov't Job rate is multiplied by that level's fixed hours; a bid keeps the rate it was saved at.
+        The worksheet shows the company rate next to each of these lines, with a reset link when a bid's rate differs.
+        Jobsite Freight is per load; the Freight Mileage Calculator's tier rate can still be used on a bid instead.
+        The Shop Priming production rate turns painted sq ft into shop hours. The LEED / Gov't Job rate is multiplied by that level's fixed hours; a bid keeps the rate it was saved at.
       </p>
       <div className="steel-card overflow-hidden">
         <table className="w-full text-sm">
@@ -177,7 +203,7 @@ export default function CostCategoryRatesAdmin() {
                   </td>
                   <td className="px-4 py-3 font-mono">
                     <button type="button" onClick={() => setHistoryCategoryKey(cat.key)} className="hover:underline">
-                      {current ? `$${Number(current.hourly_rate).toFixed(2)}/hr` : 'Not set'}
+                      {current ? formatRate(cat, current.hourly_rate) : (cat.fallbackText || 'Not set')}
                     </button>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{current?.effective_date || '—'}</td>
@@ -204,7 +230,7 @@ export default function CostCategoryRatesAdmin() {
           <DialogHeader><DialogTitle>New Rate — {editingCategory?.label}</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <Label>{editingCategory?.rateLabel || 'Hourly Rate ($)'}</Label>
+              <Label>{editingCategory?.inputLabel || editingCategory?.rateLabel || 'Hourly Rate ($)'}</Label>
               <Input type="number" step="0.01" min="0" value={form.hourly_rate} onChange={(e) => setForm((f) => ({ ...f, hourly_rate: e.target.value }))} className="mt-1" />
             </div>
             <div>
@@ -233,7 +259,7 @@ export default function CostCategoryRatesAdmin() {
             ) : historyRows.map((r) => (
               <div key={r.id} className="border border-border rounded-lg p-3 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold">${Number(r.hourly_rate).toFixed(2)}/hr</span>
+                  <span className="font-semibold">{formatRate(historyCategory, r.hourly_rate)}</span>
                   {!r.end_date && <span className="text-[10px] uppercase tracking-wide text-green-600 border border-green-500/30 rounded px-1.5 py-0.5">Current</span>}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">

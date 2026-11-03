@@ -20,6 +20,7 @@ import {
   resolveLeedHourlyRate,
   LEED_SURCHARGE_LEVELS,
   PAYMENT_PLATFORM_FEE_RATE,
+  lineLabels,
 } from './bidWorksheetCalc.js';
 
 // Same option text as the worksheet's Pricing Basis dropdown.
@@ -39,11 +40,32 @@ const num = (label, value, field, extra = {}) => ({ label, kind: 'number', value
 const text = (label, value, field, extra = {}) => ({ label, kind: 'text', value: value == null ? '' : String(value), field, ...extra });
 
 // Describes how a line's quantity/rate is entered on the worksheet (the
-// small labels next to its inputs), e.g. "Hours × Shop Rate/Hr".
+// small labels next to its inputs), e.g. "Hours × Shop Rate/Hr", in the
+// unit the line is kept in (Galvanizing: "Lbs × Rate/Lb" when switched).
 function lineBasis(cat, line) {
   if (cat.inputMode === 'flat') return cat.priceLabel || 'Flat Price';
-  if (cat.inputMode === 'coverage') return `${cat.qtyLabel} ÷ ${line.coverage_rate ?? 300} sqft/gal × ${cat.rateLabel}`;
-  return `${cat.qtyLabel || cat.unit}${cat.rateLabel ? ` × ${cat.rateLabel}` : ' × Unit Cost'}`;
+  const { qtyLabel, rateLabel } = lineLabels(cat, line);
+  if (cat.inputMode === 'coverage') return `${qtyLabel} ÷ ${line.coverage_rate ?? 300} sqft/gal × ${rateLabel}`;
+  return `${qtyLabel}${rateLabel ? ` × ${rateLabel}` : ' × Unit Cost'}`;
+}
+
+const money2 = (v) => `$${(Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const rateSuffix = (cat) => (cat?.unit === 'hrs' ? '/hr' : cat?.unit ? `/${cat.unit}` : '');
+
+// The same notes the worksheet shows under a line (WorksheetLineAids.jsx
+// LineNotes / CompanyRateHint), as text.
+function lineNotes(cat, line, companyRate) {
+  const notes = [];
+  const carried = line.carried_from;
+  if (carried) {
+    notes.push(`quote amount carried in from ${Number(carried.quantity)}${carried.unit ? ` ${carried.unit}` : ''} × ${money2(carried.unit_cost)} = ${money2(carried.quantity * carried.unit_cost)}`);
+  }
+  if (Number(line.legacy_quote_amount) > 0) {
+    notes.push(`was a quote of ${money2(line.legacy_quote_amount)} — kept until the count and price each are re-entered`);
+  }
+  if (line.notes) notes.push(line.notes);
+  if (companyRate != null) notes.push(`Company rate ${money2(companyRate)}${rateSuffix(cat)}`);
+  return notes;
 }
 
 function lineSource(line) {
@@ -107,12 +129,14 @@ export function buildBidInternalBreakdown(input) {
       const notes = [];
       if (!visible.has(cat.key)) notes.push('not shown on this company\'s worksheet (no Fabrication module)');
       if (cat.key === FAB_HOURS_CATEGORY_KEY) notes.push(`Full Takeoff shop hours: ${takeoffFabHours.toFixed(1)} hrs`);
+      const companyRate = (rateDefaultKeys || []).includes(cat.key) && defaultRateByCategory?.has?.(cat.key) ? defaultRateByCategory.get(cat.key) : null;
+      notes.push(...lineNotes(cat, line, companyRate));
       return {
         key: cat.key,
         label: cat.label,
         basis: lineBasis(cat, line),
         quantity: Number(line.quantity) || 0,
-        quantityUnit: cat.inputMode === 'flat' ? '' : (cat.qtyLabel || cat.unit),
+        quantityUnit: cat.inputMode === 'flat' ? '' : lineLabels(cat, line).qtyLabel,
         unitCost: Number(line.unit_cost) || 0,
         coverageRate: cat.inputMode === 'coverage' ? (line.coverage_rate ?? 300) : null,
         lineTotal: Number(line.total_cost) || 0,

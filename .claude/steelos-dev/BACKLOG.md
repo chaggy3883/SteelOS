@@ -5,6 +5,26 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-03) — Catalog for every company, Bid Worksheet line changes
+- "Shapes and sizes gone": the standard catalog was only ever stored for Hancock, so every other company's takeoffs
+  were empty. localData.js now serves the standard rows to every company virtually (withCatalogSeed, company-prefixed
+  ids, Hancock ids unchanged) merged with what the company stored; a standard row is written for real on its first
+  edit/delete (materializeCatalogRow) and a delete leaves a tombstone. No ~1 MB copy per company in localStorage.
+  Checked as SteelRise admin: 95 / 3,986 / 21; edit + delete stored 2 rows (~2.7 KB); Hancock untouched.
+- Bolts / Fasteners: qty x price each (was a quote); Anchor Bolts too; both "Pull from takeoff" by source and size
+  (Full Takeoff each rows + pushed IRONSIGHT Bolt Counts; bolts BO HS TC MB NU WA BW LB SCR EXB, anchors AB EA HA).
+  Old quotes load as 1 x $X with a "was a quote" note (TakeoffLine.legacy_quote_amount).
+- Quote only: Outsourced Fabrication, Steel Rolling, Grating, Outsourced Paint/Shot Blasting, Misc. Material, Outsourced
+  Misc. Material & Erection, Subcontractor Other, Allowance(s), Company Contingency (was HSS Contingency; key kept),
+  Additional Cost: Insurance. Saved qty x rate lines carry into the quote on load — totals unchanged.
+- Galvanizing tons/lbs switch (total fixed). Processing Steel and Primer (Paint) "Pull from takeoff"; Shop Priming hours =
+  painted sq ft / admin rate (default 250 sq ft/hr). Company rate + "Reset to company rate" on rate lines; Jobsite
+  Freight gets an admin $/load. Bolt size duplicate check reads ft-in as inches.
+- Full Takeoff length "20'-6" (no inch mark) now reads 246" (was 240").
+- Verified: build + lint; breakdown parity 0 missing; worksheet checks ALL PASS (old-format 18-line bid $71,794.31 before
+  and after); browser: worksheet layout, galvanizing 12.5 t x $350 <-> 25,000 lb x $0.175 = $4,375.
+- Open: IRONSIGHT bolt counts appear only after Push to Estimate; bolt weights; admin rates page still open to estimators.
+
 ## Also Closed (2026-11-02) — Add sizes from takeoffs, saved weights, admin-only catalog editing
 - "+ Add size" in Full Takeoff (size picker; "Add '…'" when a search finds nothing), IRONSIGHT measurement panel,
   Count setup and Takeoff grid (AddCatalogSizeDialog): optional lb/ft | lb/sq ft | lb/ea, live preview + weight

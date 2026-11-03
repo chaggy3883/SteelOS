@@ -207,7 +207,10 @@ export function parseLengthToInches(raw) {
     const v = parseDimToken(s.replace(/"$/, ''));
     return v == null ? null : v;
   }
-  const ft = parseStructuralLength(s);
+  // 20'-6, 20' 6 1/2 (inch mark left off) -> read the part after the foot
+  // mark as inches; parseStructuralLength alone would drop it.
+  const withInchMark = /'\s*-?\s*\d[\d\s/.-]*$/.test(s) ? `${s}"` : s;
+  const ft = parseStructuralLength(withInchMark);
   return ft == null ? null : ft * 12;
 }
 

@@ -88,6 +88,110 @@ export const roundTakeoffHours = (hours) => Math.round((Number(hours) || 0) * 10
 // Quoted Price = Line Total x this. A blank markup counts as 0%.
 export const lineMarkupMultiplier = (line) => 1 + ((parseFloat(line?.markup_percentage) || 0) / 100);
 
+// Strips float noise from a converted number (0.175 x 2000 =
+// 350.00000000000006 -> 350) without rounding a real value.
+const cleanFloat = (n) => Number((Number(n) || 0).toPrecision(12));
+
+// ---------------------------------------------------------------------------
+// Per-line quantity units. A category with `unitOptions` (Galvanizing: tons
+// or lbs) lets the estimator pick the unit; the pick is saved on the line as
+// TakeoffLine.unit_of_measure. Each option's `perBase` is how many of that
+// unit make one of the first (base) unit — tons 1, lbs 2000 — so switching
+// converts the quantity one way and the rate the other and the line total
+// never moves (12.5 tons x $350 = $4,375 = 25,000 lb x $0.175).
+// ---------------------------------------------------------------------------
+export const LBS_PER_TON = 2000;
+
+export function lineUnitOption(cat, line) {
+  const options = cat?.unitOptions;
+  if (!options?.length) return null;
+  return options.find((o) => o.value === line?.unit_of_measure) || options[0];
+}
+
+// The unit a line is saved with: the picked option, else the category's unit.
+export const lineUnit = (cat, line) => lineUnitOption(cat, line)?.value || cat?.unit || null;
+
+// Quantity/rate labels for a line as the worksheet shows them.
+export function lineLabels(cat, line) {
+  const option = lineUnitOption(cat, line);
+  return {
+    qtyLabel: option?.qtyLabel || cat?.qtyLabel || cat?.unit || '',
+    rateLabel: option?.rateLabel || cat?.rateLabel || '',
+  };
+}
+
+// Switches a line to another unit option: quantity x (to/from), rate x
+// (from/to). total_cost is kept exactly as it was (the product of the
+// converted numbers can differ from it in the last float digit).
+export function convertLineUnit(cat, line, toValue) {
+  const from = lineUnitOption(cat, line);
+  const to = (cat?.unitOptions || []).find((o) => o.value === toValue);
+  if (!from || !to || from.value === to.value) return line;
+  const factor = to.perBase / from.perBase;
+  return {
+    ...line,
+    unit_of_measure: to.value,
+    quantity: cleanFloat((Number(line.quantity) || 0) * factor),
+    unit_cost: cleanFloat((Number(line.unit_cost) || 0) / factor),
+    total_cost: Number(line.total_cost) || 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Saved lines from before a category changed how it is entered.
+//  - qty x rate (or lot x price) -> quote only: a saved line with a
+//    quantity other than 1 is carried into the quote amount as quantity x
+//    unit_cost (quote lines are stored as 1 x amount), so the line total
+//    and every bid total stay exactly the same. carried_from keeps what it
+//    was, for the line's note.
+//  - quote -> qty x price each (cat.fromQuote, Bolts / Fasteners): an old
+//    quote is stored as 1 x $X, which already reads "1 x $X" and keeps its
+//    total. legacy_quote_amount flags it as "was a quote" until the count
+//    or price is re-entered. A line saved after this change carries
+//    unit_of_measure, so it is never re-flagged.
+// ---------------------------------------------------------------------------
+export function migrateSavedLine(cat, found) {
+  if (!found || !cat) return found;
+  const qty = Number(found.quantity) || 0;
+  const rate = Number(found.unit_cost) || 0;
+  if (cat.inputMode === 'flat') {
+    if (qty === 1 || (qty === 0 && rate === 0)) return found;
+    const amount = qty * rate;
+    return {
+      ...found,
+      quantity: 1,
+      unit_cost: amount,
+      total_cost: amount,
+      carried_from: { quantity: qty, unit_cost: rate, unit: found.unit_of_measure || cat.wasUnit || '' },
+    };
+  }
+  if (cat.fromQuote && found.legacy_quote_amount === undefined && found.unit_of_measure == null && qty === 1 && rate > 0) {
+    return { ...found, legacy_quote_amount: rate };
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------------------
+// Shop Priming hours from painted area: sq ft / the company's "Shop priming
+// sq ft per hour" production rate (CostCategoryDefaultRate row with
+// category_key SHOP_PRIMING_RATE_KEY, the number kept in hourly_rate, set at
+// /admin/bid-worksheet-rates). Until an admin sets one, the default below is
+// used and the worksheet says so.
+// ---------------------------------------------------------------------------
+export const SHOP_PRIMING_RATE_KEY = 'shop_priming_sqft_per_hour';
+export const SHOP_PRIMING_SQFT_PER_HOUR_DEFAULT = 250;
+
+export function resolveShopPrimingRate(configuredRate) {
+  const n = Number(configuredRate);
+  return n > 0 ? { value: n, isDefault: false } : { value: SHOP_PRIMING_SQFT_PER_HOUR_DEFAULT, isDefault: true };
+}
+
+// Hours rounded to 0.1, the same rounding as the fab hours.
+export function shopPrimingHours(sqft, sqftPerHour) {
+  const rate = Number(sqftPerHour) || 0;
+  return rate > 0 ? roundTakeoffHours((Number(sqft) || 0) / rate) : 0;
+}
+
 // One worksheet line per category from the saved TakeoffLine rows (newest
 // first, as fetched), applying the same Full Takeoff auto-fill rules the
 // worksheet applies on load. Each category's default_markup_pct pre-fills a
@@ -95,16 +199,20 @@ export const lineMarkupMultiplier = (line) => 1 + ((parseFloat(line?.markup_perc
 // one). Primer (Paint)/Galvanizing/Structural Fabrication quantities follow
 // the takeoff's paint area / galvanized tons / shop hours while the line
 // was never hand-edited (and a saved-but-blank fab row also picks them up).
+// Galvanizing's tons are converted when the line is kept in lbs. Saved
+// lines from before a category's entry changed go through migrateSavedLine.
 export function buildWorksheetLineMap({ categories, existing, bid, defaultRateByCategory, rateDefaultKeys }) {
   const bidMarkupPct = parseFloat(bid?.markup_percentage) || 0;
   const takeoffFabHours = roundTakeoffHours(bid?.estimated_man_hours);
   const defaultRate = (key) => ((rateDefaultKeys || []).includes(key) ? (defaultRateByCategory?.get(key) ?? 0) : 0);
   const map = {};
   (categories || []).forEach((cat) => {
-    const found = (existing || []).find((e) => e.cost_category === cat.key);
+    const found = migrateSavedLine(cat, (existing || []).find((e) => e.cost_category === cat.key));
     const categoryDefaultMarkupPct = cat.default_markup_pct ?? bidMarkupPct;
+    // Galvanizing's takeoff number is tons; a line kept in lbs gets it x 2000.
+    const unitPerBase = lineUnitOption(cat, found)?.perBase || 1;
     const autoQty = cat.key === 'primer_paint' ? Number(bid?.estimated_paint_area_sqft) || 0
-      : cat.key === 'galvanizing' ? Number(bid?.estimated_galvanizing_tons) || 0
+      : cat.key === 'galvanizing' ? cleanFloat((Number(bid?.estimated_galvanizing_tons) || 0) * unitPerBase)
       : cat.key === FAB_HOURS_CATEGORY_KEY ? takeoffFabHours
       : 0;
     const isBlankFabRow = cat.key === FAB_HOURS_CATEGORY_KEY && found && !found.is_auto_filled && !found.is_overridden && !(Number(found.quantity) > 0);

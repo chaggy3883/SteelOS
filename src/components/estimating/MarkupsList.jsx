@@ -469,9 +469,10 @@ export default function MarkupsList({
     // Size/Grade (captured by CountSetupModal's bolt fields, see
     // handleSaveCountSession in BlueprintTakeoff.jsx). Bolts have no
     // structural shape_class and aren't priced by weight (the Bid
-    // Worksheet's Bolts/Fasteners line is a flat quote amount, not a
-    // weight-driven category — same as every other cost category, no
-    // MaterialTakeoffLine field feeds it automatically), so shape_class,
+    // Worksheet's Bolts / Fasteners and Anchor Bolts lines are count x
+    // price each; their "Pull from takeoff" reads this pushed count, with
+    // the type read back from the session row's shape_code via
+    // pushed_material_line_id — worksheetTakeoffPulls.js), so shape_class,
     // length_ft, weight_per_ft, tons_per_piece, and total_tons are all left
     // unset here rather than populated with beam-shaped values that don't
     // apply. This intentionally skips the shape_code -> shape_class bridge
