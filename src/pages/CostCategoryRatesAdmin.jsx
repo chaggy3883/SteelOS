@@ -63,6 +63,10 @@ export default function CostCategoryRatesAdmin() {
   const { user } = useAuth();
   const roles = user?.roles || user?.user?.roles || ['user'];
   const canAccess = hasBidWorksheetRateAccess(roles);
+  // Estimators can see the company rates; only an admin changes them (an
+  // estimator adjusts a rate per bid in the worksheet's own box instead —
+  // except the paint price per gallon, which is admin-only everywhere).
+  const canEditRates = roles.some((r) => ['admin', 'super_admin'].includes(String(r).toLowerCase().replace(/\s+/g, '_')));
 
   const [rates, setRates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -114,6 +118,10 @@ export default function CostCategoryRatesAdmin() {
   const closeEdit = () => { setEditingCategoryKey(null); setForm(emptyForm()); };
 
   const handleSaveRate = async () => {
+    if (!canEditRates) {
+      toast({ title: 'Only an Admin can change company rates', variant: 'destructive' });
+      return;
+    }
     const rateNum = Number(form.hourly_rate);
     if (!form.effective_date || Number.isNaN(rateNum) || rateNum < 0) {
       toast({ title: 'Effective date and a valid rate are required', variant: 'destructive' });
@@ -177,8 +185,9 @@ export default function CostCategoryRatesAdmin() {
 
       <h2 className="text-base font-semibold mb-1">Rate Defaults</h2>
       <p className="text-sm text-muted-foreground mb-3">
-        Pre-fills a brand-new Bid Worksheet line for these categories — fully editable per line afterward, this only sets the starting value.
-        The worksheet shows the company rate next to each of these lines, with a reset link when a bid's rate differs.
+        These rates go straight into the matching Bid Worksheet line's rate box whenever that box is empty. An estimator can still change the rate on a bid by typing in the box —
+        except the Primer (Paint) price per gallon, which only an admin can change.
+        {!canEditRates && ' Only an Admin can change the rates on this page.'}
         Jobsite Freight is per load; the Freight Mileage Calculator's tier rate can still be used on a bid instead.
         The Shop Priming production rate turns painted sq ft into shop hours. The LEED / Gov't Job rate is multiplied by that level's fixed hours; a bid keeps the rate it was saved at.
       </p>
@@ -210,9 +219,11 @@ export default function CostCategoryRatesAdmin() {
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <Button variant="ghost" size="icon" className="h-8 w-8" title="Rate history" onClick={() => setHistoryCategoryKey(cat.key)}><History className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" title={current ? 'Edit rate' : 'Set rate'} onClick={() => openEdit(cat.key)}>
-                        {current ? <Edit2 className="w-3.5 h-3.5" /> : <DollarSign className="w-3.5 h-3.5" />}
-                      </Button>
+                      {canEditRates && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" title={current ? 'Edit rate' : 'Set rate'} onClick={() => openEdit(cat.key)}>
+                          {current ? <Edit2 className="w-3.5 h-3.5" /> : <DollarSign className="w-3.5 h-3.5" />}
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, RefreshCw, X } from 'lucide-react';
+import { Check, Loader2, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import MathDrill from '@/components/estimating/MathDrill';
@@ -12,44 +12,31 @@ const fmt = (v, d = 0) => (Number(v) || 0).toLocaleString(undefined, { minimumFr
 const money = (v) => `$${fmt(v, 2)}`;
 
 // Tons | Lbs (Galvanizing) — switching converts the quantity and the rate.
+// The picked unit is a filled, checked button; the other is plainly off.
 export function UnitToggle({ options = [], unit, onChange }) {
   return (
-    <div className="inline-flex rounded-md border border-input overflow-hidden h-8" role="group" aria-label="Unit">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => o.value !== unit && onChange(o.value)}
-          title={`Enter this line in ${o.qtyLabel.toLowerCase()} — the line total stays the same`}
-          className={cn('px-2 text-xs', o.value === unit ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted')}
-        >
-          {o.qtyLabel}
-        </button>
-      ))}
+    <div className="flex items-center gap-1.5">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Unit</span>
+      <div className="inline-flex rounded-md border-2 border-primary/60 overflow-hidden h-8" role="radiogroup" aria-label="Unit">
+        {options.map((o) => {
+          const on = o.value === unit;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => !on && onChange(o.value)}
+              title={on ? `This line is in ${o.qtyLabel.toLowerCase()}` : `Switch to ${o.qtyLabel.toLowerCase()} — the quantity and rate convert, the line total stays the same`}
+              className={cn('px-3 text-xs flex items-center gap-1 transition-colors', on ? 'bg-primary text-primary-foreground font-semibold' : 'bg-background text-muted-foreground hover:bg-muted')}
+            >
+              {on && <Check className="w-3 h-3" />}
+              {o.qtyLabel}
+            </button>
+          );
+        })}
+      </div>
     </div>
-  );
-}
-
-// "Company rate $78.00/hr" next to a rate box, linked to the admin page
-// that sets it, plus "Reset to company rate" when this bid's rate differs.
-export function CompanyRateHint({ companyRate, lineRate, suffix, onReset }) {
-  if (companyRate == null) {
-    return (
-      <a href="/admin/bid-worksheet-rates" target="_blank" rel="noreferrer" className="text-[10px] text-muted-foreground underline underline-offset-2 whitespace-nowrap" title="Set the company rate (Bid Worksheet Default Rates)">
-        No company rate set
-      </a>
-    );
-  }
-  const differs = Math.abs((Number(lineRate) || 0) - companyRate) >= 0.005;
-  return (
-    <span className="flex items-center gap-1.5 text-[10px] whitespace-nowrap">
-      <a href="/admin/bid-worksheet-rates" target="_blank" rel="noreferrer" className={cn('underline underline-offset-2', differs ? 'text-yellow-700 dark:text-yellow-500' : 'text-muted-foreground')} title="Company rate from Bid Worksheet Default Rates (opens in a new tab)">
-        Company {money(companyRate)}{suffix}
-      </a>
-      {differs && (
-        <button type="button" onClick={onReset} className="text-primary underline underline-offset-2 hover:opacity-80">Reset to company rate</button>
-      )}
-    </span>
   );
 }
 

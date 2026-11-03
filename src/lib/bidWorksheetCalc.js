@@ -207,7 +207,20 @@ export function buildWorksheetLineMap({ categories, existing, bid, defaultRateBy
   const defaultRate = (key) => ((rateDefaultKeys || []).includes(key) ? (defaultRateByCategory?.get(key) ?? 0) : 0);
   const map = {};
   (categories || []).forEach((cat) => {
-    const found = migrateSavedLine(cat, (existing || []).find((e) => e.cost_category === cat.key));
+    let found = migrateSavedLine(cat, (existing || []).find((e) => e.cost_category === cat.key));
+    // A company rate goes straight into a saved line's empty rate box too
+    // (not only a brand-new line's), so the line calculates without the
+    // estimator retyping it; a rate already on the line is never replaced.
+    const companyRate = defaultRate(cat.key);
+    if (found && !(Number(found.unit_cost) > 0) && companyRate > 0) {
+      const qty = Number(found.quantity) || 0;
+      const coverage = found.coverage_rate ?? 300;
+      found = {
+        ...found,
+        unit_cost: companyRate,
+        total_cost: cat.inputMode === 'coverage' ? (qty / (coverage || 300)) * companyRate : qty * companyRate,
+      };
+    }
     const categoryDefaultMarkupPct = cat.default_markup_pct ?? bidMarkupPct;
     // Galvanizing's takeoff number is tons; a line kept in lbs gets it x 2000.
     const unitPerBase = lineUnitOption(cat, found)?.perBase || 1;

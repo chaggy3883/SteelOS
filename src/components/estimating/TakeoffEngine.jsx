@@ -18,7 +18,7 @@ import { calculateDistance } from '@/lib/mileageService';
 import { LEED_SURCHARGE_LEVELS, LEED_RATE_CATEGORY_KEY, resolveLeedHourlyRate, PAYMENT_PLATFORM_FEE_RATE, FAB_HOURS_CATEGORY_KEY, roundTakeoffHours, lineMarkupMultiplier, buildWorksheetLineMap, matchDeliveryTier, computeWorksheetTotals, lineLabels, lineUnit, convertLineUnit, SHOP_PRIMING_RATE_KEY, resolveShopPrimingRate } from '@/lib/bidWorksheetCalc';
 import { buildCostCategoryRateMap, currentCostCategoryRate } from '@/lib/bidWorksheetRateEngine';
 import { buildFastenerCountPull, buildTonsPull, buildPaintAreaPull, buildPrimingHoursPull, BOLT_PULL_CODES, ANCHOR_PULL_CODES, BY_LENGTH_FASTENER_CODES } from '@/lib/worksheetTakeoffPulls';
-import { UnitToggle, CompanyRateHint, LineNotes, TakeoffPullPanel } from '@/components/estimating/WorksheetLineAids';
+import { UnitToggle, LineNotes, TakeoffPullPanel } from '@/components/estimating/WorksheetLineAids';
 
 const joinAddressParts = (parts) => parts.filter(Boolean).join(', ');
 
@@ -47,7 +47,11 @@ const formatHours = (hours) => roundTakeoffHours(hours).toLocaleString(undefined
 // manual edit is never overwritten by a later default change.
 // jobsite_freight's company rate is a $/load the admin fills in; the Freight
 // Mileage Calculator's tier rate can still be applied over it per bid.
-export const RATE_DEFAULT_CATEGORY_KEYS = ['field_rigging', 'erection_labor_hours', 'load_unload_material', 'shop_priming', 'structural_fabrication', 'jobsite_freight'];
+export const RATE_DEFAULT_CATEGORY_KEYS = ['field_rigging', 'erection_labor_hours', 'load_unload_material', 'shop_priming', 'structural_fabrication', 'jobsite_freight', 'primer_paint'];
+
+// Rates only an admin may change on a bid (set in Bid Worksheet Default
+// Rates); for everyone else the box shows the company price, read-only.
+export const ADMIN_ONLY_RATE_KEYS = ['primer_paint'];
 
 // cost_code follows the company's real Division 05 / 17 numbering scheme
 // (from the reference estimate audit); null means the category has no
@@ -118,9 +122,6 @@ const computeLineTotal = (cat, line) => (cat?.inputMode === 'coverage'
   ? ((line.quantity || 0) / (line.coverage_rate || 300)) * (line.unit_cost || 0)
   : (line.quantity || 0) * (line.unit_cost || 0));
 
-// "/hr" or "/load" after a company rate.
-const rateSuffix = (cat) => (cat?.unit === 'hrs' ? '/hr' : cat?.unit ? `/${cat.unit}` : '');
-
 const PULL_TITLES = {
   bolts: 'Bolts / Fasteners in the takeoff',
   anchor_bolts: 'Anchor bolts in the takeoff',
@@ -132,9 +133,9 @@ const PULL_TITLES = {
 const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFullTakeoff }, ref) {
   const { toast } = useToast();
   const navigate = useNavigate();
-  // Company rates for RATE_DEFAULT_CATEGORY_KEYS (shown next to each rate
-  // box with a reset link) and the shop priming sq ft/hr production rate.
-  const [companyRates, setCompanyRates] = useState(() => new Map());
+  // The shop priming sq ft/hr production rate. (Company rates for
+  // RATE_DEFAULT_CATEGORY_KEYS go straight into each line's rate box — see
+  // buildWorksheetLineMap.)
   const [primingRate, setPrimingRate] = useState(() => resolveShopPrimingRate(null));
   // "Pull from takeoff": which line's panel is open and the takeoff records
   // it reads (loaded when a panel first opens; the refresh button reloads).
@@ -331,7 +332,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
         db.entities.CostCategoryDefaultRate.list('-effective_date', 500).catch(() => []),
       ]);
       const defaultRateByCategory = buildCostCategoryRateMap(categoryRateDefaults, RATE_DEFAULT_CATEGORY_KEYS);
-      setCompanyRates(defaultRateByCategory);
       setPrimingRate(resolveShopPrimingRate(currentCostCategoryRate(categoryRateDefaults, SHOP_PRIMING_RATE_KEY)?.hourly_rate));
       const configuredLeedRate = currentCostCategoryRate(categoryRateDefaults, LEED_RATE_CATEGORY_KEY);
       setLeedHourlyRate(resolveLeedHourlyRate(bid, configuredLeedRate ? configuredLeedRate.hourly_rate : null));
@@ -391,11 +391,6 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
     const cat = COST_CATEGORIES.find(c => c.key === key);
     setLines(prev => ({ ...prev, [key]: convertLineUnit(cat, prev[key] || { quantity: 0, unit_cost: 0, total_cost: 0 }, toUnit) }));
     setDirty(true);
-  };
-
-  const resetToCompanyRate = (key) => {
-    if (!companyRates.has(key)) return;
-    updateLine(key, 'unit_cost', companyRates.get(key));
   };
 
   // Applies a number the estimator picked in a "Pull from takeoff" panel.
@@ -636,6 +631,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
     procorePayEnabled,
     texturaEnabled,
   });
+  const isWorksheetAdmin = currentUserRoles.some(r => ['admin', 'super_admin'].includes(normalizeRoleName(r)));
   const canOpenDocuments = currentUserRoles.some(r => ['admin', 'estimator', 'president', 'ceo', 'finance_department'].includes(normalizeRoleName(r)));
 
   const handleSave = async () => {
@@ -877,9 +873,18 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
                       </div>
                       <div className="min-w-[9rem] sm:min-w-40 w-auto flex items-center gap-1">
                         <span className="text-xs text-muted-foreground">$</span>
-                        <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
-                          onChange={e => updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0)}
-                          className="h-8 text-sm" />
+                        {(() => {
+                          // Paint price per gallon: set by an admin in Bid
+                          // Worksheet Default Rates; read-only for everyone else.
+                          const locked = ADMIN_ONLY_RATE_KEYS.includes(cat.key) && !isWorksheetAdmin;
+                          return (
+                            <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="0.01"
+                              readOnly={locked}
+                              title={locked ? 'Set by an admin in Bid Worksheet Default Rates' : undefined}
+                              onChange={e => { if (!locked) updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0); }}
+                              className={cn('h-8 text-sm', locked && 'bg-muted/40 cursor-not-allowed')} />
+                          );
+                        })()}
                         <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden lg:inline">{cat.rateLabel}</span>
                       </div>
                       <div className="w-full sm:w-32 flex items-center gap-1">
@@ -909,24 +914,22 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
                     </div>
                   ) : (
                     <>
-                      <div className={cn('w-full flex items-center gap-1', cat.unitOptions ? 'sm:w-44' : 'sm:w-28')}>
+                      {cat.unitOptions && (
+                        <UnitToggle options={cat.unitOptions} unit={lineUnit(cat, line)} onChange={(u) => changeLineUnit(cat.key, u)} />
+                      )}
+                      <div className={cn('w-full flex items-center gap-1', cat.unitOptions ? 'sm:w-36' : 'sm:w-28')}>
                         <Input type="number" value={line.quantity || ''} placeholder="0"
                           onChange={e => updateLine(cat.key, 'quantity', parseFloat(e.target.value) || 0)}
                           className="h-8 text-sm" />
-                        {cat.unitOptions
-                          ? <UnitToggle options={cat.unitOptions} unit={lineUnit(cat, line)} onChange={(u) => changeLineUnit(cat.key, u)} />
-                          : <span className="text-xs text-muted-foreground w-12">{labels.qtyLabel}</span>}
+                        <span className={cn('text-xs w-12', cat.unitOptions ? 'font-semibold text-foreground' : 'text-muted-foreground')}>{labels.qtyLabel}</span>
                       </div>
                       <div className="min-w-[9rem] sm:min-w-40 w-auto flex items-center gap-1">
                         <span className="text-xs text-muted-foreground">$</span>
                         <Input type="number" value={line.unit_cost || ''} placeholder="0.00" step="any"
                           onChange={e => updateLine(cat.key, 'unit_cost', parseFloat(e.target.value) || 0)}
                           className="h-8 text-sm" />
-                        {labels.rateLabel && <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden lg:inline">{labels.rateLabel}</span>}
+                        {labels.rateLabel && <span className={cn('text-[10px] whitespace-nowrap', cat.unitOptions ? 'font-semibold text-foreground' : 'text-muted-foreground hidden lg:inline')}>{labels.rateLabel}</span>}
                       </div>
-                      {RATE_DEFAULT_CATEGORY_KEYS.includes(cat.key) && (
-                        <CompanyRateHint companyRate={companyRates.has(cat.key) ? companyRates.get(cat.key) : null} lineRate={line.unit_cost} suffix={rateSuffix(cat)} onReset={() => resetToCompanyRate(cat.key)} />
-                      )}
                       {pullButton}
                     </>
                   )}

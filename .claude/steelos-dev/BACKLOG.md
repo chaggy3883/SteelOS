@@ -5,6 +5,18 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-03) — Worksheet company rates fill the boxes, clear galvanizing unit, admin-only paint price
+- Company rates (Bid Worksheet Default Rates) now go straight into any line's empty rate box on load, saved lines too
+  (buildWorksheetLineMap); a rate already on a line is never replaced. The "Company $X" hint and "Reset to company
+  rate" link are gone — the estimator changes a rate by typing in the box.
+- Primer (Paint) Price/Gallon added to the admin rates (RATE_DEFAULT_CATEGORY_KEYS); on the worksheet it's read-only
+  for everyone but admin/super_admin (ADMIN_ONLY_RATE_KEYS). The rates page is view-only for estimators (edit buttons
+  and save are admin/super_admin only).
+- Galvanizing: "Unit" segmented switch with a check on the active unit; the quantity and rate labels read Tons /
+  Rate/Ton or Lbs / Rate/Lb next to the boxes.
+- Checked: 100 hr x company $78 = $7,800 with an empty box; estimator's $700 freight kept; paint 1,500 sq ft / 300
+  = 5 gal x $42.50 = $212.50; browser as estimator (no hint text, $78 filled, paint read-only, admin page no edit).
+
 ## Also Closed (2026-11-03) — Catalog for every company, Bid Worksheet line changes
 - "Shapes and sizes gone": the standard catalog was only ever stored for Hancock, so every other company's takeoffs
   were empty. localData.js now serves the standard rows to every company virtually (withCatalogSeed, company-prefixed
