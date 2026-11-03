@@ -5,6 +5,19 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-03) — Bid save fixes: bottom Save Estimate, save everything, address/zip, primer 2 decimals
+- Bottom "Save Estimate" did nothing: the toast viewport (fixed, bottom-right, even when empty) sat over it and took
+  the click. ToastProvider/Viewport are pointer-events-none now (each toast stays pointer-events-auto) — fixes any
+  control in that corner app-wide. This is also why the street/zip "wouldn't save".
+- Save Estimate saves everything whichever tab is open: Worksheet, Full Takeoff and Scope Text are forceMount (hidden,
+  not unmounted) so tab-switching keeps unsaved edits; order Scope Text -> Full Takeoff (only if edited) -> Worksheet ->
+  Base Info; one summary toast names anything that didn't save. loadBid no longer swaps the page for the skeleton after
+  the first load (that unmounted every tab). Inclusions/Exclusions (on both Worksheet and Scope Text) are only written
+  by the screen they were edited on.
+- Primer (Paint) painted sq ft kept to 2 decimals (Full Takeoff total, auto-fill, pulls, typed box).
+- Browser: changed street, worksheet quote $5,000, primer 1234.5678 -> 1,234.57, scope text, then Documents tab +
+  bottom Save Estimate -> all stored; total $5,544.55; address survives reload.
+
 ## Also Closed (2026-11-03) — Worksheet company rates fill the boxes, clear galvanizing unit, admin-only paint price
 - Company rates (Bid Worksheet Default Rates) now go straight into any line's empty rate box on load, saved lines too
   (buildWorksheetLineMap); a rate already on a line is never replaced. The "Company $X" hint and "Reset to company

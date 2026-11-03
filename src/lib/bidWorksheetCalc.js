@@ -224,7 +224,7 @@ export function buildWorksheetLineMap({ categories, existing, bid, defaultRateBy
     const categoryDefaultMarkupPct = cat.default_markup_pct ?? bidMarkupPct;
     // Galvanizing's takeoff number is tons; a line kept in lbs gets it x 2000.
     const unitPerBase = lineUnitOption(cat, found)?.perBase || 1;
-    const autoQty = cat.key === 'primer_paint' ? Number(bid?.estimated_paint_area_sqft) || 0
+    const autoQty = cat.key === 'primer_paint' ? Math.round((Number(bid?.estimated_paint_area_sqft) || 0) * 100) / 100
       : cat.key === 'galvanizing' ? cleanFloat((Number(bid?.estimated_galvanizing_tons) || 0) * unitPerBase)
       : cat.key === FAB_HOURS_CATEGORY_KEY ? takeoffFabHours
       : 0;

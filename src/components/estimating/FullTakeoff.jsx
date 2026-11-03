@@ -443,11 +443,16 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   // and Galvanizing quantities from this takeoff instead of the estimator
   // re-deriving them by hand. paintAreaSqIn is already 0 for any row not
   // coated 'Paint', so summing every row is correct as-is.
-  const totalPaintAreaSqFt = calcs.reduce((sum, c) => sum + (c.paintAreaSqIn || 0), 0) / 144;
+  // Two decimals, the same as the Bid Worksheet's Primer (Paint) sq ft.
+  const totalPaintAreaSqFt = Math.round((calcs.reduce((sum, c) => sum + (c.paintAreaSqIn || 0), 0) / 144) * 100) / 100;
   const totalGalvanizedTons = rows.reduce((sum, row, i) => (row.coating_type === 'Galvanized' ? sum + calcs[i].tons : sum), 0);
 
-  const handleSave = async () => {
-    if (!bid?.id) return;
+  // Returns true when saved (or nothing to save). { quiet } is Save
+  // Estimate: it skips the success toast and an untouched takeoff, so a
+  // takeoff nobody edited never rewrites the bid's tons / hours / paint area.
+  const handleSave = async ({ quiet = false } = {}) => {
+    if (!bid?.id) return false;
+    if (quiet && !dirty) return true;
     setSaving(true);
     try {
       const committed = await commitPendingWeights();
@@ -522,12 +527,14 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
         estimated_paint_area_sqft: totalPaintAreaSqFt,
         estimated_galvanizing_tons: totalGalvanizedTons,
       });
-      toast({ title: 'Material takeoff saved', description: 'Tons and man-hours were pushed to the bid workspace.' });
+      if (!quiet) toast({ title: 'Material takeoff saved', description: 'Tons and man-hours were pushed to the bid workspace.' });
       setDirty(false);
       onSaved?.();
       loadRows();
+      return true;
     } catch (e) {
       toast({ title: 'Unable to save material takeoff', description: e?.message || 'Please retry.', variant: 'destructive' });
+      return false;
     } finally {
       setSaving(false);
     }
@@ -977,7 +984,7 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
         </div>
         <div className="steel-card p-4">
           <div className="flex items-center gap-2 text-primary"><Gauge className="w-4 h-4" /><span className="text-sm font-semibold">Total Paint Area (Sq Ft)</span></div>
-          <p className="text-2xl font-bold mt-2"><MathDrill value={totalPaintAreaSqFt.toLocaleString(undefined, { maximumFractionDigits: 0 })} title="Paint area" lines={[...sumLines('paintAreaSqIn', 'paint area', 'sq in', 0), `÷ 144 = ${fmtNum(totalPaintAreaSqFt, 1)} sq ft`]} align="start" /></p>
+          <p className="text-2xl font-bold mt-2"><MathDrill value={totalPaintAreaSqFt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} title="Paint area" lines={[...sumLines('paintAreaSqIn', 'paint area', 'sq in', 0), `÷ 144 = ${fmtNum(totalPaintAreaSqFt, 2)} sq ft`]} align="start" /></p>
           <p className="text-[11px] text-muted-foreground mt-1">Auto-fills Primer (Paint) qty on the Bid Worksheet.</p>
         </div>
         <div className="steel-card p-4">

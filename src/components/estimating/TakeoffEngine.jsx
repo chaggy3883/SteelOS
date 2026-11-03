@@ -171,6 +171,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
   const [editingCoverageKey, setEditingCoverageKey] = useState(null);
   const [inclusions, setInclusions] = useState(bid?.inclusions || '');
   const [exclusions, setExclusions] = useState(bid?.exclusions || '');
+  const [scopeEdited, setScopeEdited] = useState(false);
   const [drawingsUsed, setDrawingsUsed] = useState(bid?.drawings_used || '');
   const [addendums, setAddendums] = useState(bid?.addendums || '');
   const [attentionName, setAttentionName] = useState(bid?.attention_name || '');
@@ -310,6 +311,14 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
     setMarkupPct(bid?.markup_percentage ?? 0);
   }, [bid?.id]);
 
+  // Scope Text saved on its own tab: follow it here unless this screen has
+  // its own unsaved edit of the same text.
+  useEffect(() => {
+    if (scopeEdited) return;
+    setInclusions(bid?.inclusions || '');
+    setExclusions(bid?.exclusions || '');
+  }, [bid?.inclusions, bid?.exclusions]);
+
   useEffect(() => {
     const loadUser = async () => {
       try {
@@ -402,7 +411,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
     const cat = COST_CATEGORIES.find(c => c.key === key);
     setLines(prev => {
       const line = prev[key] || { quantity: 0, unit_cost: 0, total_cost: 0, coverage_rate: 300 };
-      const qty = option.value;
+      // Painted sq ft is kept to two decimals.
+      const qty = key === 'primer_paint' ? Math.round((Number(option.value) || 0) * 100) / 100 : option.value;
       const updated = { ...line, quantity: qty, source: 'calculated' };
       if (option.follow) {
         updated.is_auto_filled = true;
@@ -634,7 +644,9 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
   const isWorksheetAdmin = currentUserRoles.some(r => ['admin', 'super_admin'].includes(normalizeRoleName(r)));
   const canOpenDocuments = currentUserRoles.some(r => ['admin', 'estimator', 'president', 'ceo', 'finance_department'].includes(normalizeRoleName(r)));
 
-  const handleSave = async () => {
+  // Returns true when saved. { quiet } skips the success toast (Save
+  // Estimate shows one summary).
+  const handleSave = async ({ quiet = false } = {}) => {
     setSaving(true);
     try {
       const ops = COST_CATEGORIES.map(cat => {
@@ -674,8 +686,10 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
       // the live tax config via the bid prop BidDetail passes in.
       await db.entities.Bid.update(bid.id, {
         bid_total_cost: totalWithTax,
-        inclusions,
-        exclusions,
+        // Inclusions / Exclusions are shared with the Scope Text tab — only
+        // written when they were edited here, so this save never puts an
+        // older copy back over Scope Text's.
+        ...(scopeEdited ? { inclusions, exclusions } : {}),
         drawings_used: drawingsUsed,
         addendums,
         attention_name: attentionName,
@@ -703,8 +717,9 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
         leed_hourly_rate: overrides.leed_level ? leedHourlyRate : null,
         delivery_distance_miles: freightDistance,
       });
-      toast({ title: 'Takeoff saved!' });
+      if (!quiet) toast({ title: 'Takeoff saved!' });
       setDirty(false);
+      setScopeEdited(false);
       onSaved?.();
       return true;
     } catch (e) {
@@ -865,10 +880,14 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
                 <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[220px]">
                   {cat.inputMode === 'coverage' ? (
                     <>
-                      {/* Painted sq ft runs to five or six digits — wide box. */}
+                      {/* Painted sq ft runs to five or six digits — wide box, two decimals. */}
                       <div className="w-full sm:w-52 flex items-center gap-1">
-                        <Input type="number" value={line.quantity || ''} placeholder="0"
+                        <Input type="number" step="0.01" value={line.quantity || ''} placeholder="0.00"
                           onChange={e => updateLine(cat.key, 'quantity', parseFloat(e.target.value) || 0)}
+                          onBlur={e => {
+                            const v = parseFloat(e.target.value);
+                            if (Number.isFinite(v) && Math.round(v * 100) / 100 !== v) updateLine(cat.key, 'quantity', Math.round(v * 100) / 100);
+                          }}
                           className="h-8 text-sm min-w-[8rem]" />
                         <span className="text-xs text-muted-foreground whitespace-nowrap">{cat.qtyLabel}</span>
                       </div>
@@ -1251,7 +1270,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
           <Label className="font-semibold">Inclusions</Label>
           <Textarea
             value={inclusions}
-            onChange={e => { setInclusions(e.target.value); setDirty(true); }}
+            onChange={e => { setInclusions(e.target.value); setScopeEdited(true); setDirty(true); }}
             placeholder="List items included in this bid scope…"
             className="mt-2 min-h-[120px]"
             id="inclusions"
@@ -1261,7 +1280,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
           <Label className="font-semibold">Exclusions</Label>
           <Textarea
             value={exclusions}
-            onChange={e => { setExclusions(e.target.value); setDirty(true); }}
+            onChange={e => { setExclusions(e.target.value); setScopeEdited(true); setDirty(true); }}
             placeholder="List items excluded from this bid scope…"
             className="mt-2 min-h-[120px]"
             id="exclusions"

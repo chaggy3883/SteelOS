@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { ArrowLeft, Upload, Calculator, Link2, FileText, Brain, RefreshCw, TrendingDown, AlertTriangle, Award, BarChart3, Download, ScanSearch, Crosshair, FolderOpen, FileCheck2, Loader2, HardHat, Send, ShieldAlert, Layers, FileSpreadsheet } from 'lucide-react';
@@ -87,6 +87,8 @@ export default function BidDetail() {
   const certFileInputRef = useRef(null);
   const takeoffRef = useRef(null);
   const materialRef = useRef(null);
+  const scopeRef = useRef(null);
+  const bidLoadedRef = useRef(false);
 
   useDocumentTitle(bid ? `SteelOS — Bid: ${bid.job_name || bid.bid_number}` : 'SteelOS — Bid');
 
@@ -193,11 +195,15 @@ export default function BidDetail() {
     }
   };
 
+  // Only the first load shows the page placeholder. A reload after a save
+  // refreshes `bid` in place — swapping the whole page for the placeholder
+  // unmounted every tab and threw away whatever wasn't saved yet.
   const loadBid = async () => {
-    setLoading(true);
+    setLoading((was) => was || !bidLoadedRef.current);
     try {
       const data = await db.entities.Bid.get(id);
       setBid(data);
+      bidLoadedRef.current = true;
     } catch (e) {} finally { setLoading(false); }
   };
 
@@ -389,7 +395,9 @@ export default function BidDetail() {
     } catch (e) { toast({ title: 'Failed', variant: 'destructive' }); } finally { setSavingLoss(false); }
   };
 
-  const handleBaseInfoSave = async () => {
+  // Returns true when saved. { quiet } skips the success toast (Save
+  // Estimate shows one summary instead).
+  const handleBaseInfoSave = async ({ quiet = false } = {}) => {
     setSavingBaseInfo(true);
     try {
       const computedTaxInfo = await computeEffectiveTaxRate(buildTaxRateInput({
@@ -420,11 +428,13 @@ export default function BidDetail() {
         wage_determination_number: baseInfo.wage_determination_number,
         prevailing_wage_jurisdiction: baseInfo.prevailing_wage_jurisdiction,
       });
-      toast({ title: 'Bid information saved' });
+      if (!quiet) toast({ title: 'Bid information saved' });
       setBaseInfoDirty(false);
-      loadBid();
+      await loadBid();
+      return true;
     } catch (e) {
       toast({ title: 'Unable to save bid information', description: e?.message || 'Please retry.', variant: 'destructive' });
+      return false;
     } finally {
       setSavingBaseInfo(false);
     }
@@ -456,19 +466,35 @@ export default function BidDetail() {
     }
   };
 
-  const isEstimateDirty = () => baseInfoDirty || !!takeoffRef.current?.isDirty?.() || !!materialRef.current?.isDirty?.();
+  const isEstimateDirty = () => baseInfoDirty || !!takeoffRef.current?.isDirty?.() || !!materialRef.current?.isDirty?.() || !!scopeRef.current?.isDirty?.();
 
+  // Saves every part of the estimate, whichever tab is open — the worksheet,
+  // Full Takeoff and Scope Text stay mounted (forceMount below) so their
+  // unsaved edits are still there to save. Order: Scope Text, then the Full
+  // Takeoff (it pushes tons / man-hours / paint area onto the bid), then the
+  // worksheet (its total uses those), then Base Info. One toast at the end
+  // says what saved and what didn't.
   const handleSaveEstimate = async () => {
-    // Capture the refs before any save runs — handleBaseInfoSave's loadBid() sets
-    // loading=true, which briefly unmounts the tab content and nulls out .current.
-    const takeoff = takeoffRef.current;
-    const material = materialRef.current;
+    const parts = [
+      ['Scope Text', scopeRef.current],
+      ['Full Takeoff', materialRef.current],
+      ['Bid Worksheet', takeoffRef.current],
+    ];
     setSavingEstimate(true);
+    const failed = [];
     try {
-      await handleBaseInfoSave();
-      await takeoff?.save?.();
-      await material?.save?.();
-      toast({ title: 'Estimate saved', description: 'Base Info, Worksheet, and Material Takeoff were all saved.' });
+      for (const [label, part] of parts) {
+        if (!part?.save) continue;
+        const ok = await part.save({ quiet: true });
+        if (ok === false) failed.push(label);
+      }
+      if (!(await handleBaseInfoSave({ quiet: true }))) failed.push('Base Information');
+      if (failed.length) {
+        toast({ title: 'Some of the estimate did not save', description: `Not saved: ${failed.join(', ')}. Everything else was saved.`, variant: 'destructive' });
+      } else {
+        toast({ title: 'Estimate saved', description: 'Base Information, Scope Text, Full Takeoff and Bid Worksheet were all saved.' });
+      }
+      return failed.length === 0;
     } finally {
       setSavingEstimate(false);
     }
@@ -867,11 +893,14 @@ export default function BidDetail() {
           </TabsContent>
         ) : (
           <>
-            <TabsContent value="takeoff">
+            {/* forceMount: these stay mounted (just hidden) on other tabs, so
+                an edit isn't lost by switching tabs and Save Estimate can
+                always save them. */}
+            <TabsContent value="takeoff" forceMount className="data-[state=inactive]:hidden">
               <TakeoffEngine ref={takeoffRef} bid={liveTaxBid} onSaved={() => loadBid()} onOpenFullTakeoff={() => setActiveTab('fulltakeoff')} />
             </TabsContent>
 
-            <TabsContent value="fulltakeoff">
+            <TabsContent value="fulltakeoff" forceMount className="data-[state=inactive]:hidden">
               <FullTakeoff ref={materialRef} bid={bid} onSaved={() => loadBid()} />
             </TabsContent>
 
@@ -881,8 +910,8 @@ export default function BidDetail() {
           </>
         )}
 
-        <TabsContent value="inclusions">
-          <ScopeText bid={bid} onSaved={() => loadBid()} />
+        <TabsContent value="inclusions" forceMount className="data-[state=inactive]:hidden">
+          <ScopeText ref={scopeRef} bid={bid} onSaved={() => loadBid()} />
         </TabsContent>
 
         <TabsContent value="ai">
@@ -910,44 +939,58 @@ export default function BidDetail() {
   );
 }
 
-function ScopeText({ bid, onSaved }) {
+// Inclusions / Exclusions are also editable on the Bid Worksheet; each
+// screen only writes them when they were changed there (dirty), and picks
+// up the other screen's saved text whenever it has no unsaved edit of its own.
+const ScopeText = forwardRef(function ScopeText({ bid, onSaved }, ref) {
   const { toast } = useToast();
   const [inclusions, setInclusions] = useState(bid.inclusions || '');
   const [exclusions, setExclusions] = useState(bid.exclusions || '');
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
+    if (dirty) return;
     setInclusions(bid.inclusions || '');
     setExclusions(bid.exclusions || '');
-  }, [bid.id]);
+  }, [bid.id, bid.inclusions, bid.exclusions]);
 
-  const handleSave = async () => {
+  // Returns true when saved (or nothing to save); { quiet } skips the toast.
+  const handleSave = async ({ quiet = false } = {}) => {
+    if (!dirty && quiet) return true;
     setSaving(true);
     try {
       await db.entities.Bid.update(bid.id, { inclusions, exclusions });
-      toast({ title: 'Scope text saved!' });
+      setDirty(false);
+      if (!quiet) toast({ title: 'Scope text saved!' });
       onSaved();
-    } catch (e) { toast({ title: 'Save failed', variant: 'destructive' }); } finally { setSaving(false); }
+      return true;
+    } catch (e) {
+      toast({ title: 'Scope text did not save', description: e?.message, variant: 'destructive' });
+      return false;
+    } finally { setSaving(false); }
   };
+
+  useImperativeHandle(ref, () => ({ save: handleSave, isDirty: () => dirty }));
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="steel-card p-5">
           <Label className="font-semibold">Inclusions</Label>
-          <Textarea value={inclusions} onChange={e => setInclusions(e.target.value)} className="mt-2 min-h-[200px]" placeholder="List items included in this bid scope…" />
+          <Textarea value={inclusions} onChange={e => { setInclusions(e.target.value); setDirty(true); }} className="mt-2 min-h-[200px]" placeholder="List items included in this bid scope…" />
         </div>
         <div className="steel-card p-5">
           <Label className="font-semibold">Exclusions</Label>
-          <Textarea value={exclusions} onChange={e => setExclusions(e.target.value)} className="mt-2 min-h-[200px]" placeholder="List items excluded from this bid scope…" />
+          <Textarea value={exclusions} onChange={e => { setExclusions(e.target.value); setDirty(true); }} className="mt-2 min-h-[200px]" placeholder="List items excluded from this bid scope…" />
         </div>
       </div>
       <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={saving} className="steel-gradient text-white border-0">Save Scope Text</Button>
+        <Button onClick={() => handleSave()} disabled={saving} className="steel-gradient text-white border-0">Save Scope Text</Button>
       </div>
     </div>
   );
-}
+});
 
 function AIReviewPanel({ bid }) {
   const { toast } = useToast();
