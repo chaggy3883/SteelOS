@@ -865,11 +865,12 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
                 <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[220px]">
                   {cat.inputMode === 'coverage' ? (
                     <>
-                      <div className="w-full sm:w-28 flex items-center gap-1">
+                      {/* Painted sq ft runs to five or six digits — wide box. */}
+                      <div className="w-full sm:w-52 flex items-center gap-1">
                         <Input type="number" value={line.quantity || ''} placeholder="0"
                           onChange={e => updateLine(cat.key, 'quantity', parseFloat(e.target.value) || 0)}
-                          className="h-8 text-sm" />
-                        <span className="text-xs text-muted-foreground w-12">{cat.qtyLabel}</span>
+                          className="h-8 text-sm min-w-[8rem]" />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">{cat.qtyLabel}</span>
                       </div>
                       <div className="min-w-[9rem] sm:min-w-40 w-auto flex items-center gap-1">
                         <span className="text-xs text-muted-foreground">$</span>
