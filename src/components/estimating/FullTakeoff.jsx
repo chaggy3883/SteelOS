@@ -22,6 +22,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { materialCatalogPermissions } from '@/lib/materialCatalogAccess';
 import { sizeKey, typedWeightDecision, savedByText } from '@/lib/catalogSizeRules';
 import { saveTypedSizeWeight } from '@/lib/materialCatalogWrites';
+import { buildAreaBreakdown, automaticAreaPercents, areaFollowsTakeoff } from '@/lib/areaBreakdown';
 
 const COATING_TYPES = ['No Coating', 'Paint', 'Galvanized'];
 
@@ -107,12 +108,14 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   // entity/query shape, scoped by bid_id since a bid isn't a project yet.
   // Purely additive: a bid with none defined leaves sequenceAreas empty and
   // the Area column/filter below stay hidden entirely.
+  // Re-read when the bid is saved too: this tab stays mounted (BidDetail's
+  // forceMount), so an Area added on the Areas tab must show up here.
   useEffect(() => {
     if (!bid?.id) return;
     db.entities.ProjectSequenceArea.filter({ bid_id: bid.id }, 'production_priority', 200)
       .then(setSequenceAreas)
       .catch(() => setSequenceAreas([]));
-  }, [bid?.id]);
+  }, [bid?.id, bid?.updated_date]);
 
   // The whole master Material Catalog, loaded once: every active
   // MaterialShapeType plus its sizes and grades, keyed by shape_code.
@@ -446,6 +449,11 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
   // Two decimals, the same as the Bid Worksheet's Primer (Paint) sq ft.
   const totalPaintAreaSqFt = Math.round((calcs.reduce((sum, c) => sum + (c.paintAreaSqIn || 0), 0) / 144) * 100) / 100;
   const totalGalvanizedTons = rows.reduce((sum, row, i) => (row.coating_type === 'Galvanized' ? sum + calcs[i].tons : sum), 0);
+  // Each Build Area's share of the project by tons (and hours alongside) —
+  // see areaBreakdown.js. Only when the bid has Areas.
+  const areaLines = rows.map((row, i) => ({ sequence_area_id: row.sequence_area_id || null, tons: calcs[i]?.tons || 0, hours: calcs[i] ? rowManHours(i) : 0, label: lineLabel(row, i) }));
+  const areaBreakdown = sequenceAreas.length > 0 ? buildAreaBreakdown(sequenceAreas, areaLines) : null;
+  const areaRowByKey = new Map((areaBreakdown?.rows || []).map((r) => [r.key, r]));
 
   // Returns true when saved (or nothing to save). { quiet } is Save
   // Estimate: it skips the success toast and an untouched takeoff, so a
@@ -520,6 +528,15 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
         return db.entities.MaterialTakeoffLine.create(payload);
       });
       await Promise.all(ops);
+      // Areas that follow the takeoff (not set by hand) get their % of the
+      // project re-worked from these lines (by tons) before the bid save
+      // below, so the Areas tab picks the new figures up on its reload.
+      if (sequenceAreas.length > 0) {
+        const autoPct = automaticAreaPercents(sequenceAreas, saveRows.map((row, i) => ({ sequence_area_id: row.sequence_area_id || null, tons: saveCalcs[i]?.tons || 0 })));
+        await Promise.all(sequenceAreas
+          .filter((a) => areaFollowsTakeoff(a) && autoPct.has(a.id) && (a.pct_source !== 'takeoff' || Math.abs((Number(a.contract_value_pct) || 0) - autoPct.get(a.id)) > 1e-9))
+          .map((a) => db.entities.ProjectSequenceArea.update(a.id, { contract_value_pct: autoPct.get(a.id), pct_source: 'takeoff' })));
+      }
       await db.entities.Bid.update(bid.id, {
         estimated_tons: totalTons,
         estimated_man_hours: totalManHours,
@@ -705,6 +722,12 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
                     {groupKey === 'unassigned' ? 'Unassigned' : sequenceAreasById.get(groupKey)?.name}
                   </span>
                   <span className="text-xs text-muted-foreground">{items.length} line{items.length === 1 ? '' : 's'}</span>
+                  {areaRowByKey.has(groupKey) && (
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {fmtNum(areaRowByKey.get(groupKey).tons, 3)} t ·{' '}
+                      <MathDrill value={`${areaRowByKey.get(groupKey).pctTons.toFixed(1)}% of project`} title={`${areaRowByKey.get(groupKey).name} — share of project`} lines={areaRowByKey.get(groupKey).steps} className="text-foreground font-semibold" />
+                    </span>
+                  )}
                 </div>
               )}
               {items.length === 0 ? (
@@ -956,6 +979,56 @@ const FullTakeoff = forwardRef(function FullTakeoff({ bid, onSaved }, ref) {
         <p className="text-xs text-amber-700 flex items-center gap-1 px-1">
           <AlertTriangle className="w-3.5 h-3.5" />{needsWeightCount} line{needsWeightCount === 1 ? ' has' : 's have'} no weight yet and count 0 lb in the totals until one is typed.
         </p>
+      )}
+
+      {areaBreakdown && (
+        <div className="steel-card p-4">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <h4 className="font-semibold text-sm">Build Area breakdown — % of total project</h4>
+            <span className="text-xs text-muted-foreground">By tons; hours shown alongside. Saving the takeoff updates each Area's % on the Areas tab (unless it was set by hand).</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-muted-foreground">
+                <tr>
+                  <th className="text-left py-1.5 pr-2">Area</th>
+                  <th className="text-right py-1.5 px-2">Lines</th>
+                  <th className="text-right py-1.5 px-2">Tons</th>
+                  <th className="text-right py-1.5 px-2">% of project</th>
+                  <th className="text-right py-1.5 px-2">Shop hours</th>
+                  <th className="text-right py-1.5 pl-2">% of hours</th>
+                </tr>
+              </thead>
+              <tbody>
+                {areaBreakdown.rows.map((r) => (
+                  <tr key={r.key} className={`border-t border-border ${r.key === 'unassigned' ? 'text-amber-700 dark:text-amber-400' : ''}`}>
+                    <td className="py-1.5 pr-2">
+                      <button type="button" className="hover:underline text-left" onClick={() => setAreaFilter(r.key)}>{r.name}</button>
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-mono">{r.lineCount}</td>
+                    <td className="py-1.5 px-2 text-right font-mono"><MathDrill value={fmtNum(r.tons, 3)} title={`${r.name} — tons`} lines={r.steps.slice(0, -2).concat(`Total ${fmtNum(r.tons, 4)} t`)} /></td>
+                    <td className="py-1.5 px-2 text-right font-mono font-semibold"><MathDrill value={`${r.pctTons.toFixed(1)}%`} title={`${r.name} — % of project`} lines={r.steps} /></td>
+                    <td className="py-1.5 px-2 text-right font-mono">{fmtNum(r.hours, 1)}</td>
+                    <td className="py-1.5 pl-2 text-right font-mono">{r.pctHours.toFixed(1)}%</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-border font-semibold">
+                  <td className="py-1.5 pr-2">Total project</td>
+                  <td className="py-1.5 px-2 text-right font-mono">{areaBreakdown.totals.lineCount}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">{fmtNum(areaBreakdown.totals.tons, 3)}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">{areaBreakdown.totals.tons > 0 ? '100.0%' : '—'}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">{fmtNum(areaBreakdown.totals.hours, 1)}</td>
+                  <td className="py-1.5 pl-2 text-right font-mono">{areaBreakdown.totals.hours > 0 ? '100.0%' : '—'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {areaBreakdown.unassigned && areaBreakdown.unassigned.tons > 0 && (
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-2 flex items-center gap-1">
+              <AlertTriangle className="w-3.5 h-3.5" />{fmtNum(areaBreakdown.unassigned.tons, 3)} t isn't in any Area yet — assign those lines so every ton counts toward an Area.
+            </p>
+          )}
+        </div>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -23,7 +23,12 @@
     "contract_value_pct": {
       "type": "number",
       "default": 0,
-      "description": "Estimator-entered % of the bid's total contract value this Area represents (0-100). Drives SovLine.original_scheduled_value on bid win. Never shown to shop/production roles — see src/lib/areaVisibility.js."
+      "description": "% of the bid's total contract value this Area represents (0-100). Worked out from the Full Takeoff (this Area's tons ÷ the tons in all Areas, src/lib/areaBreakdown.js) each time the takeoff is saved, unless pct_source is 'manual'. Drives SovLine.original_scheduled_value on bid win. Never shown to shop/production roles — see src/lib/areaVisibility.js."
+    },
+    "pct_source": {
+      "type": "string",
+      "enum": ["takeoff", "manual"],
+      "description": "'takeoff' = contract_value_pct follows the Full Takeoff automatically; 'manual' = typed by the estimator and left alone. Missing on Areas saved before this existed: a nonzero % is treated as manual, 0% as takeoff (areaFollowsTakeoff)."
     },
     "production_priority": {
       "type": "number",

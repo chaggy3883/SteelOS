@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
+import MathDrill from '@/components/estimating/MathDrill';
+import { buildAreaBreakdown, automaticAreaPercents, areaFollowsTakeoff } from '@/lib/areaBreakdown';
 
 const emptyAreaForm = () => ({ name: '', contract_value_pct: 0 });
 
@@ -23,20 +25,48 @@ export default function BidAreaManager({ bid, onSaved }) {
   const [editingArea, setEditingArea] = useState(null); // 'new' | area object | null
   const [areaForm, setAreaForm] = useState(emptyAreaForm());
   const [saving, setSaving] = useState(false);
+  // The bid's saved Full Takeoff lines, for each Area's automatic % of the
+  // project (by tons — areaBreakdown.js).
+  const [takeoffLines, setTakeoffLines] = useState([]);
 
   const referenceTotal = bid?.bid_quoted_price || bid?.bid_total_cost || 0;
 
-  useEffect(() => { if (bid?.id) loadAreas(); }, [bid?.id]);
+  useEffect(() => { if (bid?.id) loadAreas(); }, [bid?.id, bid?.updated_date]);
 
   const loadAreas = async () => {
-    setLoading(true);
+    setLoading((was) => was && areas.length === 0);
     try {
-      const rows = await db.entities.ProjectSequenceArea.filter({ bid_id: bid.id }, 'production_priority', 200);
+      const [rows, lines] = await Promise.all([
+        db.entities.ProjectSequenceArea.filter({ bid_id: bid.id }, 'production_priority', 200),
+        db.entities.MaterialTakeoffLine.filter({ bid_id: bid.id }, 'created_date', 2000).catch(() => []),
+      ]);
       setAreas(rows || []);
+      setTakeoffLines((lines || []).map((l, i) => ({
+        sequence_area_id: l.sequence_area_id || null,
+        tons: Number(l.total_tons) || 0,
+        label: `Line ${i + 1} — ${l.material_size || l.size_value || l.shape_code || 'material'}`,
+      })));
     } catch (e) {
       toast({ title: 'Unable to load Areas', variant: 'destructive' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const breakdown = buildAreaBreakdown(areas, takeoffLines);
+  const breakdownByKey = new Map(breakdown.rows.map((r) => [r.key, r]));
+  const autoPct = automaticAreaPercents(areas, takeoffLines);
+  const hasTakeoffTons = breakdown.totals.tons > 0;
+
+  // Back to following the takeoff: store the automatic % now.
+  const applyTakeoffPct = async (area) => {
+    try {
+      await db.entities.ProjectSequenceArea.update(area.id, { contract_value_pct: autoPct.get(area.id) ?? 0, pct_source: 'takeoff' });
+      await loadAreas();
+      onSaved?.();
+      toast({ title: `${area.name} now follows the takeoff` });
+    } catch (e) {
+      toast({ title: 'Unable to update Area', variant: 'destructive' });
     }
   };
 
@@ -48,15 +78,23 @@ export default function BidAreaManager({ bid, onSaved }) {
     setSaving(true);
     try {
       if (editingArea && editingArea !== 'new') {
+        // A % typed different from what the Area already had becomes a
+        // hand-set % (the takeoff stops changing it); same % keeps its source.
+        const typedPct = Number(areaForm.contract_value_pct) || 0;
+        const changedPct = Math.abs(typedPct - (Number(editingArea.contract_value_pct) || 0)) > 1e-9;
         await db.entities.ProjectSequenceArea.update(editingArea.id, {
           name: areaForm.name.trim(),
-          contract_value_pct: Number(areaForm.contract_value_pct) || 0,
+          contract_value_pct: typedPct,
+          ...(changedPct ? { pct_source: 'manual' } : {}),
         });
       } else {
+        // A new Area follows the takeoff; it has no lines yet, so 0% until
+        // lines are assigned and the takeoff is saved.
         await db.entities.ProjectSequenceArea.create({
           bid_id: bid.id,
           name: areaForm.name.trim(),
-          contract_value_pct: Number(areaForm.contract_value_pct) || 0,
+          contract_value_pct: 0,
+          pct_source: 'takeoff',
           production_priority: areas.length,
         });
       }
@@ -112,6 +150,8 @@ export default function BidAreaManager({ bid, onSaved }) {
           <p className="text-sm text-muted-foreground mt-1">
             Break this bid into named Areas — each carries a % of the total contract value and a shop
             production sequence. On win, each Area auto-generates a linked SOV line in Accounting.
+            Each Area's % is worked out automatically from the Full Takeoff (its tons ÷ the project's tons)
+            whenever the takeoff is saved; type a % in an Area to set it by hand instead.
           </p>
         </div>
         <Button size="sm" onClick={startAddArea}><Plus className="w-3.5 h-3.5 mr-1" />Add Area</Button>
@@ -127,6 +167,9 @@ export default function BidAreaManager({ bid, onSaved }) {
           <div className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 mb-3 ${totalOk ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
             {totalOk ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
             <span>Total: {totalPct.toFixed(1)}% of contract value{!totalOk && ' — does not sum to 100%'}</span>
+            {breakdown.unassigned && breakdown.unassigned.tons > 0 && (
+              <span className="text-xs">· {breakdown.unassigned.tons.toFixed(2)} t of the takeoff isn't in an Area yet</span>
+            )}
             {referenceTotal > 0 && <span className="text-xs text-muted-foreground ml-auto">Bid reference total: ${referenceTotal.toLocaleString()}</span>}
           </div>
 
@@ -145,7 +188,21 @@ export default function BidAreaManager({ bid, onSaved }) {
                 <button type="button" onClick={() => startEditArea(area)} className="flex-1 min-w-0 text-left font-medium text-sm text-primary hover:underline truncate">
                   {area.name}
                 </button>
-                <span className="text-sm font-mono w-16 text-right flex-shrink-0">{(area.contract_value_pct || 0)}%</span>
+                {(() => {
+                  const b = breakdownByKey.get(area.id);
+                  const manual = !areaFollowsTakeoff(area);
+                  return (
+                    <>
+                      <span className="text-xs text-muted-foreground flex-shrink-0 hidden sm:inline">
+                        {hasTakeoffTons ? <>{(b?.tons ?? 0).toFixed(2)} t · <MathDrill value={`${(b?.pctTons ?? 0).toFixed(1)}% of project`} title={`${area.name} — share of project`} lines={b?.steps || []} /></> : 'No takeoff tons yet'}
+                      </span>
+                      <span className="text-sm font-mono w-16 text-right flex-shrink-0" title={manual ? 'Set by hand — the takeoff does not change it' : 'Follows the takeoff (by tons)'}>{(Number(area.contract_value_pct) || 0).toFixed(1)}%</span>
+                      {manual
+                        ? <button type="button" onClick={() => applyTakeoffPct(area)} className="text-[11px] text-primary underline underline-offset-2 flex-shrink-0" title={`Use the takeoff's ${(autoPct.get(area.id) ?? 0).toFixed(1)}%`}>Use takeoff %</button>
+                        : <span className="text-[10px] text-muted-foreground flex-shrink-0 w-[72px]">auto</span>}
+                    </>
+                  );
+                })()}
                 <button type="button" onClick={() => handleDeleteArea(area)} className="text-muted-foreground hover:text-destructive p-1 flex-shrink-0">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

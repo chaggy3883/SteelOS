@@ -5,6 +5,18 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-03) — Build Area % of total project, automatic
+- src/lib/areaBreakdown.js: each Area's share of the project by tons (its tons ÷ total takeoff tons), hours alongside,
+  Unassigned bucket; one-decimal %s rounded by largest remainder so they always total 100.0.
+- Full Takeoff: "Build Area breakdown — % of total project" table (lines, tons, % of project, shop hours, % of hours,
+  all drill-down; click an Area to filter) + "X t · Y% of project" on each Area group header; warns on unassigned tons.
+- Saving the takeoff sets each following Area's ProjectSequenceArea.contract_value_pct to its share of the tons that
+  are in Areas (so Areas sum to 100 and the SOV on win follows the takeoff). New pct_source: 'takeoff' | 'manual';
+  typing a % on the Areas tab sets 'manual', "Use takeoff %" switches back. Old Areas with a % already typed count as
+  manual (not overwritten); 0% ones follow the takeoff. Areas tab shows tons + % of project per Area.
+- Checked: Node (15.75/29 t = 54.3%, totals 100.0); browser (2.6 / 1.75 / 0.26 t -> 56.4 / 38.0 / 5.6%; saved Areas
+  59.8 / 40.2% "auto").
+
 ## Also Closed (2026-11-03) — Bid save fixes: bottom Save Estimate, save everything, address/zip, primer 2 decimals
 - Bottom "Save Estimate" did nothing: the toast viewport (fixed, bottom-right, even when empty) sat over it and took
   the click. ToastProvider/Viewport are pointer-events-none now (each toast stays pointer-events-auto) — fixes any
