@@ -5,6 +5,16 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-04) — Freight Mileage Calculator fills the Jobsite Freight rate
+- TakeoffEngine.jsx: the matched DeliveryPricingTier's $/trip goes straight into Jobsite Freight (Material Delivery)
+  Rate/Load (MILES badge on the line); the estimator only enters the number of loads. Re-fills when the distance/tier
+  changes (address edit).
+- TakeoffLine.rate_source ('mileage' | 'manual', jobsite_freight only): a typed rate is 'manual' and kept; the
+  calculator then says so with a "Use mileage rate" button. Older lines without it follow the mileage only when their
+  rate is 0, the company $/load, or a tier rate (freightFollowsMileage) — a custom rate on an old bid is not replaced.
+- Checked in the browser: Findlay → Lima 36.6 mi → 25–50 mi tier $1,200; 3 loads = $3,600 ($4,680 at 30%); typed
+  $1,500 stuck; Use mileage rate restored; saved with rate_source 'mileage'.
+
 ## Also Closed (2026-11-04) — IRONSIGHT: big drawing sets (140 MB+) stuck spinning
 - Drop box no longer waits on Core.UploadFile: createTakeoffRecord stored a second full copy of the PDF that nothing read
   back (reopen uses pdfBlobStore savePdf). The workspace now opens at once from the dropped File.

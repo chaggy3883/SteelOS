@@ -55,6 +55,11 @@
       "type": "string",
       "description": "The unit the line is entered in, written on every worksheet save (lineUnit in bidWorksheetCalc.js): the category's unit, or for galvanizing the estimator's pick, 'tons' or 'lbs'. A galvanizing line in 'lbs' holds quantity in lb and unit_cost in $/lb (switching converts both so total_cost is unchanged; the Full Takeoff galvanized tons auto-fill is x 2000). Absent on lines saved before 2026-11-03 - that is how migrateSavedLine tells an old Bolts / Fasteners quote (1 x $X) from a real 1 x price each."
     },
+    "rate_source": {
+      "type": "string",
+      "enum": ["mileage", "manual"],
+      "description": "jobsite_freight only: 'mileage' = unit_cost ($/load) follows the Freight Mileage Calculator's DeliveryPricingTier for the bid's driving distance and is refilled when it changes; 'manual' = typed by the estimator and left alone. Absent on lines saved before 2026-11-04: those follow the mileage only when their rate is 0, the company $/load, or a tier rate (TakeoffEngine.jsx freightFollowsMileage)."
+    },
     "legacy_quote_amount": {
       "type": ["number", "null"],
       "description": "bolts_fasteners only: the old quote amount when the line was saved as a flat quote before it became qty x price each. Set on load by migrateSavedLine (bidWorksheetCalc.js) and kept (the worksheet shows 'was a quote') until the estimator types the count or the price each, then saved as null. While set, total_cost stays the quote amount; a 'Pull from takeoff' count spreads it as price each = quote / count."

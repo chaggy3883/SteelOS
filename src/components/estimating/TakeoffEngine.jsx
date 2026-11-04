@@ -1,4 +1,4 @@
-import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import { Save, Info, Upload, Pencil, Truck, Loader2, Download } from 'lucide-react';
@@ -195,16 +195,19 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
   const [leedHourlyRate, setLeedHourlyRate] = useState(() => resolveLeedHourlyRate(bid, null));
 
   const [company, setCompany] = useState(null);
-  // Freight mileage calculator: purely a lookup tool that tells the
-  // estimator which DeliveryPricingTier rate applies to the Jobsite Freight
-  // (Material Delivery) line in the Cost Breakdown table above — it has no
-  // total of its own and posts nothing to the job cost ledger. See
+  // Freight mileage calculator: finds the DeliveryPricingTier for the driving
+  // distance and fills its $/trip into the Jobsite Freight (Material
+  // Delivery) rate (freightFollowsMileage below) — it has no total of its
+  // own and posts nothing to the job cost ledger. See
   // the Delivery Pricing Tiers section of CostCategoryRatesAdmin.jsx
   // (/admin/bid-worksheet-rates) for the tier structure itself.
   const [freightTiers, setFreightTiers] = useState([]);
   const [freightDistance, setFreightDistance] = useState(bid?.delivery_distance_miles ?? null);
   const [freightLoading, setFreightLoading] = useState(false);
   const [freightError, setFreightError] = useState('');
+  // Company $/load for Jobsite Freight (Bid Worksheet Default Rates), set in
+  // loadLines — a line still on it follows the mileage tier.
+  const freightDefaultRateRef = useRef(0);
 
   useEffect(() => {
     getEffectiveCompany().then(setCompany).catch(() => setCompany(null));
@@ -260,6 +263,40 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
   const freightNoTierReason = freightDistance != null && !matchedFreightTier && maxTierMiles != null
     ? `Mileage exceeds ${maxTierMiles} miles — no matching tier; price Jobsite Freight manually.`
     : '';
+
+  // The mileage tier's $/trip goes straight into the Jobsite Freight rate, so
+  // the estimator only enters the number of loads. A rate typed by hand
+  // (rate_source 'manual') is left alone; "Use mileage rate" puts the line
+  // back on the tier. Lines saved before rate_source existed follow the
+  // mileage only when their rate is empty, the company $/load, or a tier
+  // rate (an earlier "Use Rate") — a custom rate on an old bid is kept.
+  const freightFollowsMileage = (line) => {
+    if (!line) return true;
+    if (line.rate_source === 'mileage') return true;
+    if (line.rate_source === 'manual') return false;
+    const rate = Number(line.unit_cost) || 0;
+    if (rate === 0 || rate === freightDefaultRateRef.current) return true;
+    return freightTiers.some((t) => Number(t.cost_per_trip) === rate);
+  };
+  const applyMileageFreightRate = (tier) => {
+    if (!tier) return;
+    const cat = COST_CATEGORIES.find((c) => c.key === 'jobsite_freight');
+    setLines((prev) => {
+      const line = prev.jobsite_freight || { quantity: 0, unit_cost: 0, total_cost: 0 };
+      const updated = { ...line, unit_cost: Number(tier.cost_per_trip) || 0, rate_source: 'mileage' };
+      updated.total_cost = computeLineTotal(cat, updated);
+      return { ...prev, jobsite_freight: updated };
+    });
+    setDirty(true);
+  };
+  const freightLine = lines.jobsite_freight;
+  const freightOnMileage = Boolean(matchedFreightTier) && freightFollowsMileage(freightLine);
+  useEffect(() => {
+    if (loading || !matchedFreightTier || !freightFollowsMileage(freightLine)) return;
+    const tierRate = Number(matchedFreightTier.cost_per_trip) || 0;
+    if ((Number(freightLine?.unit_cost) || 0) === tierRate) return;
+    applyMileageFreightRate(matchedFreightTier);
+  }, [loading, matchedFreightTier?.id, matchedFreightTier?.cost_per_trip, freightLine?.unit_cost, freightLine?.rate_source]);
 
   const visibleCategories = hasModule(company, '/shop-fabrication')
     ? COST_CATEGORIES
@@ -341,6 +378,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
         db.entities.CostCategoryDefaultRate.list('-effective_date', 500).catch(() => []),
       ]);
       const defaultRateByCategory = buildCostCategoryRateMap(categoryRateDefaults, RATE_DEFAULT_CATEGORY_KEYS);
+      freightDefaultRateRef.current = defaultRateByCategory.get('jobsite_freight') ?? 0;
       setPrimingRate(resolveShopPrimingRate(currentCostCategoryRate(categoryRateDefaults, SHOP_PRIMING_RATE_KEY)?.hourly_rate));
       const configuredLeedRate = currentCostCategoryRate(categoryRateDefaults, LEED_RATE_CATEGORY_KEY);
       setLeedHourlyRate(resolveLeedHourlyRate(bid, configuredLeedRate ? configuredLeedRate.hourly_rate : null));
@@ -385,6 +423,8 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
       // hand-typed quantity replaces a pulled one (its note goes with it).
       if ((field === 'quantity' || field === 'unit_cost') && line.legacy_quote_amount != null) updated.legacy_quote_amount = null;
       if (field === 'quantity' && line.notes) updated.notes = undefined;
+      // A typed freight rate wins over the mileage tier from here on.
+      if (key === 'jobsite_freight' && field === 'unit_cost') updated.rate_source = 'manual';
       const cat = COST_CATEGORIES.find(c => c.key === key);
       updated.total_cost = computeLineTotal(cat, updated);
       return { ...prev, [key]: updated };
@@ -669,6 +709,9 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
           unit_of_measure: lineUnit(cat, line),
           // Where a pulled quantity came from ("Qty pulled from takeoff: …").
           notes: line.notes || undefined,
+          // Jobsite Freight: 'mileage' = rate follows the Freight Mileage
+          // Calculator's tier, 'manual' = typed by the estimator.
+          rate_source: cat.key === 'jobsite_freight' ? (line.rate_source || undefined) : undefined,
         };
         // Bolts / Fasteners: an old quote still waiting to be re-entered.
         if (cat.fromQuote) payload.legacy_quote_amount = Number(line.legacy_quote_amount) > 0 ? Number(line.legacy_quote_amount) : null;
@@ -876,6 +919,9 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
                   <span className="text-sm font-medium">{cat.label}</span>
                   {line.is_auto_filled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 font-medium">AUTO</span>}
                   {line.is_overridden && <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-600 font-medium">OVERRIDE</span>}
+                  {cat.key === 'jobsite_freight' && freightOnMileage && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 font-medium" title={`Rate/load from the Freight Mileage Calculator: ${freightDistance?.toFixed(1)} mi, ${matchedFreightTier.min_miles}–${matchedFreightTier.max_miles} mi tier. Enter the number of loads.`}>MILES</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap flex-1 min-w-[220px]">
                   {cat.inputMode === 'coverage' ? (
@@ -998,7 +1044,7 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
       <div className="steel-card p-5">
         <h4 className="font-semibold mb-1 flex items-center gap-2"><Truck className="w-4 h-4 text-primary" />Freight Mileage Calculator</h4>
         <p className="text-xs text-muted-foreground mb-4">
-          Driving distance from your company address (Settings) to this bid's jobsite address (Base Information above), looked up against the Delivery Pricing Tiers to price the Jobsite Freight (Material Delivery) line in the Cost Breakdown above.
+          Driving distance from your company address (Settings) to this bid's jobsite address (Base Information above), looked up against the Delivery Pricing Tiers. The tier's rate per load goes into the Jobsite Freight (Material Delivery) line above automatically — you only enter the number of loads.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
@@ -1025,15 +1071,24 @@ const TakeoffEngine = forwardRef(function TakeoffEngine({ bid, onSaved, onOpenFu
               <span className="font-mono">
                 {matchedFreightTier ? `$${matchedFreightTier.cost_per_trip.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
               </span>
-              {matchedFreightTier && (
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs"
-                  onClick={() => updateLine('jobsite_freight', 'unit_cost', matchedFreightTier.cost_per_trip)}>
-                  Use Rate
-                </Button>
-              )}
             </div>
           </div>
         </div>
+
+        {matchedFreightTier && (freightOnMileage ? (
+          <p className="text-xs text-green-600 mt-3">
+            Filled into Jobsite Freight (Material Delivery) as the rate per load — just enter the number of loads there.
+          </p>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-amber-600">
+            <span>
+              Jobsite Freight uses a typed rate (${(Number(freightLine?.unit_cost) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/load), not this tier.
+            </span>
+            <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => applyMileageFreightRate(matchedFreightTier)}>
+              Use mileage rate
+            </Button>
+          </div>
+        ))}
 
         {(freightError || freightNoTierReason) && (
           <p className="text-xs text-amber-600 mt-3">{freightError || freightNoTierReason}</p>
