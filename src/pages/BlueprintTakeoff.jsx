@@ -226,6 +226,9 @@ export default function BlueprintTakeoff() {
   const [excelExportError, setExcelExportError] = useState(null);
   const [takeoffName, setTakeoffName] = useState('');
   const [hasStoredPdf, setHasStoredPdf] = useState(false);
+  // The background savePdf for a just-opened drawing failed (usually out of
+  // browser storage) — the status bar says so instead of spinning forever.
+  const [pdfStoreFailed, setPdfStoreFailed] = useState(false);
 
   // Part 3 — which Bid/Project (if any) the currently-open session is linked
   // to. activeBids/activeProjects back every "link to a bid or project"
@@ -283,6 +286,14 @@ export default function BlueprintTakeoff() {
   const [clipboardCount, setClipboardCount] = useState(0);
   const pasteCountRef = useRef(0);
   const [pdfDoc, setPdfDoc] = useState(null);
+  // Thumbnails wait for the first page to be on screen (BlueprintCanvas
+  // onFirstPaint) so they don't sit ahead of it in pdf.js's one worker.
+  const [thumbsReady, setThumbsReady] = useState(false);
+  const handleDocumentLoad = useCallback((doc) => {
+    setThumbsReady(false);
+    setPdfDoc(doc);
+  }, []);
+  const handleFirstPaint = useCallback(() => setThumbsReady(true), []);
   const [pageLabels, setPageLabels] = useState(null);
   const [ocConfig, setOcConfig] = useState(null);
   const [ocVersion, setOcVersion] = useState(0);
@@ -941,11 +952,17 @@ export default function BlueprintTakeoff() {
 
   // Core session-record creation, shared by the standalone named-upload flow
   // (handleNewTakeoffFile) and the bid-entry drop-first flow below
-  // (handleBidFilesDrop) — just the UploadFile + blueprint_takeoffs.create,
-  // no workspace UI state. areaId is the bid-entry flow's optional
-  // ProjectSequenceArea pick; always undefined for a standalone session.
+  // (handleBidFilesDrop) — just the blueprint_takeoffs.create, no workspace
+  // UI state. areaId is the bid-entry flow's optional ProjectSequenceArea
+  // pick; always undefined for a standalone session.
+  //
+  // No Core.UploadFile here: the drawing's bytes live in the IRONSIGHT store
+  // (pdfBlobStore savePdf, keyed by session id — that's what reopening a
+  // session reads). UploadFile kept a second full copy nothing read back,
+  // and the drop box spinner waited on it, so a 140 MB sheet set sat there
+  // while it was written (and forever if the browser refused it).
   const createTakeoffRecord = async ({ file, name, areaId, extra = {} }) => {
-    const { file_url } = await db.integrations.Core.UploadFile({ file });
+    const file_url = '';
     const pickedLink = bidId ? { bid_id: null, project_id: null } : parseLinkValue(newTakeoffLinkValue);
     return db.entities.blueprint_takeoffs.create({
       company_id: user?.company_id,
@@ -983,12 +1000,10 @@ export default function BlueprintTakeoff() {
     setTakeoffId(created.id);
     setTakeoffName(created.takeoff_name || file.name);
     setHasStoredPdf(false);
-    // file_url (from UploadFile) is an opaque steelos-upload:<id> reference,
-    // not a fetchable URL — pdf.js can't load it. Display the in-memory
-    // File directly via its own object URL instead; setActivePdfUrl revokes
-    // it automatically on the next session switch/unmount. The persisted
-    // blueprint_takeoffs.file_url record and the background savePdf below
-    // are unaffected — this only changes what's handed to BlueprintCanvas.
+    // Display the in-memory File directly via its own object URL (no wait
+    // on storage); setActivePdfUrl revokes it automatically on the next
+    // session switch/unmount. The background savePdf below is what lets the
+    // session reopen with its drawing later.
     setActivePdfUrl(URL.createObjectURL(file));
     setFileName(file.name);
     setSheetCount(null);
@@ -1036,12 +1051,19 @@ export default function BlueprintTakeoff() {
     // Open the workspace immediately — the PDF write to IndexedDB happens
     // in the background so the user isn't stuck on the sessions screen
     // waiting for it. has_stored_pdf/hasStoredPdf flip on once it lands.
+    setPdfStoreFailed(false);
     savePdf(created.id, file)
       .then(() => db.entities.blueprint_takeoffs.update(created.id, { has_stored_pdf: true }))
       .then(() => setHasStoredPdf(true))
       .catch((e) => {
         console.error('Failed to store PDF for offline resume', e);
         setHasStoredPdf(false);
+        setPdfStoreFailed(true);
+        toast({
+          title: 'Drawing is open, but it could not be saved on this computer',
+          description: `${e?.message || 'Storage error.'} You can work now; to reopen this session later with the drawing, free up browser storage and use Re-attach PDF.`,
+          variant: 'destructive',
+        });
         setNewSessionError('This session was created, but the PDF could not be stored on this device — reopening it later will restore measurements only, not the drawing.');
       });
   };
@@ -3077,7 +3099,9 @@ export default function BlueprintTakeoff() {
       </span>
       {sessionAreaId && <span className="text-slate-400 whitespace-nowrap">· Area: {bidAreas.find((a) => a.id === sessionAreaId)?.name || 'Assigned'}</span>}
       <div className="ml-auto flex items-center gap-2">
-        {!hasStoredPdf && !pdfMissingNotice && fileUrl && <span className="flex items-center gap-1 text-slate-400"><Loader2 className="w-3 h-3 animate-spin" />Storing drawing…</span>}
+        {!hasStoredPdf && !pdfMissingNotice && fileUrl && (pdfStoreFailed
+          ? <span className="text-amber-400" title="The drawing could not be saved on this computer — it is open now, but reopening this session later needs Re-attach PDF.">Drawing not saved</span>
+          : <span className="flex items-center gap-1 text-slate-400"><Loader2 className="w-3 h-3 animate-spin" />Storing drawing…</span>)}
         {flaggedRowCount > 0 && (
           <button type="button" onClick={() => setLayout({ bottomOpen: true, bottomTab: 'confirmed' })} className="text-amber-300 flex items-center gap-1 hover:underline">
             <AlertTriangle className="w-3.5 h-3.5" />{flaggedRowCount} to check
@@ -3198,7 +3222,8 @@ export default function BlueprintTakeoff() {
       onViewChange={handleViewChange}
       cursorStore={cursorStore}
       viewStore={viewStore}
-      onDocumentLoad={setPdfDoc}
+      onDocumentLoad={handleDocumentLoad}
+      onFirstPaint={handleFirstPaint}
     />
   ) : (
     <div className="h-full flex items-center justify-center bg-neutral-600 text-sm text-neutral-200 px-6 text-center">
@@ -3208,6 +3233,7 @@ export default function BlueprintTakeoff() {
 
   const leftProps = {
     pdfDoc,
+    thumbsReady,
     numPages: pageInfo.numPages || 1,
     pageNum,
     pageLabels,

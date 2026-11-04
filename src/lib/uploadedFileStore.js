@@ -83,6 +83,9 @@ export const saveUploadedFile = async (id, file) => {
     transaction.oncomplete = () => finish(() => resolve());
     request.onerror = () => finish(() => reject(new Error(`Failed to store uploaded file ${id}: ${request.error?.message || 'unknown error'}`)));
     transaction.onerror = () => finish(() => reject(new Error(`Failed to store uploaded file ${id}: ${transaction.error?.message || 'unknown error'}`)));
+    // Out-of-space and similar refusals abort the transaction without an
+    // error event on the request; without this the upload never settles.
+    transaction.onabort = () => finish(() => reject(new Error(`Failed to store uploaded file ${id}: ${transaction.error?.name === 'QuotaExceededError' ? 'the browser is out of storage space' : (transaction.error?.message || 'the write was aborted')}`)));
   });
 };
 

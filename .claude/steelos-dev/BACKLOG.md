@@ -5,6 +5,19 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-04) — IRONSIGHT: big drawing sets (140 MB+) stuck spinning
+- Drop box no longer waits on Core.UploadFile: createTakeoffRecord stored a second full copy of the PDF that nothing read
+  back (reopen uses pdfBlobStore savePdf). The workspace now opens at once from the dropped File.
+- pdfBlobStore.savePdf / uploadedFileStore.saveUploadedFile: transaction.onabort rejects (out-of-space aborts never fired
+  onerror, so the save never settled). Failed background save → toast + "Drawing not saved" in the status bar instead of
+  "Storing drawing…" forever.
+- BlueprintCanvas: "Opening drawing… N% of X MB" (pdf.js onProgress), then "Drawing page N…"; onFirstPaint prop; snap
+  line-work read waits until the page is painted (it's a second full parse of the sheet).
+- Thumbnails wait for first paint (BlueprintTakeoff thumbsReady) and render one at a time per document (LeftSidebar
+  enqueueThumb, cancelled on unmount) — before, 4+ thumbnails + snap queued ahead of page 1 on pdf.js's one worker.
+- Checked with a generated 135 MB / 40-page / 110k-lines-per-sheet set: workspace <3 s, page 1 ~12 s, thumbs after.
+- Still open: very dense sheets draw slower than Revu (pdf.js is single-threaded per file); no pre-rendered page cache.
+
 ## Also Closed (2026-11-03) — Build Area % of total project, automatic
 - src/lib/areaBreakdown.js: each Area's share of the project by tons (its tons ÷ total takeoff tons), hours alongside,
   Unassigned bucket; one-decimal %s rounded by largest remainder so they always total 100.0.

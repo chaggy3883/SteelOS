@@ -13,34 +13,55 @@ const TABS = [
 
 // ---------------------------------------------------------------- thumbnails
 
-function Thumb({ pdfDoc, num, active, label, scaleInfo, cache, onClick, onScaleClick }) {
+// Thumbnails render one at a time. pdf.js runs a single worker per file, so
+// several at once just queue there anyway — and on a heavy sheet set each
+// one is a full page parse that would sit ahead of whatever the estimator
+// clicks next. A thumbnail scrolled away before its turn is skipped, and
+// one unmounted mid-render is cancelled. One queue per document, so a
+// session switch never waits on the old file's thumbnails.
+const thumbQueues = new WeakMap();
+const enqueueThumb = (pdfDoc, job) => {
+  const prev = thumbQueues.get(pdfDoc) || Promise.resolve();
+  const run = prev.then(job, job);
+  thumbQueues.set(pdfDoc, run.catch(() => {}));
+  return run;
+};
+
+function Thumb({ pdfDoc, ready, num, active, label, scaleInfo, cache, onClick, onScaleClick }) {
   const ref = useRef(null);
   const [src, setSrc] = useState(() => cache.get(num) || null);
   useEffect(() => {
-    if (src || !pdfDoc || !ref.current) return undefined;
+    if (src || !pdfDoc || !ready || !ref.current) return undefined;
     let cancelled = false;
+    let task = null;
     const el = ref.current;
-    const io = new IntersectionObserver(async (entries) => {
+    const io = new IntersectionObserver((entries) => {
       if (!entries.some((e) => e.isIntersecting)) return;
       io.disconnect();
-      try {
-        const p = await pdfDoc.getPage(num);
-        const nat = p.getViewport({ scale: 1 });
-        const s = 150 / nat.width;
-        const vp = p.getViewport({ scale: s });
-        const c = document.createElement('canvas');
-        c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
-        await p.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-        const url = c.toDataURL('image/png');
-        cache.set(num, url);
-        if (!cancelled) setSrc(url);
-      } catch (e) {
-        console.warn('IRONSIGHT: thumbnail failed for page', num, e);
-      }
+      enqueueThumb(pdfDoc, async () => {
+        if (cancelled) return;
+        try {
+          const p = await pdfDoc.getPage(num);
+          if (cancelled) return;
+          const nat = p.getViewport({ scale: 1 });
+          const s = 150 / nat.width;
+          const vp = p.getViewport({ scale: s });
+          const c = document.createElement('canvas');
+          c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+          task = p.render({ canvasContext: c.getContext('2d'), viewport: vp });
+          await task.promise;
+          task = null;
+          const url = c.toDataURL('image/png');
+          cache.set(num, url);
+          if (!cancelled) setSrc(url);
+        } catch (e) {
+          if (e?.name !== 'RenderingCancelledException') console.warn('IRONSIGHT: thumbnail failed for page', num, e);
+        }
+      });
     }, { rootMargin: '200px' });
     io.observe(el);
-    return () => { cancelled = true; io.disconnect(); };
-  }, [pdfDoc, num, src, cache]);
+    return () => { cancelled = true; io.disconnect(); task?.cancel(); };
+  }, [pdfDoc, ready, num, src, cache]);
 
   return (
     <div ref={ref} className="flex flex-col items-center gap-1">
@@ -67,7 +88,7 @@ function Thumb({ pdfDoc, num, active, label, scaleInfo, cache, onClick, onScaleC
   );
 }
 
-function ThumbnailsTab({ pdfDoc, numPages, pageNum, pageLabels, scaleInfoFor, onGoToPage, onScaleClick }) {
+function ThumbnailsTab({ pdfDoc, thumbsReady = true, numPages, pageNum, pageLabels, scaleInfoFor, onGoToPage, onScaleClick }) {
   const cacheRef = useRef(new Map());
   const docRef = useRef(pdfDoc);
   if (docRef.current !== pdfDoc) { docRef.current = pdfDoc; cacheRef.current = new Map(); }
@@ -78,6 +99,7 @@ function ThumbnailsTab({ pdfDoc, numPages, pageNum, pageLabels, scaleInfoFor, on
         <Thumb
           key={`${n}`}
           pdfDoc={pdfDoc}
+          ready={thumbsReady}
           num={n}
           active={n === pageNum}
           label={pageLabels?.[n - 1] && pageLabels[n - 1] !== String(n) ? pageLabels[n - 1] : null}

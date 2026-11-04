@@ -40,6 +40,23 @@ const MARK_DRAG_THRESHOLD_PX = 5;
 // Right-clicking within this many px of a live count dot removes it.
 const DOT_HIT_RADIUS_PX = 11;
 const DEFAULT_COUNT_MARKER_RADIUS = 7;
+const formatMb = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
+
+// What the loading overlay says: reading the file (with % when pdf.js knows
+// the size), then drawing the first page — big sheet sets spend real time in
+// both, and a bare spinner looks the same as a hang.
+export function loadingLabel(isLoading, progress, page) {
+  if (isLoading) {
+    if (progress?.total > 0) {
+      const pct = Math.min(100, Math.round((progress.loaded / progress.total) * 100));
+      return `Opening drawing… ${pct}% of ${formatMb(progress.total)}`;
+    }
+    if (progress?.loaded > 0) return `Opening drawing… ${formatMb(progress.loaded)} read`;
+    return 'Opening drawing…';
+  }
+  return page ? `Drawing page ${page.pageNumber}… large sheets can take a moment` : 'Opening drawing…';
+}
+
 // Gap between stacked pages in continuous view, viewport px.
 const PAGE_GAP_PX = 24;
 // Pixel budget for the sharp region render (canvas memory stays bounded at
@@ -210,6 +227,10 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   cursorStore = null,
   viewStore = null,
   onDocumentLoad,
+  // Fired once per document, after the first page is on screen. The
+  // workspace holds back thumbnails until then so they don't queue ahead
+  // of the page the estimator is waiting for (one pdf.js worker per file).
+  onFirstPaint,
 }, ref) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
@@ -218,6 +239,9 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  // { loaded, total } bytes while pdf.js reads the file.
+  const [loadProgress, setLoadProgress] = useState(null);
+  const firstPaintSentRef = useRef(false);
   const [spacePressed, setSpacePressed] = useState(false);
   const [vpSize, setVpSize] = useState({ width: 0, height: 0 });
   const [hoveredItem, setHoveredItem] = useState(null);
@@ -337,10 +361,15 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     let loadingTask = null;
     setIsLoading(true);
     setLoadError(null);
+    setLoadProgress(null);
+    firstPaintSentRef.current = false;
     (async () => {
       try {
         const params = typeof source === 'string' ? { url: source } : { data: await source.arrayBuffer() };
         loadingTask = pdfjsLib.getDocument(params);
+        loadingTask.onProgress = ({ loaded, total }) => {
+          if (!cancelled) setLoadProgress({ loaded, total: total || 0 });
+        };
         const doc = await loadingTask.promise;
         if (cancelled) { loadingTask.destroy(); return; }
         snapCacheRef.current = new Map();
@@ -355,7 +384,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         console.error('BlueprintCanvas failed to load PDF', e);
         if (!cancelled) setLoadError('Could not load this PDF for preview.');
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) { setIsLoading(false); setLoadProgress(null); }
       }
     })();
     return () => {
@@ -450,6 +479,10 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       c.height = off.height;
       c.getContext('2d').drawImage(off, 0, 0);
       setBackdropKey(`${page.pageNumber}:${rot}`);
+      if (!firstPaintSentRef.current) {
+        firstPaintSentRef.current = true;
+        onFirstPaint?.();
+      }
     }).catch((e) => { if (e?.name !== 'RenderingCancelledException') console.error('BlueprintCanvas backdrop render failed', e); });
     return () => { cancelled = true; task.cancel(); };
   }, [page, rot, ocConfig, ocVersion]);
@@ -568,9 +601,13 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
     if (v) setView(v);
   }, [rot, fitView, setView]);
 
-  // Snap-to-drawing: read this page's vector line work once (cached).
+  // Snap-to-drawing: read this page's vector line work once (cached). Waits
+  // until the page is painted — on a heavy sheet this is a second full parse
+  // and must not hold up the drawing itself.
+  const pagePainted = Boolean(page) && backdropKey === `${page.pageNumber}:${rot}`;
   useEffect(() => {
     if (!page || !snapEnabled) { setSnapIndex(null); return undefined; }
+    if (!pagePainted) return undefined;
     const pageKey = page.pageNumber;
     const cached = snapCacheRef.current.get(pageKey);
     if (cached) { setSnapIndex(cached); return undefined; }
@@ -586,7 +623,7 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
       })
       .catch((e) => console.warn('IRONSIGHT snap: could not read line work for this page', e));
     return () => { cancelled = true; };
-  }, [page, snapEnabled]);
+  }, [page, snapEnabled, pagePainted]);
 
   // Hold Space = temporary hand tool (never while calibrating or typing).
   useEffect(() => {
@@ -1411,9 +1448,10 @@ const BlueprintCanvas = forwardRef(function BlueprintCanvas({
         onContextMenu={handleContextMenu}
         onAuxClick={(e) => { if (e.button === 1) e.preventDefault(); }}
       >
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center text-white z-30">
+        {(isLoading || (page && !pagePainted && !loadError)) && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white z-30 pointer-events-none">
             <Loader2 className="w-6 h-6 animate-spin" />
+            <span className="text-xs text-neutral-200 tabular-nums">{loadingLabel(isLoading, loadProgress, page)}</span>
           </div>
         )}
         {loadError && (

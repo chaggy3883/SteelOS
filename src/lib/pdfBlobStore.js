@@ -51,6 +51,10 @@ export const savePdf = async (takeoffId, file) => {
     transaction.oncomplete = () => finish(() => resolve());
     request.onerror = () => finish(() => reject(new Error(`Failed to store PDF for takeoff ${takeoffId}: ${request.error?.message || 'unknown error'}`)));
     transaction.onerror = () => finish(() => reject(new Error(`Failed to store PDF for takeoff ${takeoffId}: ${transaction.error?.message || 'unknown error'}`)));
+    // A browser that refuses the write (out of storage space, most often
+    // with a big sheet set) aborts the transaction without an error event
+    // on the request — without this the save never settles.
+    transaction.onabort = () => finish(() => reject(new Error(`Failed to store PDF for takeoff ${takeoffId}: ${transaction.error?.name === 'QuotaExceededError' ? 'the browser is out of storage space for drawings' : (transaction.error?.message || 'the write was aborted')}`)));
   });
 };
 
