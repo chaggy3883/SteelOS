@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { UploadCloud, FileText, Eye, Download, Trash2, Loader2, Paperclip, FolderOpen, AlertTriangle, Cpu, PlusCircle, QrCode } from 'lucide-react';
+import { UploadCloud, FileText, Eye, Download, Trash2, Loader2, Paperclip, FolderOpen, AlertTriangle, Cpu, PlusCircle, QrCode, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,6 +16,7 @@ import { saveCncFile, getCncFileUrl, deleteCncFile } from '@/lib/cncFileStore';
 import { stripFileExtension, matchFilenameToPiece, attachFileToPiece, createPieceFromFile } from '@/lib/pieceFileIntake';
 import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
 import PieceQrCode from '@/components/projects/PieceQrCode';
+import PieceLabelPrintDialog from '@/components/projects/PieceLabelPrintDialog';
 
 const isPdf = (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
 
@@ -49,6 +50,20 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
   const [objectUrls, setObjectUrls] = useState({});
   const [cncDialogFor, setCncDialogFor] = useState(null); // PieceMark | null
   const [qrFor, setQrFor] = useState(null); // PieceMark whose QR code is shown
+  // Pieces ticked for sticker labels (PieceLabelPrintDialog).
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [printOpen, setPrintOpen] = useState(false);
+  const selectedPieces = React.useMemo(() => pieces.filter((p) => selectedIds.has(p.id)), [pieces, selectedIds]);
+  const togglePiece = (id) => setSelectedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleGroup = (rows, on) => setSelectedIds((prev) => {
+    const next = new Set(prev);
+    rows.forEach((p) => (on ? next.add(p.id) : next.delete(p.id)));
+    return next;
+  });
   const [cncUrl, setCncUrl] = useState(null);
   const [cncLoading, setCncLoading] = useState(false);
   const [cncSaving, setCncSaving] = useState(false);
@@ -366,8 +381,21 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
         </div>
       )}
 
+      {pieces.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <Button size="sm" disabled={selectedPieces.length === 0} onClick={() => setPrintOpen(true)}>
+            <Printer className="w-4 h-4 mr-1.5" />Print labels{selectedPieces.length ? ` (${selectedPieces.length})` : ''}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set(pieces.map((p) => p.id)))}>Select all</Button>
+          {selectedPieces.length > 0 && <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>}
+          <span className="text-xs text-muted-foreground">Tick the pieces to print QR sticker labels for.</span>
+        </div>
+      )}
+
       <div className="space-y-3">
-        {groups.map(([phase, rows]) => (
+        {groups.map(([phase, rows]) => {
+          const groupAll = rows.length > 0 && rows.every((p) => selectedIds.has(p.id));
+          return (
           <div
             key={phase}
             {...dropZoneProps}
@@ -382,6 +410,9 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="py-2 px-3 w-8">
+                      <input type="checkbox" aria-label={`Select all pieces in ${phase}`} checked={groupAll} onChange={(e) => toggleGroup(rows, e.target.checked)} />
+                    </th>
                     <th className="text-left py-2 px-3">Piece Mark</th>
                     <th className="text-left py-2 px-3">Serial #</th>
                     <th className="text-left py-2 px-3">Assembly</th>
@@ -394,15 +425,20 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
                 </thead>
                 <tbody>
                   {rows.map((p) => (
-                    <tr key={p.id} className="border-b border-border/50 hover:bg-muted/50">
+                    <tr key={p.id} className={cn('border-b border-border/50 hover:bg-muted/50', selectedIds.has(p.id) && 'bg-primary/5')}>
+                      <td className="py-2 px-3">
+                        <input type="checkbox" aria-label={`Select ${p.piece_mark}`} checked={selectedIds.has(p.id)} onChange={() => togglePiece(p.id)} />
+                      </td>
                       <td className="py-2 px-3 font-mono font-medium">{p.piece_mark}</td>
-                      <td className="py-2 px-3 font-mono text-xs whitespace-nowrap">
-                        {p.serial_number || '—'}
-                        {p.qr_payload_string && (
-                          <button type="button" title="Show this piece's QR code" className="ml-1.5 inline-flex align-[-3px] text-muted-foreground hover:text-primary" onClick={() => setQrFor(p)}>
-                            <QrCode className="w-4 h-4" />
-                          </button>
-                        )}
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5">
+                          {p.qr_payload_string && (
+                            <button type="button" title="Show this piece's QR code" className="inline-flex text-muted-foreground hover:text-primary" onClick={() => setQrFor(p)}>
+                              <QrCode className="w-4 h-4" />
+                            </button>
+                          )}
+                          <span className="font-mono text-sm font-medium">{p.serial_number || '—'}</span>
+                        </span>
                       </td>
                       <td className="py-2 px-3 text-muted-foreground">{p.assembly || '—'}</td>
                       <td className="py-2 px-3">{p.material_grade || '—'}</td>
@@ -429,8 +465,17 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
               </table>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
+
+      <PieceLabelPrintDialog
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        pieces={selectedPieces}
+        project={project}
+        sequenceAreas={sequenceAreas || []}
+      />
 
       <Dialog open={!!qrFor} onOpenChange={(o) => !o && setQrFor(null)}>
         <DialogContent className="max-w-xs">

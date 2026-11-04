@@ -13,6 +13,7 @@ import PageHeader from '@/components/ui/PageHeader';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import { formatTons } from '@/lib/formatTons';
 
 const STATUS_FILTERS = ['all', 'estimating', 'awarded', 'engineering', 'fabrication', 'erection', 'complete'];
 
@@ -209,7 +210,7 @@ export default function Projects() {
                 </div>
                 <div onClick={() => navigate(`/projects/${project.id}`)} className="cursor-pointer">
                   <p className="text-xs text-muted-foreground">Estimated Tons</p>
-                  <p className="text-sm font-semibold">{project.estimated_tons ? `${project.estimated_tons}T` : '—'}</p>
+                  <p className="text-sm font-semibold">{formatTons(project.estimated_tons)}</p>
                 </div>
                 <div onClick={() => navigate(`/projects/${project.id}`)} className="cursor-pointer">
                   <p className="text-xs text-muted-foreground">Completion</p>

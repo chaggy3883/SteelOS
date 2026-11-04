@@ -105,6 +105,10 @@
       "default": [],
       "description": "Module entitlement allowlist, e.g. [\"equipment\",\"payroll\",\"ironsight\"]. Empty or missing means every module is on — see src/lib/moduleEntitlement.js's hasModule(), the only reader of this field. Editable only from Super Admin Dashboard."
     },
+    "piece_label_settings": {
+      "type": "object",
+      "description": "Piece sticker labels (Admin → Piece Labels; printed from Project → Pieces → Print labels by src/lib/pieceLabelPdf.js). { size_key: '4x2'|'4x3'|'4x6'|'3x2'|'2.25x1.25'|'custom', width_in, height_in (1-8), fields: subset of ['project','part','sequence','shape','size','weight','serial'], uppercase }. Missing = 4\" x 2\" with every field (normalizePieceLabelSettings in src/lib/pieceLabelSettings.js)."
+    },
     "meeting_mode_sections": {
       "type": "array",
       "items": {

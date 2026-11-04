@@ -21,6 +21,7 @@ import SteelCatalogPanel from '@/components/settings/SteelCatalogPanel';
 import MeetingModeSettingsPanel from '@/components/admin/MeetingModeSettingsPanel';
 import TurnoverMeetingSettingsPanel from '@/components/admin/TurnoverMeetingSettingsPanel';
 import ShopStationsPanel from '@/components/admin/ShopStationsPanel';
+import PieceLabelSettingsPanel from '@/components/admin/PieceLabelSettingsPanel';
 
 const TABS = [
   { id: 'users', label: 'User Management', icon: Users, Component: UserManagement },
@@ -36,6 +37,9 @@ const TABS = [
   // per-piece routes (src/lib/shopStations.js) only mean something to a
   // company that runs shop stations.
   { id: 'shop-stations', label: 'Shop Stations & Routes', icon: Factory, Component: ShopStationsPanel, modulePath: '/shop-fabrication' },
+  // Label stock size + fields for piece stickers (Project → Pieces → Print
+  // labels). Full admin only.
+  { id: 'piece-labels', label: 'Piece Labels', icon: Tags, Component: PieceLabelSettingsPanel },
   // hr_admin needs this alongside full admin — it's also where the default
   // new-hire equipment kit policy lives (issuedAssetsApi.js), an HR-owned
   // setting, not just branding.

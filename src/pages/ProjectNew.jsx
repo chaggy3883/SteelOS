@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { getEffectiveCompany } from '@/lib/tenantContext';
+import { roundTons } from '@/lib/formatTons';
 
 export default function ProjectNew() {
   const navigate = useNavigate();
@@ -60,7 +61,7 @@ export default function ProjectNew() {
         // (see syncProjectChangeOrderMetrics in changeOrderMetrics.js).
         original_contract: contractValue || 0,
         change_orders_to_date: 0,
-        estimated_tons: form.estimated_tons ? parseFloat(form.estimated_tons) : null,
+        estimated_tons: form.estimated_tons ? roundTons(parseFloat(form.estimated_tons)) : null,
         is_archived: false,
         is_pinned: false,
         pricing_type: form.pricing_type,

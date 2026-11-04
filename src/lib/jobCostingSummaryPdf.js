@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { PDF_MARGIN_MM, PDF_PAGE_FORMAT } from '@/lib/pdfLayout';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { drawLetterheadIfActive } from '@/lib/letterheadPdf';
+import { formatTons } from '@/lib/formatTons';
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -34,7 +35,7 @@ function drawRow(doc, x0, y, row) {
     project: `${String(row.name || 'Unknown Project').slice(0, 38)}${row.project_number ? ` (#${row.project_number})` : ''}`,
     status: row.status || '—',
     contract_value: row.contract_value ? money(row.contract_value) : '—',
-    estimated_tons: row.estimated_tons ? `${Number(row.estimated_tons).toLocaleString()} T` : '—',
+    estimated_tons: formatTons(row.estimated_tons, ' T'),
     per_ton: row.contract_value && row.estimated_tons ? `$${Math.round(row.contract_value / row.estimated_tons).toLocaleString()}` : '—',
     risk_level: row.risk_level || '—',
   };

@@ -41,6 +41,7 @@ import { canSeeAreaPricing } from '@/lib/areaVisibility';
 import { assignPieceIdentity, maxPieceSerialSeq } from '@/lib/pieceIdentity';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import PieceQrCode from '@/components/projects/PieceQrCode';
+import { formatTons } from '@/lib/formatTons';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal', 'Lintel'];
 const emptyPartForm = () => ({
@@ -422,6 +423,15 @@ export default function ProjectDetail() {
       setAssigningSerials(false);
     }
   };
+  // Runs on its own once per project open, so older pieces show a serial
+  // number without anyone pressing the button (the button stays as a retry
+  // if this fails).
+  const autoAssignedForRef = useRef(null);
+  useEffect(() => {
+    if (loading || !project?.id || autoAssignedForRef.current === project.id) return;
+    autoAssignedForRef.current = project.id;
+    if (piecesMissingIdentity.length) handleAssignSerials();
+  }, [loading, project?.id]);
 
   const handleSavePart = async () => {
     if (!partForm.part_number.trim()) {
@@ -792,7 +802,7 @@ export default function ProjectDetail() {
           <HealthRing score={project.health_score || 100} />
         </div>
         <StatsCard title="Contract Value" value={project.contract_value ? `$${(project.contract_value/1000).toFixed(0)}K` : '—'} icon={DollarSign} color="green" />
-        <StatsCard title="Estimated Tons" value={project.estimated_tons ? `${project.estimated_tons}T` : '—'} icon={Layers} color="blue" />
+        <StatsCard title="Estimated Tons" value={formatTons(project.estimated_tons)} icon={Layers} color="blue" />
         <StatsCard title="AI Findings" value={findings.length} subtitle={`${pendingFindings.length} pending review`} icon={Brain} color="orange" onClick={() => { setFindingsStatusFilter(null); setActiveTab('findings'); }} />
         <StatsCard title="Open RFIs" value={rfis.filter(r => !['answered','closed'].includes(r.status)).length} icon={MessageSquare} color={rfis.filter(r => !['answered','closed'].includes(r.status)).length > 0 ? 'red' : 'green'} onClick={() => setActiveTab('rfis')} />
         <StatsCard title="Open Action Items" value={openActionItems.length} subtitle={`${openActionItems.filter(({ item }) => isOverdue(item)).length} overdue`} icon={ListChecks} color={openActionItems.some(({ item }) => isOverdue(item)) ? 'red' : 'blue'} onClick={() => setActiveTab('notes')} />

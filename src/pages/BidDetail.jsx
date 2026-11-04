@@ -36,6 +36,7 @@ import StatusHistoryModal from '@/components/shared/StatusHistoryModal';
 import { logStatusChange } from '@/lib/statusHistory';
 import { useAuth } from '@/lib/AuthContext';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { roundTons } from '@/lib/formatTons';
 
 const LOSS_REASONS = [
   { value: 'price', label: 'Price — Too High' },
@@ -288,7 +289,7 @@ export default function BidDetail() {
       // of (see syncProjectChangeOrderMetrics in changeOrderMetrics.js).
       original_contract: wonBid.bid_quoted_price || wonBid.bid_total_cost || 0,
       change_orders_to_date: 0,
-      estimated_tons: wonBid.estimated_tons || null,
+      estimated_tons: wonBid.estimated_tons ? roundTons(wonBid.estimated_tons) : null,
       address: wonBid.street,
       city: wonBid.city || wonBid.job_city,
       state: wonBid.state || wonBid.job_state,

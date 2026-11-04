@@ -5,6 +5,20 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-04) — Piece QR sticker labels, configurable per company; tons to 2 decimals
+- Project → Pieces: checkbox per piece + per-phase select-all, "Print labels (N)" → PieceLabelPrintDialog (PDF preview,
+  Print, Download). src/lib/pieceLabelPdf.js: one label per page at the company's stock size, laid out like the shop's
+  sticker template (QR + serial on the left; project name & JOB#, part #, sequence/area beside it; shape, size, weight
+  along the bottom); text auto-shrinks to fit; QR compressed (~3 KB/label) and checked to decode at 203 dpi on 4x2 and
+  2.25x1.25.
+- Admin → Piece Labels (PieceLabelSettingsPanel, full admin): size presets 4x2/4x3/4x6/3x2/2.25x1.25 or custom 1–8 in,
+  which fields print, capitals. Company.piece_label_settings; normalizePieceLabelSettings defaults to 4x2, all fields.
+- Serial # shows next to the QR icon in the Pieces table; older pieces without a serial now get one automatically when
+  the project opens (button kept as a retry).
+- Project estimated tons: 2 decimals everywhere (src/lib/formatTons.js — ProjectDetail, Projects, job cost PDF; rounded
+  when a won bid / new project writes it).
+- Not done: direct ZPL/raw printing to a Zebra (prints through the OS print dialog); label print history.
+
 ## Also Closed (2026-11-04) — Pieces get a serial number + QR code automatically
 - src/lib/pieceIdentity.js + localData.js stampPieceIdentity: every PieceMark create/bulkCreate (drawing drop, detailer
   import, Add Pieces form, demo seed, anything later) gets serial_number (company code's first 3 letters + 6-digit
