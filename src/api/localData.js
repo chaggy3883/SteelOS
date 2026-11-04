@@ -8,6 +8,7 @@ import MATERIAL_CATALOG_SEED from '@/data/materialCatalogSeed.json';
 import { checkCatalogWrite } from '@/lib/materialCatalogRoles';
 import { HANCOCK_PROPOSAL_TERMS_TEXT } from '@/lib/hancockProposalTermsContent';
 import { createUploadedFileId, saveUploadedFile, makeUploadedFileRef } from '@/lib/uploadedFileStore';
+import { assignPieceIdentity, maxPieceSerialSeq } from '@/lib/pieceIdentity';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
 // Exported so AuthContext's cross-tab `storage` listener can filter events to
@@ -3854,6 +3855,31 @@ const writeSessionAuditLog = ({ user, action_type, login_method, logout_reason, 
   saveStore(latest);
 };
 
+// PieceMark: every new piece gets its serial number and QR payload here, so
+// no add path (drawing drop, detailer import, Add Pieces form, …) can skip
+// them — see src/lib/pieceIdentity.js. Serials are numbered per company
+// from the highest already issued; a batch gets consecutive numbers.
+const stampPieceIdentity = (entityName, collection, records) => {
+  if (entityName !== 'PieceMark' || !records.length) return records;
+  const latest = loadStore();
+  const companies = latest.Company || [];
+  const projects = latest.Project || [];
+  const nextByCompany = new Map();
+  return records.map((rec) => {
+    const companyId = rec.company_id || null;
+    if (!nextByCompany.has(companyId)) nextByCompany.set(companyId, maxPieceSerialSeq([...collection, ...(latest.PieceMark || [])], companyId) + 1);
+    const company = companies.find((c) => c.id === companyId);
+    const project = projects.find((p) => p.id === rec.project_id);
+    const { record, usedSerial } = assignPieceIdentity(rec, {
+      nextSeq: nextByCompany.get(companyId),
+      companyCode: company?.company_code || company?.name,
+      projectLabel: project?.project_number || rec.project_id,
+    });
+    if (usedSerial) nextByCompany.set(companyId, nextByCompany.get(companyId) + 1);
+    return record;
+  });
+};
+
 export const createEntityApi = (entityName) => {
   const store = getLocalStore();
   const collection = ensureCollection(store, entityName);
@@ -3923,7 +3949,8 @@ export const createEntityApi = (entityName) => {
     async create(data = {}, { skipAudit = false } = {}) {
       enforcePaintStationLock(entityName, data);
       enforceMaterialCatalogWrite(entityName, 'create', null, data);
-      const record = normalizeRecord(entityName, stampTenant(entityName, data));
+      const [stamped] = stampPieceIdentity(entityName, collection, [stampTenant(entityName, data)]);
+      const record = normalizeRecord(entityName, stamped);
       collection.push(record);
       persist(skipAudit ? [] : buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
       return record;
@@ -4005,8 +4032,9 @@ export const createEntityApi = (entityName) => {
     async bulkCreate(items = [], { skipAudit = false } = {}) {
       const auditEntries = [];
       items.forEach((item) => enforceMaterialCatalogWrite(entityName, 'create', null, item));
-      const created = items.map((item) => {
-        const record = normalizeRecord(entityName, stampTenant(entityName, item));
+      const stampedItems = stampPieceIdentity(entityName, collection, items.map((item) => stampTenant(entityName, item)));
+      const created = stampedItems.map((item) => {
+        const record = normalizeRecord(entityName, item);
         collection.push(record);
         if (!skipAudit) auditEntries.push(...buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
         return record;

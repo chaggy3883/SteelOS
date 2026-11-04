@@ -5,6 +5,19 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-04) — Pieces get a serial number + QR code automatically
+- src/lib/pieceIdentity.js + localData.js stampPieceIdentity: every PieceMark create/bulkCreate (drawing drop, detailer
+  import, Add Pieces form, demo seed, anything later) gets serial_number (company code's first 3 letters + 6-digit
+  company-wide running number, e.g. HAN-000042; serial_seq holds the number) and a qr_payload_string if it has none.
+  The Add Pieces form previously created pieces with no QR at all.
+- Project → Pieces tab: Serial # column + QR button (PieceQrCode, same encoder as printed labels) in the drawing table;
+  Serial # in the Phasing and Parts & Hardware tables; serial + QR in both piece detail dialogs.
+- "Assign serial numbers (N)" on the Pieces tab for pieces added before this (oldest first, after the company's
+  highest serial; also fills a missing QR).
+- pieceScan.matchPieceByScan accepts a typed serial number.
+- Checked in the browser: manual add → HAN-000001 + QR; two dropped drawings → HAN-000002/3; old PM-100 → HAN-000004.
+- Not done: serial on printed labels (labelPdf / QrExportQueue still print the QR payload + piece mark).
+
 ## Also Closed (2026-11-04) — Freight Mileage Calculator fills the Jobsite Freight rate
 - TakeoffEngine.jsx: the matched DeliveryPricingTier's $/trip goes straight into Jobsite Freight (Material Delivery)
   Rate/Load (MILES badge on the line); the estimator only enters the number of loads. Re-fills when the distance/tier

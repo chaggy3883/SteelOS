@@ -40,6 +40,11 @@ export function matchPieceByScan(pieces, scanValue, projectId) {
   const byQr = pieces.find((p) => scanValueMatches([p.qr_payload_string], norm));
   if (byQr) return { piece: byQr, ambiguous: false };
 
+  // A typed serial number (e.g. HAN-000042) is unique per company, so it's
+  // as unambiguous as the QR code itself.
+  const bySerial = pieces.find((p) => p.serial_number && scanValueMatches([p.serial_number], norm));
+  if (bySerial) return { piece: bySerial, ambiguous: false };
+
   const candidates = pieces.filter((p) => scanValueMatches([p.piece_mark], norm) && (!projectId || p.project_id === projectId));
   if (candidates.length === 1) return { piece: candidates[0], ambiguous: false };
   if (candidates.length > 1) return { piece: null, ambiguous: true };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '@/api/apiClient';
-import { UploadCloud, FileText, Eye, Download, Trash2, Loader2, Paperclip, FolderOpen, AlertTriangle, Cpu, PlusCircle } from 'lucide-react';
+import { UploadCloud, FileText, Eye, Download, Trash2, Loader2, Paperclip, FolderOpen, AlertTriangle, Cpu, PlusCircle, QrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -15,6 +15,7 @@ import { createDocumentId, pieceDocumentsKey, getDocumentRecords } from '@/lib/p
 import { saveCncFile, getCncFileUrl, deleteCncFile } from '@/lib/cncFileStore';
 import { stripFileExtension, matchFilenameToPiece, attachFileToPiece, createPieceFromFile } from '@/lib/pieceFileIntake';
 import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
+import PieceQrCode from '@/components/projects/PieceQrCode';
 
 const isPdf = (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
 
@@ -47,6 +48,7 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
   const [docsLoading, setDocsLoading] = useState(false);
   const [objectUrls, setObjectUrls] = useState({});
   const [cncDialogFor, setCncDialogFor] = useState(null); // PieceMark | null
+  const [qrFor, setQrFor] = useState(null); // PieceMark whose QR code is shown
   const [cncUrl, setCncUrl] = useState(null);
   const [cncLoading, setCncLoading] = useState(false);
   const [cncSaving, setCncSaving] = useState(false);
@@ -381,6 +383,7 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
                     <th className="text-left py-2 px-3">Piece Mark</th>
+                    <th className="text-left py-2 px-3">Serial #</th>
                     <th className="text-left py-2 px-3">Assembly</th>
                     <th className="text-left py-2 px-3">Grade</th>
                     <th className="text-right py-2 px-3">Weight</th>
@@ -393,6 +396,14 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
                   {rows.map((p) => (
                     <tr key={p.id} className="border-b border-border/50 hover:bg-muted/50">
                       <td className="py-2 px-3 font-mono font-medium">{p.piece_mark}</td>
+                      <td className="py-2 px-3 font-mono text-xs whitespace-nowrap">
+                        {p.serial_number || '—'}
+                        {p.qr_payload_string && (
+                          <button type="button" title="Show this piece's QR code" className="ml-1.5 inline-flex align-[-3px] text-muted-foreground hover:text-primary" onClick={() => setQrFor(p)}>
+                            <QrCode className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
                       <td className="py-2 px-3 text-muted-foreground">{p.assembly || '—'}</td>
                       <td className="py-2 px-3">{p.material_grade || '—'}</td>
                       <td className="py-2 px-3 text-right">{p.weight_lbs ? `${p.weight_lbs} lbs` : '—'}</td>
@@ -420,6 +431,18 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
           </div>
         ))}
       </div>
+
+      <Dialog open={!!qrFor} onOpenChange={(o) => !o && setQrFor(null)}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader><DialogTitle>{qrFor?.piece_mark} — {qrFor?.serial_number || 'No serial'}</DialogTitle></DialogHeader>
+          <div className="flex justify-center py-2">
+            <PieceQrCode payload={qrFor?.qr_payload_string} size={200} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQrFor(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!viewingDocsFor} onOpenChange={(o) => !o && closeDocsDialog()}>
         <DialogContent className="max-w-md">

@@ -4,7 +4,7 @@ import { db } from '@/api/apiClient';
 import {
   ArrowLeft, Brain, MessageSquare, Package,
   DollarSign, Plus,
-  AlertTriangle, Layers, Gavel, FileSignature, ArrowRight, NotebookPen, ListChecks
+  AlertTriangle, Layers, Gavel, FileSignature, ArrowRight, NotebookPen, ListChecks, QrCode
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -38,6 +38,9 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { pieceDocumentsKey, getDocumentRecords } from '@/lib/pieceMarkDocumentStore';
 import { canSeeAreaPricing } from '@/lib/areaVisibility';
+import { assignPieceIdentity, maxPieceSerialSeq } from '@/lib/pieceIdentity';
+import { getEffectiveCompany } from '@/lib/tenantContext';
+import PieceQrCode from '@/components/projects/PieceQrCode';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal', 'Lintel'];
 const emptyPartForm = () => ({
@@ -378,6 +381,46 @@ export default function ProjectDetail() {
   const handleStockQtyOverride = (value) => {
     setStockQtyTouched(true);
     setPartForm((f) => ({ ...f, stock_qty_required: value }));
+  };
+
+  // Pieces added before serials existed: number them now, oldest first, after
+  // the company's highest serial (same rule as a new piece — pieceIdentity.js).
+  // Also fills a missing QR code. Pieces that already have both are untouched.
+  const piecesMissingIdentity = pieces.filter((p) => !p.serial_number || !p.qr_payload_string);
+  const [assigningSerials, setAssigningSerials] = useState(false);
+  const handleAssignSerials = async () => {
+    if (!piecesMissingIdentity.length) return;
+    setAssigningSerials(true);
+    try {
+      const [company, allPieces] = await Promise.all([
+        getEffectiveCompany().catch(() => null),
+        db.entities.PieceMark.list('-created_date', 100000),
+      ]);
+      let nextSeq = maxPieceSerialSeq(allPieces, company?.id) + 1;
+      const ordered = [...piecesMissingIdentity].sort((a, b) => String(a.created_date || '').localeCompare(String(b.created_date || '')));
+      const updatedById = new Map();
+      for (const p of ordered) {
+        const { record, usedSerial } = assignPieceIdentity(p, {
+          nextSeq,
+          companyCode: company?.company_code || company?.name,
+          projectLabel: project?.project_number || p.project_id,
+        });
+        if (usedSerial) nextSeq += 1;
+        const updated = await db.entities.PieceMark.update(p.id, {
+          serial_number: record.serial_number,
+          serial_seq: record.serial_seq,
+          qr_payload_string: record.qr_payload_string,
+        });
+        updatedById.set(p.id, updated);
+      }
+      setPieces((prev) => prev.map((p) => updatedById.get(p.id) || p));
+      toast({ title: `Assigned serial numbers and QR codes to ${updatedById.size} piece${updatedById.size === 1 ? '' : 's'}` });
+    } catch (e) {
+      console.error('Failed to assign piece serials', e);
+      toast({ title: 'Could not assign serial numbers', description: e?.message, variant: 'destructive' });
+    } finally {
+      setAssigningSerials(false);
+    }
   };
 
   const handleSavePart = async () => {
@@ -1027,7 +1070,15 @@ export default function ProjectDetail() {
           <div className="steel-card p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold">Piece Marks</h3>
-              <Button size="sm" onClick={openAddPart}><Package className="w-4 h-4 mr-2" /> Add Pieces</Button>
+              <div className="flex items-center gap-2">
+                {piecesMissingIdentity.length > 0 && (
+                  <Button size="sm" variant="outline" onClick={handleAssignSerials} disabled={assigningSerials}
+                    title="Pieces added before automatic serial numbers — give each a serial number and QR code">
+                    {assigningSerials ? 'Assigning…' : `Assign serial numbers (${piecesMissingIdentity.length})`}
+                  </Button>
+                )}
+                <Button size="sm" onClick={openAddPart}><Package className="w-4 h-4 mr-2" /> Add Pieces</Button>
+              </div>
             </div>
             {addPartFormPanel}
             <PieceMarkPdfIntake
@@ -1162,6 +1213,7 @@ export default function ProjectDetail() {
                       <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
                         <th className="text-left py-2 px-3">Type</th>
                         <th className="text-left py-2 px-3">Part #</th>
+                        <th className="text-left py-2 px-3">Serial #</th>
                         <th className="text-left py-2 px-3">Description</th>
                         <th className="text-right py-2 px-3">Qty</th>
                         <th className="text-left py-2 px-3">Stock / Bolt Spec</th>
@@ -1178,6 +1230,7 @@ export default function ProjectDetail() {
                         <tr key={p.id} onClick={() => setViewingPart(p)} className="border-b border-border/50 hover:bg-muted/50 cursor-pointer">
                           <td className="py-2 px-3">{(p.item_type || 'Loose_Part').replace(/_/g, ' ')}</td>
                           <td className="py-2 px-3 font-mono font-medium">{p.part_number || '—'}</td>
+                          <td className="py-2 px-3 font-mono text-xs whitespace-nowrap">{p.serial_number || '—'}</td>
                           <td className="py-2 px-3 text-muted-foreground">{p.description || '—'}</td>
                           <td className="py-2 px-3 text-right">{p.quantity || 0}</td>
                           <td className="py-2 px-3 text-xs">
@@ -1315,6 +1368,7 @@ export default function ProjectDetail() {
                                 />
                               </th>
                               <th className="text-left py-2 px-3">Piece Mark</th>
+                              <th className="text-left py-2 px-3">Serial #</th>
                               <th className="text-left py-2 px-3">Assembly</th>
                               <th className="text-right py-2 px-3">Weight</th>
                               <th className="text-left py-2 px-3">Phase</th>
@@ -1329,6 +1383,10 @@ export default function ProjectDetail() {
                                   <input type="checkbox" checked={selectedPieceIds.has(p.id)} onChange={() => toggleSelectPiece(p.id)} />
                                 </td>
                                 <td className="py-2 px-3 font-mono font-medium">{p.piece_mark}</td>
+                                <td className="py-2 px-3 font-mono text-xs whitespace-nowrap">
+                                  {p.serial_number || '—'}
+                                  {p.qr_payload_string && <QrCode className="inline w-3.5 h-3.5 ml-1.5 text-muted-foreground align-[-2px]" aria-label="Has a QR code" />}
+                                </td>
                                 <td className="py-2 px-3 text-muted-foreground">{p.assembly || '—'}</td>
                                 <td className="py-2 px-3 text-right">{p.weight_lbs ? `${p.weight_lbs.toLocaleString()} lbs` : '—'}</td>
                                 <td className="py-2 px-3">
@@ -1414,9 +1472,11 @@ export default function ProjectDetail() {
           <DialogHeader><DialogTitle>{viewingPart?.part_number || viewingPart?.piece_mark}</DialogTitle></DialogHeader>
           {viewingPart && (
             <div className="space-y-2">
+              <PieceQrCode payload={viewingPart.qr_payload_string} />
               {[
                 ['Item Type', (viewingPart.item_type || 'Loose_Part').replace(/_/g, ' ')],
                 ['Part Number', viewingPart.part_number],
+                ['Serial Number', viewingPart.serial_number],
                 ['Description', viewingPart.description],
                 ['Quantity', viewingPart.quantity],
                 ['Phase', viewingPart.phase],
@@ -1451,8 +1511,10 @@ export default function ProjectDetail() {
           <DialogHeader><DialogTitle>{viewingPhasePiece?.piece_mark}</DialogTitle></DialogHeader>
           {viewingPhasePiece && (
             <div className="space-y-2">
+              <PieceQrCode payload={viewingPhasePiece.qr_payload_string} />
               {[
                 ['Piece Mark', viewingPhasePiece.piece_mark],
+                ['Serial Number', viewingPhasePiece.serial_number],
                 ['Assembly', viewingPhasePiece.assembly],
                 ['Description', viewingPhasePiece.description],
                 ['Material Grade', viewingPhasePiece.material_grade],

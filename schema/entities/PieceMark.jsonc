@@ -97,6 +97,14 @@
     "barcode": {
       "type": "string"
     },
+    "serial_number": {
+      "type": "string",
+      "description": "Assigned automatically when the piece is added to a project (any path — localData.js stampPieceIdentity, src/lib/pieceIdentity.js): company code's first 3 letters + a 6-digit company-wide running number, e.g. 'HAN-000042'. Never changed or reused. Pieces added before 2026-11-04 get one from 'Assign serial numbers' on the project's Pieces tab. Also accepted by matchPieceByScan (pieceScan.js)."
+    },
+    "serial_seq": {
+      "type": "number",
+      "description": "The running number inside serial_number; the next piece gets the company's highest serial_seq + 1."
+    },
     "qr_payload_string": {
       "type": "string",
       "description": "Globally unique scan target, independent of piece_mark — piece_mark repeats across projects by design (e.g. two projects can both have a \"3B3\"), so the QR code encodes this instead. Generated via generatePiecePayload(projectLabel, piece_mark) in qrSerialization.js at PieceMark.create() time (src/lib/detailerImportCommit.js); matched first, unscoped, by matchPieceByScan (src/lib/pieceScan.js) before it falls back to a project-scoped piece_mark match. Same field/role as pieces.qr_payload_string on the sibling shop-floor entity — matchPieceByScan works against either."
