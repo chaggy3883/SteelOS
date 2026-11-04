@@ -3158,9 +3158,24 @@ const syncStoreToFile = (store) => {
   }, SYNC_DEBOUNCE_MS);
 };
 
+// The whole database lives in one localStorage value, which browsers cap at
+// about 5 MB. When it's full every save fails — say so plainly instead of a
+// raw DOMException, so screens can tell the user what happened.
+export const STORAGE_FULL_MESSAGE = 'This browser’s SteelOS storage is full, so the change was not saved.';
+const isQuotaError = (e) => e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014);
+
 const saveStore = (store) => {
   const storage = getStorage();
-  storage.setItem(STORAGE_KEY, JSON.stringify(store));
+  try {
+    storage.setItem(STORAGE_KEY, JSON.stringify(store));
+  } catch (e) {
+    if (isQuotaError(e)) {
+      const err = new Error(STORAGE_FULL_MESSAGE);
+      err.code = 'STORAGE_FULL';
+      throw err;
+    }
+    throw e;
+  }
   syncStoreToFile(store);
 };
 
@@ -3952,7 +3967,15 @@ export const createEntityApi = (entityName) => {
       const [stamped] = stampPieceIdentity(entityName, collection, [stampTenant(entityName, data)]);
       const record = normalizeRecord(entityName, stamped);
       collection.push(record);
-      persist(skipAudit ? [] : buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
+      try {
+        persist(skipAudit ? [] : buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
+      } catch (e) {
+        // Not saved (e.g. storage full) — don't leave a phantom record in
+        // memory that the next successful save would quietly write out.
+        const at = collection.lastIndexOf(record);
+        if (at >= 0) collection.splice(at, 1);
+        throw e;
+      }
       return record;
     },
 
@@ -3969,7 +3992,12 @@ export const createEntityApi = (entityName) => {
       const before = collection[index];
       const updated = normalizeRecord(entityName, { ...before, ...data, id, updated_date: new Date().toISOString() });
       collection[index] = updated;
-      persist(buildAuditLogEntries(entityName, 'update', { before, after: updated, recordId: id }));
+      try {
+        persist(buildAuditLogEntries(entityName, 'update', { before, after: updated, recordId: id }));
+      } catch (e) {
+        collection[index] = before;
+        throw e;
+      }
       return updated;
     },
 
@@ -3995,7 +4023,13 @@ export const createEntityApi = (entityName) => {
       } else {
         collection.splice(index, 1);
       }
-      persist(buildAuditLogEntries(entityName, 'delete', { before, recordId: id }));
+      try {
+        persist(buildAuditLogEntries(entityName, 'delete', { before, recordId: id }));
+      } catch (e) {
+        if (collection[index]?.id === id) collection[index] = before;
+        else collection.splice(index, 0, before);
+        throw e;
+      }
       return true;
     },
 
@@ -4039,7 +4073,13 @@ export const createEntityApi = (entityName) => {
         if (!skipAudit) auditEntries.push(...buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
         return record;
       });
-      persist(auditEntries);
+      try {
+        persist(auditEntries);
+      } catch (e) {
+        const drop = new Set(created);
+        for (let i = collection.length - 1; i >= 0; i -= 1) if (drop.has(collection[i])) collection.splice(i, 1);
+        throw e;
+      }
       return created;
     }
   };

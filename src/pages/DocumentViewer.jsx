@@ -7,6 +7,7 @@ import { downloadFile } from '@/lib/downloadFile';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { isParsableDetailerFile, parseDetailerImportFile } from '@/lib/detailerImportParser';
 import { deriveShapeFromProfile } from '@/lib/materialProfileMatch';
+import { isPieceDocumentRef, getPieceDocumentBlob } from '@/lib/pieceMarkDocumentStore';
 
 // Full-page, new-tab document viewer — replaces PdfViewerModal's in-app
 // Dialog. Opened via openDocumentViewer(), which passes the document as URL
@@ -19,15 +20,40 @@ import { deriveShapeFromProfile } from '@/lib/materialProfileMatch';
 // extension-based check the Detailer Imports intake uses to decide whether a
 // file parses into staged rows, so a file lands here in exactly the cases it
 // would otherwise fail against BlueprintCanvas.
+// A stored piece drawing (piece-doc:<pieceId>/<docId>, pieceMarkDocumentStore)
+// is read from IndexedDB here and given a blob: URL owned by THIS tab, so it
+// keeps working after the opener's dialog closes or this tab reloads. Any
+// other source passes through untouched.
+function useResolvedSource(rawSource) {
+  const [state, setState] = useState(() => ({ source: isPieceDocumentRef(rawSource) ? null : rawSource, error: null }));
+  useEffect(() => {
+    if (!isPieceDocumentRef(rawSource)) { setState({ source: rawSource, error: null }); return undefined; }
+    let cancelled = false;
+    let url = null;
+    setState({ source: null, error: null });
+    getPieceDocumentBlob(rawSource)
+      .then((blob) => {
+        if (cancelled) return;
+        if (!blob) { setState({ source: null, error: 'This drawing is no longer stored in this browser. Re-attach it on the piece.' }); return; }
+        url = URL.createObjectURL(blob);
+        setState({ source: url, error: null });
+      })
+      .catch((e) => { if (!cancelled) setState({ source: null, error: e?.message || 'Could not load this drawing.' }); });
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [rawSource]);
+  return state;
+}
+
 export default function DocumentViewer() {
   const [searchParams] = useSearchParams();
-  const source = searchParams.get('source');
+  const rawSource = searchParams.get('source');
+  const { source, error: sourceError } = useResolvedSource(rawSource);
   const fileName = searchParams.get('name') || 'Document';
   const isDataFile = isParsableDetailerFile(fileName);
 
   useDocumentTitle(`SteelOS — ${fileName}`);
 
-  const handleDownload = () => downloadFile(source, fileName);
+  const handleDownload = () => { if (source) downloadFile(source, fileName); };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background">
@@ -44,8 +70,8 @@ export default function DocumentViewer() {
       </div>
       <div className="flex-1 min-h-0">
         {!source ? (
-          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-            No document specified.
+          <div className="h-full flex items-center justify-center text-sm text-muted-foreground px-4 text-center">
+            {sourceError || (rawSource ? 'Loading the drawing…' : 'No document specified.')}
           </div>
         ) : isDataFile ? (
           <DetailerDataFileView source={source} fileName={fileName} />

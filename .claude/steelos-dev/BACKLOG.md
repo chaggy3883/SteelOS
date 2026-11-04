@@ -5,6 +5,24 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-04) — Pieces: drop → select all → Submit; delete pieces; drawings that wouldn't open
+- PieceMarkPdfIntake: every dropped PDF goes into an "Uploaded drawings" list (ticked, mark from file name, editable,
+  per-row or bulk area, "New piece" / "Add to <mark>"); one Submit does them all in order, failures stay listed with
+  the reason. Same file dropped twice is listed once. Replaces the per-file Create/Attach clicks and the silent
+  auto-attach of matching names.
+- Delete: trash per piece row + "Delete (N)" for ticked pieces (confirm; louder warning if a piece is past not_started);
+  also deletes its stored drawings and CNC file. ProjectDetail onPieceDeleted.
+- Drawings that "showed loaded but wouldn't open": the viewer tab got a blob: URL the drawings dialog revoked on close.
+  Now openDocumentViewer gets piece-doc:<pieceId>/<docId> and DocumentViewer reads the blob from IndexedDB itself
+  (pieceMarkDocumentStore pieceDocumentRef / getPieceDocumentBlob).
+- Storage full: localData saveStore throws "This browser's SteelOS storage is full…" (STORAGE_FULL) instead of a raw
+  DOMException; create/update/delete/bulkCreate roll back the in-memory change when the save fails.
+  pieceMarkDocumentStore saves reject on abort (quota) instead of hanging. createPieceFromFile removes the new piece if
+  its drawing can't be stored.
+- Open: the deployed (Vercel) app keeps everything in browser storage (~5 MB for data; drawings in IndexedDB) — a real
+  backend/file storage is still the fix for many large drawing sets. Other openDocumentViewer callers
+  (DocumentsPanel, ShopDrawingsSection, Legal, …) still pass blob: URLs with the same revoke-on-close risk.
+
 ## Also Closed (2026-11-04) — Piece QR sticker labels, configurable per company; tons to 2 decimals
 - Project → Pieces: checkbox per piece + per-phase select-all, "Print labels (N)" → PieceLabelPrintDialog (PDF preview,
   Print, Download). src/lib/pieceLabelPdf.js: one label per page at the company's stock size, laid out like the shop's

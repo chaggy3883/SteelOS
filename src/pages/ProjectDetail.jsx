@@ -36,7 +36,7 @@ import { generateScopeReviewPdf } from '@/lib/scopeReviewPdf';
 import UnsavedChangesModal from '@/components/meeting-mode/UnsavedChangesModal';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
-import { pieceDocumentsKey, getDocumentRecords } from '@/lib/pieceMarkDocumentStore';
+import { pieceDocumentsKey, getDocumentRecords, pieceDocumentRef } from '@/lib/pieceMarkDocumentStore';
 import { canSeeAreaPricing } from '@/lib/areaVisibility';
 import { assignPieceIdentity, maxPieceSerialSeq } from '@/lib/pieceIdentity';
 import { getEffectiveCompany } from '@/lib/tenantContext';
@@ -559,7 +559,7 @@ export default function ProjectDetail() {
         toast({ title: 'No file attached to this piece', variant: 'destructive' });
         return;
       }
-      openDocumentViewer(URL.createObjectURL(doc.blob), doc.filename);
+      openDocumentViewer(pieceDocumentRef(piece.id, doc.id), doc.filename);
     } catch (err) {
       toast({ title: 'Unable to open file', variant: 'destructive' });
     }
@@ -1098,6 +1098,7 @@ export default function ProjectDetail() {
               sequenceAreas={sequenceAreas}
               onPieceUpdated={(updated) => setPieces((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))}
               onPieceCreated={(created) => setPieces((prev) => [...prev, created])}
+              onPieceDeleted={(pieceId) => setPieces((prev) => prev.filter((p) => p.id !== pieceId))}
               onSequenceAreaCreated={(created) => setSequenceAreas((prev) => [...prev, created])}
             />
             {pieces.length === 0 && (

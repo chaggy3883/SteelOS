@@ -60,6 +60,11 @@ export const saveDocumentRecords = async (key, documents) => {
     transaction.oncomplete = () => finish(() => resolve());
     request.onerror = () => finish(() => reject(new Error(`Failed to store documents for ${key}: ${request.error?.message || 'unknown error'}`)));
     transaction.onerror = () => finish(() => reject(new Error(`Failed to store documents for ${key}: ${transaction.error?.message || 'unknown error'}`)));
+    // Out of space aborts the transaction without an error on the request —
+    // without this the save (and the drawing upload) never finishes.
+    transaction.onabort = () => finish(() => reject(new Error(transaction.error?.name === 'QuotaExceededError'
+      ? 'This browser is out of storage space for drawings.'
+      : `Failed to store documents for ${key}: ${transaction.error?.message || 'the write was aborted'}`)));
   });
 };
 
@@ -103,4 +108,24 @@ export const deleteDocumentRecords = async (key) => {
     request.onerror = () => finish(() => reject(new Error(`Failed to delete documents for ${key}: ${request.error?.message || 'unknown error'}`)));
     transaction.onerror = () => finish(() => reject(new Error(`Failed to delete documents for ${key}: ${transaction.error?.message || 'unknown error'}`)));
   });
+};
+
+// A link to one stored drawing that any tab can open on its own:
+// "piece-doc:<pieceMarkId>/<documentId>". The document viewer opens in a new
+// tab, and a blob: URL made in this tab dies when the drawings dialog closes
+// (or on reload) — the cause of "shows as loaded but won't open". The viewer
+// resolves this reference straight from IndexedDB instead.
+const PIECE_DOC_PREFIX = 'piece-doc:';
+
+export const pieceDocumentRef = (pieceMarkId, documentId) => `${PIECE_DOC_PREFIX}${pieceMarkId}/${documentId}`;
+
+export const isPieceDocumentRef = (value) => typeof value === 'string' && value.startsWith(PIECE_DOC_PREFIX);
+
+// Returns the stored Blob for a piece-doc: reference, or null.
+export const getPieceDocumentBlob = async (ref) => {
+  if (!isPieceDocumentRef(ref)) return null;
+  const [pieceMarkId, documentId] = ref.slice(PIECE_DOC_PREFIX.length).split('/');
+  if (!pieceMarkId || !documentId) return null;
+  const docs = await getDocumentRecords(pieceDocumentsKey(pieceMarkId));
+  return docs.find((d) => d.id === documentId)?.blob || null;
 };

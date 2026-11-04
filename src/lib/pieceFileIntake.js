@@ -69,6 +69,14 @@ export async function createPieceFromFile({ project, file, itemType = 'Piece_Mar
     qr_payload_string: generatePiecePayload(projectLabel, mark),
     status: 'not_started',
   });
-  await attachFileToPiece(created, file);
+  try {
+    await attachFileToPiece(created, file);
+  } catch (e) {
+    // The drawing couldn't be stored (usually browser storage full): take
+    // the empty piece back out so a retry starts clean instead of leaving a
+    // piece with no drawing behind.
+    await db.entities.PieceMark.delete(created.id).catch(() => {});
+    throw e;
+  }
   return created;
 }
