@@ -16,6 +16,7 @@ export const PIECE_LIFECYCLE_EVENT_LABELS = {
   resume: 'Resumed',
   work_paused: 'Paused',
   work_resumed: 'Resumed From Pause',
+  arrived: 'Moved to Station (Scanned)',
 };
 
 export function pieceEventLabel(eventType) {

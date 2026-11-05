@@ -16,7 +16,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
-import { AlertTriangle, Zap, Users, PackageX, Gauge, Plus, Printer, FileSearch } from 'lucide-react';
+import { AlertTriangle, Zap, Users, PackageX, Gauge, Plus, Printer, FileSearch, Factory } from 'lucide-react';
+import ShopPiecesInShop from '@/components/shop/ShopPiecesInShop';
 import ShopDrawingBrowser from '@/components/shop/ShopDrawingBrowser';
 import LabelPrintingPanel from '@/components/barcode-printing/LabelPrintingPanel';
 import PieceReceivingQueue from '@/components/barcode-printing/PieceReceivingQueue';
@@ -95,7 +96,7 @@ export default function ShopOperations() {
       const [projectData, pieceData, logsData, qaData, scheduleData, remnantData, overrideData, settingsRows, poData, receivingData, leaveData, manifestData, printJobData, pieceProductionLogData, employeeData, pieceMarkData] = await Promise.all([
         db.entities.Project.filter({ is_archived: false }, 'name', 50),
         syncShopPieces().then(() => db.entities.pieces.list('-created_date', 5000)),
-        db.entities.station_logs.list('-created_date', 500),
+        db.entities.station_logs.list('-created_date', 20000),
         db.entities.qa_inspections.list('-created_date', 500),
         db.entities.shop_schedules.list('-created_date', 200),
         db.entities.remnant_inventory.list('-created_date', 200),
@@ -245,8 +246,13 @@ export default function ShopOperations() {
           <TabsTrigger value="radar">Bottleneck Radar</TabsTrigger>
           <TabsTrigger value="material">Material &amp; Overrides</TabsTrigger>
           <TabsTrigger value="labels" className="gap-1.5"><Printer className="w-3.5 h-3.5" />Label Printing</TabsTrigger>
+          <TabsTrigger value="in-shop" className="gap-1.5"><Factory className="w-3.5 h-3.5" />Pieces in the Shop</TabsTrigger>
           <TabsTrigger value="drawings" className="gap-1.5"><FileSearch className="w-3.5 h-3.5" />Drawings</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="in-shop" className="space-y-4">
+          <ShopPiecesInShop pieces={pieces} stationLogs={stationLogs} projects={projects} />
+        </TabsContent>
 
         <TabsContent value="drawings" className="space-y-4">
           <ShopDrawingBrowser projects={projects} />

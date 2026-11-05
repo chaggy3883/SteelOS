@@ -11,9 +11,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getCertStatus } from '@/lib/certAlerts';
 import { sortPiecesByPriority, hasActiveOverride, getVoidedShopPieceIds } from '@/lib/shopOpsMetrics';
-import { stationName, nextStationInShopOrder, getActiveStations } from '@/lib/shopStations';
+import { stationName, getActiveStations } from '@/lib/shopStations';
+import { pieceLocation, formatDuration } from '@/lib/pieceLocation';
 import { useShopStationConfig } from '@/lib/shopStationsStore';
-import { resolvePieceRoute, routeSourceLabel, completedStationIdsFor, skippedStepWarnings, nextStationOnRoute, ON_HOLD_BADGE_TEXT, isOnHoldPieceMark, holdWarningText } from '@/lib/shopRoutes';
+import { resolvePieceRoute, routeSourceLabel, completedStationIdsFor, skippedStepWarnings, ON_HOLD_BADGE_TEXT, isOnHoldPieceMark, holdWarningText } from '@/lib/shopRoutes';
 import { RouteProgressStrip, StationHistoryDialog } from '@/components/shop-floor/RouteProgress';
 import { useStartWarningsPrompt } from '@/components/shop-floor/StartWarningsDialog';
 import { matchPieceByScan } from '@/lib/pieceScan';
@@ -34,7 +35,7 @@ import { syncShopPieces } from '@/lib/shopPieceSync';
 import ShopPieceBlueprint from '@/components/shop/ShopPieceBlueprint';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
-  CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer, Camera,
+  CheckCircle2, Lock, X, Stamp, AlertTriangle, Ban, Printer, Camera,
   Layers, Cpu,
 } from 'lucide-react';
 
@@ -109,6 +110,19 @@ export default function ShopFabrication() {
   const [qaInspections, setQaInspections] = useState([]);
   const [selectedPieceId, setSelectedPieceId] = useState(null);
   const [employeeId, setEmployeeId] = useState('EMP-101');
+  // The station this tablet / worker is signed in at. Scanning a piece here
+  // moves it to this station and starts work — that is how pieces travel
+  // through the shop (there is no "Advance to" button). Remembered per
+  // device; blank = work the piece wherever it currently is.
+  const TABLET_STATION_KEY = 'steelos_shop_tablet_station';
+  const [tabletStationId, setTabletStationId] = useState(() => {
+    try { return Number(window.localStorage.getItem(TABLET_STATION_KEY)) || null; } catch { return null; }
+  });
+  const chooseTabletStation = (id) => {
+    const n = Number(id) || null;
+    setTabletStationId(n);
+    try { if (n) window.localStorage.setItem(TABLET_STATION_KEY, String(n)); else window.localStorage.removeItem(TABLET_STATION_KEY); } catch { /* storage unavailable */ }
+  };
   const [loading, setLoading] = useState(true);
   const [scanValue, setScanValue] = useState('');
   const [showBlueprint, setShowBlueprint] = useState(false);
@@ -223,17 +237,6 @@ export default function ShopFabrication() {
       />
     );
   };
-  // "Advance to ..." target: the next stop on the piece's route when it's on
-  // one, else the next active station in shop order. Station 5 (QA-gated
-  // Fab) never shows it — it moves on through the inspection flow. With the
-  // default six stations and no routes this is exactly the old rule
-  // (stations 1-4 -> id + 1; nothing at 5 or 6).
-  const advanceTargetFor = (piece) => {
-    if (!piece || Number(piece.current_station_id) === 5) return null;
-    const route = routeFor(piece);
-    if (route && route.station_ids.includes(Number(piece.current_station_id))) return nextStationOnRoute(route, piece.current_station_id);
-    return nextStationInShopOrder(piece.current_station_id, stationConfig)?.id ?? null;
-  };
   // ---- end routes / hold / combined prompt ----
 
   useEffect(() => { loadData(); }, []);
@@ -271,7 +274,7 @@ export default function ShopFabrication() {
     try {
       const [pieceData, logsData, qaData, scheduleData, overrideData] = await Promise.all([
         syncShopPieces().then(() => db.entities.pieces.list('-created_date', 5000)),
-        db.entities.station_logs.list('-created_date', 100),
+        db.entities.station_logs.list('-created_date', 20000),
         db.entities.qa_inspections.list('-created_date', 100),
         db.entities.shop_schedules.list('-created_date', 200),
         db.entities.manager_overrides.list('-created_date', 200),
@@ -574,8 +577,44 @@ export default function ShopFabrication() {
     // select/open the blueprint if that succeeds, so a certification block
     // never opens the blueprint or starts the timer.
     const wasPaused = found.workflow_status === 'Paused';
-    if (!(await confirmStart(found, found.current_station_id))) return; // drawing / hold / route warnings — one confirm, never a block
-    const result = await startWork(found, { silent: true });
+    if (found.workflow_status === 'Inspector_Queue') {
+      setSelectedPieceId(found.id);
+      toast({ title: `${found.piece_mark} is waiting for inspection`, description: `At ${stationName(found.current_station_id)} — it can't be worked until QA signs it off.`, variant: 'destructive' });
+      return;
+    }
+    // Signed in at another station: scanning it here moves the piece to this
+    // station (the last place it was scanned is where it is).
+    const targetStationId = tabletStationId || Number(found.current_station_id);
+    const moving = targetStationId !== Number(found.current_station_id);
+    const warnings = await startWarningsFor(found, targetStationId);
+    if (moving && targetStationId === 6 && found.workflow_status !== 'Paint_Unlocked') {
+      warnings.push(`${found.piece_mark} hasn't passed weld inspection yet.`);
+    }
+    if (!(await askToStart({ title: `Before you start ${found.piece_mark} at ${stationName(targetStationId)}`, warnings }))) return; // one confirm, never a block
+    let working = found;
+    if (moving) {
+      const expedited = hasActiveOverride(overrides, found.id, 'Expedite_Part');
+      if (!expedited) {
+        const clearance = await assertStationCertClearance(employeeId, targetStationId);
+        if (!clearance.ok) {
+          toast({ title: 'Certification block', description: clearance.message, variant: 'destructive' });
+          return;
+        }
+      }
+      const fromStationId = found.current_station_id;
+      working = await db.entities.pieces.update(found.id, { current_station_id: targetStationId });
+      setPieces((prev) => prev.map((p) => (p.id === working.id ? working : p)));
+      await db.entities.piece_timing_events.create({
+        company_id: found.company_id,
+        piece_id: found.id,
+        station_id: targetStationId,
+        event_type: 'arrived',
+        scanned_by: employeeId,
+        scanned_at: new Date().toISOString(),
+        notes: `Moved from ${stationName(fromStationId)} to ${stationName(targetStationId)} by scan`,
+      }).catch(() => {});
+    }
+    const result = await startWork(working, { silent: true });
     if (!result.ok) return;
     setSelectedPieceId(found.id);
     setShowBlueprint(true);
@@ -629,39 +668,6 @@ export default function ShopFabrication() {
     const updatedPiece = await db.entities.pieces.update(selectedPiece.id, { current_worker_id: worker?.id || null });
     setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
     toast({ title: 'Work resumed', description: 'A fresh ledger block was started.' });
-  };
-
-  const moveToStation = async (nextStationId) => {
-    // A Paused piece has no active worker on it — it must be resumed (Start
-    // Work) before it can advance stations, same as isFrozen/activeLog.
-    if (!selectedPiece || isFrozen || isPaused || activeLog) return;
-    if (!(await confirmStart(selectedPiece, nextStationId))) return;
-    const expedited = hasActiveOverride(overrides, selectedPiece.id, 'Expedite_Part');
-    if (!expedited) {
-      const clearance = await assertStationCertClearance(employeeId, nextStationId);
-      if (!clearance.ok) {
-        toast({ title: 'Certification block', description: clearance.message, variant: 'destructive' });
-        return;
-      }
-    }
-    try {
-      const log = await db.entities.station_logs.create({
-        piece_id: selectedPiece.id,
-        employee_id: employeeId,
-        station_id: nextStationId,
-        status: 'In_Progress',
-        start_time: new Date().toISOString(),
-        elapsed_minutes: 0,
-        auto_paused: false,
-      });
-      const worker = await findEmployeeByNumber(employeeId);
-      const updatedPiece = await db.entities.pieces.update(selectedPiece.id, { current_station_id: nextStationId, current_worker_id: worker?.id || null });
-      setStationLogs((prev) => [log, ...prev]);
-      setPieces((prev) => prev.map((p) => (p.id === updatedPiece.id ? updatedPiece : p)));
-      toast({ title: `Routed to ${stationName(nextStationId)}` });
-    } catch (e) {
-      toast({ title: 'Routing blocked', description: e.message, variant: 'destructive' });
-    }
   };
 
   const submitInspection = async (status) => {
@@ -784,7 +790,24 @@ export default function ShopFabrication() {
           <div className="flex flex-wrap items-center gap-2">
             <QrCode className="w-5 h-5 text-primary" />
             <span className="text-sm font-medium">QR / Piece Scan</span>
+            <label className="ml-auto flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">This tablet's station</span>
+              <select
+                aria-label="This tablet's station"
+                value={tabletStationId || ''}
+                onChange={(e) => chooseTabletStation(e.target.value)}
+                className={`h-9 rounded-md border px-2 text-sm bg-background ${tabletStationId ? 'border-primary font-medium' : 'border-amber-500'}`}
+              >
+                <option value="">Not set — work pieces where they are</option>
+                {getActiveStations(stationConfig).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </label>
           </div>
+          {tabletStationId && (
+            <p className="text-xs text-muted-foreground -mt-2">
+              Signed in at <span className="font-medium text-foreground">{stationName(tabletStationId)}</span> — scanning a piece moves it here and starts its time.
+            </p>
+          )}
           <div className={`flex flex-col gap-2 md:flex-row ${touchPrimary ? 'md:flex-col' : ''}`}>
             {touchPrimary && (
               <Button size="lg" className="gap-2 steel-gradient text-white border-0" onClick={() => setShowCameraScanner(true)}>
@@ -853,28 +876,12 @@ export default function ShopFabrication() {
                 <Button variant="outline" className="gap-2" disabled={!activeLog} onClick={() => finishWork('Paused')}><PauseCircle className="w-4 h-4" />Pause / End Shift</Button>
               </div>
               <div className="flex flex-wrap gap-2 border-t border-border pt-3">
-                {advanceTargetFor(selectedPiece) != null && (
-                  <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || isPaused || !!activeLog} onClick={() => moveToStation(advanceTargetFor(selectedPiece))}>
-                    <ArrowRightCircle className="w-4 h-4" />Advance to {stationName(advanceTargetFor(selectedPiece))}
-                  </Button>
-                )}
-                {/* Send the piece to any active station, not just the next
-                    one on its route / in shop order. Same gates as Advance;
-                    hidden while Fab (station 5) is mid layout/weld QA, which
-                    moves on through inspection instead. */}
-                {!(Number(selectedPiece.current_station_id) === 5 && ['In_Fabrication', 'Weld_Unlocked', 'Inspector_Queue'].includes(selectedPiece.workflow_status)) && (
-                  <select
-                    aria-label="Send to station"
-                    className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
-                    value=""
-                    disabled={isFrozen || isReceived || isPaused || !!activeLog}
-                    onChange={(e) => { const id = Number(e.target.value); if (id) moveToStation(id); }}
-                  >
-                    <option value="">Send to station…</option>
-                    {getActiveStations(stationConfig)
-                      .filter((s) => s.id !== Number(selectedPiece.current_station_id))
-                      .map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
+                {/* No "Advance to …" here on purpose: a piece moves to the next
+                    station when a worker signed in there scans it (see "This
+                    tablet's station" and handleScan). Until then it sits here
+                    as done — no timer starts on its own. */}
+                {!activeLog && pieceLocation(selectedPiece, stationLogs).state === 'done' && (
+                  <span className="text-xs text-muted-foreground self-center">Done here — the next station scans it to pick it up.</span>
                 )}
                 {selectedPiece.current_station_id === 5 && selectedPiece.workflow_status === 'In_Fabrication' && (
                   <Button variant="outline" className="gap-2" onClick={() => requestInspection()}><ClipboardCheck className="w-4 h-4" />Ready for Layout</Button>
@@ -883,7 +890,7 @@ export default function ShopFabrication() {
                   <Button variant="outline" className="gap-2" onClick={() => requestInspection()}><ClipboardCheck className="w-4 h-4" />Ready for Weld</Button>
                 )}
                 {selectedPiece.workflow_status === 'Paint_Unlocked' && selectedPiece.current_station_id !== 6 && (
-                  <Button variant="outline" className="gap-2" onClick={() => moveToStation(6)}><ArrowRightCircle className="w-4 h-4" />Route to {stationName(6)} (Station 6)</Button>
+                  <span className="text-xs text-green-700 self-center">Weld QA passed — ready for {stationName(6)} (scan it there).</span>
                 )}
                 {selectedPiece.workflow_status === 'Rejected' && (
                   <span className="flex items-center gap-1 text-xs text-red-600"><Ban className="w-3.5 h-3.5" />{workflowStatusLabel('Rejected')}</span>
@@ -982,17 +989,24 @@ export default function ShopFabrication() {
                   {renderDrawingGateBadge(piece)}
                   {renderHoldBadge(piece)}
                 </p>
-                <p className="text-muted-foreground">{piece.material_shape} • {stationName(piece.current_station_id)}</p>
+                {(() => {
+                  // Where it is now — the last station it was scanned at —
+                  // and what's happening there (pieceLocation.js).
+                  const loc = pieceLocation(piece, stationLogs);
+                  const tone = { working: 'text-green-700', paused: 'text-blue-700', done: 'text-primary', inspection: 'text-amber-700', rejected: 'text-red-600' }[loc.state] || 'text-muted-foreground';
+                  return (
+                    <p className={`font-medium ${tone}`}>
+                      {loc.label}
+                      {loc.state === 'paused' ? ` • ${pieceElapsedMinutes(piece.id)}m logged` : ''}
+                      <span className="text-muted-foreground font-normal"> • {formatDuration(loc.since)}</span>
+                    </p>
+                  );
+                })()}
+                <p className="text-muted-foreground text-xs">{[piece.material_shape, piece.dimensions].filter(Boolean).join(' • ')}</p>
                 <div className="mt-1">{renderRouteProgress(piece, true)}</div>
               </div>
               <div className="flex items-center gap-2">
-                <div className="text-right">
-                  <p className={`font-medium ${piece.workflow_status === 'Paused' ? 'text-blue-700' : ''}`}>
-                    {workflowStatusLabel(piece.workflow_status)}
-                    {piece.workflow_status === 'Paused' ? ` • ${pieceElapsedMinutes(piece.id)}m logged` : ''}
-                  </p>
-                  <p className="text-muted-foreground font-mono text-xs">{piece.qr_payload_string}</p>
-                </div>
+                <p className="text-muted-foreground font-mono text-xs text-right">{piece.serial_number || piece.qr_payload_string}</p>
                 <button
                   type="button"
                   title="Print Tracking Tag"
