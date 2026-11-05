@@ -16,7 +16,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import PageHeader from '@/components/ui/PageHeader';
 import { useToast } from '@/components/ui/use-toast';
-import { AlertTriangle, Zap, Users, PackageX, Gauge, Plus, Printer } from 'lucide-react';
+import { AlertTriangle, Zap, Users, PackageX, Gauge, Plus, Printer, FileSearch } from 'lucide-react';
+import ShopDrawingBrowser from '@/components/shop/ShopDrawingBrowser';
 import LabelPrintingPanel from '@/components/barcode-printing/LabelPrintingPanel';
 import PieceReceivingQueue from '@/components/barcode-printing/PieceReceivingQueue';
 import QrExportQueue from '@/components/barcode-printing/QrExportQueue';
@@ -244,7 +245,12 @@ export default function ShopOperations() {
           <TabsTrigger value="radar">Bottleneck Radar</TabsTrigger>
           <TabsTrigger value="material">Material &amp; Overrides</TabsTrigger>
           <TabsTrigger value="labels" className="gap-1.5"><Printer className="w-3.5 h-3.5" />Label Printing</TabsTrigger>
+          <TabsTrigger value="drawings" className="gap-1.5"><FileSearch className="w-3.5 h-3.5" />Drawings</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="drawings" className="space-y-4">
+          <ShopDrawingBrowser projects={projects} />
+        </TabsContent>
 
         <TabsContent value="scheduler" className="space-y-4">
           <div className="steel-card p-4 overflow-x-auto">

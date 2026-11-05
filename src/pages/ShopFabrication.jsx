@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getCertStatus } from '@/lib/certAlerts';
 import { sortPiecesByPriority, hasActiveOverride, getVoidedShopPieceIds } from '@/lib/shopOpsMetrics';
-import { stationName, nextStationInShopOrder } from '@/lib/shopStations';
+import { stationName, nextStationInShopOrder, getActiveStations } from '@/lib/shopStations';
 import { useShopStationConfig } from '@/lib/shopStationsStore';
 import { resolvePieceRoute, routeSourceLabel, completedStationIdsFor, skippedStepWarnings, nextStationOnRoute, ON_HOLD_BADGE_TEXT, isOnHoldPieceMark, holdWarningText } from '@/lib/shopRoutes';
 import { RouteProgressStrip, StationHistoryDialog } from '@/components/shop-floor/RouteProgress';
@@ -857,6 +857,24 @@ export default function ShopFabrication() {
                   <Button variant="outline" className="gap-2" disabled={isFrozen || isReceived || isPaused || !!activeLog} onClick={() => moveToStation(advanceTargetFor(selectedPiece))}>
                     <ArrowRightCircle className="w-4 h-4" />Advance to {stationName(advanceTargetFor(selectedPiece))}
                   </Button>
+                )}
+                {/* Send the piece to any active station, not just the next
+                    one on its route / in shop order. Same gates as Advance;
+                    hidden while Fab (station 5) is mid layout/weld QA, which
+                    moves on through inspection instead. */}
+                {!(Number(selectedPiece.current_station_id) === 5 && ['In_Fabrication', 'Weld_Unlocked', 'Inspector_Queue'].includes(selectedPiece.workflow_status)) && (
+                  <select
+                    aria-label="Send to station"
+                    className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
+                    value=""
+                    disabled={isFrozen || isReceived || isPaused || !!activeLog}
+                    onChange={(e) => { const id = Number(e.target.value); if (id) moveToStation(id); }}
+                  >
+                    <option value="">Send to station…</option>
+                    {getActiveStations(stationConfig)
+                      .filter((s) => s.id !== Number(selectedPiece.current_station_id))
+                      .map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
                 )}
                 {selectedPiece.current_station_id === 5 && selectedPiece.workflow_status === 'In_Fabrication' && (
                   <Button variant="outline" className="gap-2" onClick={() => requestInspection()}><ClipboardCheck className="w-4 h-4" />Ready for Layout</Button>

@@ -32,6 +32,17 @@ export const DEFAULT_SHOP_STATIONS = Object.freeze([
   { id: 6, name: 'Paint', short_code: 'PAINT', sort_order: 6, is_active: true, shop_floor_zone_id: '' },
 ].map((s) => Object.freeze(s)));
 
+// Standard stations added after the original six (2026-11-05). Ids start at
+// 101 so they can never collide with a company's own added stations (7, 8,
+// …). Every company gets them — appended active when missing from a saved
+// list; an admin who doesn't use one retires it (Admin → Shop Stations),
+// and a retired one stays retired. sort_order slots them into shop order.
+export const STANDARD_ADDED_STATIONS = Object.freeze([
+  { id: 101, name: 'Saw', short_code: 'SAW', sort_order: 1.5, is_active: true, shop_floor_zone_id: '' },
+  { id: 102, name: 'Shipping', short_code: 'SHIP', sort_order: 6.5, is_active: true, shop_floor_zone_id: '' },
+  { id: 103, name: 'Miscellaneous Fab', short_code: 'MISC', sort_order: 6.7, is_active: true, shop_floor_zone_id: '' },
+].map((s) => Object.freeze(s)));
+
 // PieceMark.item_type values a default route can be assigned to (mirrors the
 // enum in schema/entities/PieceMark.jsonc). Blank item_type reads as Piece_Mark.
 export const ROUTE_ITEM_TYPES = [
@@ -73,6 +84,10 @@ export function buildShopStationConfig(settingRow) {
       if (!ids.has(d.id)) stations.push({ ...d, is_active: false, sort_order: 1000 + d.id });
     });
   }
+  {
+    const ids = new Set(stations.map((s) => s.id));
+    STANDARD_ADDED_STATIONS.forEach((d) => { if (!ids.has(d.id)) stations.push({ ...d }); });
+  }
   stations.sort(byOrder);
   const stationIds = new Set(stations.map((s) => s.id));
 
@@ -107,7 +122,7 @@ export const getActiveStations = (config = cachedConfig) => config.stations.filt
 
 export const findStation = (id, config = cachedConfig) => {
   const n = Number(id);
-  return config.stations.find((s) => s.id === n) || DEFAULT_SHOP_STATIONS.find((s) => s.id === n) || null;
+  return config.stations.find((s) => s.id === n) || DEFAULT_SHOP_STATIONS.find((s) => s.id === n) || STANDARD_ADDED_STATIONS.find((s) => s.id === n) || null;
 };
 
 // Same signature + fallback text as the old hard-coded helper. Retired
