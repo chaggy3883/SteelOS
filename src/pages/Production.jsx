@@ -20,6 +20,7 @@ import { buildDrawingIndex, getPieceDrawingStatus, pieceNeedsDrawingWarning, DRA
 import { isVoidedPieceMark } from '@/lib/detailerImportRemovals';
 import { useShopStationConfig } from '@/lib/shopStationsStore';
 import { resolvePieceRoute, routeLabel, routeSourceLabel, ON_HOLD_BADGE_TEXT, isOnHoldPieceMark } from '@/lib/shopRoutes';
+import { syncShopPieces } from '@/lib/shopPieceSync';
 
 const STATUS_OPTIONS = ['all', 'not_started', 'in_fabrication', 'fabricated', 'inspected', 'painted', 'shipped', 'erected'];
 
@@ -187,7 +188,7 @@ export default function Production() {
     setLoading(true);
     try {
       if (project === 'all') {
-        const pieceData = await db.entities.PieceMark.list('-created_date', 200);
+        const pieceData = await db.entities.PieceMark.list('-created_date', 5000);
         // Voided pieces (removed from the detailer file) are excluded from
         // every list/count on this page; on-hold pieces stay, with a badge.
         setPieces(pieceData.filter((p) => !isVoidedPieceMark(p)));
@@ -195,7 +196,7 @@ export default function Production() {
       } else {
         const [pieceData, shopData] = await Promise.all([
           db.entities.PieceMark.filter({ project_id: project }, '-created_date', 1000),
-          db.entities.pieces.filter({ project_id: project }, '-created_date', 1000),
+          syncShopPieces({ projectId: project }).then(() => db.entities.pieces.filter({ project_id: project }, '-created_date', 5000)),
         ]);
         setPieces(pieceData.filter((p) => !isVoidedPieceMark(p)));
         setShopPieces(shopData);

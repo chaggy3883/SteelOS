@@ -137,7 +137,7 @@ export const BUILTIN_ROLES = [
   { name: 'user', label: 'General User', is_system: true, description: 'Basic dashboard access', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder','/documents', '/inventory'], allowed_widgets: [] },
   { name: 'super_admin', label: 'Super Admin', is_system: true, description: 'Platform operator — cross-tenant support access, no home tenant', allowed_modules: ['/super-admin/dashboard', '/employee-center', '/audit-trail'], allowed_widgets: [] },
   { name: 'Maintenance_Manager', label: 'Maintenance Manager', is_system: true, description: 'Exclusive write access to the Field Operations fleet, repair, and rigging ledgers', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder', '/field-operations', '/field-operations/rigging-inspection', '/field-operations/equipment-service'], allowed_widgets: [] },
-  { name: 'salesman', label: 'Salesman', is_system: true, description: 'Personal sales pipeline, commission tracking, and RFI/CO/addenda visibility on projects they sold', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder', '/sales/dashboard', '/portal/login'], allowed_widgets: [] },
+  { name: 'salesman', label: 'Salesman', is_system: true, description: 'Personal sales pipeline, commission tracking, and RFI/CO/addenda visibility on projects they sold', allowed_modules: ['/', '/employee-center', '/quality/kpi-builder', '/sales/dashboard', '/projects', '/crm', '/portal/login'], allowed_widgets: [] },
 ];
 
 export function isModuleAllowed(path, allowedModules) {

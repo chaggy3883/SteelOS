@@ -5,6 +5,27 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-05) — Project pieces reach the shop floor; global search covers the company by role
+- Root cause: nothing created a shop-floor `pieces` row for a real PieceMark (only the demo seeder), so Shop
+  Fabrication / Shop Management / Production / Shipping never saw pieces added to a project.
+  src/lib/shopPieceSync.js syncShopPieces(): every Piece_Mark-type PieceMark gets its `pieces` row (piece_mark_id
+  link, same QR payload + serial, shape/length/weight); idempotent; existing unlinked rows with the same mark are
+  linked; a QR already exported for labels (qr_sequence_number) is never replaced. Runs after Submit / Add Pieces /
+  serial assignment / detailer commit and on load of ShopFabrication, ShopOperations, ShopFloorCommandCenter,
+  Production, Shipping, FieldOperations, ProjectDetail (limits raised to 5000). Deleting an office piece removes its
+  shop row only if the shop never worked it (removeShopPiecesFor). pieces.serial_number added; a typed serial scans.
+- Global search rewritten (src/lib/globalSearchSources.js + GlobalSearchPalette): projects, estimates/bids, pieces
+  (mark, serial, QR, assembly, drawing #), purchase orders, customers, vendors, employees (masked per HR access),
+  candidates, RFIs, submittals, change orders, shipping loads, documents. A type is searched only when the role can
+  open its page (getUserPermissions allowed_modules + company module pack — same as the sidebar). Loads everything
+  on open and filters every record (old version only looked at the newest 50 of each); multi-word match; arrow keys
+  + Enter. Every result deep-links to the record: new ?piece= on ProjectDetail (opens the piece dialog) and ?load= on
+  Shipping; existing ?open= / ?customer= / ?vendor= / ?employee= / ?candidate= / ?doc= links.
+- Behavior change: shop_manager no longer searches employees (can't open HR). Salesman now has /projects and /crm
+  (rbacConfig BUILTIN_ROLES): the Projects list shows only projects they sold (salesman_id = their employee_id), and
+  search keeps projects / pieces / RFIs / change orders to their own projects; CRM customers and vendors are shared.
+  Not yet: a salesman opening another salesman's project by direct URL isn't blocked on ProjectDetail.
+
 ## Also Closed (2026-11-04) — Pieces: drop → select all → Submit; delete pieces; drawings that wouldn't open
 - PieceMarkPdfIntake: every dropped PDF goes into an "Uploaded drawings" list (ticked, mark from file name, editable,
   per-row or bulk area, "New piece" / "Add to <mark>"); one Submit does them all in order, failures stay listed with

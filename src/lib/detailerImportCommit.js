@@ -32,6 +32,7 @@ import { saveDocumentFile } from '@/lib/documentBlobStore';
 import { findWholePieceRemnantMatches } from '@/lib/materialOptimizer';
 import { propagateHeatNumberToPieces } from '@/lib/heatPropagation';
 import { applyRemovalDecisions } from '@/lib/detailerImportRemovals';
+import { syncShopPieces } from '@/lib/shopPieceSync';
 
 const PIECE_MARK_TEXT_FIELDS = ['assembly', 'material_grade', 'material_profile', 'finished_length', 'revision', 'drawing_number'];
 
@@ -321,6 +322,8 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
   const { held: removalsHeld, voided: removalsVoided } = await applyRemovalDecisions(batch, removalDecisions, { changedBy, note: removalNote });
 
   const updatedBatch = await db.entities.DetailerImportBatch.update(batch.id, { import_status: 'committed' });
+  // New / renamed pieces get their shop-floor rows (Shop Fabrication scanning).
+  await syncShopPieces({ projectId: batch.project_id });
 
   return { created, updated, skipped, revisionsSkipped, drawingsMatched, inventoryMatchesApplied, removalsHeld, removalsVoided, batch: updatedBatch };
 };

@@ -17,6 +17,7 @@ import RepairLedger from '@/components/field-operations/RepairLedger';
 import RiggingMatrix from '@/components/field-operations/RiggingMatrix';
 import EquipmentUsagePanel from '@/components/field-operations/EquipmentUsagePanel';
 import JobsiteReceiving from '@/components/field-operations/JobsiteReceiving';
+import { syncShopPieces } from '@/lib/shopPieceSync';
 
 const FLEET_WRITE_ROLES = ['admin', 'super_admin', 'Maintenance_Manager'];
 const PO_MISMATCH_OVERRIDE_ROLES = ['controller', 'finance_department', 'admin', 'super_admin'];
@@ -55,7 +56,7 @@ export default function FieldOperations() {
         db.entities.rigging_inventory_ledger.list('-created_date', 200),
         db.entities.RiggingInspection.list('-created_date', 500),
         db.entities.Project.filter({ is_archived: false }, 'name', 100),
-        db.entities.pieces.list('-created_date', 500),
+        syncShopPieces().then(() => db.entities.pieces.list('-created_date', 5000)),
         db.entities.Vendor.filter({ is_active: true }, 'name', 200),
         db.entities.purchase_orders.filter({ status: 'Open' }, '-created_date', 200),
         db.entities.employees.list('full_name', 500),

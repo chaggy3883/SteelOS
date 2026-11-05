@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { db } from '@/api/apiClient';
 import {
   ArrowLeft, Brain, MessageSquare, Package,
@@ -42,6 +42,7 @@ import { assignPieceIdentity, maxPieceSerialSeq } from '@/lib/pieceIdentity';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import PieceQrCode from '@/components/projects/PieceQrCode';
 import { formatTons } from '@/lib/formatTons';
+import { syncShopPieces } from '@/lib/shopPieceSync';
 
 const PART_ITEM_TYPES = ['Loose_Part', 'Bolt', 'Embed', 'Misc_Metal', 'Lintel'];
 const emptyPartForm = () => ({
@@ -80,7 +81,10 @@ export default function ProjectDetail() {
   const canSeeAreaDollarFigures = canSeeAreaPricing(user?.roles);
   const [showStatusHistory, setShowStatusHistory] = useState(false);
   const [project, setProject] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  // ?tab=<tab> opens that tab; ?piece=<PieceMark id> (global search) also
+  // opens the Pieces tab with that piece's details up.
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => (searchParams.get('piece') ? 'pieces' : searchParams.get('tab') || 'overview'));
   const [findingsStatusFilter, setFindingsStatusFilter] = useState(null);
   const [partsFilter, setPartsFilter] = useState(null); // { kind: 'type'|'material', value }
   const [findings, setFindings] = useState([]);
@@ -228,7 +232,7 @@ export default function ProjectDetail() {
         db.entities.RFI.filter({ project_id: id }, '-created_date', 20),
         db.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 500),
         db.entities.Subcontract.filter({ project_id: id }, '-created_date', 50),
-        db.entities.pieces.filter({ project_id: id }, '-created_date', 500),
+        syncShopPieces({ projectId: id }).then(() => db.entities.pieces.filter({ project_id: id }, '-created_date', 5000)),
         db.entities.ProjectMeetingNote.filter({ project_id: id }, '-created_date', 200),
         db.entities.employees.filter({ is_active: true }, 'full_name', 500),
         db.entities.employee_certifications.list('-created_date', 2000),
@@ -415,6 +419,7 @@ export default function ProjectDetail() {
         updatedById.set(p.id, updated);
       }
       setPieces((prev) => prev.map((p) => updatedById.get(p.id) || p));
+      syncShopPieces({ projectId: project?.id });
       toast({ title: `Assigned serial numbers and QR codes to ${updatedById.size} piece${updatedById.size === 1 ? '' : 's'}` });
     } catch (e) {
       console.error('Failed to assign piece serials', e);
@@ -426,6 +431,16 @@ export default function ProjectDetail() {
   // Runs on its own once per project open, so older pieces show a serial
   // number without anyone pressing the button (the button stays as a retry
   // if this fails).
+  // Deep link from global search: open the piece once the list is loaded.
+  const deepLinkPieceId = searchParams.get('piece');
+  useEffect(() => {
+    if (loading || !deepLinkPieceId) return;
+    const target = pieces.find((p) => p.id === deepLinkPieceId);
+    if (!target) return;
+    setActiveTab('pieces');
+    if (target.item_type && target.item_type !== 'Piece_Mark') setViewingPart(target);
+    else setViewingPhasePiece(target);
+  }, [loading, deepLinkPieceId]);
   const autoAssignedForRef = useRef(null);
   useEffect(() => {
     if (loading || !project?.id || autoAssignedForRef.current === project.id) return;
@@ -471,6 +486,7 @@ export default function ProjectDetail() {
       setShowPartForm(false);
       setPartForm(emptyPartForm());
       setStockQtyTouched(false);
+      syncShopPieces({ projectId: id });
       toast({ title: 'Part/hardware added' });
     } catch (e) {
       toast({ title: 'Unable to add part', variant: 'destructive' });

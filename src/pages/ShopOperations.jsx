@@ -23,6 +23,7 @@ import QrExportQueue from '@/components/barcode-printing/QrExportQueue';
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { syncShopPieces } from '@/lib/shopPieceSync';
 
 const emptyOverrideForm = () => ({ piece_id: '', override_type: 'Expedite_Part', authorized_by_mgr_id: '' });
 
@@ -92,7 +93,7 @@ export default function ShopOperations() {
     try {
       const [projectData, pieceData, logsData, qaData, scheduleData, remnantData, overrideData, settingsRows, poData, receivingData, leaveData, manifestData, printJobData, pieceProductionLogData, employeeData, pieceMarkData] = await Promise.all([
         db.entities.Project.filter({ is_archived: false }, 'name', 50),
-        db.entities.pieces.list('-created_date', 500),
+        syncShopPieces().then(() => db.entities.pieces.list('-created_date', 5000)),
         db.entities.station_logs.list('-created_date', 500),
         db.entities.qa_inspections.list('-created_date', 500),
         db.entities.shop_schedules.list('-created_date', 200),

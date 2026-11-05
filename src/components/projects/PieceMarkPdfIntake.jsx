@@ -17,6 +17,7 @@ import { stripFileExtension, matchFilenameToPiece, attachFileToPiece, createPiec
 import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
 import PieceQrCode from '@/components/projects/PieceQrCode';
 import PieceLabelPrintDialog from '@/components/projects/PieceLabelPrintDialog';
+import { syncShopPieces, removeShopPiecesFor } from '@/lib/shopPieceSync';
 
 const isPdf = (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
 
@@ -155,6 +156,7 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
       }
     }
     setProcessing(null);
+    if (created) syncShopPieces({ projectId: project?.id });
     setUnmatchedFiles((prev) => prev
       .filter((f) => !done.has(f.id))
       .map((f) => (failed.has(f.id) ? { ...f, error: failed.get(f.id) } : f)));
@@ -177,10 +179,12 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
     if (!window.confirm(`Delete ${list.length === 1 ? 'piece' : `${list.length} pieces`} ${names}? ${list.length === 1 ? 'Its drawings are' : 'Their drawings are'} deleted too. This can't be undone.${warn}`)) return;
     let removed = 0;
     let firstError = null;
+    const deletedIds = [];
     for (const p of list) {
       try {
         await db.entities.PieceMark.delete(p.id);
         removed += 1;
+        deletedIds.push(p.id);
         onPieceDeleted?.(p.id);
         setSelectedIds((prev) => { const next = new Set(prev); next.delete(p.id); return next; });
         deleteDocumentRecords(pieceDocumentsKey(p.id)).catch(() => {});
@@ -189,6 +193,8 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
         firstError = firstError || e?.message || 'Could not delete.';
       }
     }
+    // The shop-floor rows go too, unless the shop already worked them.
+    if (deletedIds.length) removeShopPiecesFor(deletedIds).catch(() => {});
     if (removed) toast({ title: `Deleted ${removed} piece${removed === 1 ? '' : 's'}` });
     if (firstError) toast({ title: 'Some pieces were not deleted', description: firstError, variant: 'destructive' });
   };

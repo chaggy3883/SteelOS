@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { db } from '@/api/apiClient';
 import { Truck, Package, CheckCircle2, FileCheck, PauseCircle, PlayCircle, PackagePlus } from 'lucide-react';
@@ -23,6 +24,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
 import { logStatusChange } from '@/lib/statusHistory';
 import { isVoidedPieceMark } from '@/lib/detailerImportRemovals';
+import { syncShopPieces } from '@/lib/shopPieceSync';
 
 // Loads that have finished Load Builder (Load Complete) and are ready,
 // inspected, or already moving — the main Shipping List. Draft/Staged
@@ -48,7 +50,9 @@ export default function Shipping() {
   // Drill-down targets, shared across the Shipping List tab and the
   // LoadBuilder/YardScanning child components (passed down as callbacks) so
   // every surface that shows a load/piece/manifest opens the same modal.
-  const [viewingLoadId, setViewingLoadId] = useState(null);
+  // ?load=<id> (global search) opens that load straight away.
+  const [searchParams] = useSearchParams();
+  const [viewingLoadId, setViewingLoadId] = useState(() => searchParams.get('load') || null);
   const [viewingPiece, setViewingPiece] = useState(null); // { pieceMarkId } | { pieceId }
   const [viewingManifestId, setViewingManifestId] = useState(null);
   const [viewingAdHocShipmentId, setViewingAdHocShipmentId] = useState(null);
@@ -93,7 +97,7 @@ export default function Shipping() {
   const loadLogisticsData = async () => {
     try {
       const [pieceData, loadsData, itemsData, manifestData, carrierData, pieceMarkData, adHocData] = await Promise.all([
-        db.entities.pieces.list('-created_date', 200),
+        syncShopPieces().then(() => db.entities.pieces.list('-created_date', 5000)),
         db.entities.loads.list('-created_date', 100),
         db.entities.load_items.list('-created_date', 500),
         db.entities.shipping_manifests.list('-created_date', 100),

@@ -30,6 +30,7 @@ import { getCncFileUrl } from '@/lib/cncFileStore';
 import { downloadFile } from '@/lib/downloadFile';
 import StockMaterialUnitDetailModal from '@/components/shared/StockMaterialUnitDetailModal';
 import { buildDrawingIndex, getPieceDrawingStatus, pieceNeedsDrawingWarning, normalizeDrawingNumber, DRAWING_BADGE_CLASSES } from '@/lib/drawingReleaseStatus';
+import { syncShopPieces } from '@/lib/shopPieceSync';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
   CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer, Camera,
@@ -268,7 +269,7 @@ export default function ShopFabrication() {
     setLoading(true);
     try {
       const [pieceData, logsData, qaData, scheduleData, overrideData] = await Promise.all([
-        db.entities.pieces.list('-created_date', 100),
+        syncShopPieces().then(() => db.entities.pieces.list('-created_date', 5000)),
         db.entities.station_logs.list('-created_date', 100),
         db.entities.qa_inspections.list('-created_date', 100),
         db.entities.shop_schedules.list('-created_date', 200),

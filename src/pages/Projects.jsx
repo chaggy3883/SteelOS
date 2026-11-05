@@ -32,8 +32,15 @@ export default function Projects() {
   const loadProjects = async () => {
     setLoading(true);
     try {
-      const data = await db.entities.Project.filter({ is_archived: false }, '-created_date', 100);
-      setProjects(data);
+      const [data, me] = await Promise.all([
+        db.entities.Project.filter({ is_archived: false }, '-created_date', 5000),
+        db.auth.me().catch(() => null),
+      ]);
+      // A salesman (with no broader role) sees the projects they sold —
+      // same rule as global search and the salesman dashboard.
+      const roles = (me?.roles || []).map((r) => String(r).toLowerCase());
+      const salesmanOnly = roles.includes('salesman') && !roles.some((r) => ['admin', 'super_admin', 'project_manager', 'estimator'].includes(r));
+      setProjects(salesmanOnly ? data.filter((p) => !!me?.employee_id && p.salesman_id === me.employee_id) : data);
     } catch (e) {} finally { setLoading(false); }
   };
 

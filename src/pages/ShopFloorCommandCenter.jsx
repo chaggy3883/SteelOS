@@ -24,6 +24,7 @@ import { AlertTriangle, Clock, Gauge, CheckCircle2, ScanLine, PauseCircle, PlayC
 import { getEffectiveCompany, isSuperAdmin, isImpersonating } from '@/lib/tenantContext';
 import { hasModule } from '@/lib/moduleEntitlement';
 import ModuleLocked from '@/components/shared/ModuleLocked';
+import { syncShopPieces } from '@/lib/shopPieceSync';
 
 const REFRESH_INTERVAL_MS = 45000;
 
@@ -83,7 +84,7 @@ export default function ShopFloorCommandCenter() {
   const loadAll = async () => {
     try {
       const [pieceData, logsData, pplData, timingData, projectData, settingsRows, pieceMarkData] = await Promise.all([
-        db.entities.pieces.list('-created_date', 500),
+        syncShopPieces().then(() => db.entities.pieces.list('-created_date', 5000)),
         db.entities.station_logs.list('-created_date', 500),
         db.entities.piece_production_logs.filter({ status: 'Complete' }, '-created_date', 1000),
         db.entities.piece_timing_events.list('-scanned_at', 500),

@@ -29,7 +29,12 @@
       "type": "string"
     },
     "qr_payload_string": {
-      "type": "string"
+      "type": "string",
+      "description": "Same value as the PieceMark's QR (copied by syncShopPieces, src/lib/shopPieceSync.js), so the printed piece label scans on the shop floor."
+    },
+    "serial_number": {
+      "type": "string",
+      "description": "Copied from the PieceMark (e.g. HAN-000042) by syncShopPieces so a typed serial number finds the piece on the shop floor."
     },
     "qr_sequence_number": {
       "type": "number",
