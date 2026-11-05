@@ -31,6 +31,7 @@ import { downloadFile } from '@/lib/downloadFile';
 import StockMaterialUnitDetailModal from '@/components/shared/StockMaterialUnitDetailModal';
 import { buildDrawingIndex, getPieceDrawingStatus, pieceNeedsDrawingWarning, normalizeDrawingNumber, DRAWING_BADGE_CLASSES } from '@/lib/drawingReleaseStatus';
 import { syncShopPieces } from '@/lib/shopPieceSync';
+import ShopPieceBlueprint from '@/components/shop/ShopPieceBlueprint';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
   CheckCircle2, ArrowRightCircle, Lock, X, Stamp, AlertTriangle, Ban, Printer, Camera,
@@ -993,18 +994,16 @@ export default function ShopFabrication() {
           <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
             <div>
               <h3 className="font-semibold">{selectedPiece.piece_mark} — Blueprint</h3>
-              <p className="text-xs text-muted-foreground">{selectedPiece.blueprint_file_uri || 'No blueprint on file'}</p>
+              <p className="text-xs text-muted-foreground">{[selectedPieceMark?.serial_number, selectedPieceMark?.drawing_number].filter(Boolean).join(' • ') || 'Drawing attached to this piece'}</p>
             </div>
             <Button size="lg" onClick={() => setShowBlueprint(false)} className="bg-red-600 hover:bg-red-700 text-white border-0 font-bold shadow-lg">
               <X className="w-5 h-5 mr-2" />Close Blueprint
             </Button>
           </div>
-          <div className="flex-1 bg-muted/30">
-            {selectedPiece.blueprint_file_uri ? (
-              <iframe src={selectedPiece.blueprint_file_uri} title={`Blueprint for ${selectedPiece.piece_mark}`} className="w-full h-full border-0" />
-            ) : (
-              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">No blueprint file on record for this piece.</div>
-            )}
+          <div className="flex-1 min-h-0 bg-muted/30">
+            {/* The PDF dropped on the piece in Project → Pieces (it used to
+                read only blueprint_file_uri, which real pieces never have). */}
+            <ShopPieceBlueprint pieceMark={selectedPieceMark} fallbackUri={selectedPiece.blueprint_file_uri} />
           </div>
         </div>
       )}
