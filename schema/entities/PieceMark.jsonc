@@ -97,6 +97,24 @@
     "barcode": {
       "type": "string"
     },
+    "assembly_mark": {
+      "type": "string",
+      "description": "Detailer assembly this piece is one copy of (e.g. '2B2' for 2B2-1, 2B2-2, 2B2-3) — set by a detailer BOM / KSS import (src/lib/assemblyBom.js). Copies share one set of drawings (pieceMarkDocumentStore documentsKeyForPiece)."
+    },
+    "copy_number": { "type": "number", "description": "Which copy of assembly_mark this piece is (1-based)." },
+    "copy_count": { "type": "number", "description": "How many copies of assembly_mark the detailer file calls for." },
+    "assembly_type": { "type": "string", "description": "Detailer assembly type, e.g. BEAM, COLUMN, ANGLE, FRAME, BENT PLATE." },
+    "finish": { "type": "string", "description": "Detailer finish code(s) as given, e.g. SC2E, 'SC1E BC1E', GALV. — stored as text only." },
+    "main_member": {
+      "type": "object",
+      "description": "The assembly's main member: { part_mark, quantity_per_assembly, quantity_total, profile, length, grade, weight_each_lbs, weight_source ('aisc'|'plate'|null) }."
+    },
+    "parts": {
+      "type": "array",
+      "description": "Parts attached to the main member, per ONE assembly — same shape as main_member. Weights are calculated (AISC shapes / plate math); the detailer report gives assembly weights only (weight_lbs).",
+      "items": { "type": "object" }
+    },
+    "detailer_batch_id": { "type": "string", "description": "DetailerImportBatch that created this piece (detailer removal detection)." },
     "serial_number": {
       "type": "string",
       "description": "Assigned automatically when the piece is added to a project (any path — localData.js stampPieceIdentity, src/lib/pieceIdentity.js): company code's first 3 letters + a 6-digit company-wide running number, e.g. 'HAN-000042'. Never changed or reused. Pieces added before 2026-11-04 get one from 'Assign serial numbers' on the project's Pieces tab. Also accepted by matchPieceByScan (pieceScan.js)."

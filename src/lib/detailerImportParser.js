@@ -12,6 +12,7 @@
 // report's structure. Nothing here writes to PieceMark directly — every
 // parser only produces staged rows for review.
 import { deriveShapeFromProfile } from '@/lib/materialProfileMatch';
+import { looksLikeAssemblyBom, parseAssemblyBomToRows, groupKssRowsIntoAssemblies, assemblyToStagedRow } from '@/lib/assemblyBom';
 
 const parseCsvText = (text) => {
   const rows = [];
@@ -194,185 +195,43 @@ export const parseDetailerKssFile = (text) => {
     });
   }
 
-  return { rows, fileErrors };
-};
-
-// Tekla "Assembly List with Parts (BOM)" text report. This is a PDF-derived
-// export with no dedicated file extension of its own — a detailer might
-// save it as .txt or paste it into a .csv-extensioned file — so it's
-// recognized by a content signature (see looksLikeTeklaBomFile below) as
-// well as by the .txt extension, rather than by extension alone.
-//
-// Layout: a header block (report title, project name, job number, date,
-// time — free text, skipped wholesale until the first assembly block
-// starts), then one block per assembly, bounded by dashed separator lines.
-// Each block starts with a summary line — {assembly_mark} {total_qty}
-// {assembly_type} {total_weight} {ext_weight}, optionally followed by a
-// "(GALV.)"-style finish note in parens — then the assembly's own main
-// piece line and zero or more minor/connection part lines, all sharing the
-// same {piece_mark} {qty} {profile} {length} shape (main piece's mark
-// equals the assembly mark; an assembly with no minor parts has only this
-// one line, which is normal). Page headers ("Unit Ext. Page: N" / the
-// column-label line) repeat mid-document and are stripped like the
-// separators, not parsed as data. The report footer ("Total weight for N
-// Assemblies: ..." / "END OF REPORT") is recognized and excluded; N is
-// compared against the parsed assembly count as a validation check.
-//
-// Known artifact: some part lines concatenate without a line break where
-// the source PDF wrapped a page (e.g. a main piece line run directly into
-// the next minor part line). Rather than treating a line as always exactly
-// one record, TEKLA_RECORD_REGEX is matched against each line with the
-// global flag and re-run until exhausted — a line containing more than one
-// {piece_mark} {qty} {profile} {length} match is split into that many rows.
-//
-// This report has no per-line grade column, so material_grade is left
-// blank on every row rather than guessed — the existing batch-wide
-// validateBatchRows (detailerImportValidation.js) already flags a blank
-// material_grade as a warning during review, same as it would for any other
-// parser, so no separate validation path is needed here. The assembly's
-// finish note (e.g. "(GALV.)") is captured in raw_row_data for traceability
-// on every row of that assembly's block; it's deliberately NOT written into
-// material_grade (that would fabricate a grade value) or appended to
-// material_profile (that would break steel_catalog matching for every
-// finished row) — a reviewer who needs galvanized and non-galvanized stock
-// of the same profile/length kept separate during optimization can use the
-// captured note to set distinguishing grades by hand during staging review.
-const ASSEMBLY_TYPE_KEYWORDS = ['EMBED PLATE', 'LINTEL ANGLE', 'BENT PLATE', 'HANGER POST', 'BEAM', 'COLUMN', 'BRACE', 'FRAME', 'CHANNEL', 'ANGLE', 'HANGER', 'POST'];
-
-const TEKLA_BOM_SIGNATURE = /ASSEMBLY LIST WITH PARTS\s*\(BOM\)/i;
-
-const TEKLA_ASSEMBLY_SUMMARY_REGEX = new RegExp(
-  `^(\\S+)\\s+(\\d+)\\s+(${ASSEMBLY_TYPE_KEYWORDS.join('|')})\\s+([\\d,]+\\.?\\d*)\\s+([\\d,]+\\.?\\d*)(?:\\s*\\(([^)]+)\\))?\\s*$`,
-  'i',
-);
-
-// piece_mark, qty, profile (non-greedy — profile itself may contain a
-// literal " for inches, e.g. PL3/8"X4"), length (feet-inches-fraction, e.g.
-// 39'-4 3/8", or bare inches for short parts, e.g. 8").
-const TEKLA_RECORD_REGEX = /([A-Za-z0-9]+)\s+(\d+)\s+([A-Za-z0-9./"]+?)\s+((?:\d+'-)?\d+(?:\s+\d+\/\d+)?")/g;
-
-const TEKLA_SEPARATOR_LINE_REGEX = /^[\s-]+$/;
-const TEKLA_PAGE_HEADER_REGEXES = [/^Unit Ext\.?\s*Page:\s*\d+/i, /^Mark\s+Qty\.?\s+Profile\s+Length\s+Weight\s+Weight\s+Finish/i];
-const TEKLA_TOTAL_WEIGHT_REGEX = /^Total weight for\s+(\d+)\s+Assemblies?:/i;
-const TEKLA_END_OF_REPORT_REGEX = /^END OF REPORT/i;
-
-const looksLikeTeklaBomFile = (text) => TEKLA_BOM_SIGNATURE.test(String(text || '').split(/\r\n|\r|\n/).slice(0, 10).join('\n'));
-
-export const parseDetailerTeklaBomFile = (text) => {
-  const lines = String(text || '').split(/\r\n|\r|\n/);
-  if (lines.every((l) => l.trim() === '')) return { rows: [], fileErrors: ['File is empty.'] };
-
-  const fileErrors = [];
-  const rows = [];
-
-  let inHeader = true;
-  let currentAssembly = null;
-  let currentAssemblyMeta = null;
-  let isFirstRowOfBlock = false;
-  let parsedAssemblyCount = 0;
-  let reportedAssemblyCount = null;
-
-  lines.forEach((rawLine, idx) => {
-    const line = rawLine.trim();
-    const lineNumber = idx + 1;
-    if (line === '') return;
-    if (TEKLA_SEPARATOR_LINE_REGEX.test(line) && line.replace(/\s/g, '').length >= 3) return;
-    if (TEKLA_PAGE_HEADER_REGEXES.some((re) => re.test(line))) return;
-    if (TEKLA_END_OF_REPORT_REGEX.test(line)) return;
-
-    const totalMatch = line.match(TEKLA_TOTAL_WEIGHT_REGEX);
-    if (totalMatch) { reportedAssemblyCount = Number(totalMatch[1]); return; }
-
-    const summaryMatch = line.match(TEKLA_ASSEMBLY_SUMMARY_REGEX);
-    if (summaryMatch) {
-      inHeader = false;
-      parsedAssemblyCount += 1;
-      currentAssembly = summaryMatch[1];
-      currentAssemblyMeta = {
-        assembly_type: summaryMatch[3],
-        total_qty: summaryMatch[2],
-        total_weight: summaryMatch[4],
-        ext_weight: summaryMatch[5],
-        finish_note: summaryMatch[6] || '',
-      };
-      isFirstRowOfBlock = true;
-      return;
-    }
-
-    if (inHeader) return; // report title / project name / job number / date / time
-
-    if (!currentAssembly) {
-      fileErrors.push(`Line ${lineNumber} looks like a part record but no assembly block has started yet — skipped: "${line}"`);
-      return;
-    }
-
-    const records = [];
-    TEKLA_RECORD_REGEX.lastIndex = 0;
-    let match;
-    while ((match = TEKLA_RECORD_REGEX.exec(line)) !== null) {
-      records.push({ piece_mark: match[1], quantity: match[2], profile: match[3], length: match[4] });
-    }
-
-    if (records.length === 0) {
-      fileErrors.push(`Line ${lineNumber} could not be parsed as a part record — skipped: "${line}"`);
-      return;
-    }
-    if (records.length > 1) {
-      fileErrors.push(`Line ${lineNumber} contained ${records.length} concatenated part records (source PDF line-wrap artifact) — split automatically.`);
-    }
-
-    records.forEach((record) => {
-      const raw_row_data = {
-        assembly: currentAssembly,
-        piece_mark: record.piece_mark,
-        quantity: record.quantity,
-        profile: record.profile,
-        length: record.length,
-        source_line: line,
-      };
-      if (currentAssemblyMeta?.finish_note) raw_row_data.finish_note = currentAssemblyMeta.finish_note;
-      if (isFirstRowOfBlock) {
-        raw_row_data.assembly_type = currentAssemblyMeta.assembly_type;
-        raw_row_data.assembly_total_qty = currentAssemblyMeta.total_qty;
-        raw_row_data.assembly_total_weight = currentAssemblyMeta.total_weight;
-        raw_row_data.assembly_ext_weight = currentAssemblyMeta.ext_weight;
-      }
-
-      const { quantityValue, weightValue, errors } = validateStagedRow({
-        piece_mark: record.piece_mark, quantity: record.quantity, weight: undefined,
-      });
-
-      rows.push({
-        piece_mark: record.piece_mark,
-        assembly: currentAssembly,
-        material_profile: record.profile,
-        shape: deriveShapeFromProfile(record.profile),
-        material_grade: '',
-        finished_length: record.length,
-        quantity: quantityValue,
-        weight: weightValue,
-        drawing_number: '',
-        revision: '',
-        // Finish note (e.g. "(GALV.)") is the only per-assembly annotation this
-        // report carries — see the block comment above for why it's kept out
-        // of material_grade/material_profile; notes is its natural home.
-        notes: currentAssemblyMeta?.finish_note || '',
-        raw_row_data,
-        validation_status: errors.length ? 'error' : 'valid',
-        validation_errors: errors,
-        validation_warnings: [],
-      });
-
-      isFirstRowOfBlock = false;
-    });
-  });
-
-  if (reportedAssemblyCount != null && reportedAssemblyCount !== parsedAssemblyCount) {
-    fileErrors.push(`Report states ${reportedAssemblyCount} assemblies but ${parsedAssemblyCount} were parsed — verify no assembly blocks were missed or mis-parsed.`);
+  // Lines carry an assembly mark -> group the parts under their assemblies
+  // (assemblyBom.js), same shape as the PDF BOM: one staged row per
+  // assembly with its parts and their grades. KSS has no assembly weight,
+  // so the assembly's weight is the sum of its calculated part weights.
+  // A file with no assembly marks stays one row per line, as before.
+  if (rows.some((r) => r.assembly)) {
+    const grouped = groupKssRowsIntoAssemblies(rows.filter((r) => r.validation_status !== 'error'));
+    const errorRows = rows.filter((r) => r.validation_status === 'error');
+    return {
+      rows: [...grouped.map((a) => assemblyToStagedRow(a, { sourceKind: 'kss' })), ...errorRows],
+      fileErrors,
+    };
   }
 
   return { rows, fileErrors };
 };
+
+// Tekla "Assembly List with Parts (BOM)" report — the PDF a detailer sends
+// (DetailerImports.jsx reads its text out first, pdfTextLines.js) or the
+// same report saved as .txt. Parsed by assemblyBom.js into ONE staged row
+// per assembly (mark, copies, type, main member, finish, detailer weight)
+// with its attached parts and their calculated weights; commit splits each
+// into one piece per copy (2B2-1, 2B2-2 …). The report's own
+// "Total weight for N Assemblies" line is checked against what was read.
+const looksLikeTeklaBomFile = looksLikeAssemblyBom;
+
+export const parseDetailerTeklaBomFile = (text) => {
+  const lines = String(text || '').split(/\r\n|\r|\n/);
+  if (lines.every((l) => l.trim() === '')) return { rows: [], fileErrors: ['File is empty.'] };
+  return parseAssemblyBomToRows(lines);
+};
+
+// A PDF that is a bill of materials (not a drawing): read for data instead
+// of being matched to a piece as a drawing. Judged by name before it's read
+// (DetailerImports.jsx confirms the report signature after reading it).
+const BOM_PDF_NAME = /\b(bom|bill of material|material list|assembly list|parts list)\b/i;
+export const isBomPdfName = (fileName) => /\.pdf$/i.test(String(fileName || '')) && BOM_PDF_NAME.test(String(fileName || '').replace(/[_-]+/g, ' '));
 
 // Extension-based dispatch is the default, but Tekla BOM content is
 // recognized by its own signature line first — regardless of extension —
@@ -386,6 +245,7 @@ export const parseDetailerTeklaBomFile = (text) => {
 const PARSABLE_EXTENSIONS = { csv: parseDetailerCsvFile, kss: parseDetailerKssFile, txt: parseDetailerTeklaBomFile };
 
 export const isParsableDetailerFile = (fileName) => {
+  if (isBomPdfName(fileName)) return true;
   const ext = String(fileName || '').split('.').pop().toLowerCase();
   return Object.prototype.hasOwnProperty.call(PARSABLE_EXTENSIONS, ext);
 };

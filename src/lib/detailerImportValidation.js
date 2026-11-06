@@ -20,9 +20,16 @@ export const validateBatchRows = (rows, catalogSizeDesignations = []) => {
   const catalogSet = new Set(catalogSizeDesignations.map(normalizeProfile).filter(Boolean));
   const checkCatalog = catalogSet.size > 0;
 
+  // Assembly rows from a BOM and a KSS for the same job share marks on
+  // purpose (they merge at commit) — only count duplicates within one file
+  // type.
+  const dupKey = (row) => {
+    const mark = normalizeScanValue(row.piece_mark);
+    return mark && row.record_kind === 'assembly' ? `${row.source_kind || ''}|${mark}` : mark;
+  };
   const countsByPieceMark = new Map();
   rows.forEach((row) => {
-    const key = normalizeScanValue(row.piece_mark);
+    const key = dupKey(row);
     if (!key) return;
     countsByPieceMark.set(key, (countsByPieceMark.get(key) || 0) + 1);
   });
@@ -33,15 +40,20 @@ export const validateBatchRows = (rows, catalogSizeDesignations = []) => {
 
     if (!row.piece_mark) {
       errors.push('Missing piece mark');
-    } else if (countsByPieceMark.get(normalizeScanValue(row.piece_mark)) > 1) {
+    } else if (countsByPieceMark.get(dupKey(row)) > 1) {
       errors.push('Duplicate piece mark within this import batch');
     }
 
     // Parse-time flagged these as hard errors already (non-numeric
     // quantity/weight) — carry them forward rather than re-deriving.
     (row.validation_errors || []).forEach((message) => {
-      if (/^Invalid (quantity|weight)/.test(message) && !errors.includes(message)) errors.push(message);
+      const keep = row.record_kind === 'assembly' ? !/^Duplicate piece mark/.test(message) : /^Invalid (quantity|weight)/.test(message);
+      if (keep && !errors.includes(message)) errors.push(message);
     });
+    // Assembly rows: keep the parser's own notes (e.g. parts it couldn't weigh).
+    if (row.record_kind === 'assembly') {
+      (row.validation_warnings || []).forEach((m) => { if (/^No weight calculated/.test(m) && !warnings.includes(m)) warnings.push(m); });
+    }
 
     if (!row.material_profile) warnings.push('Missing material profile');
     if (!row.material_grade) warnings.push('Missing material grade');

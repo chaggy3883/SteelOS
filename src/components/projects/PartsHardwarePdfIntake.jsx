@@ -79,7 +79,9 @@ export default function PartsHardwarePdfIntake({ project, pieces, sequenceAreas,
       setProcessing({ current: i + 1, total: queue.length });
       const mark = item.markInput.trim();
       if (!mark) { failed.set(item.id, 'Enter a part number.'); continue; }
-      const existing = byMark.get(normalizeScanValue(mark));
+      // Exact piece mark, else an imported assembly's copies ("2B9" -> 2B9-1 …,
+      // which share one set of drawings).
+      const existing = byMark.get(normalizeScanValue(mark)) || matchFilenameToPiece(pieces, mark);
       try {
         if (existing) {
           await attachFileToPiece(existing, item.file);

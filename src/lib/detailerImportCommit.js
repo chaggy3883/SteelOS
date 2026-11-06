@@ -33,8 +33,9 @@ import { findWholePieceRemnantMatches } from '@/lib/materialOptimizer';
 import { propagateHeatNumberToPieces } from '@/lib/heatPropagation';
 import { applyRemovalDecisions } from '@/lib/detailerImportRemovals';
 import { syncShopPieces } from '@/lib/shopPieceSync';
+import { expandAssemblyRows } from '@/lib/assemblyBom';
 
-const PIECE_MARK_TEXT_FIELDS = ['assembly', 'material_grade', 'material_profile', 'finished_length', 'revision', 'drawing_number'];
+const PIECE_MARK_TEXT_FIELDS = ['assembly', 'material_grade', 'material_profile', 'finished_length', 'revision', 'drawing_number', 'assembly_mark', 'assembly_type', 'finish', 'sequence'];
 
 const buildPieceMarkFields = (row) => {
   const fields = {};
@@ -48,6 +49,15 @@ const buildPieceMarkFields = (row) => {
   // PieceMark's current sequence_area_id is left untouched on update, rather
   // than an unassigned staged row silently clearing it.
   if (row.sequence_area_id) fields.sequence_area_id = row.sequence_area_id;
+  // Assembly BOM pieces (assemblyBom.js): which copy this is, plus the main
+  // member and attached parts, carried on every copy.
+  if (row.record_kind === 'assembly') {
+    fields.item_type = 'Piece_Mark';
+    fields.copy_number = row.copy_number || 1;
+    fields.copy_count = row.copy_count || 1;
+    if (row.main_member) fields.main_member = row.main_member;
+    fields.parts = Array.isArray(row.parts) ? row.parts : [];
+  }
   return fields;
 };
 
@@ -75,8 +85,9 @@ const valuesDiffer = (a, b) => {
 // differs from it on at least one tracked field. Rows with no existing match
 // (brand new pieces) never appear here — only a genuinely changed existing
 // piece needs the explicit confirmation this drives.
-export const detectRevisions = async (batch, stagedRows) => {
-  const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
+export const detectRevisions = async (batch, stagedRowsIn) => {
+  const stagedRows = expandAssemblyRows(stagedRowsIn);
+  const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 100000);
   const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
 
   const revisions = [];
@@ -117,8 +128,11 @@ export const detectRevisions = async (batch, stagedRows) => {
 // surface and let the reviewer accept or decline per piece before anything
 // commits. skipRowIds (declined revisions) are excluded up front since those
 // rows won't be committed at all this pass.
-export const findInventoryMatches = async (batch, stagedRows, skipRowIds = new Set()) => {
-  const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
+export const findInventoryMatches = async (batch, stagedRowsIn, skipRowIds = new Set()) => {
+  // Copies of one assembly share a staged row id, so only single-copy
+  // assemblies are offered a remnant match (matches are keyed by row id).
+  const stagedRows = expandAssemblyRows(stagedRowsIn).filter((r) => !(r.copy_count > 1));
+  const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 100000);
   const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
   // status and is_assigned can drift apart (see findMatchingRemnants in
   // materialOptimizer.js) — filter on both here too rather than trusting
@@ -170,9 +184,20 @@ export const findInventoryMatches = async (batch, stagedRows, skipRowIds = new S
 // file. Applied after the row loop via applyRemovalDecisions; 'keep' (and
 // an empty map, the default) writes nothing. options.removalNote is an
 // optional reviewer note appended to removal_reason.
-export const commitBatch = async (batch, stagedRows, options = {}) => {
+export const commitBatch = async (batch, stagedRowsIn, options = {}) => {
   const { skipRowIds = new Set(), changedBy = 'Detailer Import', inventoryMatches = new Map(), removalDecisions = new Map(), removalNote = '' } = options;
-  const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000);
+  // Assembly BOM rows become one row per physical piece (2B2-1, 2B2-2 …).
+  const stagedRows = expandAssemblyRows(stagedRowsIn);
+  const existingPieceMarks = await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 100000);
+  // New assembly pieces are saved in batches (one save per BATCH_SIZE, one
+  // audit line per piece) — a BOM can add 2,000+ pieces at once.
+  const pendingCreates = [];
+  const stagedUpdates = new Map(); // staged row id -> { committed, piece_mark_id, piece_mark_ids }
+  const noteStaged = (rowId, pieceMarkId) => {
+    const entry = stagedUpdates.get(rowId) || { committed: true, piece_mark_id: pieceMarkId, piece_mark_ids: [] };
+    if (pieceMarkId) entry.piece_mark_ids.push(pieceMarkId);
+    stagedUpdates.set(rowId, entry);
+  };
   const existingByMark = new Map(existingPieceMarks.map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
   // generatePiecePayload's projectLabel prefers project_number over a raw id
   // (see qrSerialization.js) — fall back to project_id if the project can't
@@ -224,8 +249,17 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
         note: `Revised via detailer import batch — ${batch.detailer_name || batch.id}`,
       })));
     } else {
-      const matchedRemnantId = inventoryMatches.get(row.id);
+      const matchedRemnantId = row.copy_count > 1 ? null : inventoryMatches.get(row.id);
       const matchedRemnant = matchedRemnantId ? await db.entities.remnant_inventory.get(matchedRemnantId).catch(() => null) : null;
+
+      if (row.record_kind === 'assembly' && !matchedRemnant) {
+        pendingCreates.push({
+          rowId: row.id,
+          key,
+          data: { project_id: batch.project_id, piece_mark: row.piece_mark, qr_payload_string: generatePiecePayload(projectLabel, row.piece_mark), status: 'not_started', detailer_batch_id: batch.id, ...fields },
+        });
+        continue;
+      }
 
       pieceMark = await db.entities.PieceMark.create({
         project_id: batch.project_id,
@@ -269,7 +303,28 @@ export const commitBatch = async (batch, stagedRows, options = {}) => {
       }
     }
 
-    await db.entities.DetailerImportedPiece.update(row.id, { committed: true, piece_mark_id: pieceMark.id });
+    noteStaged(row.id, pieceMark.id);
+  }
+
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < pendingCreates.length; i += BATCH_SIZE) {
+    const chunk = pendingCreates.slice(i, i + BATCH_SIZE);
+    const made = await db.entities.PieceMark.bulkCreate(chunk.map((c) => c.data), { auditSummary: `detailer import ${batch.detailer_name || batch.id}` });
+    made.forEach((pm, j) => {
+      existingByMark.set(chunk[j].key, pm);
+      noteStaged(chunk[j].rowId, pm.id);
+    });
+    created += made.length;
+  }
+  // A BOM row and a KSS row for the same assembly were merged into one —
+  // mark both staged rows committed.
+  stagedRows.forEach((r) => {
+    const entry = stagedUpdates.get(r.id);
+    if (!entry || !r._merged_row_ids) return;
+    r._merged_row_ids.forEach((otherId) => { if (otherId !== r.id && !stagedUpdates.has(otherId)) stagedUpdates.set(otherId, entry); });
+  });
+  if (stagedUpdates.size) {
+    await db.entities.DetailerImportedPiece.bulkUpdate([...stagedUpdates.entries()].map(([id, data]) => ({ id, data })));
   }
 
   // Drawing files uploaded alongside the BOM data in this same batch (PDFs,

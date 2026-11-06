@@ -33,6 +33,7 @@ import StockMaterialUnitDetailModal from '@/components/shared/StockMaterialUnitD
 import { buildDrawingIndex, getPieceDrawingStatus, pieceNeedsDrawingWarning, normalizeDrawingNumber, DRAWING_BADGE_CLASSES } from '@/lib/drawingReleaseStatus';
 import { syncShopPieces } from '@/lib/shopPieceSync';
 import ShopPieceBlueprint from '@/components/shop/ShopPieceBlueprint';
+import AssemblyPartsTable from '@/components/projects/AssemblyPartsTable';
 import {
   QrCode, ScanLine, ClipboardCheck, HardHat, PlayCircle, PauseCircle,
   CheckCircle2, Lock, X, Stamp, AlertTriangle, Ban, Printer, Camera,
@@ -854,6 +855,11 @@ export default function ShopFabrication() {
                     <div key={label}><span className="text-muted-foreground">{label}</span><p className="font-medium">{value}</p></div>
                   ))}
                 </div>
+              )}
+              {/* Detailer assembly: what this piece is made of (parts, sizes,
+                  grades, weights) — AssemblyPartsTable.jsx. */}
+              {selectedPieceMark && (selectedPieceMark.main_member || selectedPieceMark.parts?.length > 0) && (
+                <div className="border-t border-border pt-3"><AssemblyPartsTable piece={selectedPieceMark} compact /></div>
               )}
               {(stockUnitId || selectedPieceMark?.cnc_file_url) && (
                 <div className="flex flex-wrap gap-2 border-t border-border pt-3">

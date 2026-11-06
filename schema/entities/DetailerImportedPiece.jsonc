@@ -83,6 +83,14 @@
       "type": "string",
       "description": "Links to ProjectSequenceArea, assignable during Review & Commit (BatchReviewModal.jsx) before the row is promoted onto a real PieceMark. Nullable — left unassigned means \"Unassigned\", same convention as PieceMark.sequence_area_id. Carried onto the committed PieceMark's own sequence_area_id by detailerImportCommit.js only when set here, so leaving it blank on a row that matches an EXISTING PieceMark never clobbers that piece's current assignment."
     },
+    "record_kind": { "type": "string", "description": "'assembly' = one staged row per detailer assembly with its parts (Tekla BOM PDF/.txt, grouped KSS — src/lib/assemblyBom.js); commit makes one PieceMark per copy (MARK-1, MARK-2 …). Absent = one row per piece (CSV, older formats)." },
+    "source_kind": { "type": "string", "description": "'tekla_bom' or 'kss' for assembly rows; when both files for the same job are staged, BOM weights/types win and the KSS fills grades, finish, drawing, revision." },
+    "assembly_type": { "type": "string" },
+    "finish": { "type": "string" },
+    "sequence": { "type": "string" },
+    "main_member": { "type": "object" },
+    "parts": { "type": "array", "items": { "type": "object" } },
+    "piece_mark_ids": { "type": "array", "items": { "type": "string" }, "description": "Every PieceMark an assembly row created (one per copy)." },
     "notes": {
       "type": "string",
       "description": "Free-text reviewer note on this staged row, editable during Review & Commit (BatchReviewModal.jsx). Distinct from validation_warnings, which are system-generated. Populated from the source file's own notes field when the parser finds one (KISS detail-line Notes field; Tekla BOM's assembly finish note, e.g. \"GALV.\")."

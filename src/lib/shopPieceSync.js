@@ -93,7 +93,7 @@ export function syncShopPieces({ projectId } = {}) {
         db.entities.pieces.filter(filter, '-created_date', 100000),
       ]);
       const { creates, updates } = planShopPieceSync(pieceMarks, shopPieces);
-      if (creates.length) await db.entities.pieces.bulkCreate(creates);
+      if (creates.length) await db.entities.pieces.bulkCreate(creates, { auditSummary: 'shop-floor record for a project piece' });
       for (const u of updates) {
         await db.entities.pieces.update(u.id, u.patch);
       }

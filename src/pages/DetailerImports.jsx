@@ -5,6 +5,8 @@ import { getEffectiveCompanyId } from '@/lib/tenantContext';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { saveDetailerImportFile, getDetailerImportFileUrl, deleteDetailerImportFile, createDetailerImportFileId } from '@/lib/detailerImportBlobStore';
 import { parseDetailerImportFile, isParsableDetailerFile, isCncFile } from '@/lib/detailerImportParser';
+import { extractPdfTextLines } from '@/lib/pdfTextLines';
+import { looksLikeAssemblyBom } from '@/lib/assemblyBom';
 import { saveCncFile } from '@/lib/cncFileStore';
 import { scanValueMatches } from '@/lib/pieceScan';
 import BatchReviewModal from '@/components/detailer-imports/BatchReviewModal';
@@ -312,7 +314,19 @@ export default function DetailerImports() {
         toast({ title: 'File not found', variant: 'destructive' });
         return;
       }
-      const text = await (await fetch(url)).text();
+      // A BOM PDF (e.g. Tekla "Assembly List with Parts") is read for its
+      // text first; everything else is read as plain text.
+      let text;
+      if (/\.pdf$/i.test(fileEntry.file_name)) {
+        const { lines } = await extractPdfTextLines(await (await fetch(url)).arrayBuffer());
+        text = lines.join('\n');
+        if (!looksLikeAssemblyBom(text)) {
+          toast({ title: `${fileEntry.file_name} isn't a bill of materials report`, description: 'Only a detailer "Assembly List with Parts (BOM)" PDF can be read for data. Drawings are attached to pieces when the batch is committed.', variant: 'destructive' });
+          return;
+        }
+      } else {
+        text = await (await fetch(url)).text();
+      }
       const result = parseDetailerImportFile(fileEntry.file_name, text);
       if (!result) {
         toast({ title: `Unsupported file type for parsing: ${fileEntry.file_name}`, variant: 'destructive' });
@@ -323,8 +337,7 @@ export default function DetailerImports() {
 
       // Re-parsing replaces this file's previously staged rows so results
       // never accumulate duplicates across repeated attempts.
-      const existing = await db.entities.DetailerImportedPiece.filter({ file_id: fileEntry.file_id }, '-created_date', 2000);
-      await Promise.all(existing.map((row) => db.entities.DetailerImportedPiece.delete(row.id)));
+      await db.entities.DetailerImportedPiece.deleteMany({ file_id: fileEntry.file_id });
 
       if (rows.length > 0) {
         await db.entities.DetailerImportedPiece.bulkCreate(rows.map((row) => ({
@@ -358,9 +371,15 @@ export default function DetailerImports() {
       if (rows.length === 0) {
         toast({ title: `No rows found in ${fileEntry.file_name}`, description: fileErrors.join(' '), variant: 'destructive' });
       } else {
+        // Assembly BOMs: say how many assemblies / pieces / pounds were read
+        // and whether that matches the report's own total line.
+        const s = result.summary;
+        const bomLine = s
+          ? `${s.assemblyMarks} assemblies, ${s.pieces.toLocaleString()} pieces, ${Math.round(s.weight).toLocaleString()} lb${s.reported ? (s.reported.count === s.pieces && Math.abs(s.reported.weight - s.weight) < 1 ? ' — matches the report total.' : ` — report says ${s.reported.count} / ${s.reported.weight.toLocaleString()} lb.`) : '.'}`
+          : '';
         toast({
-          title: `Staged ${rows.length} row${rows.length === 1 ? '' : 's'} from ${fileEntry.file_name}`,
-          description: errorCount > 0 ? `${errorCount} row${errorCount === 1 ? '' : 's'} need review.` : undefined,
+          title: `Staged ${rows.length} ${s ? 'assembl' + (rows.length === 1 ? 'y' : 'ies') : `row${rows.length === 1 ? '' : 's'}`} from ${fileEntry.file_name}`,
+          description: [bomLine, errorCount > 0 ? `${errorCount} need review.` : '', fileErrors.length ? fileErrors[0] : ''].filter(Boolean).join(' '),
         });
       }
     } catch (error) {

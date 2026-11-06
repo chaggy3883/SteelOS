@@ -11,7 +11,7 @@ import { downloadFile } from '@/lib/downloadFile';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { normalizeScanValue } from '@/lib/pieceScan';
-import { createDocumentId, pieceDocumentsKey, getDocumentRecords, pieceDocumentRef, deleteDocumentRecords } from '@/lib/pieceMarkDocumentStore';
+import { createDocumentId, documentsKeyForPiece, getDocumentRecords, pieceDocumentRef, deleteDocumentRecords } from '@/lib/pieceMarkDocumentStore';
 import { saveCncFile, getCncFileUrl, deleteCncFile } from '@/lib/cncFileStore';
 import { stripFileExtension, matchFilenameToPiece, attachFileToPiece, createPieceFromFile } from '@/lib/pieceFileIntake';
 import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
@@ -139,7 +139,9 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
       setProcessing({ current: i + 1, total: queue.length });
       const mark = item.markInput.trim();
       if (!mark) { failed.set(item.id, 'Enter a piece mark.'); continue; }
-      const existing = byMark.get(normalizeScanValue(mark));
+      // Exact piece mark, else an imported assembly's copies ("2B9" -> 2B9-1 …,
+      // which share one set of drawings).
+      const existing = byMark.get(normalizeScanValue(mark)) || matchFilenameToPiece(pieces, mark);
       try {
         if (existing) {
           await attachFileToPiece(existing, item.file);
@@ -187,7 +189,10 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
         deletedIds.push(p.id);
         onPieceDeleted?.(p.id);
         setSelectedIds((prev) => { const next = new Set(prev); next.delete(p.id); return next; });
-        deleteDocumentRecords(pieceDocumentsKey(p.id)).catch(() => {});
+        // Shared assembly drawings stay while other copies still use them.
+        if (!p.assembly_mark || !pieces.some((o) => o.id !== p.id && o.assembly_mark === p.assembly_mark && !list.some((d) => d.id === o.id))) {
+          deleteDocumentRecords(documentsKeyForPiece(p)).catch(() => {});
+        }
         if (p.cnc_file_url) deleteCncFile(p.id).catch(() => {});
       } catch (e) {
         firstError = firstError || e?.message || 'Could not delete.';
@@ -203,7 +208,7 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
     setViewingDocsFor(piece);
     setDocsLoading(true);
     try {
-      const docs = await getDocumentRecords(pieceDocumentsKey(piece.id));
+      const docs = await getDocumentRecords(documentsKeyForPiece(piece));
       setViewingDocs(docs);
       const urls = {};
       docs.forEach((d) => { if (d.blob) urls[d.id] = URL.createObjectURL(d.blob); });
@@ -405,7 +410,7 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
                       </td>
                       <td className="py-1.5 px-2 whitespace-nowrap">
                         {!f.markInput.trim() ? <span className="text-destructive">Needs a mark</span>
-                          : target ? <span className="text-amber-700">Add to {target.piece_mark}</span>
+                          : target ? <span className="text-amber-700">{target.assembly_mark && target.copy_count > 1 ? `Add to ${target.assembly_mark} (all ${target.copy_count} copies)` : `Add to ${target.piece_mark}`}</span>
                             : <span className="text-green-700">New piece</span>}
                       </td>
                       <td className="py-1.5 px-2">
@@ -560,7 +565,7 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
                     <p className="font-medium truncate">{doc.filename}</p>
                     <p className="text-muted-foreground">{formatSize(doc.size)}{doc.uploadDate ? ` • ${new Date(doc.uploadDate).toLocaleDateString()}` : ''}</p>
                   </div>
-                  <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="View" onClick={() => openDocumentViewer(pieceDocumentRef(viewingDocsFor.id, doc.id), doc.filename)}>
+                  <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="View" onClick={() => openDocumentViewer(pieceDocumentRef(viewingDocsFor, doc.id), doc.filename)}>
                     <Eye className="w-4 h-4" />
                   </button>
                   <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="Download" onClick={() => downloadFile(objectUrls[doc.id], doc.filename)}>

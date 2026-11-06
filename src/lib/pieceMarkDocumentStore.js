@@ -42,6 +42,13 @@ export const createDocumentId = () => {
 
 export const pieceDocumentsKey = (pieceMarkId) => `piece_documents_${pieceMarkId}`;
 
+// Where a piece's drawings are kept. Copies of one detailer assembly
+// (2B2-1, 2B2-2 … — assemblyBom.js) share ONE set of drawings, so a drawing
+// is stored once however many copies there are; any other piece has its own.
+export const documentsKeyForPiece = (piece) => (piece?.assembly_mark && piece?.project_id
+  ? `piece_documents_asm_${piece.project_id}_${String(piece.assembly_mark).toUpperCase()}`
+  : pieceDocumentsKey(piece?.id));
+
 // documents: array of { id, filename, mimetype, size, uploadDate, blob }
 export const saveDocumentRecords = async (key, documents) => {
   if (!key) return;
@@ -117,7 +124,8 @@ export const deleteDocumentRecords = async (key) => {
 // resolves this reference straight from IndexedDB instead.
 const PIECE_DOC_PREFIX = 'piece-doc:';
 
-export const pieceDocumentRef = (pieceMarkId, documentId) => `${PIECE_DOC_PREFIX}${pieceMarkId}/${documentId}`;
+// Accepts the piece (preferred — uses its shared assembly key) or its id.
+export const pieceDocumentRef = (pieceOrId, documentId) => `${PIECE_DOC_PREFIX}${typeof pieceOrId === 'object' ? documentsKeyForPiece(pieceOrId) : pieceOrId}/${documentId}`;
 
 export const isPieceDocumentRef = (value) => typeof value === 'string' && value.startsWith(PIECE_DOC_PREFIX);
 
@@ -126,6 +134,7 @@ export const getPieceDocumentBlob = async (ref) => {
   if (!isPieceDocumentRef(ref)) return null;
   const [pieceMarkId, documentId] = ref.slice(PIECE_DOC_PREFIX.length).split('/');
   if (!pieceMarkId || !documentId) return null;
-  const docs = await getDocumentRecords(pieceDocumentsKey(pieceMarkId));
+  const key = pieceMarkId.startsWith('piece_documents_') ? pieceMarkId : pieceDocumentsKey(pieceMarkId);
+  const docs = await getDocumentRecords(key);
   return docs.find((d) => d.id === documentId)?.blob || null;
 };

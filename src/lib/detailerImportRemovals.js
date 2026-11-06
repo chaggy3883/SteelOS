@@ -31,6 +31,7 @@
 //     the file", just not committable yet).
 import { db } from '@/api/apiClient';
 import { normalizeScanValue } from '@/lib/pieceScan';
+import { expandAssemblyRows } from '@/lib/assemblyBom';
 
 export const REMOVAL_STATUS = { ON_HOLD: 'on_hold', VOIDED: 'voided' };
 export const REMOVAL_DECISION = { KEEP: 'keep', HOLD: 'hold', VOID: 'void' };
@@ -55,9 +56,11 @@ export const isPastNotStarted = (pieceMark, shopPieces = []) => {
 // change — every default flips to Keep and the modal warns loudly.
 const PARTIAL_EXPORT_RATIO = 0.5;
 
-export const detectRemovedPieces = async (batch, stagedRows) => {
+export const detectRemovedPieces = async (batch, stagedRowsIn) => {
+  // Assembly BOM rows stand for one piece per copy (2B2-1, 2B2-2 …).
+  const stagedRows = expandAssemblyRows(stagedRowsIn);
   const [existingPieceMarks, projectBatches, committedRows, sequenceAreas] = await Promise.all([
-    db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 5000),
+    db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 100000),
     db.entities.DetailerImportBatch.filter({ project_id: batch.project_id }, '-created_date', 500),
     db.entities.DetailerImportedPiece.filter({ project_id: batch.project_id, committed: true }, 'piece_mark', 20000),
     db.entities.ProjectSequenceArea.filter({ project_id: batch.project_id }, 'sort_order', 200).catch(() => []),
@@ -67,8 +70,10 @@ export const detectRemovedPieces = async (batch, stagedRows) => {
   const sameDetailerBatchIds = new Set(projectBatches.filter((b) => normName(b.detailer_name) === detailer).map((b) => b.id));
   sameDetailerBatchIds.add(batch.id);
   const importedPieceMarkIds = new Set(
-    committedRows.filter((r) => r.piece_mark_id && sameDetailerBatchIds.has(r.batch_id)).map((r) => r.piece_mark_id),
+    committedRows.filter((r) => sameDetailerBatchIds.has(r.batch_id)).flatMap((r) => [r.piece_mark_id, ...(r.piece_mark_ids || [])]).filter(Boolean),
   );
+  // Assembly pieces also carry the batch that created them.
+  existingPieceMarks.forEach((pm) => { if (pm.detailer_batch_id && sameDetailerBatchIds.has(pm.detailer_batch_id)) importedPieceMarkIds.add(pm.id); });
 
   const coveredAreaIds = new Set([batch.sequence_area_id, ...stagedRows.map((r) => r.sequence_area_id)].filter(Boolean));
   const projectHasAreas = sequenceAreas.length > 0;

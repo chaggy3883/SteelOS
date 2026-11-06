@@ -7,7 +7,7 @@
 import { db } from '@/api/apiClient';
 import { scanValueMatches } from '@/lib/pieceScan';
 import { generatePiecePayload } from '@/lib/qrSerialization';
-import { createDocumentId, pieceDocumentsKey, getDocumentRecords, saveDocumentRecords } from '@/lib/pieceMarkDocumentStore';
+import { createDocumentId, documentsKeyForPiece, getDocumentRecords, saveDocumentRecords } from '@/lib/pieceMarkDocumentStore';
 
 // Strips a trailing file extension to recover the piece/part mark a detailer
 // or shop drawing file is conventionally named after (e.g. "3B3.pdf" ->
@@ -21,14 +21,18 @@ export const stripFileExtension = (filename) => String(filename || '').replace(/
 // project, so no explicit project check is needed on top of this.
 export function matchFilenameToPiece(pieces, filename) {
   const stem = stripFileExtension(filename);
-  return pieces.find((p) => scanValueMatches([p.piece_mark], stem)) || null;
+  // "2B2.pdf" also matches an imported assembly's copies (2B2-1, 2B2-2 …) —
+  // they share one set of drawings, so attaching to one attaches to all.
+  return pieces.find((p) => scanValueMatches([p.piece_mark], stem))
+    || pieces.find((p) => p.assembly_mark && scanValueMatches([p.assembly_mark], stem))
+    || null;
 }
 
 // Attaches a file blob to a PieceMark's drawing/document store — same
 // mechanism regardless of which surface (Pieces, Parts & Hardware, Detailer
 // Import commit) triggered the attach.
 export async function attachFileToPiece(piece, file) {
-  const key = pieceDocumentsKey(piece.id);
+  const key = documentsKeyForPiece(piece);
   const existing = await getDocumentRecords(key);
   const doc = {
     id: createDocumentId(),

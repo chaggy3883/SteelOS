@@ -272,21 +272,26 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
         row.weight != null ? row : { ...row, weight: calculateUnitWeight(row, catalog) }
       ));
 
-      await Promise.all(withWeights.map((row, index) => {
-        const original = stagedRows[index];
-        const changed = row.validation_status !== original.validation_status
-          || JSON.stringify(row.validation_errors) !== JSON.stringify(original.validation_errors || [])
-          || JSON.stringify(row.validation_warnings) !== JSON.stringify(original.validation_warnings || [])
-          || (row.weight ?? null) !== (original.weight ?? null);
-        return changed
-          ? db.entities.DetailerImportedPiece.update(row.id, {
-            validation_status: row.validation_status,
-            validation_errors: row.validation_errors,
-            validation_warnings: row.validation_warnings,
-            weight: row.weight ?? null,
-          })
-          : Promise.resolve(row);
-      }));
+      // One save for every changed row (a detailer BOM can stage hundreds).
+      const changes = withWeights
+        .map((row, index) => {
+          const original = stagedRows[index];
+          const changed = row.validation_status !== original.validation_status
+            || JSON.stringify(row.validation_errors) !== JSON.stringify(original.validation_errors || [])
+            || JSON.stringify(row.validation_warnings) !== JSON.stringify(original.validation_warnings || [])
+            || (row.weight ?? null) !== (original.weight ?? null);
+          return changed ? {
+            id: row.id,
+            data: {
+              validation_status: row.validation_status,
+              validation_errors: row.validation_errors,
+              validation_warnings: row.validation_warnings,
+              weight: row.weight ?? null,
+            },
+          } : null;
+        })
+        .filter(Boolean);
+      if (changes.length) await db.entities.DetailerImportedPiece.bulkUpdate(changes);
 
       setRows(withWeights);
 
@@ -486,6 +491,12 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
                       </td>
                       <td className="px-3 py-2 font-medium">
                         <EditableCell value={row.piece_mark} disabled={locked} onSave={(v) => handleRowFieldChange(row, 'piece_mark', v)} />
+                        {row.record_kind === 'assembly' && (
+                          <p className="text-[11px] font-normal text-muted-foreground" title={(row.parts || []).map((p) => `${p.quantity_per_assembly}x ${p.part_mark} ${p.profile} ${p.length}`).join('\n')}>
+                            {row.assembly_type || 'Assembly'} • {(row.parts || []).length} part{(row.parts || []).length === 1 ? '' : 's'}
+                            {Number(row.quantity) > 1 ? ` • makes ${row.piece_mark}-1 … -${row.quantity}` : ` • makes ${row.piece_mark}-1`}
+                          </p>
+                        )}
                       </td>
                       <td className="px-3 py-2">{row.assembly || '—'}</td>
                       <td className="px-3 py-2">

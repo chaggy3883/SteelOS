@@ -9,6 +9,7 @@ import { checkCatalogWrite } from '@/lib/materialCatalogRoles';
 import { HANCOCK_PROPOSAL_TERMS_TEXT } from '@/lib/hancockProposalTermsContent';
 import { createUploadedFileId, saveUploadedFile, makeUploadedFileRef } from '@/lib/uploadedFileStore';
 import { assignPieceIdentity, maxPieceSerialSeq } from '@/lib/pieceIdentity';
+import { isDbPersistenceReady, hasIndexedDbBackend, getDbString, setDbString } from '@/api/dbPersistence';
 
 export const STORAGE_KEY = 'steelos_local_db_v1';
 // Exported so AuthContext's cross-tab `storage` listener can filter events to
@@ -3091,25 +3092,32 @@ const migrateStore = (store) => {
   return migrated;
 };
 
+// The database document is read/written through dbPersistence.js
+// (IndexedDB, held in memory) once main.jsx has initialized it; before that,
+// or where IndexedDB isn't available, the old localStorage slot is used.
+const readDbRaw = () => (isDbPersistenceReady() && hasIndexedDbBackend() ? getDbString() : getStorage().getItem(STORAGE_KEY));
+const writeDbRaw = (raw) => {
+  if (isDbPersistenceReady() && setDbString(raw)) return;
+  getStorage().setItem(STORAGE_KEY, raw);
+};
+
 const loadStore = () => {
-  const storage = getStorage();
-  const raw = storage.getItem(STORAGE_KEY);
+  const raw = readDbRaw();
   if (!raw) {
     const seeded = buildSeedData();
-    storage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+    writeDbRaw(JSON.stringify(seeded));
     return seeded;
   }
 
   try {
     const parsed = JSON.parse(raw);
     const migrated = migrateStore(parsed);
-    if (JSON.stringify(migrated) !== JSON.stringify(parsed)) {
-      storage.setItem(STORAGE_KEY, JSON.stringify(migrated));
-    }
+    const migratedRaw = JSON.stringify(migrated);
+    if (migratedRaw !== raw) writeDbRaw(migratedRaw);
     return migrated;
   } catch {
     const seeded = buildSeedData();
-    storage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+    writeDbRaw(JSON.stringify(seeded));
     return seeded;
   }
 };
@@ -3158,16 +3166,15 @@ const syncStoreToFile = (store) => {
   }, SYNC_DEBOUNCE_MS);
 };
 
-// The whole database lives in one localStorage value, which browsers cap at
-// about 5 MB. When it's full every save fails — say so plainly instead of a
-// raw DOMException, so screens can tell the user what happened.
+// Saves go to IndexedDB (dbPersistence.js — no practical size cap). Only the
+// localStorage fallback (no IndexedDB) can fill up, at about 5 MB; when it
+// does, say so plainly instead of a raw DOMException.
 export const STORAGE_FULL_MESSAGE = 'This browser’s SteelOS storage is full, so the change was not saved.';
 const isQuotaError = (e) => e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014);
 
 const saveStore = (store) => {
-  const storage = getStorage();
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(store));
+    writeDbRaw(JSON.stringify(store));
   } catch (e) {
     if (isQuotaError(e)) {
       const err = new Error(STORAGE_FULL_MESSAGE);
@@ -3635,7 +3642,9 @@ const enforceMaterialCatalogWrite = (entityName, action, before, data) => {
 // (its last_heartbeat_at field is rewritten every ~60s per open session —
 // see src/lib/userSessionTracking.js — which would otherwise flood this
 // already-tight ~5MB localStorage quota with zero audit value).
-const AUDIT_EXCLUDED_ENTITIES = new Set(['AuditLog', 'FailedAccessLog', 'SystemAuditEvent', 'UserSessionLog']);
+// DetailerImportedPiece: temporary review rows from a detailer file (a BOM
+// can stage hundreds at once); the pieces they become are what's audited.
+const AUDIT_EXCLUDED_ENTITIES = new Set(['AuditLog', 'FailedAccessLog', 'SystemAuditEvent', 'UserSessionLog', 'DetailerImportedPiece']);
 
 // Bookkeeping fields that change on every write but never represent a
 // business-data edit worth a row of its own.
@@ -4033,6 +4042,28 @@ export const createEntityApi = (entityName) => {
       return true;
     },
 
+    // Deletes every record (in this tenant) matching filters in ONE save —
+    // re-staging a 600+ assembly BOM shouldn't rewrite the database 600
+    // times. Only for plain (non-catalog, non-ledger) entities; audited like
+    // delete(). Returns how many were removed.
+    async deleteMany(filters = {}) {
+      if (CATALOG_SEED_ENTITIES.has(entityName) || ['inventory_transactions', 'AuditLog'].includes(entityName)) {
+        throw new Error(`deleteMany is not available for ${entityName}`);
+      }
+      const doomed = applyTenantScope(entityName, collection).filter((item) => !item._deleted && matchesFilters(item, filters));
+      if (!doomed.length) return 0;
+      const ids = new Set(doomed.map((d) => d.id));
+      const snapshot = collection.slice();
+      for (let i = collection.length - 1; i >= 0; i -= 1) if (ids.has(collection[i].id)) collection.splice(i, 1);
+      try {
+        persist(doomed.flatMap((before) => buildAuditLogEntries(entityName, 'delete', { before, recordId: before.id })));
+      } catch (e) {
+        collection.splice(0, collection.length, ...snapshot);
+        throw e;
+      }
+      return doomed.length;
+    },
+
     async updateMany(filters = {}, update = {}) {
       assertAuditLogMutationAllowed(update);
       // Standard catalog rows that match are written for real first so the
@@ -4063,14 +4094,23 @@ export const createEntityApi = (entityName) => {
     },
 
     // skipAudit — see create() above; same one-shot-seed-only contract.
-    async bulkCreate(items = [], { skipAudit = false } = {}) {
+    // auditSummary — for big imports (a detailer BOM can create 2,000+
+    // pieces): ONE audit entry per created record ("Created … — <summary>")
+    // instead of one per field, which would add ~20 entries per piece.
+    async bulkCreate(items = [], { skipAudit = false, auditSummary = '' } = {}) {
       const auditEntries = [];
       items.forEach((item) => enforceMaterialCatalogWrite(entityName, 'create', null, item));
       const stampedItems = stampPieceIdentity(entityName, collection, items.map((item) => stampTenant(entityName, item)));
+      const actor = auditSummary && !skipAudit && !AUDIT_EXCLUDED_ENTITIES.has(entityName) ? buildAuditActorFields() : null;
       const created = stampedItems.map((item) => {
         const record = normalizeRecord(entityName, item);
         collection.push(record);
-        if (!skipAudit) auditEntries.push(...buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
+        if (actor) {
+          const label = record.piece_mark || record.name || record.id;
+          auditEntries.push(normalizeRecord('AuditLog', { ...actor, entity_type: entityName, entity_id: record.id, action: 'create', change_summary: `Created ${entityName} ${label} — ${auditSummary}` }));
+        } else if (!skipAudit) {
+          auditEntries.push(...buildAuditLogEntries(entityName, 'create', { after: record, recordId: record.id }));
+        }
         return record;
       });
       try {
@@ -4081,6 +4121,36 @@ export const createEntityApi = (entityName) => {
         throw e;
       }
       return created;
+    },
+
+    // Several different updates in ONE save: [{ id, data }]. Same checks
+    // and per-field audit as update(); unknown ids are skipped.
+    async bulkUpdate(changes = []) {
+      const auditEntries = [];
+      const undo = [];
+      const results = [];
+      const now = new Date().toISOString();
+      changes.forEach(({ id, data = {} }) => {
+        const index = materializeCatalogRow(entityName, collection, id);
+        if (index < 0) return;
+        assertTenantAccess(entityName, collection[index]);
+        assertAuditLogMutationAllowed(data);
+        enforceMaterialCatalogWrite(entityName, 'update', collection[index], data);
+        const before = collection[index];
+        const updated = normalizeRecord(entityName, { ...before, ...data, id, updated_date: now });
+        collection[index] = updated;
+        undo.push([index, before]);
+        auditEntries.push(...buildAuditLogEntries(entityName, 'update', { before, after: updated, recordId: id }));
+        results.push(updated);
+      });
+      if (!results.length) return results;
+      try {
+        persist(auditEntries);
+      } catch (e) {
+        undo.forEach(([index, before]) => { collection[index] = before; });
+        throw e;
+      }
+      return results;
     }
   };
 };

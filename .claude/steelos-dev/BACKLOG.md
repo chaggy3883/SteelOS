@@ -5,6 +5,27 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-06) — Detailer assembly BOM import (PDF + KSS); database moved to IndexedDB
+- Storage: the whole DB moved from the 5 MB localStorage slot to IndexedDB (src/api/dbPersistence.js — in-memory copy,
+  background saves, one-time migration of the old localStorage DB, BroadcastChannel so other tabs reload). main.jsx
+  awaits it before render; apiClient builds entity APIs lazily (first use) so nothing reads the DB before it's loaded.
+  Dev db.json mirror unchanged. Still per-browser — the server move replaces this layer. Save failures alert once.
+- Import: Tekla "ASSEMBLY LIST WITH PARTS (BOM)" PDF (text read with pdf.js, pdfTextLines.js) or .txt →
+  src/lib/assemblyBom.js: one staged row per assembly (mark, copies, type, main member, finish code(s) incl.
+  "SC1E BC1E"/"GALV.", detailer unit weight) with its parts (qty per assembly = report total ÷ copies). Checked on
+  Muskingum 25-101: 677 assemblies / 2,150 pieces / 371,251 lb = the report's own total line. Part weights calculated
+  (AISC shapes, plate/bent plate t×w×L); unrecognized sizes (shear studs) flagged.
+- KSS lines group into the same assemblies (grades per part). A BOM + KSS for the same job merge at commit: BOM
+  weights/type win, KSS fills grades, finish, drawing #, rev (expandAssemblyRows).
+- Commit: one PieceMark per copy — 2B2 ×3 → 2B2-1/-2/-3 — each with its own serial + QR, assembly_mark,
+  copy_number/count, main_member, parts, finish, detailer_batch_id; saved in batches of 500 with one audit line per
+  piece (bulkCreate auditSummary); staged rows updated in one save (new bulkUpdate / deleteMany). Shop-floor rows via
+  syncShopPieces. Revision + removal detection work on the expanded copies. DetailerImportedPiece no longer audited.
+- Drawings: an assembly's copies share one drawing set (documentsKeyForPiece); "2B9.pdf" dropped on Pieces →
+  "Add to 2B9 (all 3 copies)". Parts table (AssemblyPartsTable) on the piece dialog and the Shop Fabrication tablet.
+- Not done: no real KSS sample tested yet (built to the KISS spec — confirm part-qty convention on the first real
+  file); finish codes are text only; Detailer Imports review grid still shows one row per assembly (copies at commit).
+
 ## Also Closed (2026-11-05) — Project pieces reach the shop floor; global search covers the company by role
 - Root cause: nothing created a shop-floor `pieces` row for a real PieceMark (only the demo seeder), so Shop
   Fabrication / Shop Management / Production / Shipping never saw pieces added to a project.

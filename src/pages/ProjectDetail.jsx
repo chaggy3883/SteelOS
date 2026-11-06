@@ -36,11 +36,12 @@ import { generateScopeReviewPdf } from '@/lib/scopeReviewPdf';
 import UnsavedChangesModal from '@/components/meeting-mode/UnsavedChangesModal';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
-import { pieceDocumentsKey, getDocumentRecords, pieceDocumentRef } from '@/lib/pieceMarkDocumentStore';
+import { documentsKeyForPiece, getDocumentRecords, pieceDocumentRef } from '@/lib/pieceMarkDocumentStore';
 import { canSeeAreaPricing } from '@/lib/areaVisibility';
 import { assignPieceIdentity, maxPieceSerialSeq } from '@/lib/pieceIdentity';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import PieceQrCode from '@/components/projects/PieceQrCode';
+import AssemblyPartsTable from '@/components/projects/AssemblyPartsTable';
 import { formatTons } from '@/lib/formatTons';
 import { syncShopPieces } from '@/lib/shopPieceSync';
 
@@ -569,13 +570,13 @@ export default function ProjectDetail() {
   const handleOpenPieceFile = async (e, piece) => {
     e.stopPropagation();
     try {
-      const docs = await getDocumentRecords(pieceDocumentsKey(piece.id));
+      const docs = await getDocumentRecords(documentsKeyForPiece(piece));
       const doc = docs[docs.length - 1];
       if (!doc?.blob) {
         toast({ title: 'No file attached to this piece', variant: 'destructive' });
         return;
       }
-      openDocumentViewer(pieceDocumentRef(piece.id, doc.id), doc.filename);
+      openDocumentViewer(pieceDocumentRef(piece, doc.id), doc.filename);
     } catch (err) {
       toast({ title: 'Unable to open file', variant: 'destructive' });
     }
@@ -1534,7 +1535,7 @@ export default function ProjectDetail() {
       </Dialog>
 
       <Dialog open={!!viewingPhasePiece} onOpenChange={(o) => !o && setViewingPhasePiece(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className={viewingPhasePiece?.parts || viewingPhasePiece?.main_member ? 'max-w-3xl max-h-[90vh] overflow-y-auto' : 'max-w-lg'}>
           <DialogHeader><DialogTitle>{viewingPhasePiece?.piece_mark}</DialogTitle></DialogHeader>
           {viewingPhasePiece && (
             <div className="space-y-2">
@@ -1558,6 +1559,7 @@ export default function ProjectDetail() {
                   <span className="col-span-2 font-medium">{value || value === 0 ? value : '—'}</span>
                 </div>
               ))}
+              <AssemblyPartsTable piece={viewingPhasePiece} />
             </div>
           )}
           <DialogFooter>

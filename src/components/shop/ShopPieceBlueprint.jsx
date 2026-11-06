@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import BlueprintCanvas from '@/components/estimating/BlueprintCanvas';
-import { getDocumentRecords, pieceDocumentsKey } from '@/lib/pieceMarkDocumentStore';
+import { getDocumentRecords, documentsKeyForPiece } from '@/lib/pieceMarkDocumentStore';
 
 // The drawing for a shop-floor piece: the PDF(s) attached to its office
 // piece (Project → Pieces drag-and-drop, stored in IndexedDB by
@@ -19,7 +19,7 @@ export default function ShopPieceBlueprint({ pieceMark, fallbackUri }) {
     setDocs(null);
     setSelectedId(null);
     if (!pieceMark?.id) { setDocs([]); return undefined; }
-    getDocumentRecords(pieceDocumentsKey(pieceMark.id))
+    getDocumentRecords(documentsKeyForPiece(pieceMark))
       .then((rows) => {
         if (cancelled) return;
         const usable = (rows || []).filter((d) => d.blob).sort((a, b) => String(b.uploadDate || '').localeCompare(String(a.uploadDate || '')));
