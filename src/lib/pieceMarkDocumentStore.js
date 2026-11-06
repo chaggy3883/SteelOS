@@ -49,7 +49,55 @@ export const documentsKeyForPiece = (piece) => (piece?.assembly_mark && piece?.p
   ? `piece_documents_asm_${piece.project_id}_${String(piece.assembly_mark).toUpperCase()}`
   : pieceDocumentsKey(piece?.id));
 
-// documents: array of { id, filename, mimetype, size, uploadDate, blob }
+// A single-part drawing (Tekla part mark like "p185", "a364") — stored ONCE
+// per project, and shown on every assembly that uses that part.
+export const partDocumentsKey = (projectId, partMark) => `piece_documents_part_${projectId}_${String(partMark || '').toUpperCase()}`;
+
+// Part marks an assembly piece is made of (not the main member when it
+// carries the assembly's own mark).
+export const piecePartMarks = (piece) => {
+  const asm = String(piece?.assembly_mark || '').toUpperCase();
+  const marks = [piece?.main_member, ...(Array.isArray(piece?.parts) ? piece.parts : [])]
+    .filter((p) => p && !p.kind && p.part_mark)
+    .map((p) => String(p.part_mark).toUpperCase())
+    .filter((m) => m && m !== asm);
+  return [...new Set(marks)];
+};
+
+// Every drawing for a piece: its own (or its assembly's) drawings, then the
+// single-part drawings of the parts it's made of. Each comes back tagged with
+// _key (where it's stored — use it for pieceDocumentRef) and _part (the part
+// mark, for part drawings). Current drawings first, newest first; drawings
+// replaced by a later revision (superseded) last.
+export const getPieceDrawings = async (piece) => {
+  if (!piece) return [];
+  const ownKey = documentsKeyForPiece(piece);
+  const partKeys = piece.project_id ? piecePartMarks(piece).map((m) => [m, partDocumentsKey(piece.project_id, m)]) : [];
+  const own = (await getDocumentRecords(ownKey)).map((d) => ({ ...d, _key: ownKey, _part: null }));
+  const parts = [];
+  for (const [mark, key] of partKeys) {
+    const docs = await getDocumentRecords(key).catch(() => []);
+    docs.forEach((d) => parts.push({ ...d, _key: key, _part: d.part_mark || mark }));
+  }
+  const byNewest = (a, b) => String(b.uploadDate || '').localeCompare(String(a.uploadDate || ''));
+  const current = (list) => list.filter((d) => !d.superseded).sort(byNewest);
+  const old = (list) => list.filter((d) => d.superseded).sort(byNewest);
+  return [...current(own), ...current(parts), ...old(own), ...old(parts)];
+};
+
+// Removes one drawing from wherever it's stored (key from getPieceDrawings).
+export const removeDrawing = async (key, documentId) => {
+  const docs = await getDocumentRecords(key);
+  const removed = docs.find((d) => d.id === documentId);
+  const rest = docs.filter((d) => d.id !== documentId)
+    // A revision it had replaced becomes current again.
+    .map((d) => (removed && d.superseded_by === documentId ? { ...d, superseded: false, superseded_by: null } : d));
+  if (rest.length) await saveDocumentRecords(key, rest);
+  else await deleteDocumentRecords(key);
+};
+
+// documents: array of { id, filename, mimetype, size, uploadDate, blob,
+// revision?, source?, part_mark?, superseded?, superseded_by? }
 export const saveDocumentRecords = async (key, documents) => {
   if (!key) return;
 

@@ -38,7 +38,7 @@ const openDatabase = async () => {
 // used to leave the page on "Uploading…" forever. Read it up front instead,
 // so a read failure is a clear error, and the stored copy no longer depends
 // on the original file staying reachable.
-const readFileIntoMemory = async (file) => {
+export const readFileIntoMemory = async (file) => {
   if (typeof file?.arrayBuffer !== 'function') return file;
   let bytes;
   try {

@@ -3,7 +3,7 @@ import { Search, FileText, Loader2, X } from 'lucide-react';
 import { db } from '@/api/apiClient';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { getDocumentRecords, documentsKeyForPiece } from '@/lib/pieceMarkDocumentStore';
+import { getPieceDrawings } from '@/lib/pieceMarkDocumentStore';
 import { matchesQuery } from '@/lib/globalSearchSources';
 import ShopPieceBlueprint from '@/components/shop/ShopPieceBlueprint';
 
@@ -33,7 +33,7 @@ export default function ShopDrawingBrowser({ projects = [] }) {
         const counts = {};
         for (let i = 0; i < rows.length; i += 25) {
           const batch = rows.slice(i, i + 25);
-          const results = await Promise.all(batch.map((p) => getDocumentRecords(documentsKeyForPiece(p)).then((d) => d.filter((x) => x.blob).length).catch(() => 0)));
+          const results = await Promise.all(batch.map((p) => getPieceDrawings(p).then((d) => d.filter((x) => x.blob && !x.superseded).length).catch(() => 0)));
           batch.forEach((p, j) => { counts[p.id] = results[j]; });
           if (cancelled) return;
           setDocCounts({ ...counts });

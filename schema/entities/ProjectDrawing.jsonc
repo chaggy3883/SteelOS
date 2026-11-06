@@ -1,0 +1,33 @@
+{
+  "name": "ProjectDrawing",
+  "type": "object",
+  "description": "The project's drawing register: one row per drawing file uploaded anywhere (Detailer Imports, Project → Pieces, Parts & Hardware), and where it went. Written by src/lib/drawingIntake.js. A 'waiting' row is a drawing whose piece isn't in the project yet — resolveWaitingDrawings attaches it automatically when a matching piece is added (detailer commit, Pieces tab), or a person assigns it / makes a piece / keeps it as a project document. The drawing file itself lives in IndexedDB: while waiting, in the detailer-import file store under blob_id; once attached, in the piece's drawing list (pieceMarkDocumentStore.js, attached_keys).",
+  "properties": {
+    "company_id": { "type": "string" },
+    "project_id": { "type": "string" },
+    "file_name": { "type": "string" },
+    "file_size": { "type": "number" },
+    "file_type": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["waiting", "attached", "duplicate", "kept_as_document", "error"],
+      "description": "waiting: no piece matched yet. attached: on attached_to. duplicate: the same file was already on those pieces. kept_as_document: filed with the project's documents instead. error: the held file went missing."
+    },
+    "source": { "type": "string", "description": "detailer_import | pieces_tab | parts_hardware" },
+    "batch_id": { "type": "string", "description": "DetailerImportBatch it came in with, if any." },
+    "batch_file_id": { "type": "string", "description": "uploaded_files[].file_id inside that batch — marks the batch file as filed." },
+    "sequence_area_id": { "type": "string", "description": "Area/sequence it was uploaded for; given to matched pieces that have none." },
+    "mark_override": { "type": "string", "description": "Mark(s) a person typed for it instead of the file name, e.g. '2B9' or '2B9, 2B10'." },
+    "revision": { "type": "string", "description": "Revision read from the file name (Rev 1, R2, REV.A)." },
+    "attached_to": { "type": "array", "items": { "type": "string" }, "description": "What it's on, e.g. ['2B9 (all 3 copies)'] or ['part P185 (used in 12 assemblies)']." },
+    "attached_keys": { "type": "array", "items": { "type": "string" }, "description": "pieceMarkDocumentStore keys it was added to." },
+    "attached_at": { "type": "string", "format": "date-time" },
+    "note": { "type": "string" },
+    "blob_id": { "type": "string", "description": "While waiting: the file's id in detailerImportBlobStore." },
+    "owns_blob": { "type": "boolean", "description": "True when blob_id was saved just for holding (Pieces tab) and is deleted once attached; false when it belongs to a Detailer Imports batch." },
+    "also_project_document": { "type": "boolean", "description": "Also add it to the project's Documents when attached (Detailer Imports behaviour)." },
+    "uploaded_by": { "type": "string" },
+    "uploaded_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["project_id", "file_name", "status"]
+}

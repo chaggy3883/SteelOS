@@ -25,10 +25,8 @@ import { db } from '@/api/apiClient';
 import { normalizeScanValue } from '@/lib/pieceScan';
 import { logStatusChange } from '@/lib/statusHistory';
 import { generatePiecePayload } from '@/lib/qrSerialization';
-import { isDrawingFile } from '@/lib/detailerImportParser';
-import { getDetailerImportFileBlob } from '@/lib/detailerImportBlobStore';
-import { matchFilenameToPiece, attachFileToPiece } from '@/lib/pieceFileIntake';
-import { saveDocumentFile } from '@/lib/documentBlobStore';
+import { fileBatchDrawings, resolveWaitingDrawings, mergeDrawingKeys } from '@/lib/drawingIntake';
+import { pieceDocumentsKey, documentsKeyForPiece } from '@/lib/pieceMarkDocumentStore';
 import { findWholePieceRemnantMatches } from '@/lib/materialOptimizer';
 import { propagateHeatNumberToPieces } from '@/lib/heatPropagation';
 import { applyRemovalDecisions } from '@/lib/detailerImportRemovals';
@@ -210,6 +208,15 @@ export const commitBatch = async (batch, stagedRowsIn, options = {}) => {
   let skipped = 0;
   let revisionsSkipped = 0;
   let inventoryMatchesApplied = 0;
+  let adopted = 0;
+
+  // A piece made earlier from a dropped drawing ("2B9", no detailer data)
+  // whose assembly now arrives as copies (2B9-1, -2, -3) is taken over as
+  // copy 1 — it keeps its serial number, QR code and shop history, and its
+  // drawings join the assembly's — instead of leaving a stray duplicate.
+  const adoptable = new Map(existingPieceMarks
+    .filter((pm) => !pm.detailer_batch_id && !pm.assembly_mark && (pm.item_type || 'Piece_Mark') === 'Piece_Mark')
+    .map((pm) => [normalizeScanValue(pm.piece_mark), pm]));
 
   for (const row of stagedRows) {
     if (row.committed) continue;
@@ -225,6 +232,17 @@ export const commitBatch = async (batch, stagedRowsIn, options = {}) => {
     const key = normalizeScanValue(row.piece_mark);
     const fields = buildPieceMarkFields(row);
     let pieceMark = existingByMark.get(key);
+    let adoptedFrom = null;
+    if (!pieceMark && row.record_kind === 'assembly' && (row.copy_number || 1) === 1) {
+      const candidate = adoptable.get(normalizeScanValue(row.assembly_mark || row.assembly));
+      if (candidate && !existingByMark.has(normalizeScanValue(row.piece_mark))) {
+        adoptable.delete(normalizeScanValue(row.assembly_mark || row.assembly));
+        pieceMark = candidate;
+        adoptedFrom = candidate;
+        fields.piece_mark = row.piece_mark;
+        fields.detailer_batch_id = batch.id;
+      }
+    }
 
     if (pieceMark) {
       const previous = pieceMark;
@@ -238,6 +256,11 @@ export const commitBatch = async (batch, stagedRowsIn, options = {}) => {
         : {};
       pieceMark = await db.entities.PieceMark.update(pieceMark.id, { ...fields, ...clearRemoval });
       updated += 1;
+      if (adoptedFrom) {
+        adopted += 1;
+        existingByMark.set(key, pieceMark);
+        await mergeDrawingKeys(pieceDocumentsKey(adoptedFrom.id), documentsKeyForPiece(pieceMark)).catch((e) => console.error(e));
+      }
 
       await Promise.all(changedFields.map(([field, value]) => logStatusChange({
         entityType: 'PieceMark',
@@ -327,51 +350,21 @@ export const commitBatch = async (batch, stagedRowsIn, options = {}) => {
     await db.entities.DetailerImportedPiece.bulkUpdate([...stagedUpdates.entries()].map(([id, data]) => ({ id, data })));
   }
 
-  // Drawing files uploaded alongside the BOM data in this same batch (PDFs,
-  // or anything else non-parsable and not a CNC file — see isDrawingFile in
-  // detailerImportParser.js) never produce staged rows of their own, so they
-  // ride along here instead: match each to a PieceMark by filename using the
-  // exact same algorithm PieceMarkPdfIntake.jsx uses for a standalone drop
-  // (matchFilenameToPiece in pieceFileIntake.js), against the piece list this
-  // same commit just created/updated — a piece created earlier in this loop
-  // is matchable by a drawing later in the same batch. Best-effort: a file
-  // that fails to load or attach is skipped rather than failing the commit.
-  //
-  // attachFileToPiece only writes into that PieceMark's own drawing store
-  // (pieceMarkDocumentStore.js) — it never touched the project-wide Document
-  // entity, so a committed drawing never showed up in the project's
-  // Documents tab (FileExplorer.jsx/Documents.jsx both read db.entities
-  // .Document, not a piece's attached-file list). Creating a Document row
-  // here too, backed by the same already-fetched blob via documentBlobStore,
-  // is additive — it doesn't change what's attached to the piece.
-  const drawingFiles = (batch.uploaded_files || []).filter((f) => isDrawingFile(f.file_name));
+  // Drawings (drawingIntake.js — same matching as every other upload spot;
+  // matched ones also go in the project's Documents, as before): this
+  // batch's drawings not filed at upload are filed now,
+  // then EVERY drawing held on the project — from this batch, an earlier
+  // drawings-only batch, or the Pieces tab — is re-checked against the
+  // pieces this commit just added.
   let drawingsMatched = 0;
-  if (drawingFiles.length > 0) {
-    const allPieceMarks = Array.from(existingByMark.values());
-    for (const fileEntry of drawingFiles) {
-      const matched = matchFilenameToPiece(allPieceMarks, fileEntry.file_name);
-      if (!matched) continue;
-      try {
-        const blob = await getDetailerImportFileBlob(fileEntry.file_id);
-        if (!blob) continue;
-        await attachFileToPiece(matched, blob);
-        const document = await db.entities.Document.create({
-          project_id: batch.project_id,
-          name: fileEntry.file_name,
-          document_type: 'structural_drawing',
-          file_name: fileEntry.file_name,
-          file_size: blob.size,
-          file_type: blob.type,
-          status: 'uploaded',
-          is_archived: false,
-          description: `Detailer import drawing matched to piece mark ${matched.piece_mark}`,
-        });
-        await saveDocumentFile(document.id, blob);
-        drawingsMatched += 1;
-      } catch (error) {
-        console.error(error);
-      }
-    }
+  let drawingsWaiting = 0;
+  try {
+    const filed = await fileBatchDrawings(batch, { uploadedBy: changedBy });
+    const resolved = await resolveWaitingDrawings(batch.project_id);
+    drawingsMatched = filed.counts.attached + resolved.attached;
+    drawingsWaiting = resolved.still;
+  } catch (error) {
+    console.error(error);
   }
 
   const { held: removalsHeld, voided: removalsVoided } = await applyRemovalDecisions(batch, removalDecisions, { changedBy, note: removalNote });
@@ -380,5 +373,5 @@ export const commitBatch = async (batch, stagedRowsIn, options = {}) => {
   // New / renamed pieces get their shop-floor rows (Shop Fabrication scanning).
   await syncShopPieces({ projectId: batch.project_id });
 
-  return { created, updated, skipped, revisionsSkipped, drawingsMatched, inventoryMatchesApplied, removalsHeld, removalsVoided, batch: updatedBatch };
+  return { created, updated, skipped, revisionsSkipped, drawingsMatched, drawingsWaiting, adopted, inventoryMatchesApplied, removalsHeld, removalsVoided, batch: updatedBatch };
 };

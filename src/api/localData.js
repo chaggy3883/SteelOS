@@ -3319,6 +3319,7 @@ const TENANT_SCOPED_ENTITIES = [
   'DeliveryPricingTier',
   'DetailerImportBatch',
   'DetailerImportedPiece',
+  'ProjectDrawing',
   'DisciplinaryAction',
   'Document',
   'EmployeeBankAccount',

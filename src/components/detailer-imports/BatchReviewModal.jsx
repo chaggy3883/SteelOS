@@ -380,7 +380,9 @@ export default function BatchReviewModal({ batch, onClose, onBatchUpdated }) {
         description: [
           result.skipped > 0 ? `${result.skipped} row${result.skipped === 1 ? '' : 's'} skipped due to errors.` : null,
           result.revisionsSkipped > 0 ? `${result.revisionsSkipped} revision${result.revisionsSkipped === 1 ? '' : 's'} left unconfirmed — not applied.` : null,
-          result.drawingsMatched > 0 ? `${result.drawingsMatched} drawing${result.drawingsMatched === 1 ? '' : 's'} matched and attached by filename.` : null,
+          result.drawingsMatched > 0 ? `${result.drawingsMatched} drawing${result.drawingsMatched === 1 ? '' : 's'} attached to their pieces.` : null,
+          result.drawingsWaiting > 0 ? `${result.drawingsWaiting} drawing${result.drawingsWaiting === 1 ? ' is' : 's are'} still waiting for a piece (Project → Pieces).` : null,
+          result.adopted > 0 ? `${result.adopted} piece${result.adopted === 1 ? '' : 's'} made earlier from drawings became copy 1 of their assembly (same serial and QR — reprint labels).` : null,
           result.removalsHeld > 0 ? `${result.removalsHeld} piece${result.removalsHeld === 1 ? '' : 's'} not in this file put on hold.` : null,
           result.removalsVoided > 0 ? `${result.removalsVoided} piece${result.removalsVoided === 1 ? '' : 's'} not in this file voided (removed from job).` : null,
           result.inventoryMatchesApplied > 0 ? `${result.inventoryMatchesApplied} piece${result.inventoryMatchesApplied === 1 ? '' : 's'} reused an on-hand leftover's QR instead of generating a new one.` : null,

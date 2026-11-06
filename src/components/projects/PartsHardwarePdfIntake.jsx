@@ -5,9 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import { normalizeScanValue } from '@/lib/pieceScan';
 import { createDocumentId } from '@/lib/pieceMarkDocumentStore';
-import { stripFileExtension, matchFilenameToPiece, attachFileToPiece, createPieceFromFile } from '@/lib/pieceFileIntake';
+import { buildDrawingIndex, matchDrawing, parseDrawingFileName } from '@/lib/drawingMatch';
+import { fileDrawings, resolveWaitingDrawings } from '@/lib/drawingIntake';
 import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
 
 const isPdf = (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
@@ -49,7 +49,7 @@ export default function PartsHardwarePdfIntake({ project, pieces, sequenceAreas,
       const seen = new Set(prev.map((f) => `${f.file.name}|${f.file.size}`));
       const added = pdfFiles
         .filter((file) => !seen.has(`${file.name}|${file.size}`))
-        .map((file) => ({ id: createDocumentId(), file, selected: true, markInput: stripFileExtension(file.name), itemType: 'Loose_Part', quantity: '1', sequenceAreaId: null, error: null }));
+        .map((file) => ({ id: createDocumentId(), file, selected: true, markInput: parseDrawingFileName(file.name).base, itemType: 'Loose_Part', quantity: '1', sequenceAreaId: null, action: 'create', error: null }));
       return [...prev, ...added];
     });
   };
@@ -60,53 +60,57 @@ export default function PartsHardwarePdfIntake({ project, pieces, sequenceAreas,
   const allSelected = staged.length > 0 && selected.length === staged.length;
   const setAll = (on) => setStaged((prev) => prev.map((f) => ({ ...f, selected: on })));
   const setForSelected = (patch) => setStaged((prev) => prev.map((f) => (f.selected ? { ...f, ...patch } : f)));
-  const targetFor = (f) => (f.markInput.trim() ? matchFilenameToPiece(pieces, f.markInput.trim()) : null);
+  // Same matching as every drawing upload spot (drawingMatch.js); here the
+  // part # box is always what's matched (part numbers are typed/checked).
+  const drawingIndex = React.useMemo(() => buildDrawingIndex(pieces, project?.id), [pieces, project?.id]);
+  const matchFor = (f) => (f.markInput.trim() ? matchDrawing(drawingIndex, f.file.name, f.markInput.trim()) : { targets: [] });
+  const targetFor = (f) => {
+    const t = matchFor(f).targets[0];
+    return t && t.via !== 'part' ? t.pieces[0] : null;
+  };
 
-  // Submit every ticked file, one at a time. An existing part # (or one
-  // created earlier in this same submit) gets the file; anything else is
-  // created. Failures stay listed with the reason; the rest leave the list.
+  // Submit every ticked file (drawingIntake.js): an existing item / piece /
+  // part with that number gets the file; otherwise a new part/hardware item
+  // is made — or, if chosen, the file waits for an item with that number.
   const submit = async () => {
     const queue = staged.filter((f) => f.selected);
     if (!queue.length) return;
-    const byMark = new Map(pieces.map((p) => [normalizeScanValue(p.piece_mark), p]));
-    let created = 0;
-    let attached = 0;
-    const failed = new Map();
-    const done = new Set();
-    setProcessing({ current: 0, total: queue.length });
-    for (let i = 0; i < queue.length; i += 1) {
-      const item = queue[i];
-      setProcessing({ current: i + 1, total: queue.length });
-      const mark = item.markInput.trim();
-      if (!mark) { failed.set(item.id, 'Enter a part number.'); continue; }
-      // Exact piece mark, else an imported assembly's copies ("2B9" -> 2B9-1 …,
-      // which share one set of drawings).
-      const existing = byMark.get(normalizeScanValue(mark)) || matchFilenameToPiece(pieces, mark);
-      try {
-        if (existing) {
-          await attachFileToPiece(existing, item.file);
-          attached += 1;
-        } else {
-          const piece = await createPieceFromFile({
-            project, file: item.file, itemType: item.itemType, markOverride: mark,
-            quantity: Number(item.quantity) || 1, sequenceAreaId: item.sequenceAreaId,
-          });
-          byMark.set(normalizeScanValue(mark), piece);
-          onPieceCreated?.(piece);
-          created += 1;
-        }
-        done.add(item.id);
-      } catch (e) {
-        failed.set(item.id, e?.message || 'Could not save this file.');
-      }
+    const noMark = queue.filter((f) => !f.markInput.trim());
+    const runnable = queue.filter((f) => f.markInput.trim());
+    setProcessing({ current: 0, total: runnable.length });
+    let out;
+    try {
+      out = await fileDrawings({
+        project,
+        source: 'parts_hardware',
+        items: runnable.map((f) => ({
+          file: f.file,
+          markOverride: f.markInput.trim(),
+          sequenceAreaId: f.sequenceAreaId,
+          action: f.action || 'create',
+          create: { itemType: f.itemType, quantity: Number(f.quantity) || 1 },
+        })),
+        onProgress: (current, total) => setProcessing({ current, total }),
+      });
+    } catch (e) {
+      setProcessing(null);
+      toast({ title: 'Files not saved', description: e?.message, variant: 'destructive' });
+      return;
     }
     setProcessing(null);
+    out.created.forEach((p) => onPieceCreated?.(p));
+    if (out.created.length) await resolveWaitingDrawings(project?.id).catch(() => {});
+    const failed = new Map(noMark.map((f) => [f.id, 'Enter a part number.']));
+    out.results.forEach((r, i) => { if (r.state === 'error') failed.set(runnable[i].id, r.message); });
     setStaged((prev) => prev
-      .filter((f) => !done.has(f.id))
+      .filter((f) => !runnable.includes(f) || failed.has(f.id))
       .map((f) => (failed.has(f.id) ? { ...f, error: failed.get(f.id) } : f)));
+    const c = out.counts;
     const parts = [];
-    if (created) parts.push(`${created} new part${created === 1 ? '' : 's'}/hardware`);
-    if (attached) parts.push(`${attached} file${attached === 1 ? '' : 's'} added to existing items`);
+    if (c.created) parts.push(`${c.created} new part${c.created === 1 ? '' : 's'}/hardware`);
+    if (c.attached) parts.push(`${c.attached} file${c.attached === 1 ? '' : 's'} added to existing items`);
+    if (c.waiting) parts.push(`${c.waiting} waiting for their item (see Pieces tab)`);
+    if (c.duplicate) parts.push(`${c.duplicate} already on file (skipped)`);
     if (parts.length) toast({ title: `Submitted: ${parts.join(', ')}` });
     if (failed.size) toast({ title: `${failed.size} file${failed.size === 1 ? '' : 's'} not saved`, description: [...failed.values()][0], variant: 'destructive' });
   };
@@ -239,8 +243,18 @@ export default function PartsHardwarePdfIntake({ project, pieces, sequenceAreas,
                       </td>
                       <td className="py-1.5 px-2 whitespace-nowrap">
                         {!f.markInput.trim() ? <span className="text-destructive">Needs a part #</span>
-                          : target ? <span className="text-amber-700">Add to {target.part_number || target.piece_mark}</span>
-                            : <span className="text-green-700">New {typeLabel(f.itemType).toLowerCase()}</span>}
+                          : matchFor(f).targets.length ? <span className="text-amber-700">Add to {matchFor(f).targets.map((t) => (t.via === 'part' ? t.label : (t.pieces[0].part_number || t.label))).join(', ')}</span>
+                            : (
+                              <select
+                                aria-label={`What to do with ${f.file.name}`}
+                                className="h-7 rounded-md border border-input bg-background px-1 text-xs"
+                                value={f.action || 'create'}
+                                onChange={(e) => update(f.id, { action: e.target.value })}
+                              >
+                                <option value="create">New {typeLabel(f.itemType).toLowerCase()}</option>
+                                <option value="hold">Wait for {f.markInput.trim()}</option>
+                              </select>
+                            )}
                       </td>
                       <td className="py-1.5 px-2">
                         <button type="button" title="Remove from the list" className="text-muted-foreground hover:text-destructive" onClick={() => remove(f.id)}>

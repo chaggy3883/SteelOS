@@ -10,11 +10,12 @@ import { cn } from '@/lib/utils';
 import { downloadFile } from '@/lib/downloadFile';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { normalizeScanValue } from '@/lib/pieceScan';
-import { createDocumentId, documentsKeyForPiece, getDocumentRecords, pieceDocumentRef, deleteDocumentRecords } from '@/lib/pieceMarkDocumentStore';
+import { createDocumentId, documentsKeyForPiece, getPieceDrawings, removeDrawing, pieceDocumentRef, deleteDocumentRecords } from '@/lib/pieceMarkDocumentStore';
 import { saveCncFile, getCncFileUrl, deleteCncFile } from '@/lib/cncFileStore';
-import { stripFileExtension, matchFilenameToPiece, attachFileToPiece, createPieceFromFile } from '@/lib/pieceFileIntake';
+import { buildDrawingIndex, matchDrawing, parseDrawingFileName } from '@/lib/drawingMatch';
+import { fileDrawings, resolveWaitingDrawings } from '@/lib/drawingIntake';
 import SequenceAreaSelect from '@/components/projects/SequenceAreaSelect';
+import WaitingDrawingsPanel from '@/components/projects/WaitingDrawingsPanel';
 import PieceQrCode from '@/components/projects/PieceQrCode';
 import PieceLabelPrintDialog from '@/components/projects/PieceLabelPrintDialog';
 import { syncShopPieces, removeShopPiecesFor } from '@/lib/shopPieceSync';
@@ -37,8 +38,23 @@ const piecePhaseKey = (p) => (p.phase || '').trim() || 'Unassigned';
 // "attach to an existing piece instead" choice for anything unmatched. Where
 // a matched file lands is always driven by which piece it matched (its own
 // phase/area), never by which zone physically received the drop.
-export default function PieceMarkPdfIntake({ project, pieces, phasingMode, sequenceAreas, onPieceUpdated, onPieceCreated, onPieceDeleted, onSequenceAreaCreated }) {
+export default function PieceMarkPdfIntake({ project, pieces, phasingMode, sequenceAreas, onPieceUpdated, onPieceCreated, onPieceDeleted, onSequenceAreaCreated, onReloadPieces }) {
   const { toast } = useToast();
+  const [waitingRefresh, setWaitingRefresh] = useState(0);
+  // What to do with a dropped drawing that matches no piece: on a job whose
+  // pieces come from a detailer file (KSS/BOM), WAIT for that import — the
+  // drawing attaches by itself; on a job built from drawings alone, make a
+  // new piece (each gets its own serial + QR). Changeable per file.
+  const [hasDetailerBatch, setHasDetailerBatch] = useState(false);
+  useEffect(() => {
+    if (!project?.id) return;
+    db.entities.DetailerImportBatch.filter({ project_id: project.id }, '-created_date', 1)
+      .then((rows) => setHasDetailerBatch((rows || []).length > 0))
+      .catch(() => {});
+  }, [project?.id]);
+  const detailerJob = hasDetailerBatch || pieces.some((p) => p.detailer_batch_id || p.assembly_mark);
+  const defaultAction = detailerJob ? 'hold' : 'create';
+  const drawingIndex = React.useMemo(() => buildDrawingIndex(pieces, project?.id), [pieces, project?.id]);
   const [dragging, setDragging] = useState(false);
   const [processing, setProcessing] = useState(null); // { current, total } | null
   // mode: 'create' (default) or 'existing'. markInput/sequenceAreaId only
@@ -100,7 +116,10 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
       const seen = new Set(prev.map((f) => `${f.file.name}|${f.file.size}`));
       const added = pdfFiles
         .filter((file) => !seen.has(`${file.name}|${file.size}`))
-        .map((file) => ({ id: createDocumentId(), file, selected: true, markInput: stripFileExtension(file.name), sequenceAreaId: null, error: null }));
+        // markInput starts as the mark read from the name ("2B9" from
+        // "25-101 2B9 Rev 1.pdf"); only a mark someone types replaces the
+        // name-based matching. action: for a file that matches nothing.
+        .map((file) => ({ id: createDocumentId(), file, selected: true, markInput: parseDrawingFileName(file.name).base, markEdited: false, action: null, sequenceAreaId: null, error: null }));
       return [...prev, ...added];
     });
   };
@@ -117,58 +136,67 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
   const setAreaForSelected = (areaId) => setUnmatchedFiles((prev) => prev.map((f) => (f.selected ? { ...f, sequenceAreaId: areaId } : f)));
   const removeSelectedStaged = () => setUnmatchedFiles((prev) => prev.filter((f) => !f.selected));
 
-  // What Submit will do with a staged file: add the drawing to the piece that
-  // already has this mark, or create a new piece.
-  const stagedTarget = (f) => (f.markInput.trim() ? matchFilenameToPiece(pieces, f.markInput.trim()) : null);
+  // Where a staged file will go (same matching as every upload spot —
+  // drawingMatch.js): the name, a typed mark, a drawing number, a part mark.
+  const stagedMatch = (f) => matchDrawing(drawingIndex, f.file.name, f.markEdited ? f.markInput.trim() : '');
+  const actionFor = (f) => f.action || defaultAction;
+  const setActionForSelected = (action) => setUnmatchedFiles((prev) => prev.map((f) => (f.selected ? { ...f, action } : f)));
 
-  // Submit every ticked file, one at a time (each is a storage write). A
-  // file whose mark matches an existing piece — or one created earlier in
-  // this same submit — is added to that piece; anything else becomes a new
-  // piece. Files that fail stay in the list with the reason; the rest leave.
+  // Submit every ticked file (drawingIntake.js): matched -> added to its
+  // piece(s); no match -> waits for its piece, or becomes a new piece,
+  // per file. Files that fail stay in the list with the reason.
   const submitStaged = async () => {
     const queue = unmatchedFiles.filter((f) => f.selected);
     if (!queue.length) return;
-    const byMark = new Map(pieces.map((p) => [normalizeScanValue(p.piece_mark), p]));
-    let created = 0;
-    let attached = 0;
-    const failed = new Map();
-    const done = new Set();
-    setProcessing({ current: 0, total: queue.length });
-    for (let i = 0; i < queue.length; i += 1) {
-      const item = queue[i];
-      setProcessing({ current: i + 1, total: queue.length });
-      const mark = item.markInput.trim();
-      if (!mark) { failed.set(item.id, 'Enter a piece mark.'); continue; }
-      // Exact piece mark, else an imported assembly's copies ("2B9" -> 2B9-1 …,
-      // which share one set of drawings).
-      const existing = byMark.get(normalizeScanValue(mark)) || matchFilenameToPiece(pieces, mark);
-      try {
-        if (existing) {
-          await attachFileToPiece(existing, item.file);
-          attached += 1;
-        } else {
-          const piece = await createPieceFromFile({ project, file: item.file, itemType: 'Piece_Mark', markOverride: mark, sequenceAreaId: item.sequenceAreaId });
-          byMark.set(normalizeScanValue(mark), piece);
-          onPieceCreated?.(piece);
-          created += 1;
-        }
-        done.add(item.id);
-      } catch (e) {
-        failed.set(item.id, e?.message || 'Could not save this file.');
-      }
+    const missingMark = queue.filter((f) => !stagedMatch(f).targets.length && actionFor(f) === 'create' && !f.markInput.trim());
+    const runnable = queue.filter((f) => !missingMark.includes(f));
+    setProcessing({ current: 0, total: runnable.length });
+    let out;
+    try {
+      out = await fileDrawings({
+        project,
+        source: 'pieces_tab',
+        items: runnable.map((f) => ({
+          file: f.file,
+          markOverride: f.markEdited ? f.markInput.trim() : (actionFor(f) === 'create' && !stagedMatch(f).targets.length ? f.markInput.trim() : ''),
+          sequenceAreaId: f.sequenceAreaId,
+          action: actionFor(f),
+        })),
+        onProgress: (current, total) => setProcessing({ current, total }),
+      });
+    } catch (e) {
+      setProcessing(null);
+      toast({ title: 'Drawings not saved', description: e?.message, variant: 'destructive' });
+      return;
     }
     setProcessing(null);
-    if (created) syncShopPieces({ projectId: project?.id });
+    out.created.forEach((p) => onPieceCreated?.(p));
+    if (out.created.length) {
+      syncShopPieces({ projectId: project?.id });
+      // A new piece may be what a held drawing was waiting for.
+      await resolveWaitingDrawings(project?.id).catch(() => {});
+    }
+    const failed = new Map(missingMark.map((f) => [f.id, 'Enter a piece mark.']));
+    const warnings = [];
+    out.results.forEach((r, i) => {
+      if (r.state === 'error') failed.set(runnable[i].id, r.message);
+      if (r.warning) warnings.push(`${r.fileName}: ${r.note}`);
+    });
     setUnmatchedFiles((prev) => prev
-      .filter((f) => !done.has(f.id))
+      .filter((f) => !runnable.includes(f) || failed.has(f.id))
       .map((f) => (failed.has(f.id) ? { ...f, error: failed.get(f.id) } : f)));
+    const c = out.counts;
     const parts = [];
-    if (created) parts.push(`${created} new piece${created === 1 ? '' : 's'}`);
-    if (attached) parts.push(`${attached} drawing${attached === 1 ? '' : 's'} added to existing pieces`);
+    if (c.attached) parts.push(`${c.attached} added to pieces`);
+    if (c.created) parts.push(`${c.created} new piece${c.created === 1 ? '' : 's'}`);
+    if (c.waiting) parts.push(`${c.waiting} waiting for their pieces`);
+    if (c.duplicate) parts.push(`${c.duplicate} already on file (skipped)`);
     if (parts.length) toast({ title: `Submitted: ${parts.join(', ')}` });
+    if (warnings.length) toast({ title: 'New revision for pieces already in the shop', description: warnings.slice(0, 3).join(' · '), variant: 'destructive' });
     if (failed.size) {
       toast({ title: `${failed.size} file${failed.size === 1 ? '' : 's'} not saved`, description: [...failed.values()][0], variant: 'destructive' });
     }
+    setWaitingRefresh((n) => n + 1);
   };
 
   // Delete pieces (and their stored drawings / CNC file). Asks first; warns
@@ -204,11 +232,26 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
     if (firstError) toast({ title: 'Some pieces were not deleted', description: firstError, variant: 'destructive' });
   };
 
+  // Take one drawing off (wrong file attached). On an assembly it comes off
+  // every copy; a part drawing comes off every assembly using that part.
+  const removeDoc = async (doc) => {
+    const scope = doc._part ? `every assembly that uses part ${doc._part}` : (viewingDocsFor?.copy_count > 1 ? `all ${viewingDocsFor.copy_count} copies of ${viewingDocsFor.assembly_mark}` : viewingDocsFor?.piece_mark);
+    if (!window.confirm(`Remove ${doc.filename} from ${scope}? This can't be undone.`)) return;
+    try {
+      await removeDrawing(doc._key, doc.id);
+      await openDocsFor(viewingDocsFor);
+      toast({ title: `Removed ${doc.filename}` });
+    } catch (e) {
+      toast({ title: 'Could not remove the drawing', description: e?.message, variant: 'destructive' });
+    }
+  };
+
   const openDocsFor = async (piece) => {
+    Object.values(objectUrls).forEach((url) => URL.revokeObjectURL(url));
     setViewingDocsFor(piece);
     setDocsLoading(true);
     try {
-      const docs = await getDocumentRecords(documentsKeyForPiece(piece));
+      const docs = await getPieceDrawings(piece);
       setViewingDocs(docs);
       const urls = {};
       docs.forEach((d) => { if (d.blob) urls[d.id] = URL.createObjectURL(d.blob); });
@@ -311,6 +354,12 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
 
   return (
     <div className="space-y-4">
+      <WaitingDrawingsPanel
+        project={project}
+        sequenceAreas={sequenceAreas || []}
+        refreshKey={waitingRefresh + pieces.length}
+        onPiecesChanged={() => onReloadPieces?.()}
+      />
       <div
         {...dropZoneProps}
         onClick={() => document.getElementById('piece-mark-pdf-intake-input')?.click()}
@@ -341,6 +390,13 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
               Uploaded drawings — {unmatchedFiles.length} file{unmatchedFiles.length === 1 ? '' : 's'} ({stagedSelected.length} selected)
             </label>
             <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Select value="" onValueChange={setActionForSelected} disabled={!stagedSelected.length}>
+                <SelectTrigger className="h-8 w-56 text-xs"><SelectValue placeholder="If no piece matches (selected)…" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="hold">Wait for the piece (import later)</SelectItem>
+                  <SelectItem value="create">Make a new piece</SelectItem>
+                </SelectContent>
+              </Select>
               {(sequenceAreas || []).length > 0 && (
                 <Select value="" onValueChange={(v) => setAreaForSelected(v === 'unassigned' ? null : v)} disabled={!stagedSelected.length}>
                   <SelectTrigger className="h-8 w-48 text-xs"><SelectValue placeholder="Set area for selected…" /></SelectTrigger>
@@ -360,8 +416,10 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Piece marks come from the file names — edit any before submitting. The area picker sets the area for every ticked file.
-            A mark that already exists adds the drawing to that piece.
+            Marks are read from the file names (job numbers, "Rev 1", "(1)" are ignored; a KSS drawing # or a part mark like p185 also matches).
+            Type a mark to override it — several: 2B9, 2B10. A drawing with no piece yet
+            {detailerJob ? ' waits and attaches by itself when the pieces are imported' : ' becomes a new piece'} — change that per file.
+            The area picker sets the area for every ticked file.
           </p>
           <div className="max-h-[420px] overflow-y-auto rounded-md border border-border bg-background">
             <table className="w-full text-xs">
@@ -377,7 +435,9 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
               </thead>
               <tbody>
                 {unmatchedFiles.map((f) => {
-                  const target = stagedTarget(f);
+                  const match = stagedMatch(f);
+                  const target = match.targets[0]?.pieces?.[0] && match.targets[0].via !== 'part' ? match.targets[0].pieces[0] : null;
+                  const matched = match.targets.length > 0;
                   return (
                     <tr key={f.id} className={cn('border-t border-border/60', f.selected && 'bg-primary/5')}>
                       <td className="py-1.5 px-2">
@@ -392,7 +452,7 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
                         {f.error && <p className="text-destructive mt-0.5">{f.error}</p>}
                       </td>
                       <td className="py-1.5 px-2">
-                        <Input value={f.markInput} onChange={(e) => updateUnmatched(f.id, { markInput: e.target.value, error: null })} placeholder="Piece mark" className="h-7 w-32 text-xs" />
+                        <Input value={f.markInput} onChange={(e) => updateUnmatched(f.id, { markInput: e.target.value, markEdited: true, error: null })} placeholder="Piece mark" className="h-7 w-32 text-xs" />
                       </td>
                       <td className="py-1.5 px-2">
                         {target ? (
@@ -408,10 +468,22 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
                           />
                         )}
                       </td>
-                      <td className="py-1.5 px-2 whitespace-nowrap">
-                        {!f.markInput.trim() ? <span className="text-destructive">Needs a mark</span>
-                          : target ? <span className="text-amber-700">{target.assembly_mark && target.copy_count > 1 ? `Add to ${target.assembly_mark} (all ${target.copy_count} copies)` : `Add to ${target.piece_mark}`}</span>
-                            : <span className="text-green-700">New piece</span>}
+                      <td className="py-1.5 px-2">
+                        {matched ? (
+                          <span className="text-amber-700" title={match.revision ? `Revision ${match.revision} — becomes the current drawing; the older one is kept` : undefined}>
+                            Add to {match.targets.map((t) => t.label).join(', ')}{match.revision ? ` (Rev ${match.revision})` : ''}
+                          </span>
+                        ) : (
+                          <select
+                            aria-label={`What to do with ${f.file.name}`}
+                            className="h-7 rounded-md border border-input bg-background px-1 text-xs"
+                            value={actionFor(f)}
+                            onChange={(e) => updateUnmatched(f.id, { action: e.target.value })}
+                          >
+                            <option value="hold">No piece {f.markInput.trim() || ''} yet — wait for it</option>
+                            <option value="create">Make new piece {f.markInput.trim() || ''}</option>
+                          </select>
+                        )}
                       </td>
                       <td className="py-1.5 px-2">
                         <button type="button" title="Remove from the list" className="text-muted-foreground hover:text-destructive" onClick={() => removeUnmatched(f.id)}>
@@ -561,15 +633,26 @@ export default function PieceMarkPdfIntake({ project, pieces, phasingMode, seque
                   <div className="w-9 h-9 rounded bg-red-500/10 flex items-center justify-center flex-shrink-0">
                     <FileText className="w-4 h-4 text-red-500" />
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className={cn('flex-1 min-w-0', doc.superseded && 'opacity-60')}>
                     <p className="font-medium truncate">{doc.filename}</p>
-                    <p className="text-muted-foreground">{formatSize(doc.size)}{doc.uploadDate ? ` • ${new Date(doc.uploadDate).toLocaleDateString()}` : ''}</p>
+                    <p className="text-muted-foreground">
+                      {[
+                        doc._part ? `Part ${doc._part} drawing` : null,
+                        doc.revision ? `Rev ${doc.revision}` : null,
+                        doc.superseded ? 'Replaced by a newer revision' : null,
+                        formatSize(doc.size),
+                        doc.uploadDate ? new Date(doc.uploadDate).toLocaleDateString() : null,
+                      ].filter(Boolean).join(' • ')}
+                    </p>
                   </div>
-                  <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="View" onClick={() => openDocumentViewer(pieceDocumentRef(viewingDocsFor, doc.id), doc.filename)}>
+                  <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="View" onClick={() => openDocumentViewer(pieceDocumentRef(doc._key, doc.id), doc.filename)}>
                     <Eye className="w-4 h-4" />
                   </button>
                   <button type="button" className="text-muted-foreground hover:text-primary flex-shrink-0" title="Download" onClick={() => downloadFile(objectUrls[doc.id], doc.filename)}>
                     <Download className="w-4 h-4" />
+                  </button>
+                  <button type="button" className="text-muted-foreground hover:text-destructive flex-shrink-0" title="Remove this drawing" onClick={() => removeDoc(doc)}>
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               ))}

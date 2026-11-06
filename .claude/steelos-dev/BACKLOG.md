@@ -5,6 +5,23 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-06) — Drawings before or after pieces, from any upload spot
+- One path for every drawing upload (Detailer Imports, Pieces, Parts & Hardware): src/lib/drawingIntake.js +
+  drawingMatch.js. Names matched loosely (case, "Rev 1"/"_R1"/"REV.A", job-number prefixes, "(1)", hyphen
+  prefixes), also by KSS drawing # and by part mark (p185 → stored once per project, shown on every assembly using
+  it), several marks per sheet ("2B9 & 2B10"). No match → HELD on the project (ProjectDrawing register,
+  status 'waiting') with its area/sequence; attached automatically on detailer commit / Pieces submit / opening
+  the Pieces tab. Pieces tab "Drawings waiting for a piece" panel: assign mark(s), new piece, keep as project
+  document, delete. Detailer Imports files drawings at upload (drawings-only batches work; "Match drawings" for
+  older batches; per-file status). Revisions: newer becomes current, old kept "replaced"; late older revision
+  never replaces; exact re-upload skipped; pieces already in the shop called out. Pieces tab: unmatched default
+  = wait (detailer job) or new piece (drawings-only job). Commit adopts a drawing-made "2B9" as 2B9-1 (keeps
+  serial/QR/shop row; drawings merged). Remove-a-drawing button. Tested in the app with the Muskingum KSS (5
+  scenarios). Also: ProjectDetail loaded only 500 pieces (now all); check-tenant-scoping had matched nothing
+  since lazyEntity (fixed + fails if it ever sees zero).
+- Not done: a combined multi-sheet PDF isn't split per piece (held → keep as project document); Production.jsx
+  still loads 1,000 pieces; all drawings are still per-browser storage (server move later).
+
 ## Also Closed (2026-11-06) — Detailer assembly BOM import (PDF + KSS); database moved to IndexedDB
 - Storage: the whole DB moved from the 5 MB localStorage slot to IndexedDB (src/api/dbPersistence.js — in-memory copy,
   background saves, one-time migration of the old localStorage DB, BroadcastChannel so other tabs reload). main.jsx

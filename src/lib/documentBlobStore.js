@@ -60,6 +60,8 @@ export const saveDocumentFile = async (documentId, file) => {
     const request = store.put(file, documentId);
 
     transaction.oncomplete = () => finish(() => resolve());
+    // Out of space aborts without a request error — never leave the caller waiting.
+    transaction.onabort = () => finish(() => reject(new Error(transaction.error?.name === 'QuotaExceededError' ? 'This browser is out of storage space.' : `Failed to store document ${documentId}: ${transaction.error?.message || 'the save was aborted'}`)));
     request.onerror = () => finish(() => reject(new Error(`Failed to store document ${documentId}: ${request.error?.message || 'unknown error'}`)));
     transaction.onerror = () => finish(() => reject(new Error(`Failed to store document ${documentId}: ${transaction.error?.message || 'unknown error'}`)));
   });

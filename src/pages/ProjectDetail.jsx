@@ -36,7 +36,7 @@ import { generateScopeReviewPdf } from '@/lib/scopeReviewPdf';
 import UnsavedChangesModal from '@/components/meeting-mode/UnsavedChangesModal';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
-import { documentsKeyForPiece, getDocumentRecords, pieceDocumentRef } from '@/lib/pieceMarkDocumentStore';
+import { getPieceDrawings, pieceDocumentRef } from '@/lib/pieceMarkDocumentStore';
 import { canSeeAreaPricing } from '@/lib/areaVisibility';
 import { assignPieceIdentity, maxPieceSerialSeq } from '@/lib/pieceIdentity';
 import { getEffectiveCompany } from '@/lib/tenantContext';
@@ -231,7 +231,8 @@ export default function ProjectDetail() {
         db.entities.Project.get(id),
         db.entities.AIFinding.filter({ project_id: id }, '-created_date', 50),
         db.entities.RFI.filter({ project_id: id }, '-created_date', 20),
-        db.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 500),
+        // Every piece — one detailer BOM is 2,000+ (a 500 cap hid most of a job).
+        db.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 100000),
         db.entities.Subcontract.filter({ project_id: id }, '-created_date', 50),
         syncShopPieces({ projectId: id }).then(() => db.entities.pieces.filter({ project_id: id }, '-created_date', 5000)),
         db.entities.ProjectMeetingNote.filter({ project_id: id }, '-created_date', 200),
@@ -570,13 +571,15 @@ export default function ProjectDetail() {
   const handleOpenPieceFile = async (e, piece) => {
     e.stopPropagation();
     try {
-      const docs = await getDocumentRecords(documentsKeyForPiece(piece));
-      const doc = docs[docs.length - 1];
-      if (!doc?.blob) {
+      // Its current drawing (newest, not replaced by a later revision); a
+      // part drawing only when the piece has none of its own.
+      const docs = (await getPieceDrawings(piece)).filter((d) => d.blob);
+      const doc = docs[0];
+      if (!doc) {
         toast({ title: 'No file attached to this piece', variant: 'destructive' });
         return;
       }
-      openDocumentViewer(pieceDocumentRef(piece, doc.id), doc.filename);
+      openDocumentViewer(pieceDocumentRef(doc._key, doc.id), doc.filename);
     } catch (err) {
       toast({ title: 'Unable to open file', variant: 'destructive' });
     }
@@ -1117,6 +1120,7 @@ export default function ProjectDetail() {
               onPieceCreated={(created) => setPieces((prev) => [...prev, created])}
               onPieceDeleted={(pieceId) => setPieces((prev) => prev.filter((p) => p.id !== pieceId))}
               onSequenceAreaCreated={(created) => setSequenceAreas((prev) => [...prev, created])}
+              onReloadPieces={() => db.entities.PieceMark.filter({ project_id: id }, 'piece_mark', 100000).then(setPieces).catch(() => {})}
             />
             {pieces.length === 0 && (
               <div className="text-center py-8">

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import BlueprintCanvas from '@/components/estimating/BlueprintCanvas';
-import { getDocumentRecords, documentsKeyForPiece } from '@/lib/pieceMarkDocumentStore';
+import { getPieceDrawings } from '@/lib/pieceMarkDocumentStore';
 
 // The drawing for a shop-floor piece: the PDF(s) attached to its office
 // piece (Project → Pieces drag-and-drop, stored in IndexedDB by
@@ -19,16 +19,18 @@ export default function ShopPieceBlueprint({ pieceMark, fallbackUri }) {
     setDocs(null);
     setSelectedId(null);
     if (!pieceMark?.id) { setDocs([]); return undefined; }
-    getDocumentRecords(documentsKeyForPiece(pieceMark))
+    // Its own drawings (current revision first), then the single-part
+    // drawings of the parts it's made of, then replaced revisions.
+    getPieceDrawings(pieceMark)
       .then((rows) => {
         if (cancelled) return;
-        const usable = (rows || []).filter((d) => d.blob).sort((a, b) => String(b.uploadDate || '').localeCompare(String(a.uploadDate || '')));
+        const usable = (rows || []).filter((d) => d.blob);
         setDocs(usable);
         setSelectedId(usable[0]?.id || null);
       })
       .catch(() => { if (!cancelled) setDocs([]); });
     return () => { cancelled = true; };
-  }, [pieceMark?.id]);
+  }, [pieceMark?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const doc = docs?.find((d) => d.id === selectedId);
@@ -63,7 +65,7 @@ export default function ShopPieceBlueprint({ pieceMark, fallbackUri }) {
           <select className="h-8 rounded-md border border-input bg-background px-2 text-sm" value={selectedId || ''} onChange={(e) => setSelectedId(e.target.value)}>
             {docs.map((d, i) => (
               <option key={d.id} value={d.id}>
-                {d.filename}{d.uploadDate ? ` — ${new Date(d.uploadDate).toLocaleDateString()}` : ''}{i === 0 ? ' (newest)' : ''}
+                {d._part ? `Part ${d._part}: ` : ''}{d.filename}{d.revision ? ` — Rev ${d.revision}` : ''}{d.uploadDate ? ` — ${new Date(d.uploadDate).toLocaleDateString()}` : ''}{d.superseded ? ' (old revision)' : (i === 0 ? ' (current)' : '')}
               </option>
             ))}
           </select>

@@ -162,6 +162,7 @@ const createLocalApi = () => ({
     ProjectSequenceArea: lazyEntity('ProjectSequenceArea'),
     ShopDrawing: lazyEntity('ShopDrawing'),
     DetailerImportBatch: lazyEntity('DetailerImportBatch'),
+    ProjectDrawing: lazyEntity('ProjectDrawing'),
     DetailerImportedPiece: lazyEntity('DetailerImportedPiece'),
     StockLengthOption: lazyEntity('StockLengthOption'),
     MaterialOptimizationRun: lazyEntity('MaterialOptimizationRun'),

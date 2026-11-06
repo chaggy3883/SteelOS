@@ -35,8 +35,14 @@ for (const file of readdirSync(schemaDir)) {
 
 const apiClientText = readFileSync(path.join(rootDir, 'src', 'api', 'apiClient.js'), 'utf-8');
 const registeredEntities = new Set(
-  [...apiClientText.matchAll(/createEntityApi\('([^']+)'\)/g)].map((m) => m[1])
+  // lazyEntity('X') is how apiClient.js registers entities since the
+  // IndexedDB move (2026-11-06); createEntityApi('X') kept for any direct use.
+  [...apiClientText.matchAll(/(?:createEntityApi|lazyEntity)\('([^']+)'\)/g)].map((m) => m[1])
 );
+if (registeredEntities.size === 0) {
+  console.error('check-tenant-scoping: found no registered entities in src/api/apiClient.js — has the registration pattern changed? (a check that sees nothing passes nothing)');
+  process.exit(1);
+}
 
 const localDataText = readFileSync(path.join(rootDir, 'src', 'api', 'localData.js'), 'utf-8');
 const arrayMatch = localDataText.match(/const TENANT_SCOPED_ENTITIES = \[([\s\S]*?)\];/);

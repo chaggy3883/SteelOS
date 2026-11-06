@@ -4,7 +4,8 @@ import { db } from '@/api/apiClient';
 import { getEffectiveCompanyId } from '@/lib/tenantContext';
 import { openDocumentViewer } from '@/lib/openDocumentViewer';
 import { saveDetailerImportFile, getDetailerImportFileUrl, deleteDetailerImportFile, createDetailerImportFileId } from '@/lib/detailerImportBlobStore';
-import { parseDetailerImportFile, isParsableDetailerFile, isCncFile } from '@/lib/detailerImportParser';
+import { parseDetailerImportFile, isParsableDetailerFile, isCncFile, isDrawingFile } from '@/lib/detailerImportParser';
+import { fileBatchDrawings, resolveWaitingDrawings } from '@/lib/drawingIntake';
 import { extractPdfTextLines } from '@/lib/pdfTextLines';
 import { looksLikeAssemblyBom } from '@/lib/assemblyBom';
 import { saveCncFile } from '@/lib/cncFileStore';
@@ -65,7 +66,49 @@ export default function DetailerImports() {
   const [unmatchedCncFiles, setUnmatchedCncFiles] = useState([]); // { id, file, file_name, project_id, assignTo }
   const [busyCncFileIds, setBusyCncFileIds] = useState(new Set());
   const [cncPieceMarksByProject, setCncPieceMarksByProject] = useState({});
+  // Drawing register rows (drawingIntake.js) by batch file id — what became
+  // of each drawing in a batch: attached / waiting for its piece / duplicate.
+  const [drawingByFileId, setDrawingByFileId] = useState({});
+  const [filingBatchId, setFilingBatchId] = useState(null);
   const fileObjectUrls = useRef({});
+
+  const loadDrawingStatus = async () => {
+    try {
+      const rows = await db.entities.ProjectDrawing.list('-created_date', 100000);
+      const map = {};
+      rows.forEach((r) => { if (r.batch_file_id && !map[r.batch_file_id]) map[r.batch_file_id] = r; });
+      setDrawingByFileId(map);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const drawingSummaryToast = (counts, title) => {
+    const parts = [];
+    if (counts.attached) parts.push(`${counts.attached} attached to their pieces`);
+    if (counts.waiting) parts.push(`${counts.waiting} waiting for their pieces — they attach by themselves when the pieces are imported or added`);
+    if (counts.duplicate) parts.push(`${counts.duplicate} already on file`);
+    if (counts.error) parts.push(`${counts.error} could not be saved`);
+    if (parts.length) toast({ title, description: `${parts.join('; ')}.`, variant: counts.error ? 'destructive' : undefined });
+  };
+
+  // Files a batch's drawings now (attach / hold) — for batches uploaded
+  // before drawings were filed at upload time, or a retry after an error.
+  const fileDrawingsForBatch = async (batch) => {
+    setFilingBatchId(batch.id);
+    try {
+      const out = await fileBatchDrawings(batch, { uploadedBy: user?.full_name || user?.email || '' });
+      const again = await resolveWaitingDrawings(batch.project_id);
+      out.counts.attached += again.attached;
+      out.counts.waiting = Math.max(0, out.counts.waiting - again.attached);
+      drawingSummaryToast(out.counts, 'Drawings matched');
+      await loadDrawingStatus();
+    } catch (e) {
+      toast({ title: 'Could not match drawings', description: e?.message, variant: 'destructive' });
+    } finally {
+      setFilingBatchId(null);
+    }
+  };
 
   // Sequence/Area gate: a project with any ProjectSequenceArea rows defined
   // must have one picked (explicitly, even if that pick is "Unassigned")
@@ -131,6 +174,7 @@ export default function DetailerImports() {
       ]);
       setProjects(projectList || []);
       setBatches(batchList || []);
+      loadDrawingStatus();
     } catch (error) {
       console.error(error);
       toast({ title: 'Unable to load detailer imports', variant: 'destructive' });
@@ -191,6 +235,19 @@ export default function DetailerImports() {
       if (cncPairs.length > 0) {
         await matchAndAttachCncFiles(record, cncPairs);
       }
+
+      // Drawings are filed right away — attached to pieces already in the
+      // project, or held until their pieces arrive (a later KSS/BOM commit,
+      // or pieces added on the Pieces tab). No parse or commit needed.
+      if (uploaded_files.some((f) => isDrawingFile(f.file_name))) {
+        try {
+          const out = await fileBatchDrawings(record, { uploadedBy: user?.full_name || user?.email || '' });
+          drawingSummaryToast(out.counts, 'Drawings');
+        } catch (e) {
+          toast({ title: 'Drawings were uploaded but not matched yet', description: `${e?.message || ''} Use "Match drawings" on the batch to try again.`, variant: 'destructive' });
+        }
+        await loadDrawingStatus();
+      }
     } catch (error) {
       console.error(error);
       toast({ title: 'Unable to upload files', description: error?.message, variant: 'destructive' });
@@ -209,7 +266,7 @@ export default function DetailerImports() {
   const matchAndAttachCncFiles = async (batch, cncPairs) => {
     // Voided pieces (removed from the model on an earlier re-import) never
     // get a CNC program auto-attached.
-    const pieceMarks = (await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 2000).catch(() => [])).filter((p) => !isVoidedPieceMark(p));
+    const pieceMarks = (await db.entities.PieceMark.filter({ project_id: batch.project_id }, 'piece_mark', 100000).catch(() => [])).filter((p) => !isVoidedPieceMark(p));
     setCncPieceMarksByProject((current) => ({ ...current, [batch.project_id]: pieceMarks }));
 
     const stillUnmatched = [];
@@ -276,6 +333,10 @@ export default function DetailerImports() {
     const stagedRows = await db.entities.DetailerImportedPiece.filter({ batch_id: batch.id }, '-created_date', 2000);
     await Promise.all(stagedRows.map((row) => db.entities.DetailerImportedPiece.delete(row.id)));
     await db.entities.DetailerImportBatch.delete(batch.id);
+    // Drawings from this batch still waiting for a piece go with it (their
+    // files are this batch's). Ones already attached stay on their pieces.
+    const heldDrawings = await db.entities.ProjectDrawing.filter({ batch_id: batch.id, status: 'waiting' }, '-created_date', 100000).catch(() => []);
+    await Promise.all(heldDrawings.map((r) => db.entities.ProjectDrawing.delete(r.id).catch(() => {})));
     await Promise.all((batch.uploaded_files || []).map((f) => deleteDetailerImportFile(f.file_id)));
     (batch.uploaded_files || []).forEach((f) => {
       const url = fileObjectUrls.current[f.file_id];
@@ -553,6 +614,18 @@ export default function DetailerImports() {
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
+                      {(batch.uploaded_files || []).some((f) => isDrawingFile(f.file_name) && !drawingByFileId[f.file_id]) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1"
+                          disabled={filingBatchId === batch.id}
+                          onClick={(event) => { event.stopPropagation(); fileDrawingsForBatch(batch); }}
+                        >
+                          <FileScan className="w-3.5 h-3.5" /> {filingBatchId === batch.id ? 'Matching…' : 'Match drawings'}
+                        </Button>
+                      )}
                       <StatusBadge status={batch.import_status} />
                       {['parsed', 'validated', 'committed'].includes(batch.import_status) && (
                         <Button
@@ -591,6 +664,15 @@ export default function DetailerImports() {
                             <div className="flex items-center justify-between px-4 py-2 text-sm gap-2">
                               <span className="truncate">{f.file_name}</span>
                               <div className="flex items-center gap-1 shrink-0">
+                                {isDrawingFile(f.file_name) && (() => {
+                                  const rec = drawingByFileId[f.file_id];
+                                  if (!rec) return <span className="text-xs text-muted-foreground mr-1">Drawing — not matched yet</span>;
+                                  if (rec.status === 'waiting') return <span className="text-xs text-amber-600 mr-1" title="No piece with this mark yet. It attaches by itself when the piece is imported or added — or assign it on the project's Pieces tab.">Waiting for its piece{rec.mark_override ? ` (${rec.mark_override})` : ''}</span>;
+                                  if (rec.status === 'kept_as_document') return <span className="text-xs text-muted-foreground mr-1">Kept as a project document</span>;
+                                  if (rec.status === 'duplicate') return <span className="text-xs text-muted-foreground mr-1">Already on {(rec.attached_to || []).join(', ')}</span>;
+                                  if (rec.status === 'error') return <span className="text-xs text-destructive mr-1">{rec.note || 'Problem with this drawing'}</span>;
+                                  return <span className="text-xs text-green-700 mr-1" title={rec.note || ''}>On {(rec.attached_to || []).join(', ')}</span>;
+                                })()}
                                 {parsable && f.parsed && (
                                   <span className="text-xs text-muted-foreground mr-1">
                                     {f.parsed_row_count} row{f.parsed_row_count === 1 ? '' : 's'}
@@ -685,6 +767,7 @@ export default function DetailerImports() {
           onBatchUpdated={(updatedBatch) => {
             setBatches((current) => current.map((b) => (b.id === updatedBatch.id ? updatedBatch : b)));
             setStagedRowsByFile({});
+            loadDrawingStatus(); // a commit attaches drawings that were waiting
           }}
         />
       )}
