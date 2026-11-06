@@ -193,7 +193,7 @@ export default function DetailerImports() {
       }
     } catch (error) {
       console.error(error);
-      toast({ title: 'Unable to upload files', variant: 'destructive' });
+      toast({ title: 'Unable to upload files', description: error?.message, variant: 'destructive' });
     } finally {
       setUploading(false);
     }

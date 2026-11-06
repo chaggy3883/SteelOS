@@ -28,7 +28,27 @@ const openDatabase = async () => {
 
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(new Error(`Unable to open ${DB_NAME} IndexedDB: ${request.error?.message || 'unknown error'}`));
+    request.onblocked = () => reject(new Error('The detailer file storage is busy in another SteelOS tab — close other SteelOS tabs and try again.'));
   });
+};
+
+// A file dragged in from a network drive (H:\…), OneDrive placeholder or
+// an email attachment is only a pointer until something reads it. IndexedDB
+// reads it while saving, and if that read fails the save is aborted — which
+// used to leave the page on "Uploading…" forever. Read it up front instead,
+// so a read failure is a clear error, and the stored copy no longer depends
+// on the original file staying reachable.
+const readFileIntoMemory = async (file) => {
+  if (typeof file?.arrayBuffer !== 'function') return file;
+  let bytes;
+  try {
+    bytes = await file.arrayBuffer();
+  } catch (e) {
+    throw new Error(`Couldn't read "${file.name || 'the file'}" (${e?.name || 'read error'}). If it's on a network drive, copy it to this PC first and upload the copy.`);
+  }
+  return typeof File === 'function'
+    ? new File([bytes], file.name || 'file', { type: file.type || '', lastModified: file.lastModified || Date.now() })
+    : new Blob([bytes], { type: file.type || '' });
 };
 
 const closeDatabase = (db) => { if (db?.close) db.close(); };
@@ -41,20 +61,23 @@ export const createDetailerImportFileId = () => {
 export const saveDetailerImportFile = async (fileId, file) => {
   if (!fileId || !file) return;
 
+  const data = await readFileIntoMemory(file);
   const db = await openDatabase();
   if (!db) return;
 
   await new Promise((resolve, reject) => {
     let settled = false;
     const finish = (handler) => { if (settled) return; settled = true; closeDatabase(db); handler(); };
+    const name = file.name || fileId;
 
     const transaction = db.transaction(STORE_NAME, 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
-    const request = store.put(file, fileId);
+    const request = store.put(data, fileId);
 
     transaction.oncomplete = () => finish(() => resolve());
-    request.onerror = () => finish(() => reject(new Error(`Failed to store detailer import file ${fileId}: ${request.error?.message || 'unknown error'}`)));
-    transaction.onerror = () => finish(() => reject(new Error(`Failed to store detailer import file ${fileId}: ${transaction.error?.message || 'unknown error'}`)));
+    request.onerror = () => finish(() => reject(new Error(`Failed to store "${name}": ${request.error?.message || 'unknown error'}`)));
+    transaction.onerror = () => finish(() => reject(new Error(`Failed to store "${name}": ${transaction.error?.message || 'unknown error'}`)));
+    transaction.onabort = () => finish(() => reject(new Error(`Failed to store "${name}": ${transaction.error?.name === 'QuotaExceededError' ? 'the browser is out of storage space' : (transaction.error?.message || 'the save was aborted')}`)));
   });
 };
 
