@@ -12,6 +12,7 @@
 // report's structure. Nothing here writes to PieceMark directly — every
 // parser only produces staged rows for review.
 import { deriveShapeFromProfile } from '@/lib/materialProfileMatch';
+import { formatFtIn } from '@/lib/materialEntryMath';
 import { looksLikeAssemblyBom, parseAssemblyBomToRows, groupKssRowsIntoAssemblies, assemblyToStagedRow } from '@/lib/assemblyBom';
 
 const parseCsvText = (text) => {
@@ -144,6 +145,36 @@ export const parseDetailerCsvFile = (text) => {
 const KSS_DETAIL_FIELDS = ['line_id', 'drawing_number', 'revision', 'assembly', 'piece_mark', 'quantity', 'material_type', 'material_profile', 'material_grade', 'finished_length', 'finish', 'notes'];
 const KSS_MIN_DETAIL_FIELDS = 10;
 
+// Checked against a real Tekla KISS export (Muskingum County Jail, 2026-11):
+//  - record lines: "H,<job>,<name>,…" header, "D,…" detail, "*" between
+//    assemblies, plus short "S,…" lines — only D lines carry material;
+//  - Type and Size are separate columns ("W" + "24X68") — joined here into
+//    one profile ("W24X68", "PL3/8X3-1/2") so the AISC / plate weight math
+//    and the shop see the same designation the BOM report prints;
+//  - Length is in millimeters (10396.54 = 34'-1 5/16") — shown as feet-inches;
+//  - bolts / studs have no part mark (HS, MB, STUD_ types; Notes says
+//    "Field" or "Shop") — kept on the assembly as hardware, not as pieces;
+//  - Notes on the main member line is the assembly type (BEAM, COLUMN,
+//    BENT_PLATE …).
+const KSS_HARDWARE_KIND = { HS: 'bolt', MB: 'bolt', B: 'bolt', BOLT: 'bolt', AB: 'bolt', TC: 'bolt', NUT: 'bolt', WA: 'bolt', STUD: 'stud', DBA: 'stud' };
+const kssHardwareKind = (type) => KSS_HARDWARE_KIND[String(type || '').replace(/_+$/, '').toUpperCase()] || null;
+
+const kssProfile = (type, size, hardwareKind) => {
+  const t = String(type || '').replace(/_+$/, '').trim().toUpperCase();
+  const s = String(size || '').trim();
+  if (!t) return s;
+  if (!s) return t;
+  if (hardwareKind) return `${t} ${s}`;
+  return s.toUpperCase().startsWith(t) ? s : `${t}${s}`;
+};
+
+// Bare number = millimeters (KISS); anything with a foot/inch mark is kept.
+const kssLength = (raw) => {
+  const s = String(raw || '').trim();
+  if (!/^\d+(?:\.\d+)?$/.test(s)) return s;
+  return formatFtIn(Number(s) / 25.4);
+};
+
 export const parseDetailerKssFile = (text) => {
   const lines = text.split(/\r\n|\r|\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   if (lines.length === 0) return { rows: [], fileErrors: ['File is empty.'] };
@@ -157,32 +188,41 @@ export const parseDetailerKssFile = (text) => {
   }
 
   const rows = [];
+  const skippedShort = new Map(); // record type -> count of non-detail lines skipped
   for (let i = startIndex; i < lines.length; i++) {
     const line = lines[i];
+    if (line === '*' || /^\*/.test(line)) continue; // separator between assemblies
     if (line.length > 254) fileErrors.push(`Line ${i + 1} exceeds the 254-character KISS line limit — parsed anyway.`);
 
     const cells = line.split(',').map((c) => c.trim());
+    const recordType = cells[0].toUpperCase();
+    if (recordType === 'H' && cells.length < KSS_MIN_DETAIL_FIELDS) continue; // header: job number, name, date
     if (cells.length < KSS_MIN_DETAIL_FIELDS) {
-      fileErrors.push(`Line ${i + 1} has too few fields to be a KISS detail line — skipped (likely a header, labor, or sequencing line).`);
+      skippedShort.set(recordType, (skippedShort.get(recordType) || 0) + 1);
       continue;
     }
 
     const raw_row_data = {};
     KSS_DETAIL_FIELDS.forEach((field, idx) => { raw_row_data[field] = cells[idx] ?? ''; });
 
+    const assembly = cells[3] || '';
+    const hardwareKind = kssHardwareKind(cells[6]);
     const piece_mark = cells[4] || '';
-    const material_profile = cells[7] || cells[6] || '';
+    const material_profile = kssProfile(cells[6], cells[7], hardwareKind);
+    // Bolts and studs have no part mark of their own; they belong to the
+    // assembly on the line, so they aren't a "missing piece mark" error.
     const { quantityValue, weightValue, errors } = validateStagedRow({
-      piece_mark, quantity: cells[5], weight: undefined,
+      piece_mark: piece_mark || (hardwareKind && assembly ? material_profile : ''), quantity: cells[5], weight: undefined,
     });
 
     rows.push({
       piece_mark,
-      assembly: cells[3] || '',
+      assembly,
+      hardware_kind: hardwareKind,
       material_profile,
-      shape: deriveShapeFromProfile(material_profile),
+      shape: hardwareKind ? '' : deriveShapeFromProfile(material_profile),
       material_grade: cells[8] || '',
-      finished_length: cells[9] || '',
+      finished_length: kssLength(cells[9]),
       quantity: quantityValue,
       weight: weightValue,
       drawing_number: cells[1] || '',
@@ -194,6 +234,9 @@ export const parseDetailerKssFile = (text) => {
       validation_warnings: [],
     });
   }
+  skippedShort.forEach((count, type) => {
+    fileErrors.push(`Skipped ${count} "${type || '?'}" line${count === 1 ? '' : 's'} — not material (detail) lines.`);
+  });
 
   // Lines carry an assembly mark -> group the parts under their assemblies
   // (assemblyBom.js), same shape as the PDF BOM: one staged row per

@@ -134,6 +134,9 @@ export function parseAssemblyBom(lines) {
       weight_each_lbs: lbs,
       weight_source: source,
     };
+    // Shear studs (STUD_1/2-DIA): hardware, like the KSS's stud lines — not
+    // flagged as an unrecognized size.
+    if (/^STUD/i.test(entry.profile)) entry.kind = 'stud';
     if (current.quantity > 0 && qtyTotal % current.quantity !== 0) {
       entry.quantity_note = `${qtyTotal} total doesn't divide evenly by ${current.quantity} copies`;
     }
@@ -158,12 +161,13 @@ export function groupKssRowsIntoAssemblies(rows) {
     byMark.get(mark).push(r);
   });
   return [...byMark.entries()].map(([mark, list]) => {
-    const mainRow = list.find((r) => (r.piece_mark || '').toUpperCase() === mark.toUpperCase()) || list[0];
+    const steel = list.filter((r) => !r.hardware_kind);
+    const mainRow = steel.find((r) => (r.piece_mark || '').toUpperCase() === mark.toUpperCase()) || steel[0] || list[0];
     const quantity = Number(mainRow.quantity) || 1;
     const toPart = (r) => {
       const qtyTotal = Number(r.quantity) || 1;
-      const { lbs, source } = pieceWeight(r.material_profile, r.finished_length);
-      return {
+      const { lbs, source } = r.hardware_kind ? { lbs: null, source: null } : pieceWeight(r.material_profile, r.finished_length);
+      const part = {
         part_mark: r.piece_mark,
         quantity_total: qtyTotal,
         quantity_per_assembly: qtyTotal % quantity === 0 ? qtyTotal / quantity : qtyTotal,
@@ -173,6 +177,12 @@ export function groupKssRowsIntoAssemblies(rows) {
         weight_each_lbs: lbs,
         weight_source: source,
       };
+      // Bolts / studs: hardware on the assembly (KSS Notes "Field" / "Shop").
+      if (r.hardware_kind) {
+        part.kind = r.hardware_kind;
+        if (/^(field|shop)$/i.test(r.notes || '')) part.install = r.notes.charAt(0).toUpperCase() + r.notes.slice(1).toLowerCase();
+      }
+      return part;
     };
     const main = toPart(mainRow);
     const parts = list.filter((r) => r !== mainRow).map(toPart);
@@ -180,7 +190,7 @@ export function groupKssRowsIntoAssemblies(rows) {
     return {
       mark,
       quantity,
-      type: '',
+      type: String(mainRow.notes || '').replace(/_+/g, ' ').trim().toUpperCase(),
       unit_weight: round2(unit) || null,
       ext_weight: unit ? round2(unit * quantity) : null,
       finish: mainRow.raw_row_data?.finish || '',
@@ -203,7 +213,7 @@ export function assemblyToStagedRow(a, { sourceKind } = {}) {
   if (!a.main) errors.push('No main member line found under this assembly');
   if (!(a.quantity > 0)) errors.push('Assembly quantity is missing');
   const warnings = [];
-  const unweighed = [a.main, ...a.parts].filter((p) => p && p.weight_each_lbs == null).map((p) => p.part_mark);
+  const unweighed = [a.main, ...a.parts].filter((p) => p && !p.kind && p.weight_each_lbs == null).map((p) => p.part_mark);
   if (unweighed.length) warnings.push(`No weight calculated for ${unweighed.join(', ')} (size not recognized)`);
   return {
     record_kind: 'assembly',
@@ -266,8 +276,14 @@ export function expandAssemblyRows(rows) {
     const other = bomFirst === prev ? row : prev;
     const gradeByPart = new Map([other.main_member, ...(other.parts || [])].filter(Boolean).map((p) => [String(p.part_mark).toUpperCase(), p.grade]));
     const withGrade = (p) => (p ? { ...p, grade: p.grade || gradeByPart.get(String(p.part_mark).toUpperCase()) || '' } : p);
+    // The BOM report has no bolts (studs it does list) — add the KSS's
+    // hardware lines that aren't already there by part mark.
+    const bomParts = (bomFirst.parts || []).map(withGrade);
+    const bomMarks = new Set([bomFirst.main_member, ...bomParts].filter(Boolean).map((p) => String(p.part_mark || '').toUpperCase()).filter(Boolean));
+    const hardware = (other.parts || []).filter((p) => p.kind && !(p.part_mark && bomMarks.has(String(p.part_mark).toUpperCase())));
     merged.set(key, {
       ...bomFirst,
+      assembly_type: bomFirst.assembly_type || other.assembly_type || '',
       material_grade: bomFirst.material_grade || other.material_grade || '',
       finish: bomFirst.finish || other.finish || '',
       drawing_number: bomFirst.drawing_number || other.drawing_number || '',
@@ -275,7 +291,7 @@ export function expandAssemblyRows(rows) {
       sequence: bomFirst.sequence || other.sequence || '',
       sequence_area_id: bomFirst.sequence_area_id || other.sequence_area_id || null,
       main_member: withGrade(bomFirst.main_member),
-      parts: (bomFirst.parts || []).map(withGrade),
+      parts: [...bomParts, ...hardware],
       committed: bomFirst.committed && other.committed,
       _merged_row_ids: [bomFirst.id, other.id].filter(Boolean),
     });

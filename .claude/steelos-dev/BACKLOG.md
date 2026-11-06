@@ -23,8 +23,14 @@ right heading. Ask which section if it's ambiguous.
   syncShopPieces. Revision + removal detection work on the expanded copies. DetailerImportedPiece no longer audited.
 - Drawings: an assembly's copies share one drawing set (documentsKeyForPiece); "2B9.pdf" dropped on Pieces →
   "Add to 2B9 (all 3 copies)". Parts table (AssemblyPartsTable) on the piece dialog and the Shop Fabrication tablet.
-- Not done: no real KSS sample tested yet (built to the KISS spec — confirm part-qty convention on the first real
-  file); finish codes are text only; Detailer Imports review grid still shows one row per assembly (copies at commit).
+- Real Tekla KSS tested (Muskingum KSS_list.kss, 2026-11-06): Type + Size columns joined (W + 24X68), lengths are mm
+  (→ ft-in), part qty is the job total (÷ copies), "*" / H / S lines skipped, bolts (HS/MB, no part mark) and studs
+  kept as hardware with Field/Shop. Against the BOM PDF: same 677 marks, copies, types, finishes, part lists and
+  per-assembly qtys; 6 main members differ in length by 1/8–5/16"; KSS-only calculated total 374,747 lb (+0.9% vs
+  the detailer's 371,251 — no hole/cope deductions). Merge adds KSS bolts to the BOM's parts (416 pieces).
+- Not done: finish codes are text only; Detailer Imports review grid still shows one row per assembly (copies at
+  commit); "S,1,1" KSS lines (after some HSS column mains) skipped — meaning unknown; KSS-through-the-app not
+  browser-tested (parser + merge tested in Node against the real files).
 
 ## Also Closed (2026-11-05) — Project pieces reach the shop floor; global search covers the company by role
 - Root cause: nothing created a shop-floor `pieces` row for a real PieceMark (only the demo seeder), so Shop

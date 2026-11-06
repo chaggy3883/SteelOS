@@ -11,7 +11,8 @@ export default function AssemblyPartsTable({ piece, compact = false }) {
   const main = piece?.main_member;
   const parts = Array.isArray(piece?.parts) ? piece.parts : [];
   if (!main && !parts.length) return null;
-  const rows = [main && { ...main, _main: true }, ...parts].filter(Boolean);
+  // Steel first, then hardware (bolts / studs from the KSS: no weight).
+  const rows = [main && { ...main, _main: true }, ...parts.filter((p) => !p.kind), ...parts.filter((p) => p.kind)].filter(Boolean);
   const total = rows.reduce((s, p) => s + (Number(p.weight_each_lbs) || 0) * (Number(p.quantity_per_assembly) || 0), 0);
   return (
     <div className="space-y-1.5">
@@ -40,7 +41,11 @@ export default function AssemblyPartsTable({ piece, compact = false }) {
           <tbody>
             {rows.map((p, i) => (
               <tr key={`${p.part_mark}-${i}`} className="border-t border-border/60">
-                <td className="py-1 px-2 font-mono">{p.part_mark}{p._main && <span className="ml-1 text-[10px] text-primary font-sans">MAIN</span>}</td>
+                <td className="py-1 px-2 font-mono">
+                  {p.part_mark}
+                  {p._main && <span className="ml-1 text-[10px] text-primary font-sans">MAIN</span>}
+                  {p.kind && <span className={`${p.part_mark ? 'ml-1 ' : ''}text-[10px] text-muted-foreground font-sans`}>{[p.install, p.kind === 'stud' ? 'stud' : 'bolt'].filter(Boolean).join(' ').toUpperCase()}</span>}
+                </td>
                 <td className="py-1 px-2 text-right tabular-nums">{p.quantity_per_assembly}</td>
                 <td className="py-1 px-2 font-mono">{p.profile}</td>
                 <td className="py-1 px-2 font-mono">{p.length}</td>
