@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import BlueprintCanvas from '@/components/estimating/BlueprintCanvas';
+import PagedPdfViewer from '@/components/documents/PagedPdfViewer';
 import { getPieceDrawings } from '@/lib/pieceMarkDocumentStore';
 
 // The drawing for a shop-floor piece: the PDF(s) attached to its office
@@ -72,7 +72,7 @@ export default function ShopPieceBlueprint({ pieceMark, fallbackUri }) {
         </div>
       )}
       <div className="flex-1 min-h-0">
-        {url ? <BlueprintCanvas source={url} fillHeight /> : null}
+        {url ? <PagedPdfViewer source={url} /> : null}
       </div>
     </div>
   );

@@ -20,6 +20,7 @@ import { exportRequisitionToXlsx } from '@/lib/requisitionXlsxExport';
 import { exportRowsToCsv } from '@/lib/csvExport';
 import { toolKind } from '@/lib/takeoffGeometry';
 import MarkupColumnsTable from '@/components/estimating/MarkupColumnsTable';
+import LengthFtInInput from '@/components/estimating/LengthFtInInput';
 import CombineForOrderingDialog from '@/components/estimating/CombineForOrderingDialog';
 import { calcCatalogRow, compactProfile, entryFamily, savedSizeWeight } from '@/lib/materialEntryMath';
 import { resolveSteelWeight, sizeKey, savedByText } from '@/lib/catalogSizeRules';
@@ -1045,16 +1046,13 @@ export default function MarkupsList({
                     </div>
 
                     {tool === 'count' && (
-                      <div className="w-28">
-                        <label className="text-[10px] text-muted-foreground">Typical length (ft)</label>
-                        <Input
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={setting.typicalLengthFt}
-                          onChange={(e) => updateSetting(group, 'typicalLengthFt', e.target.value === '' ? '' : Number(e.target.value))}
-                          placeholder="e.g. 20"
-                          className="h-8 text-xs"
+                      <div className="w-32">
+                        <label className="text-[10px] text-muted-foreground">Typical length (ft-in)</label>
+                        <LengthFtInInput
+                          value={Number(setting.typicalLengthFt) || 0}
+                          onCommit={(ft) => updateSetting(group, 'typicalLengthFt', ft)}
+                          className="text-xs"
+                          ariaLabel="Typical length (ft-in)"
                         />
                       </div>
                     )}

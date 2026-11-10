@@ -5,6 +5,24 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-09) — Every page of a document; IRONSIGHT lengths, library, save/reopen
+- Document viewer showed only page 1 (BlueprintCanvas without IRONSIGHT's page controls). New PagedPdfViewer
+  (page bar, PageUp/PageDown/Home/End, type a page, zoom/fit, stacked pages) in DocumentViewer and the shop
+  drawing viewer; Print prints the whole PDF; pictures/text open in the viewer, Word/Excel/DWG offer Download.
+  Document lists (estimate DocumentsPanel, FileExplorer) open PDFs, pictures and text in the viewer.
+- IRONSIGHT takeoff grid: length typed ft-in-fraction (20'-6 1/2", 20-6 1/2, 246.5", 20.5) via
+  LengthFtInInput / ironsightCatalogRow.parseLengthFeet; Material/Size/Grade pickers on the whole master catalog
+  (95 shapes, all sizes) with the Full Takeoff weight math (plate = lb per ft of a strip width_in wide; bolts
+  etc. weight_basis 'each'); −/+ qty; "Add Material Line" (top + bottom) adds a W row like Full Takeoff and saves
+  at once. Measurement popup lists every master-catalog shape + size (FB, PL, WT, MC …) and weighs them.
+  Count inches / measure feet accept decimals; Estimate & tonnage "Typical length" is ft-in.
+- Save / reopen: Save button + "Saved 4:42 PM" in the title bar (also Ctrl+S, saves tool chest); every save
+  stamps last_opened_at; start screen = "Recent takeoffs — last 10 worked on" + search + Show all;
+  ?takeoff=<id> opens one, ?project=<id> pre-links a new one; Project → Takeoffs tab (project's own + its
+  won bid's takeoffs, Open / New takeoff for this project). Fixed: persist() sent the route's bid id, wiping a
+  reopened session's link on its first save. steel_catalog no longer capped at 1,000 in IRONSIGHT.
+- Not done: sheet_count stays 1 for multi-page sets (pre-existing); the drawing PDF is still per-browser.
+
 ## Also Closed (2026-11-06) — Drawings before or after pieces, from any upload spot
 - One path for every drawing upload (Detailer Imports, Pieces, Parts & Hardware): src/lib/drawingIntake.js +
   drawingMatch.js. Names matched loosely (case, "Rev 1"/"_R1"/"REV.A", job-number prefixes, "(1)", hyphen

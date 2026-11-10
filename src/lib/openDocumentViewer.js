@@ -8,3 +8,7 @@ export function openDocumentViewer(source, fileName) {
   const params = new URLSearchParams({ source, name: fileName || 'document.pdf' });
   window.open(`/document-viewer?${params.toString()}`, '_blank', 'noopener,noreferrer');
 }
+
+// Files the viewer tab can show (every page of a PDF, a picture, plain
+// text); anything else (Word, Excel, DWG …) is downloaded instead.
+export const isViewableDocumentName = (name) => /\.(pdf|png|jpe?g|gif|webp|bmp|svg|txt)$/i.test(String(name || ''));

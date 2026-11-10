@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Printer, Download } from 'lucide-react';
-import BlueprintCanvas from '@/components/estimating/BlueprintCanvas';
+import PagedPdfViewer from '@/components/documents/PagedPdfViewer';
 import { downloadFile } from '@/lib/downloadFile';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { isParsableDetailerFile, parseDetailerImportFile } from '@/lib/detailerImportParser';
@@ -50,17 +50,32 @@ export default function DocumentViewer() {
   const { source, error: sourceError } = useResolvedSource(rawSource);
   const fileName = searchParams.get('name') || 'Document';
   const isDataFile = isParsableDetailerFile(fileName);
+  const kind = isDataFile ? 'data' : fileKind(fileName);
 
   useDocumentTitle(`SteelOS — ${fileName}`);
 
   const handleDownload = () => { if (source) downloadFile(source, fileName); };
+
+  // Print the whole file (every page), not just what's on screen: hand the
+  // PDF to the browser's own PDF printing in a hidden frame.
+  const handlePrint = () => {
+    if (!source || kind !== 'pdf') { window.print(); return; }
+    const frame = document.createElement('iframe');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    frame.src = source;
+    frame.onload = () => {
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch { window.print(); }
+      setTimeout(() => frame.remove(), 60_000);
+    };
+    document.body.appendChild(frame);
+  };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background">
       <div className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2 flex-shrink-0">
         <h1 className="text-sm font-semibold truncate min-w-0" title={fileName}>{fileName}</h1>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Button size="sm" variant="outline" onClick={() => window.print()}>
+          <Button size="sm" variant="outline" onClick={handlePrint} disabled={!source}>
             <Printer className="w-3.5 h-3.5 mr-1.5" />Print
           </Button>
           <Button size="sm" variant="outline" onClick={handleDownload}>
@@ -73,12 +88,50 @@ export default function DocumentViewer() {
           <div className="h-full flex items-center justify-center text-sm text-muted-foreground px-4 text-center">
             {sourceError || (rawSource ? 'Loading the drawing…' : 'No document specified.')}
           </div>
-        ) : isDataFile ? (
+        ) : kind === 'data' ? (
           <DetailerDataFileView source={source} fileName={fileName} />
+        ) : kind === 'image' ? (
+          <div className="h-full overflow-auto bg-neutral-600 p-4 flex items-start justify-center">
+            <img src={source} alt={fileName} className="max-w-full bg-white shadow-lg" />
+          </div>
+        ) : kind === 'text' ? (
+          <TextFileView source={source} />
+        ) : kind === 'other' ? (
+          <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground px-4 text-center">
+            <p>A browser can&apos;t show this kind of file ({extOf(fileName).toUpperCase() || 'unknown type'}).</p>
+            <Button onClick={handleDownload}><Download className="w-4 h-4 mr-1.5" />Download to open it</Button>
+          </div>
         ) : (
-          <BlueprintCanvas source={source} fillHeight />
+          <PagedPdfViewer source={source} />
         )}
       </div>
+    </div>
+  );
+}
+
+const extOf = (name) => (String(name || '').match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']);
+const TEXT_EXT = new Set(['txt', 'log', 'md', 'json', 'xml']);
+const OTHER_EXT = new Set(['doc', 'docx', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'dwg', 'dxf', 'zip', 'tif', 'tiff', 'msg', 'eml', 'rtf', 'nc1', 'ifc']);
+// PDF unless the name says otherwise (most links name a .pdf; an unnamed one is tried as a PDF).
+function fileKind(name) {
+  const ext = extOf(name);
+  if (IMAGE_EXT.has(ext)) return 'image';
+  if (TEXT_EXT.has(ext)) return 'text';
+  if (OTHER_EXT.has(ext)) return 'other';
+  return 'pdf';
+}
+
+function TextFileView({ source }) {
+  const [text, setText] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(source).then((r) => r.text()).then((t) => { if (!cancelled) setText(t); }).catch(() => { if (!cancelled) setText('Unable to load file.'); });
+    return () => { cancelled = true; };
+  }, [source]);
+  return (
+    <div className="h-full overflow-auto p-4">
+      <pre className="text-xs whitespace-pre-wrap font-mono bg-muted/30 rounded-lg p-3">{text ?? 'Loading…'}</pre>
     </div>
   );
 }

@@ -20,7 +20,7 @@ function DimensionFields({ feet, inches, fraction, onFeet, onInches, onFraction 
         <span className="text-xs text-muted-foreground">ft</span>
       </div>
       <div className="flex items-center gap-1">
-        <Input type="number" min={0} max={11} value={inches} onChange={(e) => onInches(e.target.value)} placeholder="0" className="w-14 h-8" />
+        <Input type="number" min={0} max={11.9375} step="any" value={inches} onChange={(e) => onInches(e.target.value)} placeholder="0" className="w-14 h-8" />
         <span className="text-xs text-muted-foreground">in</span>
       </div>
       <div className="flex items-center gap-1">

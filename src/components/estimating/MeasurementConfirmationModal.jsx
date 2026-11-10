@@ -21,7 +21,7 @@ function FeetInches({ label, ft, inches, onFt, onInches }) {
     <div>
       <label className="text-xs font-medium text-muted-foreground">{label}</label>
       <div className="flex items-center gap-2 mt-1">
-        <Input type="number" min={0} value={ft} onChange={(e) => onFt(e.target.value)} placeholder="0" className="w-16 h-8" />
+        <Input type="number" min={0} step="any" value={ft} onChange={(e) => onFt(e.target.value)} placeholder="0" className="w-16 h-8" />
         <span className="text-xs text-muted-foreground">ft</span>
         <Input type="number" min={0} step="any" value={inches} onChange={(e) => onInches(e.target.value)} placeholder="0" className="w-16 h-8" />
         <span className="text-xs text-muted-foreground">in</span>

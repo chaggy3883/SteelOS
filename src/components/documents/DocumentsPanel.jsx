@@ -11,14 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { useToast } from '@/components/ui/use-toast';
-import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { openDocumentViewer, isViewableDocumentName } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
 import { resolveDocumentUrl, saveDocumentFile } from '@/lib/documentBlobStore';
 import { DOCUMENT_TYPE_OPTIONS, LINKED_DOCUMENT_CATEGORIES, documentTypeLabel } from '@/lib/documentCategories';
 import { archiveDocument } from '@/lib/documentArchive';
 import RemoveDocumentDialog from '@/components/documents/RemoveDocumentDialog';
 
-const isPdfName = (name) => !!name?.match(/\.pdf$/i);
+const isPdfName = isViewableDocumentName; // PDFs (every page), pictures, text open in the viewer
 
 const formatSize = (bytes) => {
   if (!bytes) return '—';

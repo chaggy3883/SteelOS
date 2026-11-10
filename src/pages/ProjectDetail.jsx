@@ -29,6 +29,7 @@ import { resolveActorRole, dispatchRfiNotification } from '@/lib/salesNotificati
 import { useAuth } from '@/lib/AuthContext';
 import PieceMarkPdfIntake from '@/components/projects/PieceMarkPdfIntake';
 import PartsHardwarePdfIntake from '@/components/projects/PartsHardwarePdfIntake';
+import ProjectTakeoffsPanel from '@/components/projects/ProjectTakeoffsPanel';
 import TmTrackingPanel from '@/components/projects/TmTrackingPanel';
 import ProjectHandoffPanel from '@/components/projects/ProjectHandoffPanel';
 import { generateTurnoverReviewPdf } from '@/lib/turnoverReviewPdf';
@@ -848,6 +849,7 @@ export default function ProjectDetail() {
           <TabsTrigger value="phasing">
             Phasing {phaseEntries.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{phaseEntries.length}</span>}
           </TabsTrigger>
+          <TabsTrigger value="takeoffs">Takeoffs</TabsTrigger>
           <TabsTrigger value="handoff">Project Handoff</TabsTrigger>
           {project.pricing_type === 'time_and_material' && (
             <TabsTrigger value="tm-tracking">T&M Tracking</TabsTrigger>
@@ -1456,6 +1458,10 @@ export default function ProjectDetail() {
             <TmTrackingPanel project={project} />
           </TabsContent>
         )}
+
+        <TabsContent value="takeoffs">
+          <ProjectTakeoffsPanel project={project} />
+        </TabsContent>
 
         <TabsContent value="handoff">
           <ProjectHandoffPanel ref={handoffRef} project={project} onExportPdf={exportHandoffPdf} />

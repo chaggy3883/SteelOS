@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
-import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
+import { useOutletContext, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { db } from '@/api/apiClient';
+import { flushDbPersistence } from '@/api/dbPersistence';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { simulateAiBatchTakeoff } from '@/lib/aiIntelligenceEngine';
 import { savePdf, getPdf } from '@/lib/pdfBlobStore';
@@ -21,7 +22,7 @@ import {
   Save, FileSpreadsheet, ChevronRight,
 } from 'lucide-react';
 import { calculateSteelSurfaceArea } from '@/lib/steelShapeMath';
-import { SHAPE_CLASSES, getShapeClass } from '@/data/steelShapeSelector';
+import { getShapeClass } from '@/data/steelShapeSelector';
 import { formatFeetInchesFraction } from '@/lib/fractionInches';
 import { buildPendingMeasurement, applyMeasureExtras, measurementRowFields, measurementSummary, toolLabel, MEASURE_TOOLS } from '@/lib/takeoffGeometry';
 import { buildLegendData } from '@/lib/takeoffLegend';
@@ -33,8 +34,11 @@ import { useTakeoffScales } from '@/hooks/useTakeoffScales';
 import { useMeasureDraft } from '@/hooks/useMeasureDraft';
 import { buildCompactShapeProfile } from '@/lib/countShapeProfile';
 import { resolveWeightPerFt } from '@/lib/detailerImportWeight';
-import { savedSizeWeight } from '@/lib/materialEntryMath';
-import { mergeSteelCatalogIntoPicker, resolveSteelWeight } from '@/lib/catalogSizeRules';
+import { savedSizeWeight, CODE_TO_LEGACY_SHAPE_CLASS, defaultGradeFor, parseDimToken } from '@/lib/materialEntryMath';
+import { mergeSteelCatalogIntoPicker, resolveSteelWeight, designationFromMaster } from '@/lib/catalogSizeRules';
+import { catalogPickForRow, rowPatchForPick } from '@/lib/ironsightCatalogRow';
+import { ShapePicker, SizePicker, GradePicker } from '@/components/estimating/CatalogMaterialPicker';
+import LengthFtInInput from '@/components/estimating/LengthFtInInput';
 import { saveTypedSteelWeight } from '@/lib/materialCatalogWrites';
 import { materialCatalogPermissions } from '@/lib/materialCatalogAccess';
 import AddCatalogSizeDialog from '@/components/estimating/AddCatalogSizeDialog';
@@ -236,6 +240,13 @@ export default function BlueprintTakeoff() {
   // and MarkupsList's own push-time link prompt.
   const [sessionBidId, setSessionBidId] = useState(null);
   const [sessionProjectId, setSessionProjectId] = useState(null);
+  // Save state for the workspace's Save button ("Saved 2:14 PM").
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const [savingAll, setSavingAll] = useState(false);
+  // Start screen: the last 10 takeoffs worked on, then all of them on demand.
+  const [showAllSessions, setShowAllSessions] = useState(false);
+  const [sessionSearch, setSessionSearch] = useState('');
   const [activeBids, setActiveBids] = useState([]);
   const [activeProjects, setActiveProjects] = useState([]);
   const [loadingLinkTargets, setLoadingLinkTargets] = useState(true);
@@ -450,7 +461,7 @@ export default function BlueprintTakeoff() {
   useEffect(() => () => clearTimeout(highlightTimeoutRef.current), []);
 
   useEffect(() => {
-    db.entities.steel_catalog.list('size_designation', 1000).then(setCatalog).catch(() => setCatalog([]));
+    db.entities.steel_catalog.list('size_designation', 100000).then(setCatalog).catch(() => setCatalog([]));
   }, []);
 
   // Count/Bolt Count setup catalog — loaded once, split by category so the
@@ -492,7 +503,70 @@ export default function BlueprintTakeoff() {
   // IRONSIGHT's measurement Size picker: the Steel sizes workbook plus every
   // steel_catalog size for the same classes (sizes added with "+ Add size",
   // or by an admin), so an added size shows up in every session.
-  const pickerSteelCatalog = useMemo(() => mergeSteelCatalogIntoPicker(steelCatalog, catalog), [steelCatalog, catalog]);
+  const workbookPicker = useMemo(() => mergeSteelCatalogIntoPicker(steelCatalog, catalog), [steelCatalog, catalog]);
+
+  // The whole master Material Catalog (every active shape, size and grade —
+  // the same library the manual Full Takeoff uses), by shape code.
+  const allShapeTypes = useMemo(
+    () => [...beamShapeTypes, ...boltShapeTypes].sort((a, b) => String(a.shape_code).localeCompare(String(b.shape_code))),
+    [beamShapeTypes, boltShapeTypes],
+  );
+  const shapeTypeByCode = useMemo(() => new Map(allShapeTypes.map((s) => [String(s.shape_code).toUpperCase(), s])), [allShapeTypes]);
+  const sizesByCode = useMemo(() => {
+    const out = {};
+    allShapeTypes.forEach((s) => { out[String(s.shape_code).toUpperCase()] = materialSizesByShapeId[s.id] || []; });
+    return out;
+  }, [allShapeTypes, materialSizesByShapeId]);
+  const gradesByCode = useMemo(() => {
+    const out = {};
+    allShapeTypes.forEach((s) => { out[String(s.shape_code).toUpperCase()] = materialGradesByShapeId[s.id] || []; });
+    return out;
+  }, [allShapeTypes, materialGradesByShapeId]);
+  const sizeOptionFor = useCallback((code, sizeValue) => {
+    const st = shapeTypeByCode.get(String(code || '').toUpperCase());
+    return st ? materialSizeRecords.find((r) => r.shape_type_id === st.id && r.size_value === sizeValue) || null : null;
+  }, [shapeTypeByCode, materialSizeRecords]);
+
+  // Measurement Shape/Size picker: the Steel sizes workbook classes (W-Beam,
+  // HSS Tube, Pipe, C-Channel, L-Angle) plus EVERY other shape in the
+  // master catalog ("FB — Flat Bar", "PL — Plate", "WT …", "MC …"), each
+  // with all its sizes. masterPickIndex turns a pick back into the catalog
+  // shape + size so the row gets the catalog's weight.
+  const { pickerSteelCatalog, masterPickIndex } = useMemo(() => {
+    const picker = { ...(workbookPicker || {}) };
+    const index = {};
+    allShapeTypes.forEach((st) => {
+      if (st.category === 'Bolts/Fasteners') return;
+      const code = String(st.shape_code).toUpperCase();
+      const legacyKey = CODE_TO_LEGACY_SHAPE_CLASS[code];
+      const key = legacyKey && picker[legacyKey] ? legacyKey : `${code} — ${st.description || code}`;
+      const bySize = new Map();
+      const list = [...(picker[key] || [])];
+      const seen = new Set(list.map((d) => String(d).toUpperCase().replace(/\s+/g, '')));
+      (sizesByCode[code] || []).forEach((sv) => {
+        const d = designationFromMaster(code, sv);
+        if (!d) return;
+        bySize.set(d.toUpperCase().replace(/\s+/g, ''), sv);
+        if (!seen.has(d.toUpperCase().replace(/\s+/g, ''))) { seen.add(d.toUpperCase().replace(/\s+/g, '')); list.push(d); }
+      });
+      if (!list.length) return;
+      picker[key] = list;
+      index[key] = { shapeType: st, bySize };
+    });
+    return { pickerSteelCatalog: picker, masterPickIndex: index };
+  }, [workbookPicker, allShapeTypes, sizesByCode]);
+
+  // Catalog fields (code, size, weight) for a measured shape/size pick.
+  const catalogPatchForMeasured = useCallback((shapeKey, designation, row) => {
+    const entry = masterPickIndex[shapeKey];
+    if (!entry || !designation) return null;
+    const sizeValue = entry.bySize.get(String(designation).toUpperCase().replace(/\s+/g, ''));
+    if (!sizeValue) return null;
+    const patch = rowPatchForPick({ row, shapeType: entry.shapeType, sizeValue, sizeOption: sizeOptionFor(entry.shapeType.shape_code, sizeValue), catalogRows: catalog });
+    // Keep the measured length and the label the estimator picked.
+    delete patch.length_ft;
+    return { ...patch, shape_type: shapeKey, size_designation: designation };
+  }, [masterPickIndex, sizeOptionFor, catalog]);
 
   // A size added from the measurement panel / Count setup / takeoff grid:
   // keep the local copies of both catalogs current (the AISC mirror lands in
@@ -691,6 +765,25 @@ export default function BlueprintTakeoff() {
     if (matches.length === 1) openSession(matches[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bidId, user?.company_id, sessions, sessionsLoading]);
+
+  // ?takeoff=<id> (a project's / bid's Takeoffs list) opens that takeoff
+  // straight away; ?project=<id> pre-links a new takeoff to that project.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const wantedTakeoffId = searchParams.get('takeoff');
+  const wantedProjectId = searchParams.get('project');
+  useEffect(() => {
+    if (wantedProjectId && !bidId) setNewTakeoffLinkValue(`project:${wantedProjectId}`);
+  }, [wantedProjectId, bidId]);
+  useEffect(() => {
+    if (!wantedTakeoffId || sessionsLoading || sessionsLoadedForCompanyRef.current !== user?.company_id) return;
+    const target = sessions.find((s) => s.id === wantedTakeoffId);
+    const next = new URLSearchParams(searchParams);
+    next.delete('takeoff');
+    setSearchParams(next, { replace: true });
+    if (target) openSession(target);
+    else toast({ title: 'That takeoff was not found', description: 'It may have been deleted, or it was saved in another browser.', variant: 'destructive' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedTakeoffId, sessions, sessionsLoading, user?.company_id]);
 
   const loadLinkTargets = async () => {
     if (!user) { setActiveBids([]); setActiveProjects([]); return; }
@@ -1672,6 +1765,12 @@ export default function BlueprintTakeoff() {
       length_ft: m.length_ft || 0,
     };
     base._key = base.id;
+    // A shape/size from the master catalog → its code, size and weight
+    // (flat bar, plate, WT, MC … weigh right, not just the 5 workbook classes).
+    if (pendingMeasurement.tool !== 'count') {
+      const cat = catalogPatchForMeasured(shape, size, base);
+      if (cat) Object.assign(base, cat);
+    }
     // Measured with a Tool Chest tool of this same kind → copy its tool-set
     // fields (subject, color, symbol, shape class …) onto the row.
     if (activePreset && (activePreset.measurement_type || activePreset.tool) === pendingMeasurement.tool) {
@@ -2040,9 +2139,16 @@ export default function BlueprintTakeoff() {
   };
 
   const persist = async (newRows) => {
+    // The session's own bid/project link. (It used to send the page's route
+    // bid — blank when the session was reopened from the list — which wiped
+    // the session's link on the first save, so it dropped off its bid.)
+    const linkBid = sessionBidId || bidId || null;
     const payload = {
       company_id: user?.company_id,
-      bid_id: bidId || undefined,
+      ...(linkBid ? { bid_id: linkBid } : {}),
+      ...(!linkBid && sessionProjectId ? { project_id: sessionProjectId } : {}),
+      // "Last worked on" — the recent-takeoffs list is ordered by this.
+      last_opened_at: new Date().toISOString(),
       file_url: fileUrl,
       file_name: fileName,
       sheet_count: sheetCount || 1,
@@ -2051,15 +2157,21 @@ export default function BlueprintTakeoff() {
       takeoff_name: takeoffName.trim() || fileName || undefined,
       has_stored_pdf: hasStoredPdf,
     };
-    if (takeoffId) {
-      await db.entities.blueprint_takeoffs.update(takeoffId, payload);
-      await loadSessions();
-    } else {
-      const created = await db.entities.blueprint_takeoffs.create(payload);
-      setTakeoffId(created.id);
-      setTakeoffName(created.takeoff_name || takeoffName || fileName || '');
-      await loadSessions();
+    try {
+      if (takeoffId) {
+        await db.entities.blueprint_takeoffs.update(takeoffId, payload);
+      } else {
+        const created = await db.entities.blueprint_takeoffs.create(payload);
+        setTakeoffId(created.id);
+        setTakeoffName(created.takeoff_name || takeoffName || fileName || '');
+      }
+      setLastSavedAt(new Date());
+      setSaveError(null);
+    } catch (e) {
+      setSaveError(e?.message || 'Could not save');
+      throw e;
     }
+    await loadSessions();
   };
 
   const updateRow = (key, field, value) => {
@@ -2082,13 +2194,38 @@ export default function BlueprintTakeoff() {
     persist(newRows);
   };
 
+  // Shape / size / plate width / grade picked from the master catalog on a
+  // grid row (same pickers as the manual Full Takeoff) -> designation and
+  // the catalog's weight. A changed shape starts at its first size.
+  const updateRowPick = (key, { shapeType, sizeValue, widthIn, grade } = {}) => {
+    const newRows = rows.map((r) => {
+      if (r._key !== key) return r;
+      if (grade !== undefined) return { ...r, grade };
+      const current = catalogPickForRow(r);
+      const st = shapeType || shapeTypeByCode.get(current.code);
+      if (!st) return r;
+      const code = String(st.shape_code).toUpperCase();
+      const shapeChanged = !!shapeType && code !== current.code;
+      const size = sizeValue ?? (shapeChanged ? (sizesByCode[code] || [])[0] || '' : current.sizeValue);
+      const patch = rowPatchForPick({ row: r, shapeType: st, sizeValue: size, sizeOption: sizeOptionFor(code, size), catalogRows: catalog, widthIn });
+      const next = { ...r, ...patch };
+      if (shapeChanged) {
+        next.grade = defaultGradeFor(code, gradesByCode[code] || []) || '';
+        if (patch.weight_basis !== 'each' && r.weight_basis === 'each') next.length_ft = 0;
+      }
+      return next;
+    });
+    setRows(newRows);
+    persist(newRows);
+  };
+
   // Rows whose size has a known weight always carry it — an older row typed
   // over it, or an admin changed it since, is brought back in line.
   useEffect(() => {
     if (!rows.length || !catalog.length) return;
     let changed = false;
     const synced = rows.map((r) => {
-      if (['area', 'bolt_count', 'volume', 'angle'].includes(r.tool)) return r;
+      if (['area', 'bolt_count', 'volume', 'angle'].includes(r.tool) || r.weight_basis === 'each') return r;
       const known = r.size_designation ? resolveSteelWeight(r.size_designation, catalog) : null;
       if (!known || Math.abs((Number(r.unit_weight_lbs_per_ft) || 0) - known.perFt) < 1e-9) return r;
       changed = true;
@@ -2269,8 +2406,20 @@ export default function BlueprintTakeoff() {
     });
   };
 
+  // Add a material line the way the manual Full Takeoff does: a W shape at
+  // its first catalog size with the shape's default grade, qty 1, on the
+  // page being viewed — saved right away (it used to be lost unless edited).
   const addManualRow = () => {
-    setRows((prev) => [...prev, emptyRow()]);
+    const st = shapeTypeByCode.get('W') || allShapeTypes[0];
+    let row = emptyRow({ page_number: pageInfo.pageNum || 1, source: 'manual', length_ft: 0 });
+    if (st) {
+      const code = String(st.shape_code).toUpperCase();
+      const size = (sizesByCode[code] || [])[0] || '';
+      row = { ...row, ...rowPatchForPick({ row, shapeType: st, sizeValue: size, sizeOption: sizeOptionFor(code, size), catalogRows: catalog }), grade: defaultGradeFor(code, gradesByCode[code] || []) || '' };
+    }
+    const newRows = [...rows, row];
+    setRows(newRows);
+    persist(newRows);
   };
 
   const loadDemoRows = () => {
@@ -2838,16 +2987,25 @@ export default function BlueprintTakeoff() {
     }
   };
 
+  // Save everything now (Save button / Ctrl+S): rows, markups, notes, tool
+  // chest and the page/zoom to reopen on. Most of it also saves as you go;
+  // this makes sure and says so.
   const handleSaveAll = async () => {
     if (!takeoffId) return;
+    setSavingAll(true);
     try {
       await persist(rows);
       markups.flush();
-      await db.entities.blueprint_takeoffs.update(takeoffId, { drawing_markups: markups.markups, page_notes: pageNotes });
-      toast({ title: 'Saved', description: `${rows.filter((r) => r.source === 'measurement').length} takeoff rows and ${markups.markups.length} drawing markups.` });
+      await db.entities.blueprint_takeoffs.update(takeoffId, { drawing_markups: markups.markups, page_notes: pageNotes, tool_chest: toolChest });
+      await flushDbPersistence();
+      setLastSavedAt(new Date());
+      toast({ title: 'Takeoff saved', description: `${rows.length} takeoff row${rows.length === 1 ? '' : 's'} and ${markups.markups.length} drawing markup${markups.markups.length === 1 ? '' : 's'}. Reopen it from IRONSIGHT's recent list${sessionProjectId || sessionBidId ? ' or the job\'s Takeoffs' : ''}.` });
     } catch (e) {
       console.error('Save failed', e);
-      toast({ title: 'Could not save', variant: 'destructive' });
+      setSaveError(e?.message || 'Could not save');
+      toast({ title: 'Could not save', description: e?.message, variant: 'destructive' });
+    } finally {
+      setSavingAll(false);
     }
   };
 
@@ -2897,7 +3055,7 @@ export default function BlueprintTakeoff() {
   const linkedName = sessionBidId
     ? (activeBids.find((b) => b.id === sessionBidId)?.job_name || (bid?.id === sessionBidId ? bid?.job_name : '') || 'Bid')
     : sessionProjectId ? (activeProjects.find((p) => p.id === sessionProjectId)?.name || 'Project') : null;
-  const linkedPath = sessionBidId ? `/estimating/${sessionBidId}` : sessionProjectId ? `/projects/${sessionProjectId}` : null;
+  const linkedPath = sessionBidId ? `/estimating/${sessionBidId}` : sessionProjectId ? `/projects/${sessionProjectId}?tab=takeoffs` : null;
   const goToLinked = () => {
     if (!linkedPath) return;
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
@@ -3099,6 +3257,18 @@ export default function BlueprintTakeoff() {
       </span>
       {sessionAreaId && <span className="text-slate-400 whitespace-nowrap">· Area: {bidAreas.find((a) => a.id === sessionAreaId)?.name || 'Assigned'}</span>}
       <div className="ml-auto flex items-center gap-2">
+        <button
+          type="button"
+          onClick={handleSaveAll}
+          disabled={!takeoffId || savingAll}
+          className="flex items-center gap-1 rounded bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-900 font-semibold px-2 py-0.5"
+          title="Save this takeoff (Ctrl+S). Reopen it from IRONSIGHT's recent takeoffs or the job's Takeoffs tab."
+        >
+          {savingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}Save
+        </button>
+        <span className={saveError ? 'text-red-400' : 'text-slate-400'} title={saveError || undefined}>
+          {saveError ? 'Not saved!' : lastSavedAt ? `Saved ${lastSavedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
+        </span>
         {!hasStoredPdf && !pdfMissingNotice && fileUrl && (pdfStoreFailed
           ? <span className="text-amber-400" title="The drawing could not be saved on this computer — it is open now, but reopening this session later needs Re-attach PDF.">Drawing not saved</span>
           : <span className="flex items-center gap-1 text-slate-400"><Loader2 className="w-3 h-3 animate-spin" />Storing drawing…</span>)}
@@ -3341,7 +3511,7 @@ export default function BlueprintTakeoff() {
           {exportingExcel ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <FileDown className="w-3.5 h-3.5 mr-1" />}Excel bid template
         </Button>
         <Button size="sm" variant="outline" onClick={() => setSteelCatalogEditorOpen(true)}><ListChecks className="w-3.5 h-3.5 mr-1" />Steel catalog</Button>
-        <Button size="sm" variant="outline" onClick={addManualRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Row</Button>
+        <Button size="sm" variant="outline" onClick={addManualRow}><Plus className="w-3.5 h-3.5 mr-1" />Add Material Line</Button>
       </div>
       {scanning && (
         <div className="w-full rounded-lg border-2 border-primary bg-primary text-primary-foreground px-4 py-2 flex items-center gap-3 animate-pulse">
@@ -3362,16 +3532,15 @@ export default function BlueprintTakeoff() {
                     <tr>
                       <th className="p-2 font-medium w-10">✓</th>
                       <th className="p-2 font-medium w-16">Sheet</th>
-                      <th className="p-2 font-medium">Shape Type</th>
-                      <th className="p-2 font-medium w-40">Shape Class</th>
-                      <th className="p-2 font-medium w-32">Size</th>
+                      <th className="p-2 font-medium min-w-[200px]">Material / Shape</th>
+                      <th className="p-2 font-medium min-w-[160px]">Size</th>
+                      <th className="p-2 font-medium min-w-[120px]">Grade</th>
                       <th className="p-2 font-medium w-32">Coating</th>
                       <th className="p-2 font-medium w-32">Calculated Metrics</th>
                       <th className="p-2 font-medium w-20">Conf.</th>
-                      <th className="p-2 font-medium w-20">Qty</th>
+                      <th className="p-2 font-medium w-32">Qty</th>
                       <th className="p-2 font-medium w-24">Wt (lb/ft)</th>
-                      <th className="p-2 font-medium w-20">Length (ft)</th>
-                      <th className="p-2 font-medium min-w-24 w-auto whitespace-nowrap">Length</th>
+                      <th className="p-2 font-medium min-w-[130px] whitespace-nowrap">Length (ft-in)</th>
                       <th className="p-2 font-medium w-24">Area (sq ft)</th>
                       <th className="p-2 font-medium w-24">Total Wt (lb)</th>
                       <th className="p-2 font-medium w-28"></th>
@@ -3386,36 +3555,56 @@ export default function BlueprintTakeoff() {
                             <input type="checkbox" checked={r.is_accepted} onChange={(e) => updateRow(r._key, 'is_accepted', e.target.checked)} />
                           </td>
                           <td className="p-2 text-xs text-muted-foreground">{r.page_number || 1}</td>
-                          <td className="p-2">
-                            <Input value={r.shape_type} onChange={(e) => updateRow(r._key, 'shape_type', e.target.value)} className="h-8" />
-                            {(r.is_demo || r.notes) && (
-                              <p className="text-[10px] mt-0.5 flex items-center gap-1 text-amber-600">
-                                {r.is_demo && <span className="font-bold uppercase">[Demo]</span>}
-                                {r.notes}
-                              </p>
-                            )}
-                          </td>
-                          <td className="p-2">
-                            <select
-                              value={r.shape_class || 'W'}
-                              onChange={(e) => updateRow(r._key, 'shape_class', e.target.value)}
-                              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                            >
-                              {SHAPE_CLASSES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-                            </select>
-                          </td>
-                          <td className="p-2">
-                            <select
-                              value={r.size_designation}
-                              onChange={(e) => updateRow(r._key, 'size_designation', e.target.value)}
-                              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                            >
-                              {sizesForClass(r.shape_class || 'W-Beam').map((s) => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                            {(catalogPerms.canAdd || catalogPerms.needsCompany) && (
-                              <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => setGridAddSize({ rowKey: r._key, shapeClass: r.shape_class || 'W-Beam' })}>+ Add size</button>
-                            )}
-                          </td>
+                          {(() => {
+                            // Same Material -> Size -> Grade pickers as the manual
+                            // Full Takeoff, on the whole master catalog.
+                            const pick = catalogPickForRow(r);
+                            const st = shapeTypeByCode.get(pick.code);
+                            const isPlate = r.width_in != null || ['PL', 'PLGA', 'SSPL', 'ALPL', 'CP', 'FP', 'ARPL', 'UM', 'DPL'].includes(pick.code);
+                            return (
+                              <>
+                                <td className="p-2 align-top">
+                                  <ShapePicker shapeTypes={allShapeTypes} value={st ? pick.code : undefined} onChange={(s) => updateRowPick(r._key, { shapeType: s })} />
+                                  {!st && r.shape_type && <p className="text-[10px] mt-0.5 text-muted-foreground truncate" title={r.shape_type}>Was: {r.shape_type}</p>}
+                                  {(r.is_demo || r.notes) && (
+                                    <p className="text-[10px] mt-0.5 flex items-center gap-1 text-amber-600">
+                                      {r.is_demo && <span className="font-bold uppercase">[Demo]</span>}
+                                      {r.notes}
+                                    </p>
+                                  )}
+                                </td>
+                                <td className="p-2 align-top">
+                                  {st ? (
+                                    <SizePicker
+                                      sizes={sizesByCode[pick.code] || []}
+                                      value={pick.sizeValue}
+                                      onChange={(v) => updateRowPick(r._key, { sizeValue: v })}
+                                      onAddSize={(catalogPerms.canAdd || catalogPerms.needsCompany) && CODE_TO_LEGACY_SHAPE_CLASS[pick.code]
+                                        ? () => setGridAddSize({ rowKey: r._key, shapeClass: CODE_TO_LEGACY_SHAPE_CLASS[pick.code] })
+                                        : undefined}
+                                    />
+                                  ) : <span className="text-xs">{r.size_designation || '—'}</span>}
+                                  {st && isPlate && (
+                                    <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                                      Width
+                                      <Input
+                                        className="h-7 w-16 text-xs"
+                                        defaultValue={r.width_in || ''}
+                                        placeholder="in"
+                                        aria-label="Plate width (inches)"
+                                        onBlur={(e) => { const w = parseDimToken(e.target.value); if (w != null && w !== r.width_in) updateRowPick(r._key, { widthIn: w }); }}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                                      />
+                                      in
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="p-2 align-top">
+                                  {st ? <GradePicker key={`${r._key}-${pick.code}`} grades={gradesByCode[pick.code] || []} value={r.grade || ''} onChange={(v) => updateRowPick(r._key, { grade: v })} /> : <span className="text-xs">{r.grade || '—'}</span>}
+                                </td>
+                              </>
+                            );
+                          })()}
                           <td className="p-2">
                             <select
                               value={r.coating_type || 'No Coating'}
@@ -3431,9 +3620,21 @@ export default function BlueprintTakeoff() {
                             {r.coating_type === 'No Coating' && '—'}
                           </td>
                           <td className="p-2 text-xs text-muted-foreground">{r.confidence != null ? `${Math.round(r.confidence * 100)}%` : '—'}</td>
-                          <td className="p-2"><Input type="number" min={0} value={r.quantity} onChange={(e) => updateRow(r._key, 'quantity', Number(e.target.value) || 0)} className="h-8" /></td>
+                          <td className="p-2">
+                            <div className="flex items-center gap-0.5">
+                              <Button type="button" size="icon" variant="outline" className="h-8 w-7" aria-label="One less" onClick={() => updateRow(r._key, 'quantity', Math.max(0, (Number(r.quantity) || 0) - 1))}>−</Button>
+                              <Input type="number" min={0} step="any" value={r.quantity} onChange={(e) => updateRow(r._key, 'quantity', Math.max(0, parseFloat(e.target.value) || 0))} className="h-8 w-16 text-center px-1" aria-label="Quantity" />
+                              <Button type="button" size="icon" variant="outline" className="h-8 w-7" aria-label="One more" onClick={() => updateRow(r._key, 'quantity', (Number(r.quantity) || 0) + 1)}>+</Button>
+                            </div>
+                          </td>
                           {(() => {
-                            const known = r.size_designation ? resolveSteelWeight(r.size_designation, catalog) : null;
+                            // Locked when the catalog knows the weight (steel_catalog,
+                            // saved, AISC, or the size's own dimensions); typed only
+                            // when it doesn't. Bolts/hardware are lb each.
+                            const known = (r.weight_basis !== 'each' && r.size_designation ? resolveSteelWeight(r.size_designation, catalog) : null)
+                              || (r.shape_code && !r.weight_needed && r.unit_weight_lbs_per_ft > 0
+                                ? { perFt: r.unit_weight_lbs_per_ft, text: `From the material catalog (${r.weight_basis === 'each' ? 'lb each' : 'lb/ft'})` }
+                                : null);
                             return (
                               <td className="p-2">
                                 <Input
@@ -3449,9 +3650,12 @@ export default function BlueprintTakeoff() {
                               </td>
                             );
                           })()}
-                          <td className="p-2"><Input type="number" min={0} value={r.length_ft} onChange={(e) => updateRow(r._key, 'length_ft', Number(e.target.value) || 0)} className="h-8" /></td>
-                          <td className="p-2 text-xs text-muted-foreground whitespace-nowrap">
-                            {['area', 'bolt_count', 'volume', 'angle'].includes(r.tool) ? '—' : formatFeetInchesFraction(r.length_ft || 0)}
+                          <td className="p-2 align-top">
+                            {['area', 'bolt_count', 'volume', 'angle'].includes(r.tool)
+                              ? <span className="text-xs text-muted-foreground">—</span>
+                              : r.weight_basis === 'each'
+                                ? <span className="text-xs text-muted-foreground" title="Bolts, anchors and hardware are weighed each — quantity only">each</span>
+                                : <LengthFtInInput value={r.length_ft || 0} onCommit={(ft) => updateRow(r._key, 'length_ft', ft)} />}
                           </td>
                           <td className="p-2 text-xs text-muted-foreground">
                             {['area', 'wall_area', 'volume'].includes(r.tool) ? r.area_sq_ft?.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
@@ -3491,13 +3695,16 @@ export default function BlueprintTakeoff() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t bg-muted/30 font-semibold">
-                      <td colSpan={13} className="p-2 text-right">Job Totals ({acceptedRows.length} accepted)</td>
+                      <td colSpan={12} className="p-2 text-right">Job Totals ({acceptedRows.length} accepted)</td>
                       <td className="p-2 text-xs">{totalWeight.toLocaleString(undefined, { maximumFractionDigits: 0 })} lb</td>
                       <td></td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
+              <Button size="sm" variant="outline" className="w-full border-dashed" onClick={addManualRow}>
+                <Plus className="w-3.5 h-3.5 mr-1" />Add Material Line
+              </Button>
 
               <div className="sticky bottom-0 z-10 rounded-lg border-2 border-primary bg-slate-900 text-white px-4 py-3 shadow-2xl flex flex-wrap items-center justify-between gap-4">
                 <p className="text-sm font-bold">
@@ -3772,15 +3979,36 @@ export default function BlueprintTakeoff() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-3">
             <h3 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
-              <FolderOpen className="w-4 h-4" />{bidId ? "This Bid's Takeoff Sessions" : 'Resume a takeoff'}
+              <FolderOpen className="w-4 h-4" />
+              {bidId ? "This Bid's Takeoff Sessions" : (showAllSessions || sessionSearch.trim() ? `All takeoffs (${bidSessions.length})` : 'Recent takeoffs — last 10 worked on')}
             </h3>
+            {bidSessions.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Input
+                  value={sessionSearch}
+                  onChange={(e) => setSessionSearch(e.target.value)}
+                  placeholder="Find a takeoff — name, drawing, bid or project"
+                  className="h-8 text-sm"
+                  aria-label="Find a takeoff"
+                />
+                {!bidId && bidSessions.length > 10 && !sessionSearch.trim() && (
+                  <Button size="sm" variant="outline" className="h-8 whitespace-nowrap" onClick={() => setShowAllSessions((v) => !v)}>
+                    {showAllSessions ? 'Show last 10' : `Show all ${bidSessions.length}`}
+                  </Button>
+                )}
+              </div>
+            )}
             {sessionsLoading ? (
               <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading sessions…</p>
             ) : bidSessions.length === 0 ? (
               <p className="text-sm text-muted-foreground">No takeoff sessions yet — start one on the right.</p>
             ) : (
               <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
-                {bidSessions.map((s) => {
+                {(() => {
+                  const q = sessionSearch.trim().toLowerCase();
+                  if (q) return bidSessions.filter((s) => [s.takeoff_name, s.file_name, s._linkedLabel].some((v) => String(v || '').toLowerCase().includes(q)));
+                  return bidId || showAllSessions ? bidSessions : bidSessions.slice(0, 10);
+                })().map((s) => {
                   const itemCount = (s.accepted_items || []).length;
                   return (
                     <Card key={s.id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => openSession(s)}>

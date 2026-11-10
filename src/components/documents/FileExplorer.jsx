@@ -6,11 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import StatusBadge from '@/components/ui/StatusBadge';
 import PathBreadcrumb from './PathBreadcrumb';
 import { useToast } from '@/components/ui/use-toast';
-import { openDocumentViewer } from '@/lib/openDocumentViewer';
+import { openDocumentViewer, isViewableDocumentName } from '@/lib/openDocumentViewer';
 import { downloadFile } from '@/lib/downloadFile';
 import { resolveDocumentUrl } from '@/lib/documentBlobStore';
 
-const isPdfName = (name) => !!name?.match(/\.pdf$/i);
+const isPdfName = isViewableDocumentName; // PDFs (every page), pictures, text open in the viewer
 
 const PAGE_SIZE = 50;
 
