@@ -110,6 +110,36 @@ function drawChecklist(doc, startY, checklistRows) {
   return y + 0.15;
 }
 
+// One row per outside scope: who we're using and the quote(s) attached.
+function drawScopeVendors(doc, startY, rows) {
+  let y = startY;
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(130);
+  doc.text('SCOPE', MARGIN, y);
+  doc.text('VENDOR', MARGIN + 1.5, y);
+  doc.text('QUOTE', MARGIN + 4.2, y);
+  doc.setDrawColor(200);
+  doc.line(MARGIN, y + 0.04, CONTENT_RIGHT, y + 0.04);
+  doc.setTextColor(0);
+  y += 0.2;
+  rows.forEach((row) => {
+    doc.setFontSize(8.5);
+    const vendor = doc.splitTextToSize(row.vendor || '—', 2.6);
+    const quotes = doc.splitTextToSize(row.quotes.length ? row.quotes.join(', ') : '—', CONTENT_RIGHT - MARGIN - 4.2);
+    const lines = Math.max(vendor.length, quotes.length);
+    y = ensureSpace(doc, y, lines * 0.13 + 0.08);
+    doc.text(row.label, MARGIN, y);
+    doc.text(vendor, MARGIN + 1.5, y);
+    doc.text(quotes, MARGIN + 4.2, y);
+    const rowH = lines * 0.13 + 0.05;
+    doc.setDrawColor(225);
+    doc.line(MARGIN, y + rowH - 0.08, CONTENT_RIGHT, y + rowH - 0.08);
+    y += rowH + 0.04;
+  });
+  return y + 0.15;
+}
+
 function drawSubQuotes(doc, startY, subQuotes) {
   let y = startY;
   if (!subQuotes.length) {
@@ -240,15 +270,8 @@ export function drawTurnoverReviewPdf(data) {
   y = drawChecklist(doc, y, data.checklistRows);
 
   y = ensureSpace(doc, y, 0.6);
-  y = drawSectionTitle(doc, y, 'Pricing');
-  doc.setFontSize(9);
-  doc.text(`Pricing Basis: ${data.pricingBasisLabel}`, MARGIN, y);
-  y += 0.18;
-  if (data.pricingBasis === 'erected') {
-    doc.text(`Erector: ${data.erectorName || '—'}`, MARGIN, y);
-    y += 0.18;
-  }
-  y += 0.15;
+  y = drawSectionTitle(doc, y, 'Subcontractors & Suppliers');
+  y = drawScopeVendors(doc, y, data.scopeVendors || []);
 
   y = ensureSpace(doc, y, 0.6);
   y = drawSectionTitle(doc, y, 'Sub Quotes');

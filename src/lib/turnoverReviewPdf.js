@@ -1,5 +1,7 @@
 import { db } from '@/api/apiClient';
-import { SIMPLE_CHECKLIST_ITEMS, FREE_TEXT_FIELDS } from '@/components/projects/turnoverReviewShared';
+import {
+  FREE_TEXT_FIELDS, SCOPE_VENDOR_ROLES, normalizeTurnoverRecord, checklistFor, checklistItemText, scopeVendorFor, quoteName,
+} from '@/components/projects/turnoverReviewShared';
 import { loadImageAsDataUrl } from '@/lib/pdfImage';
 import { downloadPdfBlob } from '@/lib/pdfDownload';
 import { drawTurnoverReviewPdf } from '@/lib/turnoverReviewPdfLayout';
@@ -18,23 +20,20 @@ export async function generateTurnoverReviewPdf({ project, record }) {
   const logo = await loadImageAsDataUrl(companies[0]?.logo_url);
   const letterheadImage = await loadLetterheadImage('turnover_review');
 
-  const items = record.checklist_items || {};
-  const checklistRows = [
-    ...SIMPLE_CHECKLIST_ITEMS.map(({ key, label }) => ({ label, value: !!items[key] })),
-    { label: `Detailing${items.detailing_required && record.detailing_company ? ` — ${record.detailing_company}` : ''}`, value: !!items.detailing_required },
-    { label: `Galvanizing${items.galvanizing_required && record.galvanizing_tons ? ` — ${record.galvanizing_tons} tons` : ''}`, value: !!items.galvanizing_required },
-  ];
-
-  const pricingBasisLabel = record.pricing_basis === 'fob' ? 'FOB' : record.pricing_basis === 'erected' ? 'Erected' : '—';
+  const rec = normalizeTurnoverRecord(record);
+  const items = rec.checklist_items || {};
+  const checklistRows = checklistFor(rec).map((item) => ({ label: checklistItemText(item, rec), value: !!items[item.key] }));
+  const scopeVendors = SCOPE_VENDOR_ROLES.map(({ key, label }) => {
+    const v = scopeVendorFor(rec, key);
+    return { label, vendor: v.vendor_name, quotes: v.quotes.map(quoteName) };
+  });
 
   const data = {
     project,
     logo,
     letterheadImage,
     checklistRows,
-    pricingBasis: record.pricing_basis,
-    pricingBasisLabel,
-    erectorName: record.erector_name,
+    scopeVendors,
     subQuotes: record.sub_quotes || [],
     freeTextFields: FREE_TEXT_FIELDS.map(({ key, label }) => ({ label, value: record[key] })),
     requiredAttendees: record.required_attendees || [],

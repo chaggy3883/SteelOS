@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef, useImperativeHandle, forwardRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, X, Loader2, CheckCircle2, Download, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Plus, X, Loader2, CheckCircle2, Download, RefreshCw, AlertTriangle, Pencil, ArrowUp, ArrowDown, RotateCcw } from 'lucide-react';
 import { db } from '@/api/apiClient';
 import { getEffectiveCompany } from '@/lib/tenantContext';
 import { useAuth } from '@/lib/AuthContext';
@@ -10,9 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { SIMPLE_CHECKLIST_ITEMS, FREE_TEXT_FIELDS, blankTurnoverRecord as blankRecord } from '@/components/projects/turnoverReviewShared';
+import {
+  FREE_TEXT_FIELDS, SCOPE_VENDOR_ROLES, DEFAULT_CHECKLIST, blankTurnoverRecord as blankRecord,
+  normalizeTurnoverRecord, checklistFor, checklistItemText, scopeVendorFor, quoteName,
+} from '@/components/projects/turnoverReviewShared';
 import ConflictResolutionModal from '@/components/projects/ConflictResolutionModal';
+import ScopeVendorsCard from '@/components/projects/ScopeVendorsCard';
 
 // Optimistic-concurrency conflict PREVENTION, not real-time collaboration —
 // see ScopeReviewPanel.jsx's file-top note for the full rationale (same
@@ -25,45 +27,27 @@ import ConflictResolutionModal from '@/components/projects/ConflictResolutionMod
 // people each owning disjoint fields of it.
 const FRESHNESS_POLL_MS = 45000;
 
-// Free-text name (Detailing Company, Erector) linked to its Vendor record
-// when one matches by name — standing rule: every data point links back to
-// its source record where applicable. Vendor is looked up by name, not FK,
-// since these fields are plain text on the reference form, not a picker.
-function VendorLinkedField({ label, value, onChange, disabled, vendorsByName }) {
-  const navigate = useNavigate();
-  const matched = vendorsByName.get((value || '').trim().toLowerCase());
-  return (
-    <div>
-      <Label className="text-xs">{label}</Label>
-      <Input value={value || ''} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="mt-1 h-9" />
-      {matched && (
-        <button
-          type="button"
-          className="text-xs text-primary hover:underline mt-1"
-          onClick={() => navigate(`/crm/directory?vendor=${matched.id}`)}
-        >
-          View Vendor record →
-        </button>
-      )}
-    </div>
-  );
-}
-
 // Builds only the rows that actually differ between two record versions —
 // showing all ~20 fields in a conflict modal regardless of whether they
 // changed would bury the one or two that matter.
 function buildConflictRows(mine, theirs) {
   if (!mine || !theirs) return [];
   const rows = [];
-  const checklistLabel = (items) => SIMPLE_CHECKLIST_ITEMS.concat([{ key: 'detailing_required', label: 'Detailing' }, { key: 'galvanizing_required', label: 'Galvanizing' }])
-    .filter(({ key }) => !!(items || {})[key]).map(({ label }) => label).join(', ') || '(none checked)';
-  if (JSON.stringify(mine.checklist_items || {}) !== JSON.stringify(theirs.checklist_items || {})) {
-    rows.push({ label: 'Checklist', mine: checklistLabel(mine.checklist_items), theirs: checklistLabel(theirs.checklist_items) });
+  const checklistLabel = (rec) => checklistFor(rec)
+    .filter(({ key }) => !!(rec.checklist_items || {})[key]).map((item) => checklistItemText(item, rec)).join(', ') || '(none checked)';
+  if (JSON.stringify(mine.checklist_items || {}) !== JSON.stringify(theirs.checklist_items || {})
+    || JSON.stringify(checklistFor(mine)) !== JSON.stringify(checklistFor(theirs))
+    || String(mine.galvanizing_tons ?? '') !== String(theirs.galvanizing_tons ?? '')) {
+    rows.push({ label: 'Checklist', mine: checklistLabel(mine), theirs: checklistLabel(theirs) });
   }
-  if (mine.detailing_company !== theirs.detailing_company) rows.push({ label: 'Detailing Company', mine: mine.detailing_company, theirs: theirs.detailing_company });
-  if (String(mine.galvanizing_tons ?? '') !== String(theirs.galvanizing_tons ?? '')) rows.push({ label: 'Galvanizing Tons', mine: mine.galvanizing_tons, theirs: theirs.galvanizing_tons });
-  if (mine.pricing_basis !== theirs.pricing_basis) rows.push({ label: 'Pricing Basis', mine: mine.pricing_basis, theirs: theirs.pricing_basis });
-  if (mine.erector_name !== theirs.erector_name) rows.push({ label: 'Erector', mine: mine.erector_name, theirs: theirs.erector_name });
+  SCOPE_VENDOR_ROLES.forEach(({ key, label }) => {
+    const text = (rec) => {
+      const v = scopeVendorFor(rec, key);
+      const quotes = v.quotes.map(quoteName).join(', ');
+      return [v.vendor_name || '—', quotes ? `(${quotes})` : ''].filter(Boolean).join(' ');
+    };
+    if (text(mine) !== text(theirs)) rows.push({ label, mine: text(mine), theirs: text(theirs) });
+  });
   const subQuoteText = (rows_) => (rows_ || []).map((r) => `${r.company || '—'} (${r.type || '—'})`).join('; ') || '(none)';
   if (JSON.stringify(mine.sub_quotes || []) !== JSON.stringify(theirs.sub_quotes || [])) {
     rows.push({ label: 'Sub Quotes', mine: subQuoteText(mine.sub_quotes), theirs: subQuoteText(theirs.sub_quotes) });
@@ -125,6 +109,11 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [vendors, setVendors] = useState([]);
+  const [estimate, setEstimate] = useState(null);
+  const [pricingLinks, setPricingLinks] = useState([]);
+  const [estimateDocs, setEstimateDocs] = useState([]);
+  const [editingChecklist, setEditingChecklist] = useState(false);
+  const [newItem, setNewItem] = useState('');
   const [stale, setStale] = useState(false);
   const [conflict, setConflict] = useState(null); // { mine, theirs }
   const [resolvingConflict, setResolvingConflict] = useState(false);
@@ -139,15 +128,32 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
     if (!project?.id) return;
     setLoading(true);
     try {
-      const [existing, company, vendorRows] = await Promise.all([
+      const [existing, company, vendorRows, wonBids, linkedBids] = await Promise.all([
         db.entities.TurnoverMeetingRecord.filter({ project_id: project.id }, '-created_date', 1),
         getEffectiveCompany().catch(() => null),
         db.entities.Vendor.filter({ is_active: true }, 'name', 500).catch(() => []),
+        db.entities.Bid.filter({ won_project_id: project.id }, '-created_date', 1).catch(() => []),
+        db.entities.Bid.filter({ project_id: project.id }, '-created_date', 1).catch(() => []),
       ]);
       setVendors(vendorRows);
+      // The won estimate this job came from: its Vendor Pricing and files are
+      // where the scope vendors' quotes are attached from.
+      const bid = wonBids[0] || linkedBids[0] || null;
+      setEstimate(bid);
+      if (bid) {
+        const [links, docs] = await Promise.all([
+          db.entities.VendorPricingLink.filter({ bid_id: bid.id }, '-created_date', 500).catch(() => []),
+          db.entities.Document.filter({ bid_id: bid.id }, '-created_date', 1000).catch(() => []),
+        ]);
+        setPricingLinks(links);
+        setEstimateDocs(docs.filter((d) => !d.is_archived));
+      } else {
+        setPricingLinks([]);
+        setEstimateDocs([]);
+      }
       const found = existing[0];
       const next = found
-        ? { ...blankRecord(), ...found }
+        ? normalizeTurnoverRecord(found)
         : { ...blankRecord(), required_attendees: company?.turnover_meeting_standard_attendees || [] };
       setRecord(next);
       setSavedRecord(next);
@@ -175,7 +181,7 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
         if (dirtyNow) {
           setStale(true);
         } else {
-          const next = { ...blankRecord(), ...current };
+          const next = normalizeTurnoverRecord(current);
           setRecord(next);
           setSavedRecord(next);
           setStale(false);
@@ -197,7 +203,7 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
       setConflict({ mine: record, theirs: current });
       return;
     }
-    const next = { ...blankRecord(), ...current };
+    const next = normalizeTurnoverRecord(current);
     setRecord(next);
     setSavedRecord(next);
     setStale(false);
@@ -232,6 +238,51 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
     if (!assertPlainValue(`checklist_items.${key}`, value)) return;
     setRecord((prev) => ({ ...prev, checklist_items: { ...prev.checklist_items, [key]: value } }));
   };
+  const updateScopeVendor = (roleKey, value) => {
+    if (!assertPlainValue(`scope_vendors.${roleKey}`, value)) return;
+    setRecord((prev) => ({ ...prev, scope_vendors: { ...(prev.scope_vendors || {}), [roleKey]: value } }));
+  };
+
+  // Editing the checklist itself (this project's copy — the first edit copies
+  // the standard list onto the record). Removing an item drops its answer too.
+  const setChecklistList = (fn) => setRecord((prev) => ({ ...prev, checklist_list: fn(checklistFor(prev).map((i) => ({ ...i }))) }));
+  const renameItem = (index, label) => setChecklistList((list) => list.map((item, i) => (i === index ? { ...item, label } : item)));
+  const moveItem = (index, delta) => setChecklistList((list) => {
+    const to = index + delta;
+    if (to < 0 || to >= list.length) return list;
+    const next = [...list];
+    [next[index], next[to]] = [next[to], next[index]];
+    return next;
+  });
+  const removeItem = (index) => setRecord((prev) => {
+    const list = checklistFor(prev);
+    const gone = list[index];
+    const items = { ...(prev.checklist_items || {}) };
+    if (gone) delete items[gone.key];
+    return { ...prev, checklist_list: list.filter((_, i) => i !== index), checklist_items: items };
+  });
+  const addItem = () => {
+    const label = newItem.trim();
+    if (!label) return;
+    const key = `custom_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    setChecklistList((list) => [...list, { key, label }]);
+    setNewItem('');
+  };
+  const resetChecklist = () => {
+    if (!window.confirm('Put the checklist back to the standard items? Answers to items you added will be cleared.')) return;
+    setRecord((prev) => {
+      const keep = new Set(DEFAULT_CHECKLIST.map((i) => i.key));
+      const items = Object.fromEntries(Object.entries(prev.checklist_items || {}).filter(([k]) => keep.has(k)));
+      return { ...prev, checklist_list: null, checklist_items: items };
+    });
+  };
+  const finishEditing = () => {
+    // Blank names aren't kept.
+    setRecord((prev) => (Array.isArray(prev.checklist_list)
+      ? { ...prev, checklist_list: prev.checklist_list.map((i) => ({ ...i, label: String(i.label || '').trim() })).filter((i) => i.label) }
+      : prev));
+    setEditingChecklist(false);
+  };
 
   // Accepts an explicit record to save (used by markCompleted, which needs to
   // save the just-computed completed state immediately rather than racing
@@ -257,7 +308,7 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
       const saved = source.id
         ? await db.entities.TurnoverMeetingRecord.update(source.id, payload)
         : await db.entities.TurnoverMeetingRecord.create(payload);
-      const next = { ...blankRecord(), ...saved };
+      const next = normalizeTurnoverRecord(saved);
       setRecord(next);
       setSavedRecord(next);
       setStale(false);
@@ -281,7 +332,7 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
       const payload = { ...conflict.mine, project_id: project.id };
       delete payload.id;
       const saved = await db.entities.TurnoverMeetingRecord.update(conflict.theirs.id, payload);
-      const next = { ...blankRecord(), ...saved };
+      const next = normalizeTurnoverRecord(saved);
       setRecord(next);
       setSavedRecord(next);
       setStale(false);
@@ -296,7 +347,7 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
 
   const handleConflictTakeTheirs = () => {
     if (!conflict) return;
-    const next = { ...blankRecord(), ...conflict.theirs };
+    const next = normalizeTurnoverRecord(conflict.theirs);
     setRecord(next);
     setSavedRecord(next);
     setStale(false);
@@ -364,52 +415,71 @@ const TurnoverReviewPanel = forwardRef(function TurnoverReviewPanel({ project, o
         </div>
       )}
 
-      <div className="steel-card p-5 space-y-2">
-        <h4 className="font-semibold mb-1">Checklist</h4>
-        {SIMPLE_CHECKLIST_ITEMS.map(({ key, label }) => (
-          <div key={key} className="flex items-start gap-2.5 py-1">
-            <Checkbox id={`turnover-${key}`} checked={!!record.checklist_items[key]} onCheckedChange={(v) => updateChecklist(key, !!v)} disabled={readOnly} className="mt-0.5" />
-            <label htmlFor={`turnover-${key}`} className="flex-1 text-sm cursor-pointer">{label}</label>
-          </div>
-        ))}
-      </div>
-
-      <div className="steel-card p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <div className="flex items-start gap-2.5 py-1 mb-2">
-            <Checkbox id="turnover-detailing" checked={!!record.checklist_items.detailing_required} onCheckedChange={(v) => updateChecklist('detailing_required', !!v)} disabled={readOnly} className="mt-0.5" />
-            <label htmlFor="turnover-detailing" className="flex-1 text-sm cursor-pointer font-medium">Detailing</label>
-          </div>
-          {record.checklist_items.detailing_required && (
-            <VendorLinkedField label="Detailing Company" value={record.detailing_company} onChange={(v) => update('detailing_company', v)} disabled={readOnly} vendorsByName={vendorsByName} />
+      <div className="steel-card p-5 space-y-2" data-turnover-checklist>
+        <div className="flex items-center justify-between mb-1 gap-2">
+          <h4 className="font-semibold">Checklist</h4>
+          {!readOnly && (
+            editingChecklist ? (
+              <div className="flex gap-2">
+                {Array.isArray(record.checklist_list) && (
+                  <Button variant="ghost" size="sm" onClick={resetChecklist}><RotateCcw className="w-3.5 h-3.5 mr-1" />Standard list</Button>
+                )}
+                <Button size="sm" onClick={finishEditing}>Done</Button>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setEditingChecklist(true)}><Pencil className="w-3.5 h-3.5 mr-1" />Edit checklist</Button>
+            )
           )}
         </div>
-        <div>
-          <div className="flex items-start gap-2.5 py-1 mb-2">
-            <Checkbox id="turnover-galv" checked={!!record.checklist_items.galvanizing_required} onCheckedChange={(v) => updateChecklist('galvanizing_required', !!v)} disabled={readOnly} className="mt-0.5" />
-            <label htmlFor="turnover-galv" className="flex-1 text-sm cursor-pointer font-medium">Galvanizing</label>
-          </div>
-          {record.checklist_items.galvanizing_required && (
-            <div>
-              <Label className="text-xs">Tons</Label>
-              <Input type="number" value={record.galvanizing_tons ?? ''} onChange={(e) => update('galvanizing_tons', e.target.value)} disabled={readOnly} className="mt-1 h-9" />
+        {editingChecklist && !readOnly ? (
+          <div className="space-y-2">
+            {checklistFor(record).map((item, index, list) => (
+              <div key={item.key} className="flex items-center gap-1.5">
+                <Input value={item.label} onChange={(e) => renameItem(index, e.target.value)} className="h-9" aria-label="Checklist item" />
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" disabled={index === 0} onClick={() => moveItem(index, -1)} title="Move up"><ArrowUp className="w-3.5 h-3.5" /></Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" disabled={index === list.length - 1} onClick={() => moveItem(index, 1)} title="Move down"><ArrowDown className="w-3.5 h-3.5" /></Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeItem(index)} title="Remove item"><X className="w-3.5 h-3.5" /></Button>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 pt-1">
+              <Input
+                value={newItem}
+                placeholder="New checklist item"
+                onChange={(e) => setNewItem(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addItem(); } }}
+                className="h-9"
+              />
+              <Button variant="outline" onClick={addItem} disabled={!newItem.trim()}><Plus className="w-4 h-4 mr-1" />Add item</Button>
             </div>
-          )}
-        </div>
-        <div>
-          <Label className="text-xs">Pricing Basis</Label>
-          <Select value={record.pricing_basis || ''} onValueChange={(v) => update('pricing_basis', v)} disabled={readOnly}>
-            <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select pricing basis" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="erected">Erected</SelectItem>
-              <SelectItem value="fob">FOB</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {record.pricing_basis === 'erected' && (
-          <VendorLinkedField label="Who's the Erector?" value={record.erector_name} onChange={(v) => update('erector_name', v)} disabled={readOnly} vendorsByName={vendorsByName} />
+          </div>
+        ) : (
+          <>
+            {checklistFor(record).length === 0 && <p className="text-sm text-muted-foreground">No checklist items.</p>}
+            {checklistFor(record).map(({ key, label, detail }) => (
+              <div key={key} className="flex items-start gap-2.5 py-1">
+                <Checkbox id={`turnover-${key}`} checked={!!record.checklist_items[key]} onCheckedChange={(v) => updateChecklist(key, !!v)} disabled={readOnly} className="mt-0.5" />
+                <label htmlFor={`turnover-${key}`} className="flex-1 text-sm cursor-pointer">{label}</label>
+                {detail === 'tons' && record.checklist_items[key] && (
+                  <div className="flex items-center gap-1.5 -mt-1">
+                    <Label htmlFor={`turnover-${key}-tons`} className="text-xs text-muted-foreground">Tons</Label>
+                    <Input id={`turnover-${key}-tons`} type="number" min="0" step="any" value={record.galvanizing_tons ?? ''} onChange={(e) => update('galvanizing_tons', e.target.value)} disabled={readOnly} className="h-8 w-24" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </>
         )}
       </div>
+
+      <ScopeVendorsCard
+        record={record}
+        readOnly={readOnly}
+        onChange={updateScopeVendor}
+        vendorsByName={vendorsByName}
+        estimate={estimate}
+        pricingLinks={pricingLinks}
+        estimateDocs={estimateDocs}
+      />
 
       <div className="steel-card p-5">
         <div className="flex items-center justify-between mb-2">

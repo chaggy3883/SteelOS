@@ -14,27 +14,44 @@
       "default": "draft",
       "description": "Once 'completed', TurnoverReviewPanel.jsx renders the form read-only — this is operational/logistics handoff reference material, not a living document. No pricing/cost data from the Bid Worksheet appears here."
     },
+    "checklist_list": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string" },
+          "label": { "type": "string" },
+          "detail": { "type": "string", "description": "'tons' = asks for galvanizing_tons once checked." }
+        }
+      },
+      "default": null,
+      "description": "This project's own checklist (edited on the Project Handoff tab: renamed, reordered, removed or added items). null = the standard list (DEFAULT_CHECKLIST in turnoverReviewShared.js)."
+    },
     "checklist_items": {
       "type": "object",
       "default": {},
-      "description": "Simple yes/no answers, keyed by item (booleans): specs_plans_received, addendums_received, plans_specs_sent_to_vendors, vendor_quotes_saved, estimator_notes_attached, scope_of_work_attached, engineering_required, joist_deck_required, tc_bolt_required, fire_proofing_required, beams_with_camber, detailing_required, galvanizing_required. detailing_required/galvanizing_required gate the conditional detailing_company/galvanizing_tons fields below."
-    },
-    "detailing_company": {
-      "type": "string",
-      "description": "Only meaningful when checklist_items.detailing_required is true. Free-text; TurnoverReviewPanel links it to the matching Vendor record when one exists by name."
+      "description": "Yes/no answers, keyed by checklist item key (booleans). Standard keys: specs_plans_received, addendums_received, plans_specs_sent_to_vendors, vendor_quotes_saved, estimator_notes_attached, scope_of_work_attached, engineering_required, joist_deck_required, tc_bolt_required, fire_proofing_required, beams_with_camber, galvanizing_required; added items use custom_* keys."
     },
     "galvanizing_tons": {
       "type": "number",
       "description": "Only meaningful when checklist_items.galvanizing_required is true."
     },
+    "scope_vendors": {
+      "type": "object",
+      "default": {},
+      "description": "Who the job is using per outside scope, keyed detailing / erection / joist_deck / miscellaneous / rolling / steel_material: { vendor_name, quotes: [{ kind: 'document', id, name } | { kind: 'link', id, url, name }] }. Quotes point at the won estimate's own Document (bid_id) or VendorPricingLink cost sheet — referenced, never copied."
+    },
+    "detailing_company": {
+      "type": "string",
+      "description": "Legacy (before scope_vendors): carried into scope_vendors.detailing when a record is loaded."
+    },
     "pricing_basis": {
       "type": "string",
-      "enum": ["erected", "fob"],
-      "description": "Whether the steel is priced erected or FOB. 'erected' requires erector_name below."
+      "description": "Legacy — no longer shown on the handoff (pricing basis lives on the estimate)."
     },
     "erector_name": {
       "type": "string",
-      "description": "Only meaningful when pricing_basis is 'erected'. Free-text; TurnoverReviewPanel links it to the matching Vendor record when one exists by name."
+      "description": "Legacy (before scope_vendors): carried into scope_vendors.erection when a record is loaded."
     },
     "sub_quotes": {
       "type": "array",
