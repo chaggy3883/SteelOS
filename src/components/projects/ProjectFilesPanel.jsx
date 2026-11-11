@@ -268,7 +268,7 @@ export default function ProjectFilesPanel({ project, folders, onFoldersChanged, 
 
         {current && !q && subfolders.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {[...subfolders].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })).map((f) => (
+            {[...subfolders].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })).map((f) => (
               <button key={f.id} type="button" onClick={() => onFolderChange(f.id)} className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted">
                 <Folder className="w-4 h-4 text-amber-500" />{f.name}<span className="text-[10px] text-muted-foreground">{countIn.get(f.id) || ''}</span>
               </button>

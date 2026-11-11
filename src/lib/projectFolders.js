@@ -46,8 +46,7 @@ export function documentTypeFor(fileName, folder, foldersById) {
   return 'other';
 }
 
-// Ordered tree: [{ folder, depth, children }] — base folders first in their
-// standard order, added folders after them alphabetically.
+// Ordered tree: [{ folder, depth, children }], alphabetical at every level.
 export function folderTree(folders) {
   const byParent = new Map();
   folders.forEach((f) => {
@@ -55,14 +54,9 @@ export function folderTree(folders) {
     if (!byParent.has(k)) byParent.set(k, []);
     byParent.get(k).push(f);
   });
-  const order = (a, b) => {
-    const ai = a.is_base ? BASE_PROJECT_FOLDERS.findIndex((x) => x.name === a.name) : -1;
-    const bi = b.is_base ? BASE_PROJECT_FOLDERS.findIndex((x) => x.name === b.name) : -1;
-    if (ai >= 0 && bi >= 0) return ai - bi;
-    if (ai >= 0) return -1;
-    if (bi >= 0) return 1;
-    return String(a.name).localeCompare(String(b.name), undefined, { numeric: true });
-  };
+  // Every level in plain alphabetical order — standard and added folders
+  // mixed, so a new folder lands where you'd look for it (Seq 2 before Seq 10).
+  const order = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
   const build = (parentId, depth, seen) => (byParent.get(parentId) || [])
     .filter((f) => !seen.has(f.id))
     .sort(order)
