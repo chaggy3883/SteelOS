@@ -1,0 +1,14 @@
+{
+  "name": "ProjectFolder",
+  "type": "object",
+  "description": "A folder in a project's Files tab (src/lib/projectFolders.js, ProjectFilesPanel.jsx). Every project gets the standard job folders (is_base) the first time its Files are opened; anyone can add folders and folders inside folders. Files are Document records with project_id + folder_id — each file stored once, in its folder.",
+  "properties": {
+    "company_id": { "type": "string" },
+    "project_id": { "type": "string" },
+    "name": { "type": "string" },
+    "parent_id": { "type": "string", "description": "Parent ProjectFolder id; null/blank = top level." },
+    "is_base": { "type": "boolean", "description": "One of the standard job folders (BASE_PROJECT_FOLDERS) — can't be deleted or renamed." },
+    "created_by": { "type": "string" }
+  },
+  "required": ["project_id", "name"]
+}

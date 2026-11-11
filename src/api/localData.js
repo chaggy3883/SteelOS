@@ -3320,6 +3320,7 @@ const TENANT_SCOPED_ENTITIES = [
   'DetailerImportBatch',
   'DetailerImportedPiece',
   'ProjectDrawing',
+  'ProjectFolder',
   'DisciplinaryAction',
   'Document',
   'EmployeeBankAccount',

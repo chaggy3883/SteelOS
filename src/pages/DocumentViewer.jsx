@@ -8,6 +8,9 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { isParsableDetailerFile, parseDetailerImportFile } from '@/lib/detailerImportParser';
 import { deriveShapeFromProfile } from '@/lib/materialProfileMatch';
 import { isPieceDocumentRef, getPieceDocumentBlob } from '@/lib/pieceMarkDocumentStore';
+import { isDocumentRef } from '@/lib/openDocumentViewer';
+import { resolveDocumentUrl } from '@/lib/documentBlobStore';
+import { db } from '@/api/apiClient';
 
 // Full-page, new-tab document viewer — replaces PdfViewerModal's in-app
 // Dialog. Opened via openDocumentViewer(), which passes the document as URL
@@ -25,12 +28,26 @@ import { isPieceDocumentRef, getPieceDocumentBlob } from '@/lib/pieceMarkDocumen
 // keeps working after the opener's dialog closes or this tab reloads. Any
 // other source passes through untouched.
 function useResolvedSource(rawSource) {
-  const [state, setState] = useState(() => ({ source: isPieceDocumentRef(rawSource) ? null : rawSource, error: null }));
+  const isRef = (v) => isPieceDocumentRef(v) || isDocumentRef(v);
+  const [state, setState] = useState(() => ({ source: isRef(rawSource) ? null : rawSource, error: null }));
   useEffect(() => {
-    if (!isPieceDocumentRef(rawSource)) { setState({ source: rawSource, error: null }); return undefined; }
+    if (!isRef(rawSource)) { setState({ source: rawSource, error: null }); return undefined; }
     let cancelled = false;
     let url = null;
     setState({ source: null, error: null });
+    // A project file (doc:<id>, Project → Files): its stored copy.
+    if (isDocumentRef(rawSource)) {
+      db.entities.Document.get(rawSource.slice(4))
+        .then((record) => resolveDocumentUrl(record))
+        .then((resolved) => {
+          if (cancelled) return;
+          if (!resolved) { setState({ source: null, error: 'This file is not stored in this browser.' }); return; }
+          if (String(resolved).startsWith('blob:')) url = resolved;
+          setState({ source: resolved, error: null });
+        })
+        .catch(() => { if (!cancelled) setState({ source: null, error: 'This file was not found.' }); });
+      return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+    }
     getPieceDocumentBlob(rawSource)
       .then((blob) => {
         if (cancelled) return;

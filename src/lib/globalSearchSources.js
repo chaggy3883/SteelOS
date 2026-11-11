@@ -10,6 +10,8 @@ import { listEmployeesForRole } from '@/lib/employeesApi';
 const HR_FULL_ROLES = ['admin', 'super_admin', 'hr_admin', 'payroll_admin'];
 
 const has = (v) => v != null && String(v).trim() !== '';
+// A file in a project's Files (not an estimate's file, not archived).
+const isProjectFile = (d) => !!d.project_id && !d.bid_id && !d.is_archived;
 
 // Each source: key, label, modules (any one grants it), load(ctx) -> rows,
 // fields(row) -> strings searched, title/sub(row), route(row).
@@ -116,9 +118,38 @@ export const SEARCH_SOURCES = [
     sub: (l, ctx) => [ctx.projectById.get(l.project_id)?.name, (l.status || '').replace(/_/g, ' ')].filter(has).join(' • '),
     route: (l) => `/shipping?load=${l.id}`,
   },
+  // Project → Files: every file in a project's folders (opens the project,
+  // the folder, and points at the file) and every folder.
+  {
+    key: 'project_files', label: 'Project Files', modules: ['/projects'],
+    load: async () => {
+      const [docs, folders] = await Promise.all([
+        db.entities.Document.list('-created_date', 100000),
+        db.entities.ProjectFolder.list('name', 100000).catch(() => []),
+      ]);
+      const byId = new Map(folders.map((f) => [f.id, f]));
+      const pathOf = (f) => { const parts = []; for (let i = 0; f && i < 20; i += 1) { parts.unshift(f.name); f = byId.get(f.parent_id); } return parts.join(' / '); };
+      return docs.filter(isProjectFile).map((d) => ({ ...d, _folderPath: pathOf(byId.get(d.folder_id)) || 'Unfiled' }));
+    },
+    fields: (d, ctx) => [d.name, d.file_name, d.description, d._folderPath, ctx.projectById.get(d.project_id)?.name],
+    title: (d) => d.name || d.file_name,
+    sub: (d, ctx) => [ctx.projectById.get(d.project_id)?.name, d._folderPath].filter(has).join(' • '),
+    route: (d) => `/projects/${d.project_id}?tab=files${d.folder_id ? `&folder=${d.folder_id}` : ''}&doc=${d.id}`,
+    salesmanOwned: (d, ctx) => ctx.projectById.get(d.project_id),
+  },
+  {
+    key: 'project_folders', label: 'Project Folders', modules: ['/projects'],
+    load: () => db.entities.ProjectFolder.list('name', 100000),
+    fields: (f, ctx) => [f.name, ctx.projectById.get(f.project_id)?.name, ctx.projectById.get(f.project_id)?.project_number],
+    title: (f) => f.name,
+    sub: (f, ctx) => ['Folder', ctx.projectById.get(f.project_id)?.name].filter(has).join(' • '),
+    route: (f) => `/projects/${f.project_id}?tab=files&folder=${f.id}`,
+    salesmanOwned: (f, ctx) => ctx.projectById.get(f.project_id),
+  },
   {
     key: 'documents', label: 'Documents', modules: ['/documents'],
-    load: () => db.entities.Document.list('-created_date', 100000),
+    // Project files are listed above (they open in their folder).
+    load: () => db.entities.Document.list('-created_date', 100000).then((rows) => rows.filter((d) => !isProjectFile(d))),
     fields: (d) => [d.name, d.file_name, d.description, ...(Array.isArray(d.keywords) ? d.keywords : [])],
     title: (d) => d.name || d.file_name,
     sub: (d) => [(d.document_type || '').replace(/_/g, ' '), d.is_archived ? 'Archived' : ''].filter(has).join(' • '),

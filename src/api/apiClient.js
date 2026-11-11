@@ -163,6 +163,7 @@ const createLocalApi = () => ({
     ShopDrawing: lazyEntity('ShopDrawing'),
     DetailerImportBatch: lazyEntity('DetailerImportBatch'),
     ProjectDrawing: lazyEntity('ProjectDrawing'),
+    ProjectFolder: lazyEntity('ProjectFolder'),
     DetailerImportedPiece: lazyEntity('DetailerImportedPiece'),
     StockLengthOption: lazyEntity('StockLengthOption'),
     MaterialOptimizationRun: lazyEntity('MaterialOptimizationRun'),

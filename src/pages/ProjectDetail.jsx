@@ -4,8 +4,15 @@ import { db } from '@/api/apiClient';
 import {
   ArrowLeft, Brain, MessageSquare, Package,
   DollarSign, Plus,
-  AlertTriangle, Layers, Gavel, FileSignature, ArrowRight, NotebookPen, ListChecks, QrCode
+  AlertTriangle, Layers, Gavel, FileSignature, ArrowRight, NotebookPen, ListChecks, QrCode,
+  ChevronDown, Folder, FolderPlus, Inbox, ExternalLink,
 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
+import ProjectFilesPanel, { ALL_FILES } from '@/components/projects/ProjectFilesPanel';
+import AddFolderDialog from '@/components/projects/AddFolderDialog';
+import { ensureBaseFolders, folderTree, flattenTree } from '@/lib/projectFolders';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -16,7 +23,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import StatusBadge from '@/components/ui/StatusBadge';
 import StatsCard from '@/components/ui/StatsCard';
-import DocumentsPanel from '@/components/documents/DocumentsPanel';
 import { useToast } from '@/components/ui/use-toast';
 import { getStatutoryDeadline } from '@/lib/lienStatutes';
 import { getOpenActionItems, isOverdue } from '@/lib/meetingNotes';
@@ -86,7 +92,20 @@ export default function ProjectDetail() {
   // ?tab=<tab> opens that tab; ?piece=<PieceMark id> (global search) also
   // opens the Pieces tab with that piece's details up.
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(() => (searchParams.get('piece') ? 'pieces' : searchParams.get('tab') || 'overview'));
+  const [activeTab, setActiveTab] = useState(() => {
+    if (searchParams.get('piece')) return 'pieces';
+    if (searchParams.get('folder') || searchParams.get('doc')) return 'files';
+    const t = searchParams.get('tab') || 'overview';
+    return t === 'documents' ? 'files' : t; // the Documents tab is now Files
+  });
+  // Files: the project's folders (standard job folders + added ones), the
+  // folder being shown (?folder=<id>, or All files), a file to point at
+  // (?doc=<id>, global search), and the estimate this job came from.
+  const [projectFolders, setProjectFolders] = useState([]);
+  const [filesFolderId, setFilesFolderId] = useState(() => searchParams.get('folder') || ALL_FILES);
+  const highlightDocId = searchParams.get('doc');
+  const [addFolderOpen, setAddFolderOpen] = useState(false);
+  const [sourceBid, setSourceBid] = useState(null);
   const [findingsStatusFilter, setFindingsStatusFilter] = useState(null);
   const [partsFilter, setPartsFilter] = useState(null); // { kind: 'type'|'material', value }
   const [findings, setFindings] = useState([]);
@@ -224,6 +243,24 @@ export default function ProjectDetail() {
   }, [isHandoffDirty, navigate]);
 
   useEffect(() => { if (id) loadAll(); }, [id]);
+
+  const reloadFolders = useCallback(() => (id ? ensureBaseFolders(id).then(setProjectFolders).catch((e) => console.error(e)) : Promise.resolve()), [id]);
+  useEffect(() => { reloadFolders(); }, [reloadFolders]);
+  // The won estimate (Bid) this project came from — the Estimate tab opens it.
+  useEffect(() => {
+    if (!id) return;
+    Promise.all([
+      db.entities.Bid.filter({ won_project_id: id }, '-created_date', 1).catch(() => []),
+      db.entities.Bid.filter({ project_id: id }, '-created_date', 1).catch(() => []),
+    ]).then(([a, b]) => setSourceBid(a[0] || b[0] || null));
+  }, [id]);
+  const openFolder = (folderId) => { setFilesFolderId(folderId); setActiveTab('files'); };
+  // A search result picked while already on this project.
+  const searchFolder = searchParams.get('folder');
+  const searchDoc = searchParams.get('doc');
+  useEffect(() => {
+    if (searchFolder || searchDoc) openFolder(searchFolder || ALL_FILES);
+  }, [searchFolder, searchDoc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAll = async () => {
     setLoading(true);
@@ -833,7 +870,41 @@ export default function ProjectDetail() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="documents">Documents</TabsTrigger>
+          {/* Files: a menu of the project's folders (click one to open it)
+              plus Add folder. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                data-state={activeTab === 'files' ? 'active' : 'inactive'}
+                className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-sm px-3 py-1 text-sm font-medium ring-offset-background transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+              >
+                Files<ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-80 max-h-[70vh] overflow-y-auto">
+              <DropdownMenuItem onSelect={() => openFolder(ALL_FILES)}><Inbox className="w-4 h-4 mr-2" />All files</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs text-muted-foreground">Folders</DropdownMenuLabel>
+              {flattenTree(folderTree(projectFolders)).map(({ folder: f, depth }) => (
+                <DropdownMenuItem key={f.id} onSelect={() => openFolder(f.id)} style={{ paddingLeft: 8 + depth * 16 }}>
+                  <Folder className="w-4 h-4 mr-2 text-amber-500 flex-shrink-0" /><span className="truncate">{f.name}</span>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setAddFolderOpen(true)}><FolderPlus className="w-4 h-4 mr-2" />Add folder…</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {sourceBid && (
+            <button
+              type="button"
+              onClick={() => window.open(`/estimating/${sourceBid.id}`, '_blank', 'noopener,noreferrer')}
+              className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-sm px-3 py-1 text-sm font-medium transition-colors hover:text-foreground"
+              title={`Open the estimate this job came from${sourceBid.bid_number ? ` (${sourceBid.bid_number})` : ''} — its files, takeoff and pricing`}
+            >
+              Estimate<ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          )}
           <TabsTrigger value="findings">
             AI Findings {findings.length > 0 && <span className="ml-1.5 text-xs bg-muted px-1.5 py-0.5 rounded">{findings.length}</span>}
           </TabsTrigger>
@@ -947,11 +1018,16 @@ export default function ProjectDetail() {
           </div>
         </TabsContent>
 
-        {/* Documents */}
-        <TabsContent value="documents">
-          <div className="steel-card p-5">
-            <DocumentsPanel projectId={id} onOpenHandoffTab={() => setActiveTab('handoff')} />
-          </div>
+        {/* Files */}
+        <TabsContent value="files">
+          <ProjectFilesPanel
+            project={project}
+            folders={projectFolders}
+            onFoldersChanged={reloadFolders}
+            folderId={filesFolderId}
+            onFolderChange={(f) => setFilesFolderId(f || ALL_FILES)}
+            highlightDocId={highlightDocId}
+          />
         </TabsContent>
 
         {/* Findings */}
@@ -1467,6 +1543,14 @@ export default function ProjectDetail() {
           <ProjectHandoffPanel ref={handoffRef} project={project} onExportPdf={exportHandoffPdf} />
         </TabsContent>
       </Tabs>
+
+      <AddFolderDialog
+        open={addFolderOpen}
+        onOpenChange={setAddFolderOpen}
+        projectId={id}
+        folders={projectFolders}
+        onSaved={(f) => { reloadFolders(); openFolder(f.id); }}
+      />
 
       <Dialog open={showRfiForm} onOpenChange={(o) => !o && setShowRfiForm(false)}>
         <DialogContent className="max-w-lg">

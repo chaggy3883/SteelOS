@@ -12,3 +12,9 @@ export function openDocumentViewer(source, fileName) {
 // Files the viewer tab can show (every page of a PDF, a picture, plain
 // text); anything else (Word, Excel, DWG …) is downloaded instead.
 export const isViewableDocumentName = (name) => /\.(pdf|png|jpe?g|gif|webp|bmp|svg|txt)$/i.test(String(name || ''));
+
+// A link to a stored project file that the viewer tab resolves itself
+// ("doc:<Document id>") — works after reloads, unlike a blob: URL made in
+// the opening tab.
+export const documentRef = (documentId) => `doc:${documentId}`;
+export const isDocumentRef = (value) => typeof value === 'string' && value.startsWith('doc:');

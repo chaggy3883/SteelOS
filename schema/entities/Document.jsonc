@@ -139,6 +139,13 @@
       "type": "boolean",
       "default": false
     },
+    "folder_id": {
+      "type": "string",
+      "description": "ProjectFolder this file is in (project Files tab, ProjectFilesPanel.jsx). Blank on a project file = Unfiled."
+    },
+    "uploaded_by": {
+      "type": "string"
+    },
     "virtual_path": {
       "type": "string",
       "default": "/"

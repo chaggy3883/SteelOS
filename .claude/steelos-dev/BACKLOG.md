@@ -5,6 +5,21 @@ update it the same way you'd tell Claude "add to the list": move items
 between sections as they're started/finished, and add new ones under the
 right heading. Ask which section if it's ambiguous.
 
+## Also Closed (2026-11-11) — Project Files: standard job folders + add folders
+- Project "Documents" tab → "Files", a dropdown of the project's folders (+ All files, Add folder…). 18 standard
+  job folders (BASE_PROJECT_FOLDERS in src/lib/projectFolders.js — Billings … Submittals, the user's H: drive
+  set) are made for every project the first time it opens (ensureBaseFolders, missing ones only); anyone can add
+  folders anywhere (ProjectFolder entity, parent_id), rename/delete added empty ones; standard ones are locked.
+- ProjectFilesPanel: folder tree + contents; drop/browse ANY file type; photos get thumbnails; open (viewer via
+  durable doc:<id> link), download, rename, move to another folder, remove (archive). Same name+size in a folder
+  is skipped; same name, new size = v2. Stored once (documentBlobStore only — no second Core.UploadFile copy).
+- Estimate tab on the project opens the won bid (its files = the "E24-236" estimate folder). Won bids no longer
+  copy their Documents onto the new project (one copy); older copies (project_id + bid_id) are hidden in Files.
+- Global search: "Project Files" (each file → its project/folder, highlighted) and "Project Folders".
+- Not done: no "smart folders" tying RFI/Submittal/PO folders to those modules' records (user chose plain
+  folders, one copy); old DocumentsPanel features on the project (linked-record categories) dropped from the
+  project page (still on bids); importing an existing H: job folder not built.
+
 ## Also Closed (2026-11-09) — Every page of a document; IRONSIGHT lengths, library, save/reopen
 - Document viewer showed only page 1 (BlueprintCanvas without IRONSIGHT's page controls). New PagedPdfViewer
   (page bar, PageUp/PageDown/Home/End, type a page, zoom/fit, stacked pages) in DocumentViewer and the shop
